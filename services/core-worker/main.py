@@ -599,7 +599,13 @@ class CoreWorker:
                     logger.warning("booking_action_json_parse_failed", error=str(e))
                 # Strip action tag from message sent to WhatsApp customer
                 response_text = re.sub(r'\[ACTION:CREATE_BOOKING:\s*\{.*?\}\]', '', response_text, flags=re.DOTALL).strip()
-            elif not cancel_action and not reschedule_action and any(phrase in response_text.lower() for phrase in ["booked for you", "have got that booked", "got that booked", "appointment is booked", "appointment is confirmed", "scheduled for you", "has been scheduled"]):
+            elif not cancel_action and not reschedule_action and any(phrase in response_text.lower() for phrase in [
+                "booked for you", "have got that booked", "got that booked", "appointment is booked", 
+                "appointment is confirmed", "scheduled for you", "has been scheduled", "all set for", 
+                "you are all set", "you're all set", "all set", "booked for today", "booked for tomorrow", 
+                "confirmed for", "see you at", "looking forward to seeing you at", "reserved for you",
+                "got it, you are all set", "you're booked"
+            ]):
                 # Intelligent Fallback extractor: LLM confirmed the booking in text but forgot the JSON tag!
                 extracted_email = ""
                 extracted_name = customer_name or ""
@@ -614,8 +620,11 @@ class CoreWorker:
                                 extracted_name = l
                                 break
 
-                # Extract time from message_text, response_text, or history (e.g. 8:30 pm, 20:30, 7pm)
+                # Extract time from message_text, response_text, or recent history
                 combined_texts = f"{message_text} {response_text}"
+                for h in reversed(history[-6:]):
+                    combined_texts += f" {h.get('content', '')}"
+
                 pm_match = re.search(r'(\d{1,2})(?::(\d{2}))?\s*(pm|am)', combined_texts, re.IGNORECASE)
                 time_str = "10:00"
                 if pm_match:
