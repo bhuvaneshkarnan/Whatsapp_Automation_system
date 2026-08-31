@@ -467,15 +467,22 @@ class CoreWorker:
             "  'That slot is already booked. Would [suggest alternate time or day] work for you instead?'\n\n"
             "4. INQUIRY ABOUT EXISTING APPOINTMENT ('When is my appointment?', 'Do I have a booking?', 'What time is my call?'):\n"
             "- Check 'Known Bookings for THIS Customer' in the CUSTOMER PROFILE above.\n"
-            "- If they have a booking, tell them their exact scheduled date & time clearly (e.g. 'Your consultation is scheduled for today at 9:00 AM!').\n"
-            "- If they have no booking, gently let them know they don't have one scheduled yet and ask if they would like to book one.\n"
-            "- CRITICAL RULE: NEVER trigger [ACTION:CREATE_BOOKING: ...] when the customer is simply asking about or checking their existing appointment!\n\n"
             "5. MANDATORY ACTION TAG ON BOOKING CONFIRMATION:\n"
             "- Once the customer has provided or confirmed their Date, Time, Name, and Email (e.g. user says 'Yes', 'Confirm', 'Today 7pm', etc.):\n"
             "  You MUST append the booking action tag on a new line at the very end of your reply:\n"
             "  [ACTION:CREATE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"<Notes>\"}]\n"
             "- CRITICAL: If you tell the customer their appointment is booked or confirmed without this exact tag, the calendar invite CANNOT be generated!\n\n"
-            "6. Relative Date Resolution:\n"
+            "6. CANCELLATION ACTIONS (MANDATORY):\n"
+            "- When a customer explicitly asks to cancel their booking (e.g. 'cancel my appointment', 'cancel it', 'want to cancell it', 'yes cancel'):\n"
+            "  * If they have an existing booking listed above: Confirm the cancellation politely in 1 short line, and MUST append on a new line:\n"
+            "    [ACTION:CANCEL_BOOKING]\n"
+            "- If they do not have an active booking: Let them know they don't have an active booking to cancel.\n\n"
+            "7. RESCHEDULE ACTIONS (MANDATORY):\n"
+            "- When a customer asks to change or reschedule their booking to a new Date & Time:\n"
+            "  * Check that the new slot is not occupied.\n"
+            "  * Confirm the new Date & Time politely in 1 short line, and MUST append on a new line:\n"
+            "    [ACTION:RESCHEDULE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}]\n\n"
+            "8. Relative Date Resolution:\n"
             "- Always resolve relative dates (today, tomorrow, this Friday) into exact YYYY-MM-DD format using today's date provided above. Always format time as 24-hour HH:MM (e.g. '09:00' for 9 AM, '19:00' for 7 PM)."
         )
 
@@ -537,10 +544,27 @@ class CoreWorker:
         )
 
         booking_action = None
+        cancel_action = False
+        reschedule_action = None
         ai_used_fallback = (provider_used != primary_provider and provider_used != "gemini")
         if response_text:
             response_text = clean_llm_response(response_text)
-            # Intercept [ACTION:CREATE_BOOKING: ...] tag
+            
+            # 1. Intercept [ACTION:CANCEL_BOOKING]
+            if "[ACTION:CANCEL_BOOKING]" in response_text or any(phrase in response_text.lower() for phrase in ["cancelled your booking", "have cancelled your", "booking has been cancelled", "appointment is cancelled", "appointment has been cancelled"]):
+                cancel_action = True
+                response_text = response_text.replace("[ACTION:CANCEL_BOOKING]", "").strip()
+
+            # 2. Intercept [ACTION:RESCHEDULE_BOOKING: ...]
+            m_resched = re.search(r'\[ACTION:RESCHEDULE_BOOKING:\s*(\{.*?\})\]', response_text, re.DOTALL)
+            if m_resched:
+                try:
+                    reschedule_action = json.loads(m_resched.group(1))
+                except Exception as e:
+                    logger.warning("reschedule_action_json_parse_failed", error=str(e))
+                response_text = re.sub(r'\[ACTION:RESCHEDULE_BOOKING:\s*\{.*?\}\]', '', response_text, flags=re.DOTALL).strip()
+
+            # 3. Intercept [ACTION:CREATE_BOOKING: ...] tag
             m = re.search(r'\[ACTION:CREATE_BOOKING:\s*(\{.*?\})\]', response_text, re.DOTALL)
             if m:
                 try:
@@ -549,7 +573,7 @@ class CoreWorker:
                     logger.warning("booking_action_json_parse_failed", error=str(e))
                 # Strip action tag from message sent to WhatsApp customer
                 response_text = re.sub(r'\[ACTION:CREATE_BOOKING:\s*\{.*?\}\]', '', response_text, flags=re.DOTALL).strip()
-            elif any(phrase in response_text.lower() for phrase in ["booked for you", "have got that booked", "got that booked", "appointment is booked", "appointment is confirmed", "scheduled for you", "has been scheduled"]):
+            elif not cancel_action and not reschedule_action and any(phrase in response_text.lower() for phrase in ["booked for you", "have got that booked", "got that booked", "appointment is booked", "appointment is confirmed", "scheduled for you", "has been scheduled"]):
                 # Intelligent Fallback extractor: LLM confirmed the booking in text but forgot the JSON tag!
                 extracted_email = ""
                 extracted_name = customer_name or ""
@@ -577,10 +601,10 @@ class CoreWorker:
                             h += 12
                         time_str = f"{h:02d}:00"
 
-                today_iso = now_tz.strftime("%Y-%m-%d")
+                today_iso = now.strftime("%Y-%m-%d")
                 date_str = today_iso
                 if "tomorrow" in response_text.lower():
-                    date_str = (now_tz + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+                    date_str = (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
 
                 booking_action = {
                     "service": "Consultation / Appointment",
@@ -592,12 +616,18 @@ class CoreWorker:
                 }
                 logger.info("fallback_booking_action_extracted", booking_action=booking_action)
 
-            if not response_text and booking_action:
-                # If the AI only outputted the action tag, construct a natural confirmation message
-                svc = booking_action.get('service') or 'Consultation'
-                dt = booking_action.get('date') or 'the scheduled date'
-                tm = booking_action.get('time') or ''
-                response_text = f"Your appointment for {svc} on {dt} at {tm} has been confirmed! Looking forward to it."
+            if not response_text:
+                if booking_action:
+                    svc = booking_action.get('service') or 'Consultation'
+                    dt = booking_action.get('date') or 'the scheduled date'
+                    tm = booking_action.get('time') or ''
+                    response_text = f"Your appointment for {svc} on {dt} at {tm} has been confirmed! Looking forward to it."
+                elif cancel_action:
+                    response_text = "Your appointment has been cancelled. Please reach out anytime if you would like to reschedule."
+                elif reschedule_action:
+                    dt = reschedule_action.get('date') or 'the new date'
+                    tm = reschedule_action.get('time') or ''
+                    response_text = f"Your appointment has been rescheduled to {dt} at {tm}."
 
             ai_requests.labels(tenant=tenant_id, provider=provider_used).inc()
         
@@ -648,8 +678,29 @@ class CoreWorker:
         else:
             logger.warning("no_whatsapp_creds_cannot_send", tenant_id=tenant_id)
 
-        # Execute Booking, Calendar Sync & Meta Template Trigger
-        if booking_action:
+        # Execute Actions: Cancellation, Reschedule, or New Booking
+        if cancel_action:
+            asyncio.create_task(
+                self._execute_ai_cancellation(
+                    tenant_id=tenant_id,
+                    conv_id=conv_id,
+                    contact_phone=contact_phone,
+                    customer_name=customer_name,
+                    creds=creds,
+                )
+            )
+        elif reschedule_action:
+            asyncio.create_task(
+                self._execute_ai_reschedule(
+                    tenant_id=tenant_id,
+                    conv_id=conv_id,
+                    contact_phone=contact_phone,
+                    customer_name=customer_name,
+                    booking_data=reschedule_action,
+                    creds=creds,
+                )
+            )
+        elif booking_action:
             asyncio.create_task(
                 self._execute_ai_booking(
                     tenant_id=tenant_id,
@@ -969,6 +1020,346 @@ class CoreWorker:
 
         except Exception as e:
             logger.error("execute_ai_booking_failed", error=str(e), tenant_id=tenant_id)
+
+    async def _execute_ai_cancellation(
+        self,
+        tenant_id: str,
+        conv_id: str,
+        contact_phone: str,
+        customer_name: str,
+        creds: Optional[dict],
+    ):
+        """Cancels booking in DB, removes from Google Calendar, and dispatches Meta cancellation templates to Customer and Admin."""
+        try:
+            import datetime
+            import zoneinfo
+
+            tenant_timezone_str = "Asia/Kolkata"
+            tenant_st_row = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+            if tenant_st_row:
+                if isinstance(tenant_st_row, str):
+                    try: tenant_st_row = json.loads(tenant_st_row)
+                    except: tenant_st_row = {}
+                if tenant_st_row.get("timezone"):
+                    tenant_timezone_str = tenant_st_row.get("timezone").strip()
+
+            try:
+                tz = zoneinfo.ZoneInfo(tenant_timezone_str)
+            except Exception:
+                tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+            contact_id = await self.db_pool.fetchval(
+                "SELECT contact_id FROM conversations WHERE id = $1::uuid", conv_id
+            )
+            if not contact_id:
+                return
+
+            # Find active booking
+            booking = await self.db_pool.fetchrow(
+                """SELECT id, service, start_time, google_event_id
+                   FROM bookings
+                   WHERE tenant_id = $1::uuid AND contact_id = $2::uuid AND status = 'confirmed'
+                   ORDER BY start_time DESC LIMIT 1""",
+                tenant_id, contact_id
+            )
+            if not booking:
+                logger.info("no_active_booking_to_cancel", contact_id=contact_id)
+                return
+
+            booking_id = str(booking["id"])
+            service_name = booking.get("service") or "Consultation / Demo"
+            st_dt = booking["start_time"].astimezone(tz)
+            formatted_date = st_dt.strftime("%d-%m-%Y")
+            formatted_time = st_dt.strftime("%I:%M %p")
+            name = customer_name or "Valued Customer"
+
+            # 1. Update status in DB
+            await self.db_pool.execute(
+                "UPDATE bookings SET status = 'cancelled', updated_at = now() WHERE id = $1::uuid",
+                booking_id
+            )
+            logger.info("ai_booking_cancelled", booking_id=booking_id)
+
+            # 2. Cancel from Google Calendar
+            if booking.get("google_event_id"):
+                gcal_row = await self.db_pool.fetchrow(
+                    "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+                    tenant_id
+                )
+                if gcal_row and gcal_row["credential_data"]:
+                    g_data = gcal_row["credential_data"]
+                    if isinstance(g_data, str):
+                        try: g_data = json.loads(g_data)
+                        except: g_data = {}
+                    if g_data.get("refresh_token") and g_data.get("client_id"):
+                        try:
+                            from google.oauth2.credentials import Credentials
+                            from googleapiclient.discovery import build
+                            g_creds = Credentials(
+                                token=g_data.get("access_token"),
+                                refresh_token=g_data.get("refresh_token"),
+                                token_uri="https://oauth2.googleapis.com/token",
+                                client_id=g_data.get("client_id"),
+                                client_secret=g_data.get("client_secret"),
+                            )
+                            g_service = build("calendar", "v3", credentials=g_creds)
+                            cal_id = g_data.get("calendar_id") or "primary"
+                            g_service.events().delete(calendarId=cal_id, eventId=booking["google_event_id"], sendUpdates="all").execute()
+                            logger.info("google_calendar_event_deleted", event_id=booking["google_event_id"])
+                        except Exception as e:
+                            logger.warning("gcal_delete_event_failed", error=str(e))
+
+            # 3. Send Customer Cancellation Meta Template
+            if creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+                template_name = creds.get("template_cancellation_confirmation") or "cancellation_confirmation"
+                components = [
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {"type": "text", "text": name},
+                            {"type": "text", "text": service_name},
+                            {"type": "text", "text": formatted_date},
+                            {"type": "text", "text": formatted_time},
+                        ]
+                    }
+                ]
+                try:
+                    await send_template(
+                        phone_number_id=creds["phone_number_id"],
+                        access_token=creds["access_token"],
+                        to=contact_phone,
+                        template_name=template_name,
+                        language_code="en",
+                        components=components,
+                    )
+                    logger.info("cancellation_template_sent_to_customer", template=template_name, to=contact_phone)
+                except Exception as e:
+                    logger.warning("cancellation_template_send_failed", error=str(e))
+
+                # 4. Send Admin Cancellation Alert to Admin WhatsApp Number
+                admin_phone = (creds.get("admin_whatsapp_number") or "").strip()
+                if not admin_phone and tenant_st_row:
+                    admin_phone = (tenant_st_row.get("admin_whatsapp_number") or "").strip()
+
+                if admin_phone:
+                    clean_admin_phone = re.sub(r'[^0-9+]', '', admin_phone)
+                    if not clean_admin_phone.startswith("+"):
+                        clean_admin_phone = f"+91{clean_admin_phone}" if len(clean_admin_phone) == 10 else f"+{clean_admin_phone}"
+
+                    admin_cancel_text = (
+                        f"⚠️ *Booking Cancelled Notice!* 📅\n\n"
+                        f"• *Customer:* {name}\n"
+                        f"• *Phone:* {contact_phone}\n"
+                        f"• *Service:* {service_name}\n"
+                        f"• *Original Date & Time:* {formatted_date} at {formatted_time}\n\n"
+                        f"❌ The booking has been marked cancelled in CRM and removed from Google Calendar."
+                    )
+                    try:
+                        await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=clean_admin_phone,
+                            body=admin_cancel_text,
+                        )
+                        logger.info("admin_cancellation_alert_sent", to=clean_admin_phone)
+                    except Exception as e:
+                        logger.warning("admin_cancellation_text_failed_trying_template", error=str(e))
+                        admin_cancel_template = creds.get("template_admin_cancellation_notice") or "admin_cancellation_notice"
+                        try:
+                            await send_template(
+                                phone_number_id=creds["phone_number_id"],
+                                access_token=creds["access_token"],
+                                to=clean_admin_phone,
+                                template_name=admin_cancel_template,
+                                language_code="en",
+                                components=components,
+                            )
+                            logger.info("admin_cancellation_template_sent", template=admin_cancel_template, to=clean_admin_phone)
+                        except Exception as e2:
+                            logger.warning("admin_cancellation_template_failed", error=str(e2))
+        except Exception as e:
+            logger.error("execute_ai_cancellation_failed", error=str(e), tenant_id=tenant_id)
+
+    async def _execute_ai_reschedule(
+        self,
+        tenant_id: str,
+        conv_id: str,
+        contact_phone: str,
+        customer_name: str,
+        booking_data: dict,
+        creds: Optional[dict],
+    ):
+        """Reschedules existing booking in DB, updates Google Calendar, and dispatches Meta reschedule templates."""
+        try:
+            import datetime
+            import zoneinfo
+
+            tenant_timezone_str = "Asia/Kolkata"
+            tenant_st_row = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+            if tenant_st_row:
+                if isinstance(tenant_st_row, str):
+                    try: tenant_st_row = json.loads(tenant_st_row)
+                    except: tenant_st_row = {}
+                if tenant_st_row.get("timezone"):
+                    tenant_timezone_str = tenant_st_row.get("timezone").strip()
+
+            try:
+                tz = zoneinfo.ZoneInfo(tenant_timezone_str)
+            except Exception:
+                tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+            contact_id = await self.db_pool.fetchval(
+                "SELECT contact_id FROM conversations WHERE id = $1::uuid", conv_id
+            )
+            if not contact_id:
+                return
+
+            # Find existing confirmed booking
+            old_booking = await self.db_pool.fetchrow(
+                """SELECT id, service, google_event_id
+                   FROM bookings
+                   WHERE tenant_id = $1::uuid AND contact_id = $2::uuid AND status = 'confirmed'
+                   ORDER BY start_time DESC LIMIT 1""",
+                tenant_id, contact_id
+            )
+
+            service_name = booking_data.get("service") or (old_booking["service"] if old_booking else "Consultation / Demo")
+            date_str = booking_data.get("date") or datetime.date.today().strftime("%Y-%m-%d")
+            time_str = booking_data.get("time") or "10:00"
+            notes = booking_data.get("notes") or "Rescheduled via WhatsApp AI Assistant"
+            name = booking_data.get("name") or customer_name or "Valued Customer"
+
+            try:
+                dt_naive = datetime.datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+                st_dt = dt_naive.replace(tzinfo=tz)
+            except Exception:
+                st_dt = datetime.datetime.now(tz) + datetime.timedelta(hours=2)
+
+            et_dt = st_dt + datetime.timedelta(minutes=30)
+            formatted_date = st_dt.strftime("%d-%m-%Y")
+            formatted_time = st_dt.strftime("%I:%M %p")
+
+            if old_booking:
+                booking_id = str(old_booking["id"])
+                await self.db_pool.execute(
+                    """UPDATE bookings
+                       SET start_time = $1, end_time = $2, service = $3, notes = $4, status = 'confirmed', updated_at = now()
+                       WHERE id = $5::uuid""",
+                    st_dt, et_dt, service_name, notes, booking_id
+                )
+                logger.info("ai_booking_rescheduled", booking_id=booking_id, new_start=str(st_dt))
+            else:
+                booking_id = str(uuid.uuid4())
+                await self.db_pool.execute(
+                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR')""",
+                    booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, notes
+                )
+                logger.info("ai_booking_rescheduled_new_row", booking_id=booking_id, start_time=str(st_dt))
+
+            # Update in Google Calendar
+            gcal_row = await self.db_pool.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+                tenant_id
+            )
+            if gcal_row and gcal_row["credential_data"]:
+                g_data = gcal_row["credential_data"]
+                if isinstance(g_data, str):
+                    try: g_data = json.loads(g_data)
+                    except: g_data = {}
+                if g_data.get("refresh_token") and g_data.get("client_id"):
+                    try:
+                        from google.oauth2.credentials import Credentials
+                        from googleapiclient.discovery import build
+                        g_creds = Credentials(
+                            token=g_data.get("access_token"),
+                            refresh_token=g_data.get("refresh_token"),
+                            token_uri="https://oauth2.googleapis.com/token",
+                            client_id=g_data.get("client_id"),
+                            client_secret=g_data.get("client_secret"),
+                        )
+                        g_service = build("calendar", "v3", credentials=g_creds)
+                        cal_id = g_data.get("calendar_id") or "primary"
+                        event_body = {
+                            "summary": f"{service_name} - {name} ({contact_phone})",
+                            "description": (
+                                f"WhatsApp Booking (Rescheduled)\n\n"
+                                f"• Client Name: {name}\n"
+                                f"• Client Phone: {contact_phone}\n"
+                                f"• Service: {service_name}\n"
+                                f"• Scheduled Time: {st_dt.strftime('%d %B %Y at %I:%M %p')}\n"
+                                f"• Notes: {notes}"
+                            ),
+                            "start": {"dateTime": st_dt.isoformat()},
+                            "end": {"dateTime": et_dt.isoformat()},
+                        }
+                        if old_booking and old_booking.get("google_event_id"):
+                            g_service.events().patch(calendarId=cal_id, eventId=old_booking["google_event_id"], body=event_body, sendUpdates="all").execute()
+                            logger.info("google_calendar_rescheduled_patched", event_id=old_booking["google_event_id"])
+                        else:
+                            event = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all").execute()
+                            if event and event.get("id"):
+                                await self.db_pool.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid", event["id"], booking_id)
+                    except Exception as e:
+                        logger.warning("gcal_reschedule_sync_failed", error=str(e))
+
+            # Send Customer Reschedule Meta Template
+            if creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+                template_name = creds.get("template_reschedule_confirmation") or "booking_confirmationn"
+                components = [
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {"type": "text", "text": name},
+                            {"type": "text", "text": service_name},
+                            {"type": "text", "text": formatted_date},
+                            {"type": "text", "text": formatted_time},
+                        ]
+                    }
+                ]
+                try:
+                    await send_template(
+                        phone_number_id=creds["phone_number_id"],
+                        access_token=creds["access_token"],
+                        to=contact_phone,
+                        template_name=template_name,
+                        language_code="en",
+                        components=components,
+                    )
+                    logger.info("reschedule_template_sent_to_customer", template=template_name, to=contact_phone)
+                except Exception as e:
+                    logger.warning("reschedule_template_send_failed", error=str(e))
+
+                # Send Admin Reschedule Alert
+                admin_phone = (creds.get("admin_whatsapp_number") or "").strip()
+                if not admin_phone and tenant_st_row:
+                    admin_phone = (tenant_st_row.get("admin_whatsapp_number") or "").strip()
+
+                if admin_phone:
+                    clean_admin_phone = re.sub(r'[^0-9+]', '', admin_phone)
+                    if not clean_admin_phone.startswith("+"):
+                        clean_admin_phone = f"+91{clean_admin_phone}" if len(clean_admin_phone) == 10 else f"+{clean_admin_phone}"
+
+                    admin_resched_text = (
+                        f"🔄 *Booking Rescheduled Notice!* 📅\n\n"
+                        f"• *Customer:* {name}\n"
+                        f"• *Phone:* {contact_phone}\n"
+                        f"• *Service:* {service_name}\n"
+                        f"• *New Date & Time:* {formatted_date} at {formatted_time}\n\n"
+                        f"✅ Google Calendar and CRM have been updated with the new slot."
+                    )
+                    try:
+                        await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=clean_admin_phone,
+                            body=admin_resched_text,
+                        )
+                        logger.info("admin_reschedule_alert_sent", to=clean_admin_phone)
+                    except Exception as e:
+                        logger.warning("admin_reschedule_text_failed", error=str(e))
+        except Exception as e:
+            logger.error("execute_ai_reschedule_failed", error=str(e), tenant_id=tenant_id)
 
     # ── DB helpers ─────────────────────────────────────────────────────────────
 
