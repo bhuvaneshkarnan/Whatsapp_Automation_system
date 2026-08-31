@@ -489,10 +489,11 @@ class CoreWorker:
         prompt_blocks.append(appointment_intelligence)
 
         prompt_blocks.append(
-            "### STRICT DOMAIN COMPLIANCE PROTOCOL:\n"
-            "- You must STRICTLY follow the business instructions, pricing, and location configured above.\n"
-            "- Never hallucinate or invent unlisted services or pricing.\n"
-            "- Reply ONLY as a real person in natural, concise WhatsApp texting style."
+            "### STRICT DOMAIN COMPLIANCE PROTOCOL (ABSOLUTE RULE):\n"
+            "1. You must STRICTLY and EXCLUSIVELY answer using ONLY the facts, instructions, services, and pricing provided in the knowledge base above.\n"
+            "2. If a customer asks a question outside what is provided in this prompt, politely state that our team can explain those details on a quick call, or answer that we do not offer that service. Never guess or provide out-of-the-box unlisted info.\n"
+            "3. NEVER invent, assume, or quote unlisted prices, discounts, or policies under any circumstance.\n"
+            "4. Reply ONLY as a real person in natural, concise WhatsApp texting style (1-2 short lines)."
         )
 
         active_system_prompt = "\n\n".join(prompt_blocks)
