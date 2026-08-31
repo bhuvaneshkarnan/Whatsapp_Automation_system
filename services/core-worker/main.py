@@ -317,6 +317,7 @@ class CoreWorker:
         wa_name = (contact_row["wa_profile_name"] or "").strip() if contact_row else ""
         has_real_name = bool(db_name and db_name not in ["Valued Customer", "Client", "Customer"])
         customer_name_display = db_name if has_real_name else (f"Not confirmed yet (WhatsApp handle: {wa_name})" if wa_name else "Unknown")
+        customer_name = db_name or wa_name or "Valued Customer"
 
         tags = (", ".join(contact_row["tags"])) if contact_row and contact_row.get("tags") else "None"
         notes = contact_row["notes"] if contact_row and contact_row.get("notes") else ""
@@ -482,8 +483,10 @@ class CoreWorker:
             "  * Check that the new slot is not occupied.\n"
             "  * Confirm the new Date & Time politely in 1 short line, and MUST append on a new line:\n"
             "    [ACTION:RESCHEDULE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}]\n\n"
-            "8. Relative Date Resolution:\n"
-            "- Always resolve relative dates (today, tomorrow, this Friday) into exact YYYY-MM-DD format using today's date provided above. Always format time as 24-hour HH:MM (e.g. '09:00' for 9 AM, '19:00' for 7 PM)."
+            "8. 12-HOUR TIME FORMAT DIRECTIVE (ABSOLUTE RULE):\n"
+            "- ALWAYS speak and quote time in 12-HOUR FORMAT with AM/PM (e.g. '08:30 PM', '10:00 AM', '07:00 PM') in all messages to customers.\n"
+            "- NEVER use military or 24-hour time (like 20:30, 19:00, or 14:00) when replying to customers.\n"
+            "- In the JSON action tag [ACTION:CREATE_BOOKING: ...], pass time as 24-hour HH:MM (e.g. '20:30')."
         )
 
         full_location = (creds.get("full_location_text") or "").strip() if creds else ""
@@ -611,22 +614,27 @@ class CoreWorker:
                                 extracted_name = l
                                 break
 
-                # Extract time from response_text or history (e.g. 19:00, 7:00 pm, 7pm)
-                time_match = re.search(r'\b([01]?\d|2[0-3]):([0-5]\d)\b', response_text)
+                # Extract time from message_text, response_text, or history (e.g. 8:30 pm, 20:30, 7pm)
+                combined_texts = f"{message_text} {response_text}"
+                pm_match = re.search(r'(\d{1,2})(?::(\d{2}))?\s*(pm|am)', combined_texts, re.IGNORECASE)
                 time_str = "10:00"
-                if time_match:
-                    time_str = f"{int(time_match.group(1)):02d}:{time_match.group(2)}"
+                if pm_match:
+                    h = int(pm_match.group(1))
+                    m = int(pm_match.group(2) or 0)
+                    is_pm = 'pm' in pm_match.group(3).lower()
+                    if is_pm and h < 12:
+                        h += 12
+                    elif not is_pm and h == 12:
+                        h = 0
+                    time_str = f"{h:02d}:{m:02d}"
                 else:
-                    pm_match = re.search(r'(\d{1,2})\s*(?:pm|am)', response_text, re.IGNORECASE)
-                    if pm_match:
-                        h = int(pm_match.group(1))
-                        if 'pm' in pm_match.group(0).lower() and h < 12:
-                            h += 12
-                        time_str = f"{h:02d}:00"
+                    time_match = re.search(r'\b([01]?\d|2[0-3]):([0-5]\d)\b', combined_texts)
+                    if time_match:
+                        time_str = f"{int(time_match.group(1)):02d}:{time_match.group(2)}"
 
                 today_iso = now.strftime("%Y-%m-%d")
                 date_str = today_iso
-                if "tomorrow" in response_text.lower():
+                if "tomorrow" in combined_texts.lower():
                     date_str = (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
 
                 booking_action = {
@@ -666,6 +674,16 @@ class CoreWorker:
             provider_used = "rule_engine"
             ai_used_fallback = True
             ai_requests.labels(tenant=tenant_id, provider="rule_engine").inc()
+
+        if response_text:
+            def _repl_12hr(m):
+                hh = int(m.group(1))
+                mm = m.group(2)
+                if hh >= 12:
+                    return f"{hh if hh == 12 else hh - 12:02d}:{mm} PM"
+                else:
+                    return f"{12 if hh == 0 else hh:02d}:{mm} AM"
+            response_text = re.sub(r'\b([01]?\d|2[0-3]):([0-5]\d)(?!\s*(?:am|pm|AM|PM))\b', _repl_12hr, response_text)
 
         # Persist outbound message
         out_msg_id = await self.db_pool.fetchval(
