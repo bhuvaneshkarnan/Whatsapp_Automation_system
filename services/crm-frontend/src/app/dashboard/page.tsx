@@ -1007,7 +1007,7 @@ export default function DashboardPage() {
 
           <div className="hidden sm:flex items-center gap-2 pl-4 border-l border-border">
             <span className="text-xs text-text-muted">
-              / {activeNav === 'overview' ? 'Overview' : activeNav === 'inbox' ? 'Live WhatsApp' : activeNav === 'bookings' ? 'Bookings' : activeNav === 'calendar' ? 'Calendar schedule' : activeNav === 'customers' ? 'Customer directory' : 'Settings'}
+              / {activeNav === 'overview' ? 'Overview' : activeNav === 'inbox' ? 'Chats' : activeNav === 'bookings' ? 'Bookings' : activeNav === 'calendar' ? 'Calendar schedule' : activeNav === 'customers' ? 'Customer directory' : 'Settings'}
             </span>
           </div>
         </div>
@@ -1096,7 +1096,7 @@ export default function DashboardPage() {
                 }`}
               >
                 <MessageSquare className="w-4 h-4 stroke-[1.5] shrink-0" />
-                <span>Live WhatsApp</span>
+                <span>Chats</span>
               </button>
 
               <button
@@ -1218,7 +1218,7 @@ export default function DashboardPage() {
                       className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 cursor-pointer space-y-1.5"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-text-muted">Live WhatsApp</span>
+                        <span className="text-xs font-medium text-text-muted">Chats</span>
                         <MessageSquare className="w-4 h-4 stroke-[1.5] text-text-muted" />
                       </div>
                       <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
