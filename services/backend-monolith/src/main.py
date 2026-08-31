@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+import asyncio
 
 # Auto-install missing dependencies because building Docker image is too slow on Oracle Free Tier
 try:
@@ -63,7 +64,14 @@ app.mount("/api/v1/worker", worker_app)
 async def startup():
     global db_pool
     logger.info("monolith_startup", message="Initializing shared database connection pool")
-    db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+    for attempt in range(1, 10):
+        try:
+            db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+            if db_pool:
+                break
+        except Exception as e:
+            logger.warning("db_connect_retry", attempt=attempt, error=str(e))
+            await asyncio.sleep(2)
     
     # Propagate pool to all sub-apps
     crm_mod.db_pool = db_pool
