@@ -498,18 +498,21 @@ class CoreWorker:
 
         active_system_prompt = "\n\n".join(prompt_blocks)
 
+        # Keep last 8 messages for snappy ultra-fast multi-turn context
+        trimmed_history = history[-8:] if len(history) > 8 else history
+
         response_text, provider_used = await call_llm_cascade(
-            messages=history,
+            messages=trimmed_history,
             system_prompt=active_system_prompt,
             gemini_key=gemini_key,
             groq_key=groq_key,
             opencode_key=opencode_key,
             opencode_base_url=opencode_base,
-            primary_provider=primary_provider,
-            gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
-            max_tokens=ai_cfg.get("max_tokens") or 2048,
-            temperature=ai_cfg.get("temperature", 0.3),
-            timeout_seconds=(ai_cfg.get("timeout_ms") or 10000) / 1000,
+            primary_provider=primary_provider or ("groq" if groq_key else "gemini"),
+            gemini_model="gemini-3.6-flash",
+            max_tokens=150,
+            temperature=0.3,
+            timeout_seconds=4.0,
             tenant_id=tenant_id,
         )
 
