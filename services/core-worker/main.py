@@ -328,17 +328,25 @@ class CoreWorker:
             except: meta_dict = {}
         customer_email = meta_dict.get("email") if isinstance(meta_dict, dict) else None
 
-        booking_info = "No previous appointments."
-        if booking_rows:
-            b_list = [f"{b.get('service', 'Appointment')} on {b['start_time'].strftime('%A, %d %b %Y at %I:%M %p')} (Status: {b.get('status', 'confirmed')})" for b in booking_rows]
-            booking_info = "; ".join(b_list)
-
         import datetime
         try:
             import zoneinfo
             kolkata_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
         except Exception:
             kolkata_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+        booking_info = "No previous appointments."
+        if booking_rows:
+            b_list = []
+            for b in booking_rows:
+                st = b['start_time']
+                if hasattr(st, 'astimezone'):
+                    st_local = st.astimezone(kolkata_tz)
+                else:
+                    st_local = st
+                b_list.append(f"{b.get('service', 'Appointment')} on {st_local.strftime('%A, %d %b %Y at %I:%M %p')} (Status: {b.get('status', 'confirmed')})")
+            booking_info = "; ".join(b_list)
+
         now = datetime.datetime.now(kolkata_tz)
         time_context = (
             f"Today is {now.strftime('%A, %d %B %Y')} and current time is {now.strftime('%I:%M %p')} (Asia/Kolkata time).\n"
