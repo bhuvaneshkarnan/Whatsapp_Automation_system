@@ -87,10 +87,10 @@ async def call_gemini(
     messages: list[dict],
     api_key: str,
     system_prompt: str,
-    model: str = "gemini-3.6-flash",
+    model: str = "gemini-3.5-flash-lite",
     max_tokens: int = 2048,
     temperature: float = 0.3,
-    timeout_seconds: float = 8.0,
+    timeout_seconds: float = 12.0,
     tenant_id: str = "",
 ) -> str:
     """Call Google Gemini API with automatic model failover."""
@@ -116,9 +116,10 @@ async def call_gemini(
         },
     }
 
-    # Verified active Gemini models
+    # Verified active Gemini models with gemini-3.5-flash-lite as main
     candidate_models = [
-        model or "gemini-3.6-flash",
+        model or "gemini-3.5-flash-lite",
+        "gemini-3.5-flash-lite",
         "gemini-3.6-flash",
         "gemini-flash-latest",
     ]
@@ -344,7 +345,7 @@ async def call_llm_cascade(
                     messages=messages,
                     api_key=key,
                     system_prompt=system_prompt,
-                    model="gemini-3.6-flash",
+                    model="gemini-3.5-flash-lite",
                     max_tokens=max_tokens,
                     temperature=temperature,
                     timeout_seconds=timeout_seconds,
@@ -406,10 +407,10 @@ async def call_llm_cascade(
                     messages=emergency_messages,
                     api_key=gemini_key,
                     system_prompt=system_prompt,
-                    model="gemini-3.6-flash",
+                    model="gemini-3.5-flash-lite",
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    timeout_seconds=6.0,
+                    timeout_seconds=10.0,
                     tenant_id=tenant_id,
                 )
                 if text and len(text.strip()) > 0:
