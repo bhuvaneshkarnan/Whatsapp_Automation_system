@@ -1,0 +1,10 @@
+﻿{
+  "name": "whatsapp-automation-system",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix services/crm-frontend",
+    "build": "npm run build --prefix services/crm-frontend",
+    "start": "npm run start --prefix services/crm-frontend"
+  }
+}
