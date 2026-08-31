@@ -73,29 +73,56 @@ import {
 } from 'lucide-react';
 
 const COUNTRY_CODES = [
-  { code: '+91', country: 'India (+91)' },
-  { code: '+1', country: 'United States & Canada (+1)' },
-  { code: '+44', country: 'United Kingdom (+44)' },
-  { code: '+971', country: 'United Arab Emirates (+971)' },
-  { code: '+61', country: 'Australia (+61)' },
-  { code: '+65', country: 'Singapore (+65)' },
-  { code: '+49', country: 'Germany (+49)' },
-  { code: '+33', country: 'France (+33)' },
-  { code: '+966', country: 'Saudi Arabia (+966)' },
-  { code: '+60', country: 'Malaysia (+60)' },
-  { code: '+974', country: 'Qatar (+974)' },
-  { code: '+965', country: 'Kuwait (+965)' },
-  { code: '+968', country: 'Oman (+968)' },
-  { code: '+973', country: 'Bahrain (+973)' },
-  { code: '+27', country: 'South Africa (+27)' },
-  { code: '+55', country: 'Brazil (+55)' },
-  { code: '+81', country: 'Japan (+81)' },
-  { code: '+64', country: 'New Zealand (+64)' },
-  { code: '+353', country: 'Ireland (+353)' },
-  { code: '+34', country: 'Spain (+34)' },
-  { code: '+39', country: 'Italy (+39)' },
-  { code: '+31', country: 'Netherlands (+31)' },
-  { code: '+41', country: 'Switzerland (+41)' },
+  { code: '+91', country: '🇮🇳 India (+91)' },
+  { code: '+1', country: '🇺🇸 / 🇨🇦 United States & Canada (+1)' },
+  { code: '+44', country: '🇬🇧 United Kingdom (+44)' },
+  { code: '+971', country: '🇦🇪 United Arab Emirates (+971)' },
+  { code: '+966', country: '🇸🇦 Saudi Arabia (+966)' },
+  { code: '+61', country: '🇦🇺 Australia (+61)' },
+  { code: '+65', country: '🇸🇬 Singapore (+65)' },
+  { code: '+60', country: '🇲🇾 Malaysia (+60)' },
+  { code: '+974', country: '🇶🇦 Qatar (+974)' },
+  { code: '+965', country: '🇰🇼 Kuwait (+965)' },
+  { code: '+968', country: '🇴🇲 Oman (+968)' },
+  { code: '+973', country: '🇧🇭 Bahrain (+973)' },
+  { code: '+49', country: '🇩🇪 Germany (+49)' },
+  { code: '+33', country: '🇫🇷 France (+33)' },
+  { code: '+39', country: '🇮🇹 Italy (+39)' },
+  { code: '+34', country: '🇪🇸 Spain (+34)' },
+  { code: '+31', country: '🇳🇱 Netherlands (+31)' },
+  { code: '+41', country: '🇨🇭 Switzerland (+41)' },
+  { code: '+353', country: '🇮🇪 Ireland (+353)' },
+  { code: '+64', country: '🇳🇿 New Zealand (+64)' },
+  { code: '+27', country: '🇿🇦 South Africa (+27)' },
+  { code: '+234', country: '🇳🇬 Nigeria (+234)' },
+  { code: '+254', country: '🇰🇪 Kenya (+254)' },
+  { code: '+20', country: '🇪🇬 Egypt (+20)' },
+  { code: '+90', country: '🇹🇷 Turkey (+90)' },
+  { code: '+81', country: '🇯🇵 Japan (+81)' },
+  { code: '+82', country: '🇰🇷 South Korea (+82)' },
+  { code: '+852', country: '🇭🇰 Hong Kong (+852)' },
+  { code: '+63', country: '🇵🇭 Philippines (+63)' },
+  { code: '+62', country: '🇮🇩 Indonesia (+62)' },
+  { code: '+66', country: '🇹🇭 Thailand (+66)' },
+  { code: '+84', country: '🇻🇳 Vietnam (+84)' },
+  { code: '+94', country: '🇱🇰 Sri Lanka (+94)' },
+  { code: '+880', country: '🇧🇩 Bangladesh (+880)' },
+  { code: '+92', country: '🇵🇰 Pakistan (+92)' },
+  { code: '+977', country: '🇳🇵 Nepal (+977)' },
+  { code: '+55', country: '🇧🇷 Brazil (+55)' },
+  { code: '+52', country: '🇲🇽 Mexico (+52)' },
+  { code: '+54', country: '🇦🇷 Argentina (+54)' },
+  { code: '+57', country: '🇨🇴 Colombia (+57)' },
+  { code: '+56', country: '🇨🇱 Chile (+56)' },
+  { code: '+46', country: '🇸🇪 Sweden (+46)' },
+  { code: '+47', country: '🇳🇴 Norway (+47)' },
+  { code: '+45', country: '🇩🇰 Denmark (+45)' },
+  { code: '+358', country: '🇫🇮 Finland (+358)' },
+  { code: '+351', country: '🇵🇹 Portugal (+351)' },
+  { code: '+43', country: '🇦🇹 Austria (+43)' },
+  { code: '+32', country: '🇧🇪 Belgium (+32)' },
+  { code: '+48', country: '🇵🇱 Poland (+48)' },
+  { code: '+972', country: '🇮🇱 Israel (+972)' },
 ];
 
 const CURRENCY_LIST = [
@@ -104,38 +131,53 @@ const CURRENCY_LIST = [
   { code: 'EUR', symbol: '€', name: 'EUR (€) — Euro' },
   { code: 'GBP', symbol: '£', name: 'GBP (£) — British Pound' },
   { code: 'AED', symbol: 'AED ', name: 'AED (AED) — UAE Dirham' },
-  { code: 'AUD', symbol: 'A$', name: 'AUD (A$) — Australian Dollar' },
-  { code: 'CAD', symbol: 'C$', name: 'CAD (C$) — Canadian Dollar' },
-  { code: 'SGD', symbol: 'S$', name: 'SGD (S$) — Singapore Dollar' },
   { code: 'SAR', symbol: 'SAR ', name: 'SAR (SAR) — Saudi Riyal' },
+  { code: 'CAD', symbol: 'C$', name: 'CAD (C$) — Canadian Dollar' },
+  { code: 'AUD', symbol: 'A$', name: 'AUD (A$) — Australian Dollar' },
+  { code: 'SGD', symbol: 'S$', name: 'SGD (S$) — Singapore Dollar' },
   { code: 'MYR', symbol: 'RM ', name: 'MYR (RM) — Malaysian Ringgit' },
   { code: 'QAR', symbol: 'QAR ', name: 'QAR (QAR) — Qatari Riyal' },
   { code: 'KWD', symbol: 'KWD ', name: 'KWD (KWD) — Kuwaiti Dinar' },
+  { code: 'OMR', symbol: 'OMR ', name: 'OMR (OMR) — Omani Rial' },
+  { code: 'BHD', symbol: 'BHD ', name: 'BHD (BHD) — Bahraini Dinar' },
   { code: 'NZD', symbol: 'NZ$', name: 'NZD (NZ$) — New Zealand Dollar' },
   { code: 'JPY', symbol: '¥', name: 'JPY (¥) — Japanese Yen' },
   { code: 'CHF', symbol: 'CHF ', name: 'CHF (CHF) — Swiss Franc' },
   { code: 'ZAR', symbol: 'R ', name: 'ZAR (R) — South African Rand' },
+  { code: 'PHP', symbol: '₱', name: 'PHP (₱) — Philippine Peso' },
+  { code: 'IDR', symbol: 'Rp ', name: 'IDR (Rp) — Indonesian Rupiah' },
+  { code: 'THB', symbol: '฿', name: 'THB (฿) — Thai Baht' },
+  { code: 'VND', symbol: '₫', name: 'VND (₫) — Vietnamese Dong' },
+  { code: 'PKR', symbol: 'Rs ', name: 'PKR (Rs) — Pakistani Rupee' },
+  { code: 'BDT', symbol: '৳', name: 'BDT (৳) — Bangladeshi Taka' },
+  { code: 'LKR', symbol: 'Rs ', name: 'LKR (Rs) — Sri Lankan Rupee' },
+  { code: 'NGN', symbol: '₦', name: 'NGN (₦) — Nigerian Naira' },
+  { code: 'KES', symbol: 'KSh ', name: 'KES (KSh) — Kenyan Shilling' },
+  { code: 'EGP', symbol: 'E£ ', name: 'EGP (E£) — Egyptian Pound' },
+  { code: 'TRY', symbol: '₺', name: 'TRY (₺) — Turkish Lira' },
+  { code: 'BRL', symbol: 'R$', name: 'BRL (R$) — Brazilian Real' },
+  { code: 'MXN', symbol: 'Mex$', name: 'MXN (Mex$) — Mexican Peso' },
 ];
 
 const TIMEZONE_LIST = [
-  { value: 'Asia/Kolkata', label: 'Asia/Kolkata (IST — GMT+5:30) [India]' },
-  { value: 'America/New_York', label: 'America/New_York (EST/EDT — GMT-5/-4) [US East]' },
-  { value: 'America/Chicago', label: 'America/Chicago (CST/CDT — GMT-6/-5) [US Central]' },
-  { value: 'America/Denver', label: 'America/Denver (MST/MDT — GMT-7/-6) [US Mountain]' },
-  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (PST/PDT — GMT-8/-7) [US West / California]' },
-  { value: 'America/Toronto', label: 'America/Toronto (EST/EDT) [Canada East]' },
-  { value: 'America/Vancouver', label: 'America/Vancouver (PST/PDT) [Canada West]' },
-  { value: 'Europe/London', label: 'Europe/London (GMT/BST — GMT+0/+1) [UK & Ireland]' },
-  { value: 'Europe/Paris', label: 'Europe/Paris (CET/CEST — GMT+1/+2) [France, Germany, Italy]' },
-  { value: 'Asia/Dubai', label: 'Asia/Dubai (GST — GMT+4) [UAE & Gulf]' },
-  { value: 'Asia/Riyadh', label: 'Asia/Riyadh (AST — GMT+3) [Saudi Arabia]' },
-  { value: 'Asia/Singapore', label: 'Asia/Singapore (SGT — GMT+8) [Singapore & Malaysia]' },
-  { value: 'Asia/Tokyo', label: 'Asia/Tokyo (JST — GMT+9) [Japan]' },
-  { value: 'Australia/Sydney', label: 'Australia/Sydney (AEST/AEDT — GMT+10/+11) [Australia East]' },
-  { value: 'Australia/Perth', label: 'Australia/Perth (AWST — GMT+8) [Australia West]' },
-  { value: 'Pacific/Auckland', label: 'Pacific/Auckland (NZST/NZDT — GMT+12/+13) [New Zealand]' },
-  { value: 'Africa/Johannesburg', label: 'Africa/Johannesburg (SAST — GMT+2) [South Africa]' },
-  { value: 'UTC', label: 'UTC (Coordinated Universal Time)' },
+  { value: 'Asia/Kolkata', label: '🇮🇳 Asia/Kolkata (IST — GMT+5:30) [India]' },
+  { value: 'America/New_York', label: '🇺🇸 America/New_York (EST/EDT — GMT-5/-4) [US East]' },
+  { value: 'America/Chicago', label: '🇺🇸 America/Chicago (CST/CDT — GMT-6/-5) [US Central]' },
+  { value: 'America/Denver', label: '🇺🇸 America/Denver (MST/MDT — GMT-7/-6) [US Mountain]' },
+  { value: 'America/Los_Angeles', label: '🇺🇸 America/Los_Angeles (PST/PDT — GMT-8/-7) [US West / California]' },
+  { value: 'America/Toronto', label: '🇨🇦 America/Toronto (EST/EDT) [Canada East]' },
+  { value: 'America/Vancouver', label: '🇨🇦 America/Vancouver (PST/PDT) [Canada West]' },
+  { value: 'Europe/London', label: '🇬🇧 Europe/London (GMT/BST — GMT+0/+1) [UK & Ireland]' },
+  { value: 'Europe/Paris', label: '🇪🇺 Europe/Paris (CET/CEST — GMT+1/+2) [France, Germany, Italy]' },
+  { value: 'Asia/Dubai', label: '🇦🇪 Asia/Dubai (GST — GMT+4) [UAE & Gulf]' },
+  { value: 'Asia/Riyadh', label: '🇸🇦 Asia/Riyadh (AST — GMT+3) [Saudi Arabia]' },
+  { value: 'Asia/Singapore', label: '🇸🇬 Asia/Singapore (SGT — GMT+8) [Singapore & Malaysia]' },
+  { value: 'Asia/Tokyo', label: '🇯🇵 Asia/Tokyo (JST — GMT+9) [Japan]' },
+  { value: 'Australia/Sydney', label: '🇦🇺 Australia/Sydney (AEST/AEDT — GMT+10/+11) [Australia East]' },
+  { value: 'Australia/Perth', label: '🇦🇺 Australia/Perth (AWST — GMT+8) [Australia West]' },
+  { value: 'Pacific/Auckland', label: '🇳🇿 Pacific/Auckland (NZST/NZDT — GMT+12/+13) [New Zealand]' },
+  { value: 'Africa/Johannesburg', label: '🇿🇦 Africa/Johannesburg (SAST — GMT+2) [South Africa]' },
+  { value: 'UTC', label: '🌐 UTC (Coordinated Universal Time)' },
 ];
 
 export default function DashboardPage() {
@@ -2757,14 +2799,36 @@ export default function DashboardPage() {
                       <div className="p-4 bg-white rounded-2xl border border-slate-200 space-y-3">
                         <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
                           <Globe className="w-4 h-4 text-slate-900 stroke-[2]" />
-                          <h5 className="font-bold text-xs text-slate-900 font-headline">Country Calling Code & Currency Localization</h5>
+                          <div>
+                            <h5 className="font-bold text-xs text-slate-900 font-headline">🌍 International Regional Localization</h5>
+                            <p className="text-[10px] text-slate-500">Configure timezone, currency, and dialing code for your business and clients worldwide.</p>
+                          </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                          {/* Timezone */}
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">
+                              ⏰ Business Timezone
+                            </label>
+                            <select
+                              value={settingsForm.timezone || 'Asia/Kolkata'}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, timezone: e.target.value })}
+                              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:border-slate-900 focus:bg-white transition cursor-pointer"
+                            >
+                              {TIMEZONE_LIST.map((tz) => (
+                                <option key={tz.value} value={tz.value}>
+                                  {tz.label}
+                                </option>
+                              ))}
+                            </select>
+                            <p className="text-[10px] text-slate-500 mt-1">Controls AI relative dates, schedule conflict checks, and calendar events.</p>
+                          </div>
+
                           {/* Country Code */}
                           <div>
                             <label className="block text-xs font-bold text-slate-700 mb-1">
-                              Default Country Calling Code
+                              📞 Default Country Calling Code
                             </label>
                             <select
                               value={settingsForm.country_code || '+91'}
@@ -2777,13 +2841,13 @@ export default function DashboardPage() {
                                 </option>
                               ))}
                             </select>
-                            <p className="text-[10px] text-slate-500 mt-1 font-medium">Used for parsing customer phone numbers and new booking creations.</p>
+                            <p className="text-[10px] text-slate-500 mt-1">Used for parsing customer phone numbers and new booking creations.</p>
                           </div>
 
                           {/* Currency Selection */}
                           <div>
                             <label className="block text-xs font-bold text-slate-700 mb-1">
-                              Display Currency
+                              💳 Display Currency
                             </label>
                             <select
                               value={settingsForm.currency || 'INR'}
@@ -2803,33 +2867,7 @@ export default function DashboardPage() {
                                 </option>
                               ))}
                             </select>
-                            <p className="text-[10px] text-slate-500 mt-1 font-medium">Applied across bookings, calendar fees, invoices, and analytics.</p>
-                          </div>
-                        </div>
-
-                        {/* Currency Symbol Override & Live Preview */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
-                          <div>
-                            <label className="block text-xs font-bold text-slate-700 mb-1">
-                              Currency Symbol
-                            </label>
-                            <input
-                              type="text"
-                              placeholder="₹ / $ / € / AED / £"
-                              value={settingsForm.currency_symbol || '₹'}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, currency_symbol: e.target.value })}
-                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-slate-900"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-bold text-slate-700 mb-1">
-                              Fee Format Preview
-                            </label>
-                            <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 flex items-center justify-between">
-                              <span>Standard Consultation:</span>
-                              <span className="text-emerald-800">{currentCurrencySymbol}500.00</span>
-                            </div>
+                            <p className="text-[10px] text-slate-500 mt-1">Applied across WhatsApp booking confirmations, calendar, and CRM analytics.</p>
                           </div>
                         </div>
                       </div>
