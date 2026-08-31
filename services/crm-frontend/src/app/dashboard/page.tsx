@@ -218,7 +218,7 @@ export default function DashboardPage() {
       {
         id: 'cmp-2',
         campaign_name: 'VIP Client Review Request',
-        target_audience: 'attended',
+        target_audience: 'contacts_only',
         template_name: 'feedback_request',
         message_text: 'Thank you for visiting us! We would appreciate your feedback. Tap here to leave a review.',
         total_recipients: 9,
@@ -230,15 +230,42 @@ export default function DashboardPage() {
     ];
   });
 
+  // Approved Templates List (Pre-configured + Custom Added)
+  const [customTemplates, setCustomTemplates] = useState<{ id: string; name: string; label: string; variables_count: number }[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('whatsapp_crm_custom_templates');
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return [
+      { id: 'utility_general_update', name: 'utility_general_update', label: '1. Utility / Promotional Update (utility_general_update)', variables_count: 3 },
+      { id: 'booking_confirmation', name: 'booking_confirmation', label: '2. Appointment Announcement (booking_confirmation)', variables_count: 3 },
+      { id: 'feedback_request', name: 'feedback_request', label: '3. Customer Feedback Request (feedback_request)', variables_count: 2 },
+      { id: 'reschedule_notification', name: 'reschedule_notification', label: '4. Special Schedule Update (reschedule_notification)', variables_count: 3 },
+    ];
+  });
+
+  const [newTemplateModal, setNewTemplateModal] = useState(false);
+  const [newTemplateForm, setNewTemplateForm] = useState({ name: '', label: '', variables_count: 2 });
+
+  // 3-Way Audience Selection State
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
+  const [contactSearchQuery, setContactSearchQuery] = useState('');
+  const [sheetLeads, setSheetLeads] = useState<{ name: string; phone: string }[]>([]);
+  const [sheetRawInput, setSheetRawInput] = useState('');
+  const [sheetInputMode, setSheetInputMode] = useState<'upload' | 'paste'>('paste');
+  const [sheetParsingError, setSheetParsingError] = useState<string | null>(null);
+
   const [campaignForm, setCampaignForm] = useState({
     campaign_name: '',
-    target_audience: 'all' as 'all' | 'attended' | 'important' | 'custom',
-    custom_phones: '',
+    target_audience: 'contacts_only' as 'contacts_only' | 'sheet_only' | 'both',
     message_mode: 'template' as 'template' | 'text',
     template_name: 'utility_general_update',
     template_param1: '',
     template_param2: '',
     template_param3: '',
+    template_param4: '',
     message_text: '',
   });
 
@@ -945,6 +972,109 @@ export default function DashboardPage() {
     if (tab === 'inbox') setSelectedConv(null);
   }
 
+  // Auto-select all contacts when contacts array is loaded
+  useEffect(() => {
+    if (contacts.length > 0 && selectedContactIds.length === 0) {
+      setSelectedContactIds(contacts.map((c) => c.id));
+    }
+  }, [contacts]);
+
+  // CSV / Google Sheet Lead Parser
+  function handleParseCsv(text: string) {
+    if (!text.trim()) {
+      setSheetParsingError('Please paste or upload valid CSV or Google Sheet rows.');
+      return;
+    }
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+    const parsed: { name: string; phone: string }[] = [];
+    const seen = new Set<string>();
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const parts = line.split(/[,\t;]+/).map((p) => p.trim().replace(/^["']|["']$/g, ''));
+      if (parts.length === 0) continue;
+
+      // Skip header row if matches common terms
+      if (i === 0 && parts.some((p) => /^(name|phone|mobile|contact|lead|customer|number|tel)/i.test(p))) {
+        continue;
+      }
+
+      let phone = '';
+      let name = '';
+
+      for (const p of parts) {
+        const cleanDigits = p.replace(/[^\d+]/g, '');
+        if (cleanDigits.length >= 7 && cleanDigits.length <= 15) {
+          phone = cleanDigits;
+        } else if (p.length > 0 && !name) {
+          name = p;
+        }
+      }
+
+      if (phone) {
+        const cleanKey = phone.replace(/[^\d]/g, '');
+        if (!seen.has(cleanKey)) {
+          seen.add(cleanKey);
+          parsed.push({ name: name || 'Lead', phone });
+        }
+      }
+    }
+
+    if (parsed.length === 0) {
+      setSheetParsingError('No valid phone numbers found. Make sure each row contains a phone number.');
+    } else {
+      setSheetParsingError(null);
+      setSheetLeads((prev) => {
+        const combined = [...prev];
+        parsed.forEach((p) => {
+          if (!combined.some((existing) => existing.phone.replace(/[^\d]/g, '') === p.phone.replace(/[^\d]/g, ''))) {
+            combined.push(p);
+          }
+        });
+        return combined;
+      });
+      setSheetRawInput('');
+      setActionNotice(`Parsed & added ${parsed.length} leads from Google Sheet / CSV!`);
+      setTimeout(() => setActionNotice(null), 4000);
+    }
+  }
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (text) handleParseCsv(text);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }
+
+  function handleAddCustomTemplate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newTemplateForm.name.trim()) return;
+    const cleanName = newTemplateForm.name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const newTpl = {
+      id: cleanName,
+      name: cleanName,
+      label: newTemplateForm.label.trim() || cleanName,
+      variables_count: Number(newTemplateForm.variables_count) || 2,
+    };
+    setCustomTemplates((prev) => {
+      const updated = [...prev.filter((t) => t.name !== cleanName), newTpl];
+      try {
+        localStorage.setItem('whatsapp_crm_custom_templates', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    setCampaignForm((prev) => ({ ...prev, template_name: cleanName }));
+    setNewTemplateModal(false);
+    setNewTemplateForm({ name: '', label: '', variables_count: 2 });
+    setActionNotice(`Approved template "${cleanName}" saved and selected!`);
+    setTimeout(() => setActionNotice(null), 4000);
+  }
+
   async function handleLaunchBroadcast(e: React.FormEvent) {
     e.preventDefault();
     if (!campaignForm.campaign_name.trim()) {
@@ -953,32 +1083,44 @@ export default function DashboardPage() {
       return;
     }
 
-    let targetPhones: string[] = [];
-    if (campaignForm.target_audience === 'all') {
-      targetPhones = contacts.map((c) => c.phone).filter(Boolean);
-      if (targetPhones.length === 0) {
-        targetPhones = conversations.map((c) => c.contact_phone || c.phone || '').filter(Boolean);
+    // Resolve target recipients based on 3-way audience selection
+    let targetList: { name: string; phone: string; source: 'crm' | 'sheet' }[] = [];
+
+    if (campaignForm.target_audience === 'contacts_only' || campaignForm.target_audience === 'both') {
+      const chosen = contacts.filter((c) => selectedContactIds.includes(c.id));
+      chosen.forEach((c) => {
+        if (c.phone) targetList.push({ name: c.name || 'Customer', phone: c.phone, source: 'crm' });
+      });
+      // Fallback to active conversations if contacts table is empty
+      if (targetList.length === 0 && contacts.length === 0) {
+        conversations.forEach((c) => {
+          const ph = c.contact_phone || c.phone;
+          if (ph) targetList.push({ name: c.contact_name || 'Customer', phone: ph, source: 'crm' });
+        });
       }
-    } else if (campaignForm.target_audience === 'attended') {
-      const attendedContacts = bookings
-        .filter((b) => b.status === 'completed' || b.status === 'confirmed')
-        .map((b) => b.contact_phone || '')
-        .filter(Boolean);
-      targetPhones = Array.from(new Set(attendedContacts));
-    } else if (campaignForm.target_audience === 'important') {
-      targetPhones = conversations
-        .filter((c) => importantConvIds.includes(c.id))
-        .map((c) => c.contact_phone || c.phone || '')
-        .filter(Boolean);
-    } else if (campaignForm.target_audience === 'custom') {
-      targetPhones = campaignForm.custom_phones
-        .split(/[\n,;]+/)
-        .map((p) => p.replace('+', '').replace(/\s+/g, '').replace(/-/g, '').trim())
-        .filter(Boolean);
     }
 
+    if (campaignForm.target_audience === 'sheet_only' || campaignForm.target_audience === 'both') {
+      sheetLeads.forEach((l) => {
+        if (l.phone) targetList.push({ name: l.name || 'Lead', phone: l.phone, source: 'sheet' });
+      });
+    }
+
+    // Deduplicate by clean phone digits
+    const seen = new Set<string>();
+    const uniqueTargets: { name: string; phone: string; source: 'crm' | 'sheet' }[] = [];
+    for (const item of targetList) {
+      const clean = item.phone.replace(/[^\d]/g, '');
+      if (clean && !seen.has(clean)) {
+        seen.add(clean);
+        uniqueTargets.push(item);
+      }
+    }
+
+    const targetPhones = uniqueTargets.map((t) => t.phone);
+
     if (targetPhones.length === 0) {
-      setActionNotice('No target phone numbers found for this audience selection.');
+      setActionNotice('No target phone numbers selected. Please select contacts or load Google Sheet leads.');
       setTimeout(() => setActionNotice(null), 3500);
       return;
     }
@@ -987,13 +1129,19 @@ export default function DashboardPage() {
     setBroadcastProgress({ total: targetPhones.length, sent: 0 });
 
     try {
+      const currentTpl = customTemplates.find((t) => t.name === campaignForm.template_name);
+      const varCount = currentTpl ? currentTpl.variables_count : 3;
+
+      const rawParams = [
+        campaignForm.template_param1 || 'Customer',
+        campaignForm.template_param2 || settingsForm.name || 'Boldlabs',
+        campaignForm.template_param3 || 'Special Promotion',
+        campaignForm.template_param4 || 'Visit Us',
+      ];
+
       const templateParams =
         campaignForm.message_mode === 'template'
-          ? [
-              campaignForm.template_param1 || 'Customer',
-              campaignForm.template_param2 || settingsForm.name || 'Boldlabs',
-              campaignForm.template_param3 || 'Special Promotion',
-            ].filter(Boolean)
+          ? rawParams.slice(0, varCount).filter(Boolean)
           : undefined;
 
       await marketing.sendBroadcast({
@@ -1038,13 +1186,13 @@ export default function DashboardPage() {
 
       setCampaignForm({
         campaign_name: '',
-        target_audience: 'all',
-        custom_phones: '',
+        target_audience: 'contacts_only',
         message_mode: 'template',
         template_name: 'utility_general_update',
         template_param1: '',
         template_param2: '',
         template_param3: '',
+        template_param4: '',
         message_text: '',
       });
     } catch (err: any) {
@@ -2619,84 +2767,261 @@ export default function DashboardPage() {
                         />
                       </div>
 
-                      {/* Audience Selection */}
-                      <div className="space-y-2">
-                        <label className="font-medium text-text-primary">Target audience segment</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <label
-                            onClick={() => setCampaignForm({ ...campaignForm, target_audience: 'all' })}
-                            className={`p-3 rounded-sm border cursor-pointer flex flex-col justify-between transition-colors duration-150 ${
-                              campaignForm.target_audience === 'all'
-                                ? 'bg-surface border-border-strong ring-1 ring-border-strong'
-                                : 'bg-surface-subtle border-border hover:bg-surface'
-                            }`}
-                          >
-                            <span className="font-semibold text-text-primary">All Contacts</span>
-                            <span className="text-[11px] text-text-muted mt-1">
-                              {contacts.length > 0 ? contacts.length : conversations.length} customer numbers
-                            </span>
-                          </label>
+                      {/* ── 3-Way Audience Selection ── */}
+                      <div className="space-y-3 pt-1 border-t border-border">
+                        <div>
+                          <label className="font-medium text-text-primary">Target Audience Destination</label>
+                          <p className="text-[11px] text-text-muted mt-0.5">
+                            Choose whether to dispatch to CRM contacts, Google Sheet / CSV leads, or both.
+                          </p>
+                        </div>
 
+                        {/* 3 Main Option Radio Cards */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <label
-                            onClick={() => setCampaignForm({ ...campaignForm, target_audience: 'attended' })}
+                            onClick={() => setCampaignForm({ ...campaignForm, target_audience: 'contacts_only' })}
                             className={`p-3 rounded-sm border cursor-pointer flex flex-col justify-between transition-colors duration-150 ${
-                              campaignForm.target_audience === 'attended'
+                              campaignForm.target_audience === 'contacts_only'
                                 ? 'bg-surface border-border-strong ring-1 ring-border-strong'
                                 : 'bg-surface-subtle border-border hover:bg-surface'
                             }`}
                           >
-                            <span className="font-semibold text-text-primary">Attended Bookings</span>
-                            <span className="text-[11px] text-text-muted mt-1">
-                              {bookings.filter((b) => b.status === 'completed' || b.status === 'confirmed').length} past clients
-                            </span>
-                          </label>
-
-                          <label
-                            onClick={() => setCampaignForm({ ...campaignForm, target_audience: 'important' })}
-                            className={`p-3 rounded-sm border cursor-pointer flex flex-col justify-between transition-colors duration-150 ${
-                              campaignForm.target_audience === 'important'
-                                ? 'bg-surface border-border-strong ring-1 ring-border-strong'
-                                : 'bg-surface-subtle border-border hover:bg-surface'
-                            }`}
-                          >
-                            <div className="flex items-center gap-1">
-                              <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
-                              <span className="font-semibold text-text-primary">Starred VIPs</span>
+                            <div className="flex items-center gap-1.5">
+                              <Users className="w-4 h-4 text-accent" />
+                              <span className="font-semibold text-text-primary">1. CRM Contacts Only</span>
                             </div>
-                            <span className="text-[11px] text-text-muted mt-1">
-                              {importantConvIds.length} VIP contacts
+                            <span className="text-[11px] text-text-muted mt-1.5">
+                              {selectedContactIds.length} of {contacts.length > 0 ? contacts.length : conversations.length} selected
                             </span>
                           </label>
 
                           <label
-                            onClick={() => setCampaignForm({ ...campaignForm, target_audience: 'custom' })}
+                            onClick={() => setCampaignForm({ ...campaignForm, target_audience: 'sheet_only' })}
                             className={`p-3 rounded-sm border cursor-pointer flex flex-col justify-between transition-colors duration-150 ${
-                              campaignForm.target_audience === 'custom'
+                              campaignForm.target_audience === 'sheet_only'
                                 ? 'bg-surface border-border-strong ring-1 ring-border-strong'
                                 : 'bg-surface-subtle border-border hover:bg-surface'
                             }`}
                           >
-                            <span className="font-semibold text-text-primary">Custom Phone List</span>
-                            <span className="text-[11px] text-text-muted mt-1">Paste custom numbers</span>
+                            <div className="flex items-center gap-1.5">
+                              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                              <span className="font-semibold text-text-primary">2. Google Sheet / CSV</span>
+                            </div>
+                            <span className="text-[11px] text-text-muted mt-1.5">
+                              {sheetLeads.length} leads imported
+                            </span>
+                          </label>
+
+                          <label
+                            onClick={() => setCampaignForm({ ...campaignForm, target_audience: 'both' })}
+                            className={`p-3 rounded-sm border cursor-pointer flex flex-col justify-between transition-colors duration-150 ${
+                              campaignForm.target_audience === 'both'
+                                ? 'bg-surface border-border-strong ring-1 ring-border-strong'
+                                : 'bg-surface-subtle border-border hover:bg-surface'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <Sparkles className="w-4 h-4 text-amber-500" />
+                              <span className="font-semibold text-text-primary">3. Both (Contacts + Sheet)</span>
+                            </div>
+                            <span className="text-[11px] text-text-muted mt-1.5">
+                              Combined & deduplicated
+                            </span>
                           </label>
                         </div>
+
+                        {/* ── Audience Sub-Panel 1: CRM Contact Checklist Picker ── */}
+                        {(campaignForm.target_audience === 'contacts_only' || campaignForm.target_audience === 'both') && (
+                          <div className="p-3 bg-surface-subtle/50 rounded-sm border border-border space-y-2.5">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-text-primary">Select CRM Contacts</span>
+                                <span className="text-[10px] font-mono px-1.5 py-0.2 bg-surface text-text-secondary rounded-sm border border-border">
+                                  {selectedContactIds.length} / {contacts.length > 0 ? contacts.length : conversations.length}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const allIds = contacts.length > 0 ? contacts.map((c) => c.id) : conversations.map((c) => c.id);
+                                    setSelectedContactIds(allIds);
+                                  }}
+                                  className="text-[11px] text-accent hover:underline font-medium cursor-pointer"
+                                >
+                                  Select all
+                                </button>
+                                <span className="text-text-muted">|</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedContactIds([])}
+                                  className="text-[11px] text-text-secondary hover:text-text-primary font-medium cursor-pointer"
+                                >
+                                  Deselect all
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Search Contacts in Picker */}
+                            <div className="relative">
+                              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
+                              <input
+                                type="text"
+                                placeholder="Filter contacts by name or phone..."
+                                value={contactSearchQuery}
+                                onChange={(e) => setContactSearchQuery(e.target.value)}
+                                className="w-full pl-8 pr-3 py-1 bg-surface border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted"
+                              />
+                            </div>
+
+                            {/* Scrollable Checklist */}
+                            <div className="max-h-48 overflow-y-auto divide-y divide-border border border-border rounded-sm bg-surface">
+                              {(contacts.length > 0 ? contacts : conversations.map((c) => ({ id: c.id, name: c.contact_name, phone: c.contact_phone || c.phone, wa_profile_name: '' } as Contact)))
+                                .filter((ct) => {
+                                  const q = contactSearchQuery.toLowerCase();
+                                  return (
+                                    (ct.name || '').toLowerCase().includes(q) ||
+                                    (ct.phone || '').toLowerCase().includes(q)
+                                  );
+                                })
+                                .map((ct) => {
+                                  const isSelected = selectedContactIds.includes(ct.id);
+                                  return (
+                                    <div
+                                      key={ct.id}
+                                      onClick={() => {
+                                        setSelectedContactIds((prev) =>
+                                          prev.includes(ct.id) ? prev.filter((id) => id !== ct.id) : [...prev, ct.id]
+                                        );
+                                      }}
+                                      className="p-2 flex items-center justify-between hover:bg-surface-subtle cursor-pointer transition-colors duration-150 text-xs"
+                                    >
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={() => {}}
+                                          className="rounded-sm text-accent cursor-pointer"
+                                        />
+                                        <div className="min-w-0">
+                                          <p className="font-medium text-text-primary truncate">{ct.name || 'Unnamed contact'}</p>
+                                          <p className="text-[11px] font-mono text-text-muted">{ct.phone}</p>
+                                        </div>
+                                      </div>
+
+                                      {importantConvIds.includes(ct.id) && (
+                                        <Star className="w-3 h-3 text-amber-500 fill-amber-500 shrink-0" />
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ── Audience Sub-Panel 2: Google Sheet / CSV Importer ── */}
+                        {(campaignForm.target_audience === 'sheet_only' || campaignForm.target_audience === 'both') && (
+                          <div className="p-3 bg-surface-subtle/50 rounded-sm border border-border space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                                <span className="text-xs font-semibold text-text-primary">Google Sheet / CSV Lead Importer</span>
+                              </div>
+                              <div className="flex items-center gap-1 bg-surface p-0.5 rounded-sm border border-border">
+                                <button
+                                  type="button"
+                                  onClick={() => setSheetInputMode('paste')}
+                                  className={`px-2 py-0.5 text-[11px] font-medium rounded-sm cursor-pointer ${
+                                    sheetInputMode === 'paste' ? 'bg-surface-subtle text-text-primary font-semibold' : 'text-text-secondary'
+                                  }`}
+                                >
+                                  Paste Rows
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setSheetInputMode('upload')}
+                                  className={`px-2 py-0.5 text-[11px] font-medium rounded-sm cursor-pointer ${
+                                    sheetInputMode === 'upload' ? 'bg-surface-subtle text-text-primary font-semibold' : 'text-text-secondary'
+                                  }`}
+                                >
+                                  Upload .CSV
+                                </button>
+                              </div>
+                            </div>
+
+                            {sheetInputMode === 'paste' ? (
+                              <div className="space-y-2">
+                                <textarea
+                                  rows={3}
+                                  placeholder="Copy & paste rows from Google Sheet or Excel (e.g. John Doe, +919876543210 or just phone numbers)"
+                                  value={sheetRawInput}
+                                  onChange={(e) => setSheetRawInput(e.target.value)}
+                                  className="w-full p-2 bg-surface border border-border rounded-sm font-mono text-xs text-text-primary placeholder:text-text-muted"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleParseCsv(sheetRawInput)}
+                                  className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary font-medium text-xs rounded-sm border border-border cursor-pointer transition-colors duration-150"
+                                >
+                                  + Parse & Add Leads
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="border-2 border-dashed border-border rounded-sm p-4 text-center bg-surface hover:bg-surface-subtle transition-colors duration-150 cursor-pointer relative">
+                                <input
+                                  type="file"
+                                  accept=".csv,.txt,.tsv"
+                                  onChange={handleFileUpload}
+                                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                />
+                                <p className="text-xs font-medium text-text-primary">Click or drop a .csv file here</p>
+                                <p className="text-[11px] text-text-muted mt-0.5">Supports standard CSV / Google Sheet exports with Phone and Name columns</p>
+                              </div>
+                            )}
+
+                            {sheetParsingError && (
+                              <p className="text-[11px] text-status-error">{sheetParsingError}</p>
+                            )}
+
+                            {/* Loaded Leads Table Preview */}
+                            {sheetLeads.length > 0 && (
+                              <div className="space-y-1.5 pt-1">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="font-semibold text-text-primary">Loaded Leads ({sheetLeads.length})</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSheetLeads([])}
+                                    className="text-[11px] text-status-error hover:underline cursor-pointer"
+                                  >
+                                    Clear all leads
+                                  </button>
+                                </div>
+
+                                <div className="max-h-36 overflow-y-auto divide-y divide-border border border-border rounded-sm bg-surface">
+                                  {sheetLeads.map((ld, idx) => (
+                                    <div key={idx} className="p-1.5 px-2.5 flex items-center justify-between text-xs">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-medium text-text-primary">{ld.name}</span>
+                                        <span className="font-mono text-text-muted text-[11px]">{ld.phone}</span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => setSheetLeads((prev) => prev.filter((_, i) => i !== idx))}
+                                        className="text-text-muted hover:text-status-error p-0.5 cursor-pointer"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
-                      {/* Custom Phones Input if custom selected */}
-                      {campaignForm.target_audience === 'custom' && (
-                        <div className="space-y-1">
-                          <label className="font-medium text-text-primary">Enter phone numbers (comma or newline separated)</label>
-                          <textarea
-                            rows={3}
-                            placeholder="+919876543210, +917603807215"
-                            value={campaignForm.custom_phones}
-                            onChange={(e) => setCampaignForm({ ...campaignForm, custom_phones: e.target.value })}
-                            className="w-full p-2.5 bg-surface-subtle border border-border rounded-sm font-mono text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent"
-                          />
-                        </div>
-                      )}
-
-                      {/* Message Mode: Meta Template vs Custom Text */}
+                      {/* ── Message Mode: Meta Template vs Custom Text ── */}
                       <div className="space-y-2 pt-1 border-t border-border">
                         <div className="flex items-center justify-between">
                           <label className="font-medium text-text-primary">Message Type</label>
@@ -2729,50 +3054,66 @@ export default function DashboardPage() {
                         {/* If Template Selected */}
                         {campaignForm.message_mode === 'template' ? (
                           <div className="space-y-3 bg-surface-subtle/50 p-3.5 rounded-sm border border-border">
+                            <div className="flex items-center justify-between">
+                              <label className="text-[11px] font-medium text-text-secondary">Approved WhatsApp Template</label>
+                              <button
+                                type="button"
+                                onClick={() => setNewTemplateModal(true)}
+                                className="text-[11px] text-accent hover:underline font-medium flex items-center gap-1 cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Add Approved Template Name</span>
+                              </button>
+                            </div>
+
                             <div className="space-y-1">
-                              <label className="text-[11px] font-medium text-text-secondary">Select Approved WhatsApp Template</label>
                               <select
                                 value={campaignForm.template_name}
                                 onChange={(e) => setCampaignForm({ ...campaignForm, template_name: e.target.value })}
                                 className="w-full px-3 py-2 bg-surface border border-border rounded-sm text-xs text-text-primary"
                               >
-                                <option value="utility_general_update">1. Utility / Promotional Update (utility_general_update)</option>
-                                <option value="booking_confirmation">2. Appointment Announcement (booking_confirmation)</option>
-                                <option value="feedback_request">3. Customer Feedback Request (feedback_request)</option>
-                                <option value="reschedule_notification">4. Special Schedule Update (reschedule_notification)</option>
+                                {customTemplates.map((tpl) => (
+                                  <option key={tpl.id} value={tpl.name}>
+                                    {tpl.label}
+                                  </option>
+                                ))}
                               </select>
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                              <div className="space-y-1">
-                                <label className="text-[11px] font-medium text-text-muted">Variable 1 (Name)</label>
-                                <input
-                                  type="text"
-                                  placeholder="e.g. Valued Customer"
-                                  value={campaignForm.template_param1}
-                                  onChange={(e) => setCampaignForm({ ...campaignForm, template_param1: e.target.value })}
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-[11px] font-medium text-text-muted">Variable 2 (Business)</label>
-                                <input
-                                  type="text"
-                                  placeholder={settingsForm.name || 'Boldlabs'}
-                                  value={campaignForm.template_param2}
-                                  onChange={(e) => setCampaignForm({ ...campaignForm, template_param2: e.target.value })}
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-[11px] font-medium text-text-muted">Variable 3 (Offer / Code)</label>
-                                <input
-                                  type="text"
-                                  placeholder="e.g. FLAT20 / Valid this week"
-                                  value={campaignForm.template_param3}
-                                  onChange={(e) => setCampaignForm({ ...campaignForm, template_param3: e.target.value })}
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary"
-                                />
+                            {/* Dynamic Variables depending on Template */}
+                            <div className="space-y-1.5">
+                              <span className="text-[11px] font-medium text-text-muted">Template Dynamic Variables</span>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-medium text-text-muted">Variable 1 {'({{1}})'}</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. Valued Customer"
+                                    value={campaignForm.template_param1}
+                                    onChange={(e) => setCampaignForm({ ...campaignForm, template_param1: e.target.value })}
+                                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-medium text-text-muted">Variable 2 {'({{2}})'}</label>
+                                  <input
+                                    type="text"
+                                    placeholder={settingsForm.name || 'Boldlabs'}
+                                    value={campaignForm.template_param2}
+                                    onChange={(e) => setCampaignForm({ ...campaignForm, template_param2: e.target.value })}
+                                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-medium text-text-muted">Variable 3 {'({{3}})'}</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. FLAT20 / Special Offer"
+                                    value={campaignForm.template_param3}
+                                    onChange={(e) => setCampaignForm({ ...campaignForm, template_param3: e.target.value })}
+                                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary"
+                                  />
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -2789,7 +3130,7 @@ export default function DashboardPage() {
                               className="w-full p-2.5 bg-surface border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:border-accent"
                             />
                             <p className="text-[10px] text-text-muted">
-                              💡 Note: For direct custom messages, Meta requires the user to have interacted with your WhatsApp account within the last 24 hours.
+                              💡 Note: For direct custom messages, Meta requires the customer to have messaged your WhatsApp account within the last 24 hours.
                             </p>
                           </div>
                         )}
@@ -2801,24 +3142,23 @@ export default function DashboardPage() {
                         <span>Dispatches sequentially with automatic 500ms safety interval to prevent WhatsApp account rate limits.</span>
                       </div>
 
-                      {/* Launch Submit Button */}
-                      <div className="pt-2 flex items-center justify-between">
+                      {/* Launch Submit Button with Dynamic Combined Count */}
+                      <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <span className="text-xs text-text-secondary font-medium">
-                          Audience: <strong className="text-text-primary font-semibold">
-                            {campaignForm.target_audience === 'all'
-                              ? `${contacts.length || conversations.length} contacts`
-                              : campaignForm.target_audience === 'attended'
-                              ? `${bookings.filter((b) => b.status === 'completed' || b.status === 'confirmed').length} past clients`
-                              : campaignForm.target_audience === 'important'
-                              ? `${importantConvIds.length} VIPs`
-                              : 'Custom list'}
+                          Total Target Audience:{' '}
+                          <strong className="text-text-primary font-semibold">
+                            {campaignForm.target_audience === 'contacts_only'
+                              ? `${selectedContactIds.length} CRM contacts`
+                              : campaignForm.target_audience === 'sheet_only'
+                              ? `${sheetLeads.length} Google Sheet leads`
+                              : `${selectedContactIds.length + sheetLeads.length} recipients (combined)`}
                           </strong>
                         </span>
 
                         <button
                           type="submit"
                           disabled={sendingBroadcast}
-                          className="px-5 py-2 bg-accent hover:bg-accent/90 text-white font-semibold text-xs rounded-sm transition-colors duration-150 flex items-center gap-2 disabled:opacity-50 cursor-pointer shadow-subtle"
+                          className="px-5 py-2 bg-accent hover:bg-accent/90 text-white font-semibold text-xs rounded-sm transition-colors duration-150 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-subtle"
                         >
                           {sendingBroadcast ? (
                             <>
@@ -4500,6 +4840,83 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
-    </div>
+
+        {/* ── MODAL 4: ADD APPROVED WHATSAPP TEMPLATE NAME ───── */}
+        {newTemplateModal && (
+          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-surface rounded-md border border-border w-full max-w-md overflow-hidden shadow-subtle p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div className="flex items-center gap-2">
+                  <Megaphone className="w-5 h-5 text-accent stroke-[1.5]" />
+                  <div>
+                    <h3 className="font-semibold text-sm text-text-primary">Add Approved Template</h3>
+                    <p className="text-xs text-text-muted">Register an approved Meta WhatsApp template</p>
+                  </div>
+                </div>
+                <button onClick={() => setNewTemplateModal(false)} className="text-text-muted hover:text-text-primary cursor-pointer">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleAddCustomTemplate} className="space-y-3.5 text-xs">
+                <div className="space-y-1">
+                  <label className="font-medium text-text-primary">Exact Template Name in Meta *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. festive_offer_2026 or launch_discount_v1"
+                    value={newTemplateForm.name}
+                    onChange={(e) => setNewTemplateForm({ ...newTemplateForm, name: e.target.value })}
+                    className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent"
+                  />
+                  <p className="text-[10px] text-text-muted">Must match the exact template name approved in your Meta WhatsApp Business Manager.</p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-medium text-text-primary">Display Label / Description</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 5. Festive 30% Off Promotion"
+                    value={newTemplateForm.label}
+                    onChange={(e) => setNewTemplateForm({ ...newTemplateForm, label: e.target.value })}
+                    className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-medium text-text-primary">Number of Body Variables ({'{{1}}'}, {'{{2}}'}, etc.)</label>
+                  <select
+                    value={newTemplateForm.variables_count}
+                    onChange={(e) => setNewTemplateForm({ ...newTemplateForm, variables_count: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary"
+                  >
+                    <option value={1}>1 Variable (e.g. {'{{1}}'} Customer Name)</option>
+                    <option value={2}>2 Variables (e.g. {'{{1}}'} Name, {'{{2}}'} Offer)</option>
+                    <option value={3}>3 Variables (e.g. {'{{1}}'} Name, {'{{2}}'} Business, {'{{3}}'} Code)</option>
+                    <option value={4}>4 Variables</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+                  <button
+                    type="button"
+                    onClick={() => setNewTemplateModal(false)}
+                    className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors duration-150 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 bg-accent hover:bg-accent/90 text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Save & Select Template</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
   );
 }
