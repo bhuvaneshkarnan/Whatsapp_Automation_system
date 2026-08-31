@@ -319,6 +319,7 @@ export default function DashboardPage() {
     template_admin_notification: 'admin_notification',
     template_admin_human_request: 'admin_human_request',
     template_admin_cancellation_notice: 'admin_cancellation_notice',
+    template_admin_daily_digest: 'admin_daily_digest',
     google_client_id: '',
     google_client_secret: '',
     google_refresh_token: '',
@@ -2759,6 +2760,17 @@ export default function DashboardPage() {
                               className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
                             />
                             <p className="text-[10px] text-slate-500 mt-1">Sent 15 mins after booking status is marked Attended.</p>
+                            <div className="mt-2">
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1">🔗 Google Review Link / URL</label>
+                              <input
+                                type="text"
+                                placeholder="https://g.page/r/your-review-link"
+                                value={settingsForm.google_review_link || ''}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, google_review_link: e.target.value })}
+                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
+                              />
+                              <p className="text-[10px] text-slate-500 mt-0.5">Inserted into variable {'{{3}}'} of review request template.</p>
+                            </div>
                           </div>
 
                           <div>
@@ -2781,9 +2793,9 @@ export default function DashboardPage() {
                           Admin & Staff WhatsApp Alert Templates
                         </h5>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                           <div>
-                            <label className="block text-[11px] font-bold text-slate-700 mb-1">7. Admin New Booking Alert</label>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">7. Admin Booking Alert</label>
                             <input
                               type="text"
                               placeholder="admin_notification"
@@ -2811,6 +2823,17 @@ export default function DashboardPage() {
                               placeholder="admin_human_request"
                               value={settingsForm.template_admin_human_request || ''}
                               onChange={(e) => setSettingsForm({ ...settingsForm, template_admin_human_request: e.target.value })}
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-slate-900"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">10. Admin Daily Digest</label>
+                            <input
+                              type="text"
+                              placeholder="admin_daily_digest"
+                              value={settingsForm.template_admin_daily_digest || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, template_admin_daily_digest: e.target.value })}
                               className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-slate-900"
                             />
                           </div>

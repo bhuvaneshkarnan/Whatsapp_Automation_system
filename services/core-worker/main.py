@@ -1861,11 +1861,91 @@ class CoreWorker:
             try:
                 await asyncio.sleep(60)
                 await self._process_appointment_reminders()
+                await self._process_daily_digest()
                 await self._process_scheduled_jobs()
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error("scheduled_job_error", error=str(e))
+
+    async def _process_daily_digest(self):
+        """
+        Runs once daily at ~08:00 AM in tenant's local timezone.
+        Queries today's confirmed bookings count and dispatches template_admin_daily_digest to admin.
+        """
+        try:
+            tenants = await self.db_pool.fetch("SELECT id, settings FROM tenants WHERE is_active = true")
+            for t in tenants:
+                tenant_id = str(t["id"])
+                settings = t["settings"] or {}
+                if isinstance(settings, str):
+                    try: settings = json.loads(settings)
+                    except: settings = {}
+
+                tz_str = settings.get("timezone", "Asia/Kolkata")
+                import zoneinfo
+                try: tz = zoneinfo.ZoneInfo(tz_str)
+                except Exception: tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+                now_local = datetime.datetime.now(tz)
+                # Check if current time is around 08:00 AM (08:00 - 08:05)
+                if now_local.hour == 8 and now_local.minute < 5:
+                    today_str = now_local.strftime("%Y-%m-%d")
+                    digest_key = f"digest_sent:{tenant_id}:{today_str}"
+                    already_sent = await self.redis.get(digest_key)
+                    if not already_sent:
+                        start_of_day = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+                        end_of_day = now_local.replace(hour=23, minute=59, second=59, microsecond=999999)
+                        
+                        count = await self.db_pool.fetchval(
+                            """SELECT count(*) FROM bookings
+                               WHERE tenant_id = $1::uuid AND status = 'confirmed'
+                                 AND start_time >= $2 AND start_time <= $3""",
+                            tenant_id, start_of_day, end_of_day
+                        )
+                        
+                        wa_row = await self.db_pool.fetchrow(
+                            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+                            tenant_id
+                        )
+                        if wa_row and wa_row["credential_data"]:
+                            wdata = wa_row["credential_data"]
+                            if isinstance(wdata, str):
+                                try: wdata = json.loads(wdata)
+                                except: wdata = {}
+                            
+                            admin_phone = (wdata.get("admin_whatsapp_number") or settings.get("admin_whatsapp_number") or "").strip()
+                            if admin_phone and wdata.get("phone_number_id") and wdata.get("access_token"):
+                                clean_admin = re.sub(r'[^0-9+]', '', admin_phone)
+                                if not clean_admin.startswith("+"):
+                                    clean_admin = f"+91{clean_admin}" if len(clean_admin) == 10 else f"+{clean_admin}"
+                                
+                                digest_template = wdata.get("template_admin_daily_digest") or "admin_daily_digest"
+                                formatted_today = now_local.strftime("%A, %d %B %Y")
+                                components = [
+                                    {
+                                        "type": "body",
+                                        "parameters": [
+                                            {"type": "text", "text": str(count or 0)},
+                                            {"type": "text", "text": formatted_today},
+                                        ]
+                                    }
+                                ]
+                                try:
+                                    await send_template(
+                                        phone_number_id=wdata["phone_number_id"],
+                                        access_token=wdata["access_token"],
+                                        to=clean_admin,
+                                        template_name=digest_template,
+                                        language_code="en",
+                                        components=components,
+                                    )
+                                    logger.info("admin_daily_digest_sent", tenant_id=tenant_id, count=count, to=clean_admin)
+                                    await self.redis.setex(digest_key, 86400, "1")
+                                except Exception as de:
+                                    logger.warning("admin_daily_digest_failed", error=str(de))
+        except Exception as e:
+            logger.error("process_daily_digest_error", error=str(e))
 
     async def _process_appointment_reminders(self):
         """Find confirmed bookings happening in 2 hours that have not yet received a reminder."""
