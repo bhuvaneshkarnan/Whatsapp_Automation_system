@@ -541,15 +541,28 @@ async def update_booking_status(
         automated_text = None
         delay_seconds = 0
 
-        if payload.status == "completed":
+        # Load google_review_link if present
+        t_settings_dict = booking["tenant_settings"] if booking.get("tenant_settings") else {}
+        if isinstance(t_settings_dict, str):
+            try: t_settings_dict = json.loads(t_settings_dict)
+            except: t_settings_dict = {}
+        google_review_link = (t_settings_dict.get("google_review_link") or "").strip()
+
+        if payload.status in ["completed", "attended"]:
             # 15 minutes delay for review request (900 seconds)
             delay_seconds = 900
+            review_link_block = f"\n\n⭐ *Leave a quick Google Review here:*\n{google_review_link}" if google_review_link else ""
             automated_text = (
                 f"Hi {patient_name}, thank you for attending your {service_name} session with {tenant_name} today! 😊\n\n"
-                f"We hope you had a wonderful experience! Could you please take 30 seconds to share your review or feedback with us?\n\n"
-                f"Your review helps us maintain the highest standard of service. Thank you for choosing {tenant_name}!"
+                f"We hope you had a wonderful experience! Could you please take 30 seconds to share your review with us?{review_link_block}\n\n"
+                f"Your feedback helps us maintain the highest standard of service. Thank you for choosing {tenant_name}!"
             )
-        elif payload.status == "no_show":
+            # Update review_sent_at timestamp
+            await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid", booking_id)
+
+        elif payload.status in ["no_show", "no-show"]:
+            # 15 minutes delay for reschedule nudge (900 seconds)
+            delay_seconds = 900
             automated_text = (
                 f"Hi {patient_name}, we missed you today for your scheduled {service_name} appointment with {tenant_name}.\n\n"
                 f"We understand that plans can change unexpectedly! Would you like to reschedule for tomorrow or another time?\n\n"
@@ -955,6 +968,10 @@ class TenantSettingsUpdate(BaseModel):
     template_admin_cancellation_notice: Optional[str] = None
     template_reschedule_confirmation: Optional[str] = None
     template_post_service_review: Optional[str] = None
+    template_appointment_reminder: Optional[str] = None
+    template_reschedule_nudge: Optional[str] = None
+    template_review_request: Optional[str] = None
+    google_review_link: Optional[str] = None
     
     google_client_id: Optional[str] = None
     google_client_secret: Optional[str] = None
@@ -1091,6 +1108,10 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         "template_admin_cancellation_notice": wa_data.get("template_admin_cancellation_notice", "admin_cancellation_notice"),
         "template_reschedule_confirmation": wa_data.get("template_reschedule_confirmation", "booking_confirmationn"),
         "template_post_service_review": wa_data.get("template_post_service_review", "post_service_review"),
+        "template_appointment_reminder": wa_data.get("template_appointment_reminder", "appointment_ramainder"),
+        "template_reschedule_nudge": wa_data.get("template_reschedule_nudge", "reschedule_nudge"),
+        "template_review_request": wa_data.get("template_review_request", "review_request"),
+        "google_review_link": tenant_settings.get("google_review_link", wa_data.get("google_review_link", "")),
         
         # Google Calendar
         "google_client_id": gcal_data.get("client_id", ""),
@@ -1112,7 +1133,7 @@ async def update_tenant_settings(
         # 1. Update tenant name, logo, timezone, country_code, currency if provided
         if payload.name:
             await conn.execute("UPDATE tenants SET name = $1 WHERE id = $2::uuid", payload.name.strip(), tenant_id)
-        if payload.logo_url is not None or payload.timezone is not None or payload.country_code is not None or payload.currency is not None or payload.currency_symbol is not None or payload.notification_email is not None or payload.admin_whatsapp_number is not None:
+        if payload.logo_url is not None or payload.timezone is not None or payload.country_code is not None or payload.currency is not None or payload.currency_symbol is not None or payload.notification_email is not None or payload.admin_whatsapp_number is not None or payload.google_review_link is not None:
             t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
             cur_settings = t_row["settings"] if t_row and t_row["settings"] else {}
             if isinstance(cur_settings, str):
@@ -1125,6 +1146,7 @@ async def update_tenant_settings(
             if payload.currency_symbol is not None: cur_settings["currency_symbol"] = payload.currency_symbol.strip()
             if payload.notification_email is not None: cur_settings["notification_email"] = payload.notification_email.strip()
             if payload.admin_whatsapp_number is not None: cur_settings["admin_whatsapp_number"] = payload.admin_whatsapp_number.strip()
+            if payload.google_review_link is not None: cur_settings["google_review_link"] = payload.google_review_link.strip()
             await conn.execute(
                 "UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid",
                 json.dumps(cur_settings), tenant_id
@@ -1155,6 +1177,10 @@ async def update_tenant_settings(
         if payload.template_admin_cancellation_notice is not None: wa_data["template_admin_cancellation_notice"] = payload.template_admin_cancellation_notice.strip()
         if payload.template_reschedule_confirmation is not None: wa_data["template_reschedule_confirmation"] = payload.template_reschedule_confirmation.strip()
         if payload.template_post_service_review is not None: wa_data["template_post_service_review"] = payload.template_post_service_review.strip()
+        if payload.template_appointment_reminder is not None: wa_data["template_appointment_reminder"] = payload.template_appointment_reminder.strip()
+        if payload.template_reschedule_nudge is not None: wa_data["template_reschedule_nudge"] = payload.template_reschedule_nudge.strip()
+        if payload.template_review_request is not None: wa_data["template_review_request"] = payload.template_review_request.strip()
+        if payload.google_review_link is not None: wa_data["google_review_link"] = payload.google_review_link.strip()
         if payload.primary_model_provider is not None: wa_data["primary_model_provider"] = payload.primary_model_provider.strip()
 
         if wa_row:

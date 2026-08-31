@@ -1483,17 +1483,123 @@ class CoreWorker:
 
     async def _scheduled_job_loop(self):
         """
-        Poll scheduled_jobs every 60 seconds.
-        Sends WhatsApp reminders (24h before) and review requests (1h after).
+        Poll every 60 seconds for:
+        1. 2-Hour Appointment Reminders for confirmed bookings (only once per booking).
+        2. Scheduled background jobs.
         """
         while True:
             try:
                 await asyncio.sleep(60)
+                await self._process_appointment_reminders()
                 await self._process_scheduled_jobs()
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error("scheduled_job_error", error=str(e))
+
+    async def _process_appointment_reminders(self):
+        """Find confirmed bookings happening in 2 hours that have not yet received a reminder."""
+        try:
+            due_reminders = await self.db_pool.fetch(
+                """SELECT b.id, b.tenant_id, b.service, b.start_time, b.conversation_id,
+                          c.phone, c.name as contact_name,
+                          tc.credential_data as wa_creds,
+                          t.settings as tenant_settings
+                   FROM bookings b
+                   JOIN contacts c ON c.id = b.contact_id
+                   JOIN tenants t ON t.id = b.tenant_id
+                   JOIN tenant_credentials tc ON tc.tenant_id = b.tenant_id AND tc.provider = 'whatsapp'
+                   WHERE b.status = 'confirmed'
+                     AND b.reminder_sent_at IS NULL
+                     AND b.start_time <= (now() + interval '2 hours 5 minutes')
+                     AND b.start_time >= now()
+                   LIMIT 25"""
+            )
+
+            for row in due_reminders:
+                booking_id = str(row["id"])
+                tenant_id = str(row["tenant_id"])
+                contact_phone = row["phone"]
+                name = row["contact_name"] or "there"
+                service_name = row["service"] or "Appointment"
+                conv_id = str(row["conversation_id"]) if row.get("conversation_id") else None
+
+                # Extract timezone
+                tenant_timezone_str = "Asia/Kolkata"
+                t_st = row["tenant_settings"] if row.get("tenant_settings") else {}
+                if isinstance(t_st, str):
+                    try: t_st = json.loads(t_st)
+                    except: t_st = {}
+                if t_st.get("timezone"):
+                    tenant_timezone_str = t_st.get("timezone").strip()
+
+                import zoneinfo
+                try: tz = zoneinfo.ZoneInfo(tenant_timezone_str)
+                except: tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+                st_dt = row["start_time"].astimezone(tz)
+                formatted_date = st_dt.strftime("%d-%m-%Y")
+                formatted_time = st_dt.strftime("%I:%M %p")
+
+                creds = row["wa_creds"] if row.get("wa_creds") else {}
+                if isinstance(creds, str):
+                    try: creds = json.loads(creds)
+                    except: creds = {}
+
+                # 1. Mark as sent immediately to avoid duplicate dispatch
+                await self.db_pool.execute(
+                    "UPDATE bookings SET reminder_sent_at = now() WHERE id = $1::uuid",
+                    booking_id
+                )
+
+                # 2. Dispatch Meta Template or Text
+                if creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+                    template_name = creds.get("template_appointment_reminder") or "appointment_ramainder"
+                    components = [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": name},
+                                {"type": "text", "text": service_name},
+                                {"type": "text", "text": formatted_date},
+                                {"type": "text", "text": formatted_time},
+                            ]
+                        }
+                    ]
+                    try:
+                        await send_template(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=contact_phone,
+                            template_name=template_name,
+                            language_code="en",
+                            components=components,
+                        )
+                        logger.info("2hr_appointment_reminder_template_sent", booking_id=booking_id, to=contact_phone)
+                    except Exception as e:
+                        logger.warning("reminder_template_send_failed_fallback_to_text", error=str(e), template=template_name)
+                        reminder_text = (
+                            f"Hi {name}! ⏰ This is a friendly reminder that your *{service_name}* appointment "
+                            f"is in 2 hours today at *{formatted_time}*. We look forward to seeing you!"
+                        )
+                        try:
+                            await send_text(
+                                phone_number_id=creds["phone_number_id"],
+                                access_token=creds["access_token"],
+                                to=contact_phone,
+                                body=reminder_text,
+                            )
+                            if conv_id:
+                                await self.db_pool.execute(
+                                    """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
+                                       VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
+                                    str(uuid.uuid4()), conv_id, tenant_id, reminder_text
+                                )
+                            logger.info("2hr_appointment_reminder_text_sent", booking_id=booking_id, to=contact_phone)
+                        except Exception as e2:
+                            logger.error("reminder_text_send_failed", error=str(e2))
+        except Exception as e:
+            logger.error("process_appointment_reminders_failed", error=str(e))
 
     async def _process_scheduled_jobs(self):
         """Find due scheduled jobs and send WhatsApp messages."""

@@ -2652,94 +2652,163 @@ export default function DashboardPage() {
 
                   {/* ── 3. LIFECYCLE MESSAGE TEMPLATES ───────────────────────── */}
                   {settingsTab === 'templates' && (
-                    <div className="space-y-4 bg-slate-50/50 p-5 rounded-2xl border border-slate-200">
-                      <div className="pb-2 border-b border-slate-200">
-                        <h4 className="font-bold text-xs text-slate-900 font-headline">WhatsApp Message Template Identifiers</h4>
+                    <div className="space-y-5 bg-slate-50/50 p-5 rounded-2xl border border-slate-200">
+                      <div className="pb-2 border-b border-slate-200 flex items-center justify-between">
+                        <div>
+                          <h4 className="font-bold text-xs text-slate-900 font-headline">WhatsApp Message Template Identifiers</h4>
+                          <p className="text-[11px] text-slate-500">
+                            Meta WhatsApp approved templates used for automated customer confirmations, 2-hr reminders, 15-min reviews, no-show nudges, and admin alerts.
+                          </p>
+                        </div>
+                        <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                          ✓ Automated Lifecycles
+                        </span>
+                      </div>
+
+                      {/* Google Review URL Card */}
+                      <div className="p-4 bg-white rounded-2xl border border-slate-200 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-amber-500 text-sm">⭐</span>
+                          <label className="text-xs font-bold text-slate-900 font-headline">
+                            Google Business Review Link (Automated 15-Min Review Request)
+                          </label>
+                        </div>
                         <p className="text-[11px] text-slate-500">
-                          Template names approved in your Meta Business Manager used for automated customer confirmations & staff alerts.
+                          When an appointment is marked as <strong className="text-slate-800">Attended / Completed</strong>, the AI will automatically fetch this link and send a review request to the customer after 15 minutes.
                         </p>
+                        <input
+                          type="text"
+                          placeholder="https://g.page/r/your-business-id/review or https://search.google.com/local/writereview?placeid=..."
+                          value={settingsForm.google_review_link || ''}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, google_review_link: e.target.value })}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900 focus:bg-white transition"
+                        />
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1">1. Client Booking Confirmation Template</label>
-                          <input
-                            type="text"
-                            placeholder="booking_confirmationn"
-                            value={settingsForm.template_booking_confirmation || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, template_booking_confirmation: e.target.value })}
-                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
-                          />
+                      {/* Customer Automation Templates */}
+                      <div className="space-y-3">
+                        <h5 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 font-headline">
+                          Customer Automated Lifecycle Templates
+                        </h5>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">1. Client Booking Confirmation</label>
+                            <input
+                              type="text"
+                              placeholder="booking_confirmationn"
+                              value={settingsForm.template_booking_confirmation || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, template_booking_confirmation: e.target.value })}
+                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
+                            />
+                            <p className="text-[10px] text-slate-500 mt-1">Dispatched instantly upon appointment confirmation.</p>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">2. Client Reschedule Confirmation</label>
+                            <input
+                              type="text"
+                              placeholder="booking_confirmationn"
+                              value={settingsForm.template_reschedule_confirmation || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, template_reschedule_confirmation: e.target.value })}
+                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
+                            />
+                            <p className="text-[10px] text-slate-500 mt-1">Dispatched when customer reschedules their slot.</p>
+                          </div>
                         </div>
 
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1">2. Client Reschedule Confirmation Template</label>
-                          <input
-                            type="text"
-                            placeholder="booking_confirmationn"
-                            value={settingsForm.template_reschedule_confirmation || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, template_reschedule_confirmation: e.target.value })}
-                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
-                          />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">3. Client Cancellation Notice</label>
+                            <input
+                              type="text"
+                              placeholder="cancellation_confirmation"
+                              value={settingsForm.template_cancellation_confirmation || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, template_cancellation_confirmation: e.target.value })}
+                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
+                            />
+                            <p className="text-[10px] text-slate-500 mt-1">Dispatched when booking is cancelled.</p>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">4. ⏰ 2-Hour Appointment Reminder</label>
+                            <input
+                              type="text"
+                              placeholder="appointment_ramainder"
+                              value={settingsForm.template_appointment_reminder || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, template_appointment_reminder: e.target.value })}
+                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
+                            />
+                            <p className="text-[10px] text-slate-500 mt-1">Sent automatically 2 hours before start time (triggers only once).</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">5. ⭐ 15-Min Post-Attendance Review</label>
+                            <input
+                              type="text"
+                              placeholder="review_request"
+                              value={settingsForm.template_review_request || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, template_review_request: e.target.value })}
+                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
+                            />
+                            <p className="text-[10px] text-slate-500 mt-1">Sent 15 mins after booking status is marked Attended.</p>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">6. 🔄 15-Min No-Show Reschedule Nudge</label>
+                            <input
+                              type="text"
+                              placeholder="reschedule_nudge"
+                              value={settingsForm.template_reschedule_nudge || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, template_reschedule_nudge: e.target.value })}
+                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
+                            />
+                            <p className="text-[10px] text-slate-500 mt-1">Sent 15 mins after booking status is marked No Show.</p>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1">3. Client Cancellation Confirmation Template</label>
-                          <input
-                            type="text"
-                            placeholder="cancellation_confirmation"
-                            value={settingsForm.template_cancellation_confirmation || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, template_cancellation_confirmation: e.target.value })}
-                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
+                      {/* Admin & Staff Templates */}
+                      <div className="space-y-3 pt-3 border-t border-slate-200">
+                        <h5 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 font-headline">
+                          Admin & Staff WhatsApp Alert Templates
+                        </h5>
 
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1">4. Post-Service Review Request Template</label>
-                          <input
-                            type="text"
-                            placeholder="post_service_review"
-                            value={settingsForm.template_post_service_review || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, template_post_service_review: e.target.value })}
-                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
-                      </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">7. Admin New Booking Alert</label>
+                            <input
+                              type="text"
+                              placeholder="admin_notification"
+                              value={settingsForm.template_admin_notification || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, template_admin_notification: e.target.value })}
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-slate-900"
+                            />
+                          </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-slate-200">
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-700 mb-1">5. Admin New Booking Alert</label>
-                          <input
-                            type="text"
-                            placeholder="admin_notification"
-                            value={settingsForm.template_admin_notification || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, template_admin_notification: e.target.value })}
-                            className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">8. Admin Cancellation Notice</label>
+                            <input
+                              type="text"
+                              placeholder="admin_cancellation_notice"
+                              value={settingsForm.template_admin_cancellation_notice || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, template_admin_cancellation_notice: e.target.value })}
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-slate-900"
+                            />
+                          </div>
 
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-700 mb-1">6. Admin Staff Takeover Alert</label>
-                          <input
-                            type="text"
-                            placeholder="admin_human_request"
-                            value={settingsForm.template_admin_human_request || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, template_admin_human_request: e.target.value })}
-                            className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-slate-900"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-700 mb-1">7. Admin Cancellation Notice</label>
-                          <input
-                            type="text"
-                            placeholder="admin_cancellation_notice"
-                            value={settingsForm.template_admin_cancellation_notice || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, template_admin_cancellation_notice: e.target.value })}
-                            className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-slate-900"
-                          />
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">9. Admin Staff Takeover Alert</label>
+                            <input
+                              type="text"
+                              placeholder="admin_human_request"
+                              value={settingsForm.template_admin_human_request || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, template_admin_human_request: e.target.value })}
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-slate-900"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>

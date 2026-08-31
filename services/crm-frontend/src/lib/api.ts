@@ -342,6 +342,10 @@ export interface TenantSettingsResponse {
   template_admin_cancellation_notice?: string;
   template_reschedule_confirmation?: string;
   template_post_service_review?: string;
+  template_appointment_reminder?: string;
+  template_reschedule_nudge?: string;
+  template_review_request?: string;
+  google_review_link?: string;
   
   google_client_id?: string;
   google_client_secret?: string;
