@@ -794,36 +794,67 @@ class CoreWorker:
                     except Exception as e:
                         logger.warning("location_directions_send_failed", error=str(e))
 
-                # 2. Send Admin Notification Meta Template
-                admin_phone = creds.get("admin_whatsapp_number")
+                # 2. Send Admin Notification WhatsApp Alert to Admin Number
+                admin_phone = (creds.get("admin_whatsapp_number") or "").strip()
+                if not admin_phone:
+                    tenant_st_data = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                    if tenant_st_data:
+                        if isinstance(tenant_st_data, str):
+                            try: tenant_st_data = json.loads(tenant_st_data)
+                            except: tenant_st_data = {}
+                        admin_phone = (tenant_st_data.get("admin_whatsapp_number") or "").strip()
+
                 if admin_phone:
-                    admin_template = creds.get("template_admin_notification") or "admin_notification"
-                    admin_components = [
-                        {
-                            "type": "body",
-                            "parameters": [
-                                {"type": "text", "text": name},
-                                {"type": "text", "text": contact_phone},
-                                {"type": "text", "text": service_name},
-                                {"type": "text", "text": formatted_date},
-                                {"type": "text", "text": formatted_time},
-                            ]
-                        }
-                    ]
+                    clean_admin_phone = re.sub(r'[^0-9+]', '', admin_phone)
+                    if not clean_admin_phone.startswith("+"):
+                        clean_admin_phone = f"+91{clean_admin_phone}" if len(clean_admin_phone) == 10 else f"+{clean_admin_phone}"
+
+                    admin_alert_text = (
+                        f"🔔 *New Booking Confirmed!* 📅\n\n"
+                        f"• *Customer:* {name}\n"
+                        f"• *Phone:* {contact_phone}\n"
+                        f"• *Service:* {service_name}\n"
+                        f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
+                        f"• *Email:* {customer_email or 'Not provided'}\n\n"
+                        f"✅ Confirmed by WhatsApp AI Assistant & synced to Google Calendar."
+                    )
                     try:
-                        await send_template(
+                        await send_text(
                             phone_number_id=creds["phone_number_id"],
                             access_token=creds["access_token"],
-                            to=admin_phone,
-                            template_name=admin_template,
-                            language_code="en",
-                            components=admin_components,
+                            to=clean_admin_phone,
+                            body=admin_alert_text,
                         )
-                        logger.info("admin_notification_template_sent", template=admin_template, to=admin_phone)
+                        logger.info("admin_whatsapp_alert_sent", to=clean_admin_phone)
                     except Exception as e:
-                        logger.warning("admin_notification_template_failed", error=str(e))
+                        logger.warning("admin_whatsapp_text_failed_trying_template", error=str(e))
+                        admin_template = creds.get("template_admin_notification") or "admin_notification"
+                        admin_components = [
+                            {
+                                "type": "body",
+                                "parameters": [
+                                    {"type": "text", "text": name},
+                                    {"type": "text", "text": contact_phone},
+                                    {"type": "text", "text": service_name},
+                                    {"type": "text", "text": formatted_date},
+                                    {"type": "text", "text": formatted_time},
+                                ]
+                            }
+                        ]
+                        try:
+                            await send_template(
+                                phone_number_id=creds["phone_number_id"],
+                                access_token=creds["access_token"],
+                                to=clean_admin_phone,
+                                template_name=admin_template,
+                                language_code="en",
+                                components=admin_components,
+                            )
+                            logger.info("admin_notification_template_sent", template=admin_template, to=clean_admin_phone)
+                        except Exception as e2:
+                            logger.warning("admin_notification_template_failed", error=str(e2))
 
-            # 3. Google Calendar Event Creation & Email Invite
+            # 3. Google Calendar Event Creation & Email Invite to Both Customer & Admin
             gcal_row = await self.db_pool.fetchrow(
                 "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
                 tenant_id
@@ -851,18 +882,34 @@ class CoreWorker:
                         
                         event_body = {
                             "summary": f"{service_name} - {name} ({contact_phone})",
-                            "description": f"WhatsApp Booking Automated By AI\n\n• Client: {name}\n• Phone: {contact_phone}\n• Service: {service_name}\n• Notes: {notes}",
+                            "description": (
+                                f"WhatsApp Booking Automated By AI\n\n"
+                                f"• Client Name: {name}\n"
+                                f"• Client Phone: {contact_phone}\n"
+                                f"• Client Email: {customer_email or 'N/A'}\n"
+                                f"• Service: {service_name}\n"
+                                f"• Scheduled Time: {st_dt.strftime('%d %B %Y at %I:%M %p')}\n"
+                                f"• Notes: {notes}"
+                            ),
                             "start": {"dateTime": st_dt.isoformat()},
                             "end": {"dateTime": et_dt.isoformat()},
                         }
                         
                         # Add attendees: admin email + customer email
                         attendees = []
-                        notif_email = g_data.get("notification_email")
-                        if notif_email and "@" in notif_email:
-                            attendees.append({"email": notif_email})
-                        if customer_email and re.match(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$', customer_email) and customer_email != notif_email:
-                            attendees.append({"email": customer_email})
+                        admin_notif_email = g_data.get("notification_email")
+                        if not admin_notif_email:
+                            tenant_settings_row = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                            if tenant_settings_row:
+                                if isinstance(tenant_settings_row, str):
+                                    try: tenant_settings_row = json.loads(tenant_settings_row)
+                                    except: tenant_settings_row = {}
+                                admin_notif_email = tenant_settings_row.get("notification_email")
+
+                        if admin_notif_email and "@" in admin_notif_email:
+                            attendees.append({"email": admin_notif_email.strip()})
+                        if customer_email and re.match(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$', customer_email) and customer_email.strip() != (admin_notif_email or "").strip():
+                            attendees.append({"email": customer_email.strip()})
                         
                         if attendees:
                             event_body["attendees"] = attendees

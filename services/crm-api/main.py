@@ -1120,6 +1120,8 @@ async def update_tenant_settings(
             if payload.country_code is not None: cur_settings["country_code"] = payload.country_code.strip()
             if payload.currency is not None: cur_settings["currency"] = payload.currency.strip()
             if payload.currency_symbol is not None: cur_settings["currency_symbol"] = payload.currency_symbol.strip()
+            if payload.notification_email is not None: cur_settings["notification_email"] = payload.notification_email.strip()
+            if payload.admin_whatsapp_number is not None: cur_settings["admin_whatsapp_number"] = payload.admin_whatsapp_number.strip()
             await conn.execute(
                 "UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid",
                 json.dumps(cur_settings), tenant_id

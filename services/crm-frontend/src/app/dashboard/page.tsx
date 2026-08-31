@@ -2302,6 +2302,41 @@ export default function DashboardPage() {
                             Whenever a booking is confirmed by AI or CRM, this address and maps link is automatically sent to the customer on WhatsApp.
                           </p>
                         </div>
+
+                        {/* Admin Notification Alerts */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                          <div className="p-3.5 bg-amber-50/60 rounded-xl border border-amber-200/80 space-y-1.5">
+                            <label className="block text-xs font-bold text-slate-900">
+                              📱 Admin WhatsApp Number (Instant Booking Alerts)
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. +918870341570"
+                              value={settingsForm.admin_whatsapp_number || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, admin_whatsapp_number: e.target.value })}
+                              className="w-full px-3 py-2 bg-white border border-amber-200 rounded-lg text-xs font-mono focus:outline-none focus:border-slate-900"
+                            />
+                            <p className="text-[10px] text-amber-900/80">
+                              Whenever a customer books an appointment, an instant WhatsApp alert is sent to this admin number.
+                            </p>
+                          </div>
+
+                          <div className="p-3.5 bg-blue-50/60 rounded-xl border border-blue-200/80 space-y-1.5">
+                            <label className="block text-xs font-bold text-slate-900">
+                              📧 Admin Email Address (Calendar Invites)
+                            </label>
+                            <input
+                              type="email"
+                              placeholder="e.g. bhuvaneshkarnan@gmail.com"
+                              value={settingsForm.notification_email || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, notification_email: e.target.value })}
+                              className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-xs font-medium focus:outline-none focus:border-slate-900"
+                            />
+                            <p className="text-[10px] text-blue-900/80">
+                              Booking notification emails and Google Calendar event invites will be sent to this email.
+                            </p>
+                          </div>
+                        </div>
                       </div>
 
                       {/* 3 BYOK Keys */}
