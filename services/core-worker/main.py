@@ -1332,6 +1332,18 @@ class CoreWorker:
                     )
                     # Send Meta Template FIRST (immune to 24h customer window)
                     admin_cancel_template = creds.get("template_admin_cancellation_notice") or "admin_cancellation_notice"
+                    admin_cancel_components = [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": name},
+                                {"type": "text", "text": contact_phone},
+                                {"type": "text", "text": service_name},
+                                {"type": "text", "text": formatted_date},
+                                {"type": "text", "text": formatted_time},
+                            ]
+                        }
+                    ]
                     try:
                         await send_template(
                             phone_number_id=creds["phone_number_id"],
@@ -1339,7 +1351,7 @@ class CoreWorker:
                             to=clean_admin_phone,
                             template_name=admin_cancel_template,
                             language_code="en",
-                            components=components,
+                            components=admin_cancel_components,
                         )
                         logger.info("admin_cancellation_template_sent", template=admin_cancel_template, to=clean_admin_phone)
                     except Exception as e:
@@ -1442,39 +1454,40 @@ class CoreWorker:
                     f"• *Phone:* {contact_phone}\n\n"
                     f"💬 The customer requested to speak with a human team member. AI automation has been paused for this chat. Please open your CRM dashboard to reply."
                 )
-                    # Send Meta Template FIRST (immune to 24h customer window)
-                    admin_template = creds.get("template_admin_human_request") or "admin_human_request"
-                    components = [
-                        {
-                            "type": "body",
-                            "parameters": [
-                                {"type": "text", "text": name},
-                                {"type": "text", "text": contact_phone},
-                            ]
-                        }
-                    ]
+                # Send Meta Template FIRST (immune to 24h customer window)
+                admin_template = creds.get("template_admin_human_request") or "admin_human_request"
+                components = [
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {"type": "text", "text": name},
+                            {"type": "text", "text": contact_phone},
+                            {"type": "text", "text": "Customer requested human support"},
+                        ]
+                    }
+                ]
+                try:
+                    await send_template(
+                        phone_number_id=creds["phone_number_id"],
+                        access_token=creds["access_token"],
+                        to=clean_admin,
+                        template_name=admin_template,
+                        language_code="en",
+                        components=components,
+                    )
+                    logger.info("admin_human_alert_template_sent", template=admin_template, to=clean_admin)
+                except Exception as e:
+                    logger.warning("admin_human_alert_template_failed_trying_text", error=str(e))
                     try:
-                        await send_template(
+                        await send_text(
                             phone_number_id=creds["phone_number_id"],
                             access_token=creds["access_token"],
                             to=clean_admin,
-                            template_name=admin_template,
-                            language_code="en",
-                            components=components,
+                            body=alert_text,
                         )
-                        logger.info("admin_human_alert_template_sent", template=admin_template, to=clean_admin)
-                    except Exception as e:
-                        logger.warning("admin_human_alert_template_failed_trying_text", error=str(e))
-                        try:
-                            await send_text(
-                                phone_number_id=creds["phone_number_id"],
-                                access_token=creds["access_token"],
-                                to=clean_admin,
-                                body=alert_text,
-                            )
-                            logger.info("admin_human_alert_text_sent", to=clean_admin)
-                        except Exception as e2:
-                            logger.error("admin_human_alert_failed", error=str(e2))
+                        logger.info("admin_human_alert_text_sent", to=clean_admin)
+                    except Exception as e2:
+                        logger.error("admin_human_alert_failed", error=str(e2))
         except Exception as e:
             logger.error("execute_admin_human_alert_failed", error=str(e))
 
