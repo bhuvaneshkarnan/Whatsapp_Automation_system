@@ -33,6 +33,56 @@ async def get_tenant_id(x_tenant_id: str = Header(...)) -> str:
         raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
     return x_tenant_id
 
+# ── Gmail Direct Dispatch & Email Builders ─────────────────────────────────────
+def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_body: str):
+    """Dispatches direct HTML email using authorized Google OAuth token via Gmail API."""
+    if not to_email or "@" not in to_email:
+        return None
+    try:
+        import base64
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        from googleapiclient.discovery import build
+
+        gmail_service = build("gmail", "v1", credentials=g_creds)
+        msg = MIMEMultipart("alternative")
+        msg["to"] = to_email.strip()
+        msg["subject"] = subject
+        msg.attach(MIMEText(html_body, "html"))
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+        res = gmail_service.users().messages().send(userId="me", body={"raw": raw}).execute()
+        logger.info("gmail_email_notification_sent", to=to_email, msg_id=res.get("id"))
+        return res
+    except Exception as e:
+        logger.warning("gmail_email_notification_failed", to=to_email, error=str(e))
+        return None
+
+
+def build_cancellation_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
+    return f"""
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; color: #1e293b;">
+  <div style="background: linear-gradient(135deg, #ef4444, #dc2626); padding: 18px; border-radius: 8px; text-align: center; color: #ffffff;">
+    <h2 style="margin: 0; font-size: 22px; font-weight: bold;">❌ Booking Cancelled</h2>
+    <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">Appointment cancellation notice</p>
+  </div>
+  <div style="padding: 24px 0;">
+    <p style="font-size: 15px; line-height: 1.5; color: #334155;">Hello,</p>
+    <p style="font-size: 15px; line-height: 1.5; color: #334155;">The following appointment has been cancelled:</p>
+    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px;">
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold; width: 35%;">Service:</td><td style="padding: 10px 0; color: #0f172a; font-weight: 600;">{service_name}</td></tr>
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Scheduled Time:</td><td style="padding: 10px 0; color: #0f172a; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Name:</td><td style="padding: 10px 0; color: #0f172a;">{name}</td></tr>
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Phone:</td><td style="padding: 10px 0; color: #0f172a;">{contact_phone}</td></tr>
+      <tr><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Email:</td><td style="padding: 10px 0; color: #0f172a;">{customer_email or 'Not provided'}</td></tr>
+    </table>
+    <p style="font-size: 14px; color: #64748b; line-height: 1.5; margin-top: 15px;">The calendar event has been deleted. Reply anytime on WhatsApp if you would like to reschedule!</p>
+  </div>
+  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
+    Automated via Boldlabs AI WhatsApp CRM System
+  </div>
+</div>
+"""
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -591,6 +641,34 @@ async def update_booking_status(
                         cal_id = g_data.get("calendar_id") or "primary"
                         g_service.events().delete(calendarId=cal_id, eventId=booking["google_event_id"], sendUpdates="all").execute()
                         logger.info("google_calendar_event_deleted_on_cancellation", event_id=booking["google_event_id"])
+
+                        # Direct Gmail API Cancellation Email to Admin & Customer
+                        admin_notif_email = g_data.get("notification_email") or t_settings_dict.get("notification_email")
+                        customer_email = ""
+                        c_meta = await conn.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid", booking["contact_id"])
+                        if c_meta:
+                            if isinstance(c_meta, str):
+                                try: c_meta = json.loads(c_meta)
+                                except: c_meta = {}
+                            customer_email = c_meta.get("email") or ""
+
+                        email_html = build_cancellation_email_html(
+                            service_name=service_name,
+                            formatted_date=date_str or "Scheduled Date",
+                            formatted_time=clock_str or "Scheduled Time",
+                            name=patient_name,
+                            contact_phone=booking["phone"],
+                            customer_email=customer_email,
+                        )
+                        subject = f"❌ Booking Cancelled: {service_name} ({patient_name})"
+
+                        # Send to Admin
+                        if admin_notif_email and "@" in admin_notif_email:
+                            send_gmail_direct_notification(g_creds, admin_notif_email, subject, email_html)
+
+                        # Send to Customer
+                        if customer_email and "@" in customer_email and customer_email != admin_notif_email:
+                            send_gmail_direct_notification(g_creds, customer_email, subject, email_html)
             except Exception as e:
                 logger.warning("google_calendar_cancellation_sync_failed", error=str(e))
 

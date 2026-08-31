@@ -56,6 +56,109 @@ processing_time    = Histogram("core_processing_seconds", "End-to-end processing
                                buckets=[0.5, 1, 2, 3, 5, 8, 10, 15, 30])
 wa_sends           = Counter("core_wa_sends_total", "WhatsApp messages sent", ["tenant", "status"])
 
+# ── Gmail Direct Dispatch & Email Builders ─────────────────────────────────────
+def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_body: str):
+    """Dispatches direct HTML email using authorized Google OAuth token via Gmail API."""
+    if not to_email or "@" not in to_email:
+        return None
+    try:
+        import base64
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        from googleapiclient.discovery import build
+
+        gmail_service = build("gmail", "v1", credentials=g_creds)
+        msg = MIMEMultipart("alternative")
+        msg["to"] = to_email.strip()
+        msg["subject"] = subject
+        msg.attach(MIMEText(html_body, "html"))
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+        res = gmail_service.users().messages().send(userId="me", body={"raw": raw}).execute()
+        logger.info("gmail_email_notification_sent", to=to_email, msg_id=res.get("id"))
+        return res
+    except Exception as e:
+        logger.warning("gmail_email_notification_failed", to=to_email, error=str(e))
+        return None
+
+
+def build_booking_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str, notes: str, full_location: str) -> str:
+    loc_html = f"""<div style="margin-top: 15px; padding: 12px; background: #f8fafc; border-left: 4px solid #10b981; border-radius: 4px;"><strong style="color: #0f172a;">📍 Location:</strong><p style="margin: 4px 0 0 0; color: #475569;">{full_location}</p></div>""" if full_location else ""
+    return f"""
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; color: #1e293b;">
+  <div style="background: linear-gradient(135deg, #10b981, #059669); padding: 18px; border-radius: 8px; text-align: center; color: #ffffff;">
+    <h2 style="margin: 0; font-size: 22px; font-weight: bold;">✅ Booking Confirmed</h2>
+    <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">Appointment details & schedule</p>
+  </div>
+  <div style="padding: 24px 0;">
+    <p style="font-size: 15px; line-height: 1.5; color: #334155;">Hello,</p>
+    <p style="font-size: 15px; line-height: 1.5; color: #334155;">The following appointment has been successfully confirmed:</p>
+    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px;">
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold; width: 35%;">Service:</td><td style="padding: 10px 0; color: #0f172a; font-weight: 600;">{service_name}</td></tr>
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Date & Time:</td><td style="padding: 10px 0; color: #0f172a; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Name:</td><td style="padding: 10px 0; color: #0f172a;">{name}</td></tr>
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Phone:</td><td style="padding: 10px 0; color: #0f172a;">{contact_phone}</td></tr>
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Email:</td><td style="padding: 10px 0; color: #0f172a;">{customer_email or 'Not provided'}</td></tr>
+      <tr><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Notes:</td><td style="padding: 10px 0; color: #0f172a;">{notes}</td></tr>
+    </table>
+    {loc_html}
+  </div>
+  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
+    Automated via Boldlabs AI WhatsApp CRM System
+  </div>
+</div>
+"""
+
+
+def build_cancellation_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
+    return f"""
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; color: #1e293b;">
+  <div style="background: linear-gradient(135deg, #ef4444, #dc2626); padding: 18px; border-radius: 8px; text-align: center; color: #ffffff;">
+    <h2 style="margin: 0; font-size: 22px; font-weight: bold;">❌ Booking Cancelled</h2>
+    <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">Appointment cancellation notice</p>
+  </div>
+  <div style="padding: 24px 0;">
+    <p style="font-size: 15px; line-height: 1.5; color: #334155;">Hello,</p>
+    <p style="font-size: 15px; line-height: 1.5; color: #334155;">The following appointment has been cancelled:</p>
+    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px;">
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold; width: 35%;">Service:</td><td style="padding: 10px 0; color: #0f172a; font-weight: 600;">{service_name}</td></tr>
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Scheduled Time:</td><td style="padding: 10px 0; color: #0f172a; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Name:</td><td style="padding: 10px 0; color: #0f172a;">{name}</td></tr>
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Phone:</td><td style="padding: 10px 0; color: #0f172a;">{contact_phone}</td></tr>
+      <tr><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Email:</td><td style="padding: 10px 0; color: #0f172a;">{customer_email or 'Not provided'}</td></tr>
+    </table>
+    <p style="font-size: 14px; color: #64748b; line-height: 1.5; margin-top: 15px;">The calendar event has been deleted. Reply anytime on WhatsApp if you would like to reschedule!</p>
+  </div>
+  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
+    Automated via Boldlabs AI WhatsApp CRM System
+  </div>
+</div>
+"""
+
+
+def build_reschedule_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
+    return f"""
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; color: #1e293b;">
+  <div style="background: linear-gradient(135deg, #3b82f6, #2563eb); padding: 18px; border-radius: 8px; text-align: center; color: #ffffff;">
+    <h2 style="margin: 0; font-size: 22px; font-weight: bold;">🔄 Booking Rescheduled</h2>
+    <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">Updated appointment schedule</p>
+  </div>
+  <div style="padding: 24px 0;">
+    <p style="font-size: 15px; line-height: 1.5; color: #334155;">Hello,</p>
+    <p style="font-size: 15px; line-height: 1.5; color: #334155;">Your appointment has been successfully rescheduled to a new time:</p>
+    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px;">
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold; width: 35%;">Service:</td><td style="padding: 10px 0; color: #0f172a; font-weight: 600;">{service_name}</td></tr>
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">New Date & Time:</td><td style="padding: 10px 0; color: #0f172a; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Name:</td><td style="padding: 10px 0; color: #0f172a;">{name}</td></tr>
+      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Phone:</td><td style="padding: 10px 0; color: #0f172a;">{contact_phone}</td></tr>
+      <tr><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Email:</td><td style="padding: 10px 0; color: #0f172a;">{customer_email or 'Not provided'}</td></tr>
+    </table>
+  </div>
+  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
+    Automated via Boldlabs AI WhatsApp CRM System
+  </div>
+</div>
+"""
+
 # ── FastAPI app (for /health only — worker runs in background) ─────────────────
 app = FastAPI(title="Core Worker", version="1.0.0")
 
@@ -1065,6 +1168,28 @@ class CoreWorker:
                                 event["id"], booking_id
                             )
                             logger.info("google_calendar_event_created", event_id=event["id"], booking_id=booking_id)
+
+                        # 4. Direct Gmail API Confirmation Email to Admin & Customer
+                        email_html = build_booking_email_html(
+                            service_name=service_name,
+                            formatted_date=formatted_date,
+                            formatted_time=formatted_time,
+                            name=name,
+                            contact_phone=contact_phone,
+                            customer_email=customer_email,
+                            notes=notes,
+                            full_location=full_location,
+                        )
+                        subject = f"✅ New Booking: {service_name} on {formatted_date} at {formatted_time}"
+                        
+                        # Send to Admin
+                        if admin_notif_email and "@" in admin_notif_email:
+                            send_gmail_direct_notification(g_creds, admin_notif_email, subject, email_html)
+                        
+                        # Send to Customer
+                        if customer_email and "@" in customer_email and customer_email != admin_notif_email:
+                            send_gmail_direct_notification(g_creds, customer_email, subject, email_html)
+
                     except Exception as e:
                         logger.error("google_calendar_sync_error", error=str(e), booking_id=booking_id)
 
@@ -1227,6 +1352,60 @@ class CoreWorker:
                             logger.info("admin_cancellation_template_sent", template=admin_cancel_template, to=clean_admin_phone)
                         except Exception as e2:
                             logger.warning("admin_cancellation_template_failed", error=str(e2))
+
+            # 5. Direct Gmail API Cancellation Email to Admin & Customer
+            gcal_row = await self.db_pool.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+                tenant_id
+            )
+            if gcal_row and gcal_row["credential_data"]:
+                try:
+                    g_data = gcal_row["credential_data"]
+                    if isinstance(g_data, str):
+                        try: g_data = json.loads(g_data)
+                        except: g_data = {}
+                    if g_data.get("refresh_token") and g_data.get("client_id"):
+                        from google.oauth2.credentials import Credentials
+                        g_creds = Credentials(
+                            token=g_data.get("access_token"),
+                            refresh_token=g_data.get("refresh_token"),
+                            token_uri="https://oauth2.googleapis.com/token",
+                            client_id=g_data.get("client_id"),
+                            client_secret=g_data.get("client_secret"),
+                        )
+                        # Fetch customer email
+                        customer_email = ""
+                        c_meta = await self.db_pool.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid", contact_id)
+                        if c_meta:
+                            if isinstance(c_meta, str):
+                                try: c_meta = json.loads(c_meta)
+                                except: c_meta = {}
+                            customer_email = c_meta.get("email") or ""
+
+                        admin_notif_email = g_data.get("notification_email")
+                        if not admin_notif_email and tenant_st_row:
+                            admin_notif_email = tenant_st_row.get("notification_email")
+
+                        email_html = build_cancellation_email_html(
+                            service_name=service_name,
+                            formatted_date=formatted_date,
+                            formatted_time=formatted_time,
+                            name=name,
+                            contact_phone=contact_phone,
+                            customer_email=customer_email,
+                        )
+                        subject = f"❌ Booking Cancelled: {service_name} on {formatted_date} at {formatted_time}"
+
+                        # Send to Admin
+                        if admin_notif_email and "@" in admin_notif_email:
+                            send_gmail_direct_notification(g_creds, admin_notif_email, subject, email_html)
+
+                        # Send to Customer
+                        if customer_email and "@" in customer_email and customer_email != admin_notif_email:
+                            send_gmail_direct_notification(g_creds, customer_email, subject, email_html)
+                except Exception as ge:
+                    logger.warning("gmail_cancellation_dispatch_failed", error=str(ge))
+
         except Exception as e:
             logger.error("execute_ai_cancellation_failed", error=str(e), tenant_id=tenant_id)
 
@@ -1416,6 +1595,39 @@ class CoreWorker:
                             event = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all").execute()
                             if event and event.get("id"):
                                 await self.db_pool.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid", event["id"], booking_id)
+
+                        # 4. Direct Gmail API Reschedule Email to Admin & Customer
+                        # Fetch customer email
+                        customer_email = ""
+                        c_meta = await self.db_pool.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid", contact_id)
+                        if c_meta:
+                            if isinstance(c_meta, str):
+                                try: c_meta = json.loads(c_meta)
+                                except: c_meta = {}
+                            customer_email = c_meta.get("email") or ""
+
+                        admin_notif_email = g_data.get("notification_email")
+                        if not admin_notif_email and tenant_st_row:
+                            admin_notif_email = tenant_st_row.get("notification_email")
+
+                        email_html = build_reschedule_email_html(
+                            service_name=service_name,
+                            formatted_date=formatted_date,
+                            formatted_time=formatted_time,
+                            name=name,
+                            contact_phone=contact_phone,
+                            customer_email=customer_email,
+                        )
+                        subject = f"🔄 Booking Rescheduled: {service_name} for {formatted_date} at {formatted_time}"
+
+                        # Send to Admin
+                        if admin_notif_email and "@" in admin_notif_email:
+                            send_gmail_direct_notification(g_creds, admin_notif_email, subject, email_html)
+
+                        # Send to Customer
+                        if customer_email and "@" in customer_email and customer_email != admin_notif_email:
+                            send_gmail_direct_notification(g_creds, customer_email, subject, email_html)
+
                     except Exception as e:
                         logger.warning("gcal_reschedule_sync_failed", error=str(e))
 
