@@ -23,6 +23,7 @@ def clean_llm_response(text: str) -> str:
     """
     Strips internal thinking process (<think>...</think>), reasoning blocks,
     and markdown wrappers so WhatsApp messages are clean, crisp, and direct.
+    Also normalizes unnatural artificial line gaps into natural WhatsApp flow.
     """
     if not text:
         return ""
@@ -40,6 +41,16 @@ def clean_llm_response(text: str) -> str:
         lines = cleaned.split("\n")
         if len(lines) >= 2:
             cleaned = "\n".join(lines[1:-1])
+
+    # Connect short conversational openers that have artificial double newlines (e.g. "Awesome\n\nI have..." -> "Awesome, I have...")
+    cleaned = re.sub(
+        r'^(Awesome|Got it|Sure thing|Sure|Thanks|Thanks for sharing that|Great|Hey there|Hey|Hello|Hi)\s*\n+([A-Z0-9])',
+        r'\1, \2',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+    # Collapse 3+ newlines into 1
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
 
     return cleaned.strip()
 
