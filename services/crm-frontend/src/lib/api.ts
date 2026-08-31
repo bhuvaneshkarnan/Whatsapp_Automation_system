@@ -330,6 +330,7 @@ export interface TenantSettingsResponse {
   objection_handling?: string;
   
   full_location_text?: string;
+  timezone?: string;
   country_code?: string;
   currency?: string;
   currency_symbol?: string;

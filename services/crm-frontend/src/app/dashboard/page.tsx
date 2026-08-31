@@ -117,6 +117,27 @@ const CURRENCY_LIST = [
   { code: 'ZAR', symbol: 'R ', name: 'ZAR (R) — South African Rand' },
 ];
 
+const TIMEZONE_LIST = [
+  { value: 'Asia/Kolkata', label: 'Asia/Kolkata (IST — GMT+5:30) [India]' },
+  { value: 'America/New_York', label: 'America/New_York (EST/EDT — GMT-5/-4) [US East]' },
+  { value: 'America/Chicago', label: 'America/Chicago (CST/CDT — GMT-6/-5) [US Central]' },
+  { value: 'America/Denver', label: 'America/Denver (MST/MDT — GMT-7/-6) [US Mountain]' },
+  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (PST/PDT — GMT-8/-7) [US West / California]' },
+  { value: 'America/Toronto', label: 'America/Toronto (EST/EDT) [Canada East]' },
+  { value: 'America/Vancouver', label: 'America/Vancouver (PST/PDT) [Canada West]' },
+  { value: 'Europe/London', label: 'Europe/London (GMT/BST — GMT+0/+1) [UK & Ireland]' },
+  { value: 'Europe/Paris', label: 'Europe/Paris (CET/CEST — GMT+1/+2) [France, Germany, Italy]' },
+  { value: 'Asia/Dubai', label: 'Asia/Dubai (GST — GMT+4) [UAE & Gulf]' },
+  { value: 'Asia/Riyadh', label: 'Asia/Riyadh (AST — GMT+3) [Saudi Arabia]' },
+  { value: 'Asia/Singapore', label: 'Asia/Singapore (SGT — GMT+8) [Singapore & Malaysia]' },
+  { value: 'Asia/Tokyo', label: 'Asia/Tokyo (JST — GMT+9) [Japan]' },
+  { value: 'Australia/Sydney', label: 'Australia/Sydney (AEST/AEDT — GMT+10/+11) [Australia East]' },
+  { value: 'Australia/Perth', label: 'Australia/Perth (AWST — GMT+8) [Australia West]' },
+  { value: 'Pacific/Auckland', label: 'Pacific/Auckland (NZST/NZDT — GMT+12/+13) [New Zealand]' },
+  { value: 'Africa/Johannesburg', label: 'Africa/Johannesburg (SAST — GMT+2) [South Africa]' },
+  { value: 'UTC', label: 'UTC (Coordinated Universal Time)' },
+];
+
 export default function DashboardPage() {
   const router = useRouter();
   
@@ -2335,6 +2356,80 @@ export default function DashboardPage() {
                             <p className="text-[10px] text-blue-900/80">
                               Booking notification emails and Google Calendar event invites will be sent to this email.
                             </p>
+                          </div>
+                        </div>
+
+                        {/* 🌍 International Client Localization Card */}
+                        <div className="p-4 bg-slate-100/70 rounded-2xl border border-slate-200/90 space-y-3 pt-3">
+                          <div className="flex items-center gap-2 pb-2 border-b border-slate-200">
+                            <Globe className="w-4 h-4 text-slate-900 stroke-[2]" />
+                            <div>
+                              <h5 className="font-bold text-xs text-slate-900 font-headline">🌍 International & Regional Configuration</h5>
+                              <p className="text-[10px] text-slate-500">Configure timezone, currency, and dialing code for your clients in India or Globally.</p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            {/* Timezone */}
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                                ⏰ Business Timezone
+                              </label>
+                              <select
+                                value={settingsForm.timezone || 'Asia/Kolkata'}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, timezone: e.target.value })}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-slate-900 cursor-pointer"
+                              >
+                                {TIMEZONE_LIST.map((tz) => (
+                                  <option key={tz.value} value={tz.value}>
+                                    {tz.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Country Calling Code */}
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                                📞 Default Phone Code
+                              </label>
+                              <select
+                                value={settingsForm.country_code || '+91'}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, country_code: e.target.value })}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-slate-900 cursor-pointer"
+                              >
+                                {COUNTRY_CODES.map((c) => (
+                                  <option key={c.code} value={c.code}>
+                                    {c.country}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Currency */}
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                                💳 Display Currency
+                              </label>
+                              <select
+                                value={settingsForm.currency || 'INR'}
+                                onChange={(e) => {
+                                  const sel = CURRENCY_LIST.find((c) => c.code === e.target.value);
+                                  setSettingsForm({
+                                    ...settingsForm,
+                                    currency: e.target.value,
+                                    currency_symbol: sel ? sel.symbol : settingsForm.currency_symbol || '₹',
+                                  });
+                                }}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-slate-900 cursor-pointer"
+                              >
+                                {CURRENCY_LIST.map((c) => (
+                                  <option key={c.code} value={c.code}>
+                                    {c.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
                         </div>
                       </div>

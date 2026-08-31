@@ -328,12 +328,30 @@ class CoreWorker:
             except: meta_dict = {}
         customer_email = meta_dict.get("email") if isinstance(meta_dict, dict) else None
 
+        tenant_timezone_str = "Asia/Kolkata"
+        tenant_currency_str = "INR"
+        tenant_currency_sym = "₹"
+        tenant_country_code = "+91"
+        tenant_st_row = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+        if tenant_st_row:
+            if isinstance(tenant_st_row, str):
+                try: tenant_st_row = json.loads(tenant_st_row)
+                except: tenant_st_row = {}
+            if tenant_st_row.get("timezone"):
+                tenant_timezone_str = tenant_st_row.get("timezone").strip()
+            if tenant_st_row.get("currency"):
+                tenant_currency_str = tenant_st_row.get("currency").strip()
+            if tenant_st_row.get("currency_symbol"):
+                tenant_currency_sym = tenant_st_row.get("currency_symbol").strip()
+            if tenant_st_row.get("country_code"):
+                tenant_country_code = tenant_st_row.get("country_code").strip()
+
         import datetime
         try:
             import zoneinfo
-            kolkata_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
+            tenant_tz = zoneinfo.ZoneInfo(tenant_timezone_str)
         except Exception:
-            kolkata_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+            tenant_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
         booking_info = "No previous appointments."
         if booking_rows:
@@ -341,16 +359,17 @@ class CoreWorker:
             for b in booking_rows:
                 st = b['start_time']
                 if hasattr(st, 'astimezone'):
-                    st_local = st.astimezone(kolkata_tz)
+                    st_local = st.astimezone(tenant_tz)
                 else:
                     st_local = st
                 b_list.append(f"{b.get('service', 'Appointment')} on {st_local.strftime('%A, %d %b %Y at %I:%M %p')} (Status: {b.get('status', 'confirmed')})")
             booking_info = "; ".join(b_list)
 
-        now = datetime.datetime.now(kolkata_tz)
+        now = datetime.datetime.now(tenant_tz)
         time_context = (
-            f"Today is {now.strftime('%A, %d %B %Y')} and current time is {now.strftime('%I:%M %p')} (Asia/Kolkata time).\n"
+            f"Today is {now.strftime('%A, %d %B %Y')} and current time is {now.strftime('%I:%M %p')} ({tenant_timezone_str} time).\n"
             f"Customer WhatsApp number: {contact_phone}\n"
+            f"Business Currency: {tenant_currency_str} ({tenant_currency_sym})\n"
             "Use this live timestamp to resolve relative dates (today, tomorrow, next Monday) and know if a time has already passed.\n\n"
         )
 
@@ -367,7 +386,7 @@ class CoreWorker:
         )
         if tenant_busy_rows:
             busy_lines = [
-                f"- {r['start_time'].astimezone(kolkata_tz).strftime('%A, %d %b %Y: %I:%M %p')} to {r['end_time'].astimezone(kolkata_tz).strftime('%I:%M %p')} ({r.get('service', 'Booked')})"
+                f"- {r['start_time'].astimezone(tenant_tz).strftime('%A, %d %b %Y: %I:%M %p')} to {r['end_time'].astimezone(tenant_tz).strftime('%I:%M %p')} ({r.get('service', 'Booked')})"
                 for r in tenant_busy_rows
             ]
             busy_slots_block = (
@@ -655,8 +674,24 @@ class CoreWorker:
         try:
             import datetime
             import zoneinfo
+
+            tenant_timezone_str = "Asia/Kolkata"
+            tenant_currency_str = "INR"
+            tenant_currency_sym = "₹"
+            tenant_st_row = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+            if tenant_st_row:
+                if isinstance(tenant_st_row, str):
+                    try: tenant_st_row = json.loads(tenant_st_row)
+                    except: tenant_st_row = {}
+                if tenant_st_row.get("timezone"):
+                    tenant_timezone_str = tenant_st_row.get("timezone").strip()
+                if tenant_st_row.get("currency"):
+                    tenant_currency_str = tenant_st_row.get("currency").strip()
+                if tenant_st_row.get("currency_symbol"):
+                    tenant_currency_sym = tenant_st_row.get("currency_symbol").strip()
+
             try:
-                tz = zoneinfo.ZoneInfo("Asia/Kolkata")
+                tz = zoneinfo.ZoneInfo(tenant_timezone_str)
             except Exception:
                 tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 

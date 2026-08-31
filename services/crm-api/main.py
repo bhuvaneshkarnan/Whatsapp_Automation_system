@@ -943,6 +943,7 @@ class TenantSettingsUpdate(BaseModel):
     objection_handling: Optional[str] = None
     
     full_location_text: Optional[str] = None
+    timezone: Optional[str] = None
     country_code: Optional[str] = None
     currency: Optional[str] = None
     currency_symbol: Optional[str] = None
@@ -1078,6 +1079,7 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         
         # Location, Region & Templates
         "full_location_text": wa_data.get("full_location_text", ""),
+        "timezone": tenant_settings.get("timezone", "Asia/Kolkata"),
         "country_code": tenant_settings.get("country_code", "+91"),
         "currency": tenant_settings.get("currency", "INR"),
         "currency_symbol": tenant_settings.get("currency_symbol", "₹"),
@@ -1107,16 +1109,17 @@ async def update_tenant_settings(
 ):
     """Update settings & credentials for the currently logged-in tenant."""
     async with db_pool.acquire() as conn:
-        # 1. Update tenant name, logo, country_code, currency if provided
+        # 1. Update tenant name, logo, timezone, country_code, currency if provided
         if payload.name:
             await conn.execute("UPDATE tenants SET name = $1 WHERE id = $2::uuid", payload.name.strip(), tenant_id)
-        if payload.logo_url is not None or payload.country_code is not None or payload.currency is not None or payload.currency_symbol is not None:
+        if payload.logo_url is not None or payload.timezone is not None or payload.country_code is not None or payload.currency is not None or payload.currency_symbol is not None or payload.notification_email is not None or payload.admin_whatsapp_number is not None:
             t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
             cur_settings = t_row["settings"] if t_row and t_row["settings"] else {}
             if isinstance(cur_settings, str):
                 try: cur_settings = json.loads(cur_settings)
                 except: cur_settings = {}
             if payload.logo_url is not None: cur_settings["logo_url"] = payload.logo_url.strip()
+            if payload.timezone is not None: cur_settings["timezone"] = payload.timezone.strip()
             if payload.country_code is not None: cur_settings["country_code"] = payload.country_code.strip()
             if payload.currency is not None: cur_settings["currency"] = payload.currency.strip()
             if payload.currency_symbol is not None: cur_settings["currency_symbol"] = payload.currency_symbol.strip()
