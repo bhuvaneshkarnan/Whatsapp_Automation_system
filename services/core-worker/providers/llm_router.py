@@ -87,10 +87,10 @@ async def call_gemini(
     messages: list[dict],
     api_key: str,
     system_prompt: str,
-    model: str = "gemini-flash-lite-latest",
+    model: str = "gemini-3.6-flash",
     max_tokens: int = 2048,
     temperature: float = 0.3,
-    timeout_seconds: float = 10.0,
+    timeout_seconds: float = 8.0,
     tenant_id: str = "",
 ) -> str:
     """Call Google Gemini API with automatic model failover."""
@@ -116,10 +116,10 @@ async def call_gemini(
         },
     }
 
-    # Verified active Gemini Flash Lite & Flash models
+    # Verified active Gemini models
     candidate_models = [
-        model or "gemini-flash-lite-latest",
-        "gemini-flash-lite-latest",
+        model or "gemini-3.6-flash",
+        "gemini-3.6-flash",
         "gemini-flash-latest",
     ]
     candidate_models = list(dict.fromkeys(candidate_models))
@@ -160,7 +160,7 @@ async def call_groq(
     model: str = "openai/gpt-oss-120b",
     max_tokens: int = 2048,
     temperature: float = 0.3,
-    timeout_seconds: float = 10.0,
+    timeout_seconds: float = 4.0,
     tenant_id: str = "",
 ) -> str:
     """
@@ -174,13 +174,12 @@ async def call_groq(
     for m in sanitized:
         formatted_msgs.append({"role": m["role"], "content": m["content"]})
 
-    # Verified 128k context active models on Groq
+    # Verified 128k context high-capacity models on Groq
     candidate_models = [
         model or "openai/gpt-oss-120b",
         "openai/gpt-oss-120b",
         "qwen/qwen3.8-27b",
         "qwen/qwen3.6-27b",
-        "openai/gpt-oss-20b",
     ]
     candidate_models = list(dict.fromkeys(candidate_models))
 
@@ -345,7 +344,7 @@ async def call_llm_cascade(
                     messages=messages,
                     api_key=key,
                     system_prompt=system_prompt,
-                    model="gemini-flash-lite-latest",
+                    model="gemini-3.6-flash",
                     max_tokens=max_tokens,
                     temperature=temperature,
                     timeout_seconds=timeout_seconds,
@@ -372,9 +371,9 @@ async def call_llm_cascade(
                 text = await call_opencode(
                     messages=messages,
                     api_key=key,
+                    base_url=opencode_base_url or "https://api.openai.com/v1",
                     system_prompt=system_prompt,
-                    base_url=opencode_base_url,
-                    model="gpt-4o-mini",
+                    model=opencode_model or "gpt-4o-mini",
                     max_tokens=max_tokens,
                     temperature=temperature,
                     timeout_seconds=timeout_seconds,
@@ -386,50 +385,55 @@ async def call_llm_cascade(
         except Exception as e:
             logger.warning(
                 "llm_provider_failed_cascading",
-                provider=name,
                 tenant_id=tenant_id,
+                provider=name,
                 error=str(e),
             )
             continue
 
-    # Resilient Single-Turn Emergency Retry (if multi-turn history was too large or failed)
-    latest_user_msg = messages[-1]["content"] if messages else "Hello"
-    single_turn_messages = [{"role": "user", "content": latest_user_msg}]
+    # Emergency single-turn recovery
+    latest_user_text = ""
+    for m in reversed(messages):
+        if m.get("role") == "user" and m.get("content"):
+            latest_user_text = m["content"]
+            break
 
-    if gemini_key:
-        try:
-            text = await call_gemini(
-                messages=single_turn_messages,
-                api_key=gemini_key,
-                system_prompt=system_prompt,
-                model="gemini-flash-lite-latest",
-                max_tokens=max_tokens,
-                temperature=temperature,
-                timeout_seconds=5.0,
-                tenant_id=tenant_id,
-            )
-            if text and len(text.strip()) > 0:
-                logger.info("emergency_single_turn_gemini_success", tenant_id=tenant_id)
-                return text, "gemini"
-        except Exception:
-            pass
+    if latest_user_text:
+        emergency_messages = [{"role": "user", "content": latest_user_text}]
+        if gemini_key:
+            try:
+                text = await call_gemini(
+                    messages=emergency_messages,
+                    api_key=gemini_key,
+                    system_prompt=system_prompt,
+                    model="gemini-3.6-flash",
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    timeout_seconds=6.0,
+                    tenant_id=tenant_id,
+                )
+                if text and len(text.strip()) > 0:
+                    logger.info("emergency_single_turn_gemini_success", tenant_id=tenant_id)
+                    return text, "gemini"
+            except Exception:
+                pass
 
-    if groq_key:
-        try:
-            text = await call_groq(
-                messages=single_turn_messages,
-                api_key=groq_key,
-                system_prompt=system_prompt,
-                model="openai/gpt-oss-120b",
-                max_tokens=max_tokens,
-                temperature=temperature,
-                timeout_seconds=5.0,
-                tenant_id=tenant_id,
-            )
-            if text and len(text.strip()) > 0:
-                logger.info("emergency_single_turn_groq_success", tenant_id=tenant_id)
-                return text, "groq"
-        except Exception:
-            pass
+        if groq_key:
+            try:
+                text = await call_groq(
+                    messages=emergency_messages,
+                    api_key=groq_key,
+                    system_prompt=system_prompt,
+                    model="openai/gpt-oss-120b",
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    timeout_seconds=6.0,
+                    tenant_id=tenant_id,
+                )
+                if text and len(text.strip()) > 0:
+                    logger.info("emergency_single_turn_groq_success", tenant_id=tenant_id)
+                    return text, "groq"
+            except Exception:
+                pass
 
-    return None, "rule_engine"
+    return None, "fallback"
