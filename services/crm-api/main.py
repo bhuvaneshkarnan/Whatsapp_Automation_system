@@ -58,27 +58,57 @@ def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_bo
         return None
 
 
-def build_cancellation_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
+def build_cancellation_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
     return f"""
-<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; color: #1e293b;">
-  <div style="background: linear-gradient(135deg, #ef4444, #dc2626); padding: 18px; border-radius: 8px; text-align: center; color: #ffffff;">
-    <h2 style="margin: 0; font-size: 22px; font-weight: bold;">❌ Booking Cancelled</h2>
-    <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">Appointment cancellation notice</p>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff; color: #1e293b;">
+  <div style="background: linear-gradient(135deg, #ef4444, #b91c1c); padding: 20px; border-radius: 8px; text-align: center; color: #ffffff;">
+    <span style="background: rgba(255,255,255,0.2); padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase;">Admin Notification</span>
+    <h2 style="margin: 10px 0 4px 0; font-size: 22px; font-weight: bold;">❌ Booking Cancelled in CRM</h2>
+    <p style="margin: 0; font-size: 13px; opacity: 0.85;">Booking removed from schedule</p>
   </div>
   <div style="padding: 24px 0;">
-    <p style="font-size: 15px; line-height: 1.5; color: #334155;">Hello,</p>
-    <p style="font-size: 15px; line-height: 1.5; color: #334155;">The following appointment has been cancelled:</p>
-    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px;">
-      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold; width: 35%;">Service:</td><td style="padding: 10px 0; color: #0f172a; font-weight: 600;">{service_name}</td></tr>
-      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Scheduled Time:</td><td style="padding: 10px 0; color: #0f172a; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
-      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Name:</td><td style="padding: 10px 0; color: #0f172a;">{name}</td></tr>
-      <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Phone:</td><td style="padding: 10px 0; color: #0f172a;">{contact_phone}</td></tr>
-      <tr><td style="padding: 10px 0; color: #64748b; font-weight: bold;">Client Email:</td><td style="padding: 10px 0; color: #0f172a;">{customer_email or 'Not provided'}</td></tr>
+    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hello <strong>Admin & Team</strong>,</p>
+    <p style="font-size: 14px; line-height: 1.5; color: #475569;">An appointment was marked cancelled in your CRM dashboard:</p>
+    
+    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600; width: 35%;">Client Name:</td><td style="padding: 10px 16px; color: #0f172a; font-weight: bold;">{name}</td></tr>
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Client Phone:</td><td style="padding: 10px 16px; color: #0f172a;">{contact_phone}</td></tr>
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Client Email:</td><td style="padding: 10px 16px; color: #0f172a;">{customer_email or 'Not provided'}</td></tr>
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Service:</td><td style="padding: 10px 16px; color: #0f172a;">{service_name}</td></tr>
+      <tr><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Cancelled Slot:</td><td style="padding: 10px 16px; color: #ef4444; font-weight: bold;">{formatted_date} at {formatted_time}</td></tr>
     </table>
-    <p style="font-size: 14px; color: #64748b; line-height: 1.5; margin-top: 15px;">The calendar event has been deleted. Reply anytime on WhatsApp if you would like to reschedule!</p>
+
+    <div style="margin-top: 16px; padding: 12px 16px; background: #fef2f2; border-left: 4px solid #ef4444; border-radius: 4px; font-size: 13px; color: #991b1b;">
+      🗑️ <strong>Calendar Updated:</strong> Google Calendar event deleted and CRM record updated.
+    </div>
   </div>
   <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
-    Automated via Boldlabs AI WhatsApp CRM System
+    Boldlabs AI WhatsApp CRM Platform • Admin Alert Dispatch
+  </div>
+</div>
+"""
+
+
+def build_cancellation_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str) -> str:
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff; color: #1e293b;">
+  <div style="background: linear-gradient(135deg, #64748b, #475569); padding: 20px; border-radius: 8px; text-align: center; color: #ffffff;">
+    <h2 style="margin: 0; font-size: 22px; font-weight: bold;">❌ Appointment Cancelled</h2>
+    <p style="margin: 6px 0 0 0; font-size: 14px; opacity: 0.9;">Confirmation of your cancellation</p>
+  </div>
+  <div style="padding: 24px 0;">
+    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hi <strong>{name}</strong>,</p>
+    <p style="font-size: 14px; line-height: 1.5; color: #475569;">Your scheduled appointment for *{service_name}* on *{formatted_date} at {formatted_time}* has been cancelled.</p>
+    
+    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 12px 16px; color: #64748b; font-weight: 600; width: 35%;">Service:</td><td style="padding: 12px 16px; color: #0f172a;">{service_name}</td></tr>
+      <tr><td style="padding: 12px 16px; color: #64748b; font-weight: 600;">Cancelled Slot:</td><td style="padding: 12px 16px; color: #64748b;">{formatted_date} at {formatted_time}</td></tr>
+    </table>
+
+    <p style="font-size: 14px; color: #475569; line-height: 1.5;">If you'd like to book a new appointment in the future, simply reply directly on WhatsApp anytime!</p>
+  </div>
+  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
+    Thank you!
   </div>
 </div>
 """
@@ -652,23 +682,29 @@ async def update_booking_status(
                                 except: c_meta = {}
                             customer_email = c_meta.get("email") or ""
 
-                        email_html = build_cancellation_email_html(
-                            service_name=service_name,
-                            formatted_date=date_str or "Scheduled Date",
-                            formatted_time=clock_str or "Scheduled Time",
-                            name=patient_name,
-                            contact_phone=booking["phone"],
-                            customer_email=customer_email,
-                        )
-                        subject = f"❌ Booking Cancelled: {service_name} ({patient_name})"
-
-                        # Send to Admin
+                        # Send tailored copy to Admin
                         if admin_notif_email and "@" in admin_notif_email:
-                            send_gmail_direct_notification(g_creds, admin_notif_email, subject, email_html)
+                            admin_email_html = build_cancellation_admin_email_html(
+                                service_name=service_name,
+                                formatted_date=date_str or "Scheduled Date",
+                                formatted_time=clock_str or "Scheduled Time",
+                                name=patient_name,
+                                contact_phone=booking["phone"],
+                                customer_email=customer_email,
+                            )
+                            admin_subject = f"❌ [Admin Notice] Booking Cancelled: {service_name} - {patient_name} ({date_str} at {clock_str})"
+                            send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
 
-                        # Send to Customer
-                        if customer_email and "@" in customer_email and customer_email != admin_notif_email:
-                            send_gmail_direct_notification(g_creds, customer_email, subject, email_html)
+                        # Send tailored copy to Customer
+                        if customer_email and "@" in customer_email and customer_email != (admin_notif_email or "").strip():
+                            customer_email_html = build_cancellation_customer_email_html(
+                                service_name=service_name,
+                                formatted_date=date_str or "Scheduled Date",
+                                formatted_time=clock_str or "Scheduled Time",
+                                name=patient_name,
+                            )
+                            customer_subject = f"❌ Appointment Cancelled: {service_name} on {date_str}"
+                            send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
             except Exception as e:
                 logger.warning("google_calendar_cancellation_sync_failed", error=str(e))
 
