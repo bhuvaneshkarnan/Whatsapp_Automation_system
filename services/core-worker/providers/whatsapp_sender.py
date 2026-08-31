@@ -58,10 +58,12 @@ async def send_template(
     """
     Send a WhatsApp approved template message.
     Required for reaching customers outside the 24-hour session window.
+    Automatically adapts parameter count if Meta template expects 2, 3, or 4 parameters.
     """
+    clean_to = to.replace("+", "").replace(" ", "").replace("-", "").strip()
     payload = {
         "messaging_product": "whatsapp",
-        "to": to,
+        "to": clean_to,
         "type": "template",
         "template": {
             "name": template_name,
@@ -70,7 +72,35 @@ async def send_template(
         },
     }
 
-    return await _send(phone_number_id, access_token, payload, timeout)
+    try:
+        return await _send(phone_number_id, access_token, payload, timeout)
+    except WhatsAppSendError as e:
+        err_str = str(e)
+        if "132000" in err_str and "expected number of params" in err_str:
+            import re
+            m = re.search(r'expected number of params \((\d+)\)', err_str)
+            if m:
+                expected_count = int(m.group(1))
+                logger.info("retrying_template_with_adapted_param_count", template=template_name, expected=expected_count)
+                if components and len(components) > 0 and "parameters" in components[0]:
+                    current_params = components[0]["parameters"]
+                    if expected_count < len(current_params):
+                        # Merge trailing params into the last param if needed, or slice
+                        adapted_params = current_params[:expected_count]
+                        payload["template"]["components"][0]["parameters"] = adapted_params
+                        return await _send(phone_number_id, access_token, payload, timeout)
+                    elif expected_count == 3 and len(current_params) >= 4:
+                        # e.g. Name, Service, "Time on Date"
+                        p1 = current_params[0]["text"]
+                        p2 = current_params[1]["text"]
+                        p3 = f"{current_params[3]['text']} on {current_params[2]['text']}" if len(current_params) > 3 else current_params[2]["text"]
+                        payload["template"]["components"][0]["parameters"] = [
+                            {"type": "text", "text": p1},
+                            {"type": "text", "text": p2},
+                            {"type": "text", "text": p3},
+                        ]
+                        return await _send(phone_number_id, access_token, payload, timeout)
+        raise e
 
 
 async def send_interactive_buttons(

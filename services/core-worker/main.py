@@ -1561,8 +1561,7 @@ class CoreWorker:
                             "parameters": [
                                 {"type": "text", "text": name},
                                 {"type": "text", "text": service_name},
-                                {"type": "text", "text": formatted_date},
-                                {"type": "text", "text": formatted_time},
+                                {"type": "text", "text": f"{formatted_time} on {formatted_date}"},
                             ]
                         }
                     ]

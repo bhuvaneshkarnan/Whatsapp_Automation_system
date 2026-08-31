@@ -1321,7 +1321,7 @@ async def init_google_oauth(
                 g_id, tenant_id, json.dumps(g_data)
             )
 
-    scopes = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email"
+    scopes = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile openid"
     auth_url = (
         f"https://accounts.google.com/o/oauth2/v2/auth?"
         f"client_id={c_id}&"
