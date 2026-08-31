@@ -442,18 +442,13 @@ class CoreWorker:
             "- If they have a booking, tell them their exact scheduled date & time clearly (e.g. 'Your consultation is scheduled for today at 9:00 AM!').\n"
             "- If they have no booking, gently let them know they don't have one scheduled yet and ask if they would like to book one.\n"
             "- CRITICAL RULE: NEVER trigger [ACTION:CREATE_BOOKING: ...] when the customer is simply asking about or checking their existing appointment!\n\n"
-            "5. WHEN TO TRIGGER [ACTION:CREATE_BOOKING: ...]:\n"
-            "- You may ONLY include [ACTION:CREATE_BOOKING: ...] when ALL of the following 4 conditions are met:\n"
-            "  Condition 1: Customer explicitly specified or agreed to a specific Date & Time.\n"
-            "  Condition 2: Customer's Full Name is confirmed.\n"
-            "  Condition 3: Customer's Valid Email (with @ and domain) is confirmed.\n"
-            "  Condition 4: The requested slot is NOT in the occupied timeslots list.\n"
-            "- If ANY condition is missing, ASK FOR THE MISSING DETAIL and DO NOT output the action tag.\n"
-            "- When all 4 are verified:\n"
-            "  1. Output a short confirmation text.\n"
-            "  2. Append on a new line: [ACTION:CREATE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Valid Customer Email>\", \"notes\": \"<Short Notes>\"}]\n\n"
+            "5. MANDATORY ACTION TAG ON BOOKING CONFIRMATION:\n"
+            "- Once the customer has provided or confirmed their Date, Time, Name, and Email (e.g. user says 'Yes', 'Confirm', 'Today 7pm', etc.):\n"
+            "  You MUST append the booking action tag on a new line at the very end of your reply:\n"
+            "  [ACTION:CREATE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"<Notes>\"}]\n"
+            "- CRITICAL: If you tell the customer their appointment is booked or confirmed without this exact tag, the calendar invite CANNOT be generated!\n\n"
             "6. Relative Date Resolution:\n"
-            "- Always resolve relative dates (today, tomorrow, this Friday) into exact YYYY-MM-DD format using today's date provided above. Always format time as 24-hour HH:MM (e.g. '09:00' for 9 AM, '14:30' for 2:30 PM)."
+            "- Always resolve relative dates (today, tomorrow, this Friday) into exact YYYY-MM-DD format using today's date provided above. Always format time as 24-hour HH:MM (e.g. '09:00' for 9 AM, '19:00' for 7 PM)."
         )
 
         full_location = (creds.get("full_location_text") or "").strip() if creds else ""
@@ -526,6 +521,48 @@ class CoreWorker:
                     logger.warning("booking_action_json_parse_failed", error=str(e))
                 # Strip action tag from message sent to WhatsApp customer
                 response_text = re.sub(r'\[ACTION:CREATE_BOOKING:\s*\{.*?\}\]', '', response_text, flags=re.DOTALL).strip()
+            elif any(phrase in response_text.lower() for phrase in ["booked for you", "have got that booked", "got that booked", "appointment is booked", "appointment is confirmed", "scheduled for you", "has been scheduled"]):
+                # Intelligent Fallback extractor: LLM confirmed the booking in text but forgot the JSON tag!
+                extracted_email = ""
+                extracted_name = customer_name or ""
+                for h in reversed(history):
+                    content = h.get("content", "")
+                    email_match = re.search(r'[\w.+-]+@[\w-]+\.[\w.-]+', content)
+                    if email_match and not extracted_email:
+                        extracted_email = email_match.group(0)
+                        lines = [l.strip() for l in content.split('\n') if l.strip()]
+                        for l in lines:
+                            if '@' not in l and len(l.split()) <= 4 and not re.search(r'\d', l):
+                                extracted_name = l
+                                break
+
+                # Extract time from response_text or history (e.g. 19:00, 7:00 pm, 7pm)
+                time_match = re.search(r'\b([01]?\d|2[0-3]):([0-5]\d)\b', response_text)
+                time_str = "10:00"
+                if time_match:
+                    time_str = f"{int(time_match.group(1)):02d}:{time_match.group(2)}"
+                else:
+                    pm_match = re.search(r'(\d{1,2})\s*(?:pm|am)', response_text, re.IGNORECASE)
+                    if pm_match:
+                        h = int(pm_match.group(1))
+                        if 'pm' in pm_match.group(0).lower() and h < 12:
+                            h += 12
+                        time_str = f"{h:02d}:00"
+
+                today_iso = now_tz.strftime("%Y-%m-%d")
+                date_str = today_iso
+                if "tomorrow" in response_text.lower():
+                    date_str = (now_tz + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+
+                booking_action = {
+                    "service": "Consultation / Appointment",
+                    "date": date_str,
+                    "time": time_str,
+                    "name": extracted_name or "Valued Customer",
+                    "email": extracted_email,
+                    "notes": "Auto-extracted from WhatsApp conversation"
+                }
+                logger.info("fallback_booking_action_extracted", booking_action=booking_action)
 
             if not response_text and booking_action:
                 # If the AI only outputted the action tag, construct a natural confirmation message
