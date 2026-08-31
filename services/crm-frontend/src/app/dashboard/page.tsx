@@ -1134,17 +1134,6 @@ export default function DashboardPage() {
                 <Users className="w-4 h-4 stroke-[1.5] shrink-0" />
                 <span>Customer directory</span>
               </button>
-
-              {/* Super Admin link if applicable */}
-              {user?.role === 'super_admin' && (
-                <a
-                  href="/admin/clients"
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-subtle transition-colors duration-150 mt-2 pt-2 border-t border-border"
-                >
-                  <Building2 className="w-4 h-4 stroke-[1.5] shrink-0" />
-                  <span>Manage tenants</span>
-                </a>
-              )}
             </nav>
           </div>
 
