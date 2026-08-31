@@ -34,38 +34,37 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col justify-center items-center px-4 font-sans">
-      {/* Centered Box */}
+    <div className="min-h-screen bg-canvas text-text-primary flex flex-col justify-center items-center px-4 font-sans">
       <div className="w-full max-w-sm">
         {/* Brand */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-slate-900 text-white mb-3">
-            <MessageSquare className="w-5 h-5 stroke-[2]" />
+          <div className="inline-flex items-center justify-center w-10 h-10 rounded-sm bg-accent text-white mb-3">
+            <MessageSquare className="w-5 h-5 stroke-[1.5]" />
           </div>
-          <h1 className="text-lg font-bold tracking-tight text-slate-900 font-headline">
-            WhatsApp CRM Automation
+          <h1 className="text-xl font-semibold text-text-primary">
+            WhatsApp CRM Platform
           </h1>
-          <p className="text-xs text-slate-500 mt-1 font-medium">
+          <p className="text-xs text-text-muted mt-1">
             Sign in to access your business inbox and bookings
           </p>
         </div>
 
         {/* Form Container */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-5">
+        <div className="bg-surface border border-border rounded-md p-6 space-y-4">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-headline">
-                Email Address
+              <label className="block text-[13px] font-medium text-text-secondary mb-1.5">
+                Email address
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Mail className="w-4 h-4" />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text-muted">
+                  <Mail className="w-4 h-4 stroke-[1.5]" />
                 </div>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-9 pr-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-slate-900 font-medium"
+                  className="w-full pl-9 pr-3 py-2 bg-white border border-border rounded-sm text-sm text-text-primary placeholder:text-text-muted transition-colors duration-150"
                   placeholder="admin@business.com"
                   required
                 />
@@ -73,18 +72,18 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-headline">
+              <label className="block text-[13px] font-medium text-text-secondary mb-1.5">
                 Password
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="w-4 h-4" />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text-muted">
+                  <Lock className="w-4 h-4 stroke-[1.5]" />
                 </div>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-9 pr-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-slate-900"
+                  className="w-full pl-9 pr-3 py-2 bg-white border border-border rounded-sm text-sm text-text-primary placeholder:text-text-muted transition-colors duration-150"
                   placeholder="••••••••••••"
                   required
                 />
@@ -92,8 +91,8 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="p-3 bg-status-error-bg border border-status-error-border text-status-error text-xs rounded-sm flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-status-error shrink-0 mt-0.5 stroke-[1.5]" />
                 <span>{error}</span>
               </div>
             )}
@@ -101,37 +100,37 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 bg-slate-900 hover:bg-black text-white font-semibold text-xs rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+              className="w-full py-2 px-4 bg-accent hover:bg-accent-hover text-white font-medium text-sm rounded-sm transition-colors duration-150 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin stroke-[1.5]" />
                   <span>Signing in...</span>
                 </>
               ) : (
                 <>
-                  <span>Sign In to Dashboard</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  <span>Sign in</span>
+                  <ArrowRight className="w-4 h-4 stroke-[1.5]" />
                 </>
               )}
             </button>
           </form>
 
           {/* Quick Demo Helper */}
-          <div className="pt-4 border-t border-slate-100 text-center">
+          <div className="pt-3 border-t border-border text-center">
             <button
               type="button"
               onClick={fillDemo}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900 transition cursor-pointer font-mono text-[11px]"
+              className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer font-mono"
             >
-              <ShieldCheck className="w-3.5 h-3.5 text-slate-900" />
-              <span>Fill demo admin account</span>
+              <ShieldCheck className="w-3.5 h-3.5 stroke-[1.5]" />
+              <span>Fill demo credentials</span>
             </button>
           </div>
         </div>
 
         {/* Footer */}
-        <p className="text-center text-[11px] text-slate-400 mt-6">
+        <p className="text-center text-xs text-text-muted mt-6">
           &copy; {new Date().getFullYear()} WhatsApp Automation System
         </p>
       </div>

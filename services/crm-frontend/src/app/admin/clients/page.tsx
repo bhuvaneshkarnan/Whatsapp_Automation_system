@@ -329,35 +329,35 @@ export default function SuperAdminClients() {
   }, 0);
 
   return (
-    <div className="flex h-screen bg-white text-slate-900 font-sans antialiased overflow-hidden">
+    <div className="flex h-screen bg-canvas text-text-primary font-sans antialiased overflow-hidden">
       
-      {/* ── 1. SUPER ADMIN SIDEBAR (Matching CRM Dashboard Design System) ────── */}
-      <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 select-none border-r border-slate-800">
+      {/* ── 1. SUPER ADMIN SIDEBAR ────────────────────────────────────────── */}
+      <aside className="w-60 bg-surface text-text-secondary flex flex-col shrink-0 select-none border-r border-border">
         
         {/* Brand & Platform Name */}
-        <div className="h-16 flex items-center gap-3 px-5 border-b border-slate-800">
-          <div className="w-8 h-8 rounded-xl bg-white text-slate-900 flex items-center justify-center font-bold text-sm shadow-sm">
-            <Building2 className="w-4 h-4 text-slate-900" />
+        <div className="h-14 flex items-center gap-2.5 px-4 border-b border-border">
+          <div className="w-7 h-7 rounded-sm bg-accent text-white flex items-center justify-center shrink-0">
+            <Building2 className="w-3.5 h-3.5 stroke-[1.5]" />
           </div>
           <div>
-            <h1 className="font-headline font-bold text-xs text-white uppercase tracking-wider">
-              Boldlabs Super Admin
+            <h1 className="font-semibold text-xs text-text-primary">
+              Super Admin
             </h1>
-            <p className="text-[10px] text-slate-400 font-medium">Multi-Tenant Platform Hub</p>
+            <p className="text-[11px] text-text-muted">Tenant management</p>
           </div>
         </div>
 
         {/* Navigation Tabs */}
-        <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto">
-          <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-headline">
-            Platform Management
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+          <div className="px-2 py-1 text-[11px] font-semibold text-text-muted uppercase tracking-wider">
+            Platform
           </div>
 
           {[
-            { id: 'organizations', label: 'Organizations & Workspaces', icon: Building2 },
-            { id: 'razorpay', label: 'Razorpay Billing & Due Dates', icon: CreditCard },
-            { id: 'webhooks', label: 'Platform Webhook URLs', icon: Key },
-            { id: 'admin_config', label: 'Admin WhatsApp Alert Config', icon: Bell },
+            { id: 'organizations', label: 'Organizations', icon: Building2 },
+            { id: 'razorpay', label: 'Billing & renewals', icon: CreditCard },
+            { id: 'webhooks', label: 'Webhook registry', icon: Key },
+            { id: 'admin_config', label: 'Admin notifications', icon: Bell },
           ].map((item) => {
             const Icon = item.icon;
             const active = activeTab === item.id;
@@ -365,13 +365,13 @@ export default function SuperAdminClients() {
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id as any)}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer text-left ${
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-sm text-xs transition-colors duration-150 cursor-pointer text-left ${
                   active
-                    ? 'bg-white text-slate-900 font-bold'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                    ? 'bg-surface-subtle text-text-primary font-semibold border border-border-strong'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium border border-transparent'
                 }`}
               >
-                <Icon className={`w-4 h-4 stroke-[2] ${active ? 'text-slate-900' : 'text-slate-400'}`} />
+                <Icon className={`w-3.5 h-3.5 stroke-[1.5] ${active ? 'text-accent fill-accent' : 'text-text-muted'}`} />
                 <span className="flex-1">{item.label}</span>
               </button>
             );
@@ -379,73 +379,73 @@ export default function SuperAdminClients() {
         </nav>
 
         {/* Footer: Quick switch back to CRM Dashboard */}
-        <div className="p-3 border-t border-slate-800 space-y-2">
+        <div className="p-3 border-t border-border">
           <button
             onClick={() => router.push('/dashboard')}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition cursor-pointer border border-slate-700"
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer border border-border"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Return to CRM Operations</span>
+            <ArrowLeft className="w-3.5 h-3.5 stroke-[1.5]" />
+            <span>Return to CRM</span>
           </button>
         </div>
 
       </aside>
 
       {/* ── 2. MAIN SUPER ADMIN WORKSPACE ────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-canvas">
         
         {/* Top Header */}
-        <header className="h-16 border-b border-slate-200 bg-white px-6 flex items-center justify-between shrink-0">
+        <header className="h-14 border-b border-border bg-surface px-6 flex items-center justify-between shrink-0">
           <div>
-            <h2 className="font-headline font-bold text-sm text-slate-900">
-              {activeTab === 'organizations' && 'Client Organizations Directory'}
-              {activeTab === 'razorpay' && 'Razorpay Subscriptions & Admin Due Alerts'}
-              {activeTab === 'webhooks' && 'Meta WhatsApp Callback Webhook Registry'}
-              {activeTab === 'admin_config' && 'Super Admin Notification Settings'}
+            <h2 className="font-semibold text-xs text-text-primary">
+              {activeTab === 'organizations' && 'Client organizations'}
+              {activeTab === 'razorpay' && 'Razorpay subscriptions & renewal alerts'}
+              {activeTab === 'webhooks' && 'Meta WhatsApp webhook registry'}
+              {activeTab === 'admin_config' && 'Super admin notification settings'}
             </h2>
-            <p className="text-[11px] text-slate-500 font-medium">
-              Manage client accounts, configure automated Razorpay renewal alerts to your WhatsApp, and inspect endpoints.
+            <p className="text-xs text-text-muted">
+              Manage client workspaces, configure renewal alerts, and inspect endpoints
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {/* Super Admin Phone Pill */}
             <button
               onClick={() => setActiveTab('admin_config')}
-              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 transition cursor-pointer"
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-sm text-xs text-text-body transition-colors duration-150 cursor-pointer"
               title="Click to configure WhatsApp Alert recipient"
             >
-              <Bell className="w-3.5 h-3.5 text-slate-900" />
-              <span>Admin Alert WhatsApp:</span>
-              <span className="font-mono font-bold text-slate-900">
-                {superAdminPhone ? `+${superAdminPhone}` : 'Click to Configure'}
+              <Bell className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
+              <span>Admin alerts:</span>
+              <span className="font-mono text-text-primary">
+                {superAdminPhone ? `+${superAdminPhone}` : 'Configure'}
               </span>
             </button>
 
             <button
               onClick={() => loadData()}
               disabled={loading}
-              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer border border-slate-200"
+              className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors duration-150 cursor-pointer border border-border"
               title="Refresh Data"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${loading ? 'animate-spin' : ''}`} />
             </button>
 
             <button
               onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-semibold rounded-xl transition flex items-center gap-2 cursor-pointer"
+              className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Onboard Organization</span>
+              <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
+              <span>Onboard organization</span>
             </button>
           </div>
         </header>
 
         {/* Global Action / Alert Toast Notice */}
         {(actionSuccessNotice || alertSuccessNotice) && (
-          <div className="bg-emerald-50 border-b border-emerald-200 px-6 py-2.5 text-xs text-emerald-800 flex items-center justify-between font-medium animate-fadeIn shrink-0">
-            <span className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          <div className="bg-status-success-bg border-b border-status-success-border px-6 py-2 text-xs text-status-success flex items-center justify-between font-medium shrink-0">
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 stroke-[1.5]" />
               <span>{actionSuccessNotice || alertSuccessNotice}</span>
             </span>
           </div>
@@ -458,86 +458,86 @@ export default function SuperAdminClients() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             
             {/* 1. Total Organizations */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between">
+            <div className="bg-surface border border-border rounded-md p-4 flex flex-col justify-between">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-500 font-headline uppercase tracking-wider">
+                <span className="text-xs font-medium text-text-muted">
                   Organizations
                 </span>
-                <Building2 className="w-4 h-4 text-slate-400" />
+                <Building2 className="w-4 h-4 text-text-muted stroke-[1.5]" />
               </div>
-              <div className="mt-2.5">
+              <div className="mt-2">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-bold font-headline text-slate-900 font-mono">
+                  <span className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
                     {tenants.length}
                   </span>
-                  <span className="text-xs font-bold text-emerald-700">
+                  <span className="text-xs font-medium text-status-success">
                     {tenants.filter((t) => t.status === 'active').length} Active
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
+                <p className="text-xs text-text-muted mt-0.5">
                   {tenants.filter((t) => t.status !== 'active').length} paused
                 </p>
               </div>
             </div>
 
             {/* 2. Platform MRR */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between">
+            <div className="bg-surface border border-border rounded-md p-4 flex flex-col justify-between">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-500 font-headline uppercase tracking-wider">
+                <span className="text-xs font-medium text-text-muted">
                   Platform MRR
                 </span>
-                <DollarSign className="w-4 h-4 text-slate-400" />
+                <DollarSign className="w-4 h-4 text-text-muted stroke-[1.5]" />
               </div>
-              <div className="mt-2.5">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-bold font-headline text-slate-900 font-mono">
+              <div className="mt-2">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
                     ₹{totalCalculatedMRR.toLocaleString('en-IN')}
                   </span>
-                  <span className="text-xs font-semibold text-slate-500">/ mo</span>
+                  <span className="text-xs text-text-muted">/ mo</span>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
-                  Razorpay Subscriptions (Auto-Debit)
+                <p className="text-xs text-text-muted mt-0.5">
+                  Razorpay auto-debit
                 </p>
               </div>
             </div>
 
             {/* 3. Razorpay Due Date Tracker */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between">
+            <div className="bg-surface border border-border rounded-md p-4 flex flex-col justify-between">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-500 font-headline uppercase tracking-wider">
-                  Admin WhatsApp Alerts
+                <span className="text-xs font-medium text-text-muted">
+                  Admin WhatsApp alerts
                 </span>
-                <Bell className="w-4 h-4 text-slate-400" />
+                <Bell className="w-4 h-4 text-text-muted stroke-[1.5]" />
               </div>
-              <div className="mt-2.5">
+              <div className="mt-2">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-bold font-headline text-slate-900 font-mono">
-                    {superAdminPhone ? 'Active' : 'Setup Required'}
+                  <span className="text-2xl font-semibold text-text-primary">
+                    {superAdminPhone ? 'Active' : 'Setup needed'}
                   </span>
-                  <span className="text-xs font-bold text-emerald-700">● Live</span>
+                  <span className="text-xs font-medium text-status-success">Live</span>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
-                  {superAdminPhone ? `Alerts sent to +${superAdminPhone}` : 'Configure phone below'}
+                <p className="text-xs text-text-muted mt-0.5">
+                  {superAdminPhone ? `To +${superAdminPhone}` : 'Configure below'}
                 </p>
               </div>
             </div>
 
             {/* 4. Platform Traffic */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between">
+            <div className="bg-surface border border-border rounded-md p-4 flex flex-col justify-between">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-500 font-headline uppercase tracking-wider">
-                  WhatsApp Activity
+                <span className="text-xs font-medium text-text-muted">
+                  WhatsApp messages
                 </span>
-                <Activity className="w-4 h-4 text-slate-400" />
+                <Activity className="w-4 h-4 text-text-muted stroke-[1.5]" />
               </div>
-              <div className="mt-2.5">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-bold font-headline text-slate-900 font-mono">
+              <div className="mt-2">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
                     {stats?.total_messages || 0}
                   </span>
-                  <span className="text-xs font-semibold text-slate-500">Msgs</span>
+                  <span className="text-xs text-text-muted">total</span>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
+                <p className="text-xs text-text-muted mt-0.5">
                   Across all client instances
                 </p>
               </div>
@@ -547,18 +547,18 @@ export default function SuperAdminClients() {
 
           {/* ── TAB 1: CLIENT ORGANIZATIONS DIRECTORY ─────────────────────────── */}
           {activeTab === 'organizations' && (
-            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+            <div className="bg-surface border border-border rounded-md overflow-hidden">
               
               {/* Search & Filter Bar */}
-              <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap bg-slate-50/50">
+              <div className="p-3.5 border-b border-border flex items-center justify-between gap-3 flex-wrap bg-surface">
                 <div className="relative flex-1 max-w-sm">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted stroke-[1.5]" />
                   <input
                     type="text"
                     placeholder="Search organizations, slug, or email..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-slate-900 font-medium"
+                    className="w-full pl-8 pr-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent transition-colors duration-150"
                   />
                 </div>
 
@@ -566,127 +566,127 @@ export default function SuperAdminClients() {
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value as any)}
-                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 font-medium focus:outline-none focus:border-slate-900"
+                    className="px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
                   >
-                    <option value="all">All Statuses</option>
-                    <option value="active">Active Only</option>
-                    <option value="paused">Paused Only</option>
+                    <option value="all">All statuses</option>
+                    <option value="active">Active only</option>
+                    <option value="paused">Paused only</option>
                   </select>
 
                   <button
                     onClick={() => handleSendAdminAlert()}
                     disabled={sendingAdminAlert || !superAdminPhone}
-                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-xl transition cursor-pointer border border-slate-200 flex items-center gap-1.5 disabled:opacity-50"
+                    className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer border border-border flex items-center gap-1.5 disabled:opacity-50"
                     title="Send consolidated Razorpay renewal digest to Super Admin WhatsApp"
                   >
-                    <Send className="w-3 h-3 text-slate-700" />
-                    <span>Send Due Digest to My WhatsApp</span>
+                    <Send className="w-3 h-3 stroke-[1.5]" />
+                    <span>Send digest to WhatsApp</span>
                   </button>
                 </div>
               </div>
 
               {/* Table */}
               {loading ? (
-                <div className="p-16 text-center text-xs text-slate-400">Loading client organizations...</div>
+                <div className="p-12 text-center text-xs text-text-muted">Loading client organizations...</div>
               ) : filteredTenants.length === 0 ? (
-                <div className="p-16 text-center space-y-3">
-                  <Building2 className="w-8 h-8 text-slate-300 mx-auto" />
-                  <p className="text-xs font-bold text-slate-700 font-headline">No organizations matching filter</p>
+                <div className="p-12 text-center space-y-2">
+                  <Building2 className="w-8 h-8 text-text-muted mx-auto stroke-[1.5]" />
+                  <p className="text-xs font-medium text-text-primary">No organizations found</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50/75 text-[11px] font-bold text-slate-500 uppercase tracking-wider font-headline">
-                        <th className="py-3 px-4">Organization</th>
-                        <th className="py-3 px-4">Plan & Rate</th>
-                        <th className="py-3 px-4">Razorpay Renewal</th>
-                        <th className="py-3 px-4">Admin Contact</th>
-                        <th className="py-3 px-4">Status</th>
-                        <th className="py-3 px-4 text-right">Quick Actions</th>
+                      <tr className="border-b border-border bg-surface-subtle text-xs font-medium text-text-muted">
+                        <th className="py-2.5 px-4">Organization</th>
+                        <th className="py-2.5 px-4">Plan & rate</th>
+                        <th className="py-2.5 px-4">Razorpay renewal</th>
+                        <th className="py-2.5 px-4">Admin contact</th>
+                        <th className="py-2.5 px-4">Status</th>
+                        <th className="py-2.5 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 text-xs">
+                    <tbody className="divide-y divide-border text-xs">
                       {filteredTenants.map((t) => {
                         const planFee = t.monthly_price || ((t.plan || 'pro').toLowerCase() === 'starter' ? 999 : (t.plan || 'pro').toLowerCase() === 'enterprise' ? 9999 : 2999);
                         const renewalDay = t.billing_cycle_day || 1;
                         return (
-                          <tr key={t.id} className="hover:bg-slate-50/60 transition group">
+                          <tr key={t.id} className="hover:bg-surface-subtle/50 transition-colors duration-150">
                             
                             {/* Organization Name */}
-                            <td className="py-3 px-4 font-medium">
+                            <td className="py-2.5 px-4">
                               <div className="flex items-center gap-2.5">
-                                <div className="w-7 h-7 rounded-lg bg-slate-100 border border-slate-200 text-slate-800 flex items-center justify-center font-bold text-[11px] font-headline">
+                                <div className="w-7 h-7 rounded-sm bg-surface-subtle border border-border text-text-primary flex items-center justify-center font-medium text-xs shrink-0">
                                   {t.name.slice(0, 2).toUpperCase()}
                                 </div>
                                 <div>
-                                  <p className="font-bold text-slate-900">{t.name}</p>
-                                  <p className="text-[10px] font-mono text-slate-400">/{t.slug}</p>
+                                  <p className="font-medium text-text-primary">{t.name}</p>
+                                  <p className="text-[11px] font-mono text-text-muted">/{t.slug}</p>
                                 </div>
                               </div>
                             </td>
 
                             {/* Plan & Rate */}
-                            <td className="py-3 px-4">
+                            <td className="py-2.5 px-4">
                               <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 border border-slate-200">
+                                <span className="text-[10px] font-mono font-medium uppercase px-1.5 py-0.5 rounded-sm bg-surface-subtle text-text-secondary border border-border">
                                   {t.plan || 'PRO'}
                                 </span>
-                                <span className="text-[11px] font-mono font-semibold text-slate-700">
-                                  ₹{planFee.toLocaleString('en-IN')}/m
+                                <span className="text-xs font-mono tabular-nums text-text-body">
+                                  ₹{planFee.toLocaleString('en-IN')}/mo
                                 </span>
                               </div>
                             </td>
 
                             {/* Razorpay Renewal Date */}
-                            <td className="py-3 px-4">
+                            <td className="py-2.5 px-4">
                               <div className="space-y-0.5">
-                                <p className="font-medium text-slate-800 flex items-center gap-1">
-                                  <Calendar className="w-3 h-3 text-slate-500" />
+                                <p className="text-xs text-text-primary flex items-center gap-1 font-sans">
+                                  <Calendar className="w-3 h-3 text-text-muted stroke-[1.5]" />
                                   <span>Every {renewalDay}th of month</span>
                                 </p>
-                                <p className="text-[10px] font-mono text-slate-400">
-                                  {t.razorpay_subscription_id ? `ID: ${t.razorpay_subscription_id}` : 'Auto-Debit Active'}
+                                <p className="text-[11px] font-mono text-text-muted">
+                                  {t.razorpay_subscription_id ? `ID: ${t.razorpay_subscription_id}` : 'Auto-debit active'}
                                 </p>
                               </div>
                             </td>
 
                             {/* Admin Contact */}
-                            <td className="py-3 px-4">
-                              <p className="font-medium text-slate-800">{t.admin_email || '—'}</p>
-                              <p className="text-[10px] text-slate-400">{t.contact_count || 0} Contacts &bull; {t.conversation_count || 0} Chats</p>
+                            <td className="py-2.5 px-4">
+                              <p className="text-xs text-text-primary">{t.admin_email || '—'}</p>
+                              <p className="text-[11px] text-text-muted font-mono tabular-nums">{t.contact_count || 0} contacts &bull; {t.conversation_count || 0} chats</p>
                             </td>
 
                             {/* Status */}
-                            <td className="py-3 px-4">
+                            <td className="py-2.5 px-4">
                               <button
                                 onClick={() => handleToggleStatus(t.id, t.status === 'active')}
                                 disabled={togglingId === t.id}
-                                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md flex items-center gap-1 transition cursor-pointer border ${
+                                className={`text-[11px] font-medium px-2 py-0.5 rounded-sm flex items-center gap-1 transition-colors duration-150 cursor-pointer border ${
                                   t.status === 'active'
-                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                                    : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                    ? 'bg-status-success-bg text-status-success border-status-success-border'
+                                    : 'bg-status-error-bg text-status-error border-status-error-border'
                                 }`}
                                 title="Click to toggle status"
                               >
-                                {t.status === 'active' ? <Play className="w-2.5 h-2.5 fill-emerald-700" /> : <Pause className="w-2.5 h-2.5 fill-rose-700" />}
-                                <span>{t.status === 'active' ? 'ACTIVE' : 'PAUSED'}</span>
+                                {t.status === 'active' ? <Play className="w-2.5 h-2.5 fill-current" /> : <Pause className="w-2.5 h-2.5 fill-current" />}
+                                <span>{t.status === 'active' ? 'Active' : 'Paused'}</span>
                               </button>
                             </td>
 
                             {/* Actions */}
-                            <td className="py-3 px-4 text-right">
+                            <td className="py-2.5 px-4 text-right">
                               <div className="flex items-center justify-end gap-1.5">
                                 
-                                {/* Send WhatsApp Alert about this client directly to Super Admin */}
+                                {/* Send WhatsApp Alert */}
                                 <button
                                   onClick={() => handleSendAdminAlert(t.id)}
                                   disabled={sendingAdminAlert || !superAdminPhone}
-                                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-lg text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                                  className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-body border border-border rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1 disabled:opacity-50"
                                   title="Send Razorpay due alert for this client to Super Admin WhatsApp"
                                 >
-                                  <Bell className="w-3 h-3 text-slate-700" />
-                                  <span>Alert Admin</span>
+                                  <Bell className="w-3 h-3 stroke-[1.5]" />
+                                  <span>Alert</span>
                                 </button>
 
                                 {/* Edit Billing & Razorpay Config */}
@@ -699,20 +699,20 @@ export default function SuperAdminClients() {
                                     setBillingRazorpayId(t.razorpay_subscription_id || '');
                                     setBillingNextDate(t.next_renewal_date || `Day ${renewalDay} of this month`);
                                   }}
-                                  className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-medium transition cursor-pointer flex items-center gap-1"
+                                  className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-body border border-border rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1"
                                   title="Configure Plan & Razorpay Settings"
                                 >
-                                  <Sliders className="w-3 h-3" />
+                                  <Sliders className="w-3 h-3 stroke-[1.5]" />
                                   <span>Billing</span>
                                 </button>
 
                                 {/* Impersonate / Open CRM */}
                                 <button
                                   onClick={() => handleImpersonateTenant(t.id)}
-                                  className="px-2.5 py-1 bg-slate-900 hover:bg-black text-white rounded-lg text-[11px] font-semibold transition cursor-pointer flex items-center gap-1"
+                                  className="px-2.5 py-1 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1"
                                   title="Access this Tenant's CRM Workspace"
                                 >
-                                  <ExternalLink className="w-3 h-3" />
+                                  <ExternalLink className="w-3 h-3 stroke-[1.5]" />
                                   <span>Open CRM</span>
                                 </button>
 
@@ -723,19 +723,19 @@ export default function SuperAdminClients() {
                                     setNewPassword('');
                                     setResetSuccess(false);
                                   }}
-                                  className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition cursor-pointer border border-slate-200"
+                                  className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors duration-150 cursor-pointer border border-border"
                                   title="Reset Admin Password"
                                 >
-                                  <Lock className="w-3.5 h-3.5" />
+                                  <Lock className="w-3.5 h-3.5 stroke-[1.5]" />
                                 </button>
 
                                 {/* Delete Organization */}
                                 <button
                                   onClick={() => setDeleteTenantTarget(t)}
-                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer border border-slate-200 hover:border-rose-200"
+                                  className="p-1.5 text-text-muted hover:text-status-error hover:bg-status-error-bg rounded-sm transition-colors duration-150 cursor-pointer border border-border hover:border-status-error-border"
                                   title="Delete Organization Permanently"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
                                 </button>
 
                               </div>
@@ -753,17 +753,17 @@ export default function SuperAdminClients() {
 
           {/* ── TAB 2: RAZORPAY SUBSCRIPTIONS & ADMIN DUE ALERTS ─────────────────── */}
           {activeTab === 'razorpay' && (
-            <div className="space-y-6">
+            <div className="space-y-4">
               
               {/* Informative Explanation Banner */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-5 flex items-center justify-between flex-wrap gap-4">
+              <div className="bg-surface border border-border rounded-md p-4 flex items-center justify-between flex-wrap gap-4">
                 <div className="space-y-1 max-w-2xl">
-                  <h3 className="text-sm font-bold text-slate-900 font-headline flex items-center gap-2">
-                    <CreditCard className="w-4 h-4 text-slate-900" />
-                    <span>Razorpay Subscription Auto-Debit & Admin Alert Center</span>
+                  <h3 className="text-xs font-semibold text-text-primary flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-accent stroke-[1.5]" />
+                    <span>Razorpay subscription auto-debit and alert center</span>
                   </h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Because your clients are billed automatically via Razorpay Subscriptions (Auto-Debit), no payment request is sent to the client. Instead, automated due date reminders are delivered directly to your <b>Super Admin WhatsApp number ({superAdminPhone ? `+${superAdminPhone}` : 'Configure phone'})</b> so you can track renewals effortlessly.
+                  <p className="text-xs text-text-muted leading-relaxed">
+                    Clients are billed automatically via Razorpay Subscriptions. Automated due date reminders are delivered directly to your WhatsApp number ({superAdminPhone ? `+${superAdminPhone}` : 'Configure phone'}).
                   </p>
                 </div>
 
@@ -771,10 +771,10 @@ export default function SuperAdminClients() {
                   <button
                     onClick={() => handleSendAdminAlert()}
                     disabled={sendingAdminAlert || !superAdminPhone}
-                    className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-semibold rounded-xl transition flex items-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
+                    className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>Send Renewal Digest to My WhatsApp</span>
+                    <Send className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <span>Send renewal digest to WhatsApp</span>
                   </button>
                 </div>
               </div>
@@ -785,39 +785,39 @@ export default function SuperAdminClients() {
                   const planFee = t.monthly_price || ((t.plan || 'pro').toLowerCase() === 'starter' ? 999 : (t.plan || 'pro').toLowerCase() === 'enterprise' ? 9999 : 2999);
                   const renewalDay = t.billing_cycle_day || 1;
                   return (
-                    <div key={t.id} className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 flex flex-col justify-between">
+                    <div key={t.id} className="bg-surface border border-border rounded-md p-4 space-y-3 flex flex-col justify-between">
                       <div>
-                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                        <div className="flex items-center justify-between pb-2 border-b border-border">
                           <div>
-                            <h4 className="font-bold text-xs text-slate-900 font-headline">{t.name}</h4>
-                            <p className="text-[10px] text-slate-400 font-mono">/{t.slug}</p>
+                            <h4 className="font-semibold text-xs text-text-primary">{t.name}</h4>
+                            <p className="text-[11px] text-text-muted font-mono">/{t.slug}</p>
                           </div>
-                          <span className="text-[10px] font-mono uppercase font-bold bg-slate-100 text-slate-800 px-2 py-0.5 rounded-md border border-slate-200">
+                          <span className="text-[10px] font-mono uppercase font-medium bg-surface-subtle text-text-secondary px-1.5 py-0.5 rounded-sm border border-border">
                             {t.plan || 'PRO'}
                           </span>
                         </div>
 
-                        <div className="mt-3 space-y-2 text-xs">
-                          <div className="flex justify-between text-slate-600">
-                            <span>Subscription Rate:</span>
-                            <span className="font-bold font-mono text-slate-900">₹{planFee.toLocaleString('en-IN')} / mo</span>
+                        <div className="mt-3 space-y-1.5 text-xs">
+                          <div className="flex justify-between text-text-secondary">
+                            <span>Subscription rate:</span>
+                            <span className="font-medium font-mono tabular-nums text-text-primary">₹{planFee.toLocaleString('en-IN')} / mo</span>
                           </div>
-                          <div className="flex justify-between text-slate-600">
-                            <span>Billing Cycle:</span>
-                            <span className="font-semibold text-slate-800">Every {renewalDay}th of month</span>
+                          <div className="flex justify-between text-text-secondary">
+                            <span>Billing cycle:</span>
+                            <span className="text-text-primary">Every {renewalDay}th of month</span>
                           </div>
-                          <div className="flex justify-between text-slate-600">
+                          <div className="flex justify-between text-text-secondary">
                             <span>Razorpay Sub ID:</span>
-                            <span className="font-mono text-slate-700">{t.razorpay_subscription_id || 'Auto-Debit Active'}</span>
+                            <span className="font-mono text-text-muted">{t.razorpay_subscription_id || 'Auto-debit active'}</span>
                           </div>
-                          <div className="flex justify-between text-slate-600">
-                            <span>Payment Method:</span>
-                            <span className="text-emerald-700 font-semibold">Razorpay Auto-Debit</span>
+                          <div className="flex justify-between text-text-secondary">
+                            <span>Payment method:</span>
+                            <span className="text-status-success font-medium">Razorpay Auto-Debit</span>
                           </div>
                         </div>
                       </div>
 
-                      <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                      <div className="pt-3 border-t border-border flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => {
@@ -828,14 +828,14 @@ export default function SuperAdminClients() {
                               setBillingRazorpayId(t.razorpay_subscription_id || '');
                               setBillingNextDate(t.next_renewal_date || `Day ${renewalDay} of this month`);
                             }}
-                            className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 cursor-pointer"
+                            className="text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer"
                           >
-                            Edit Billing
+                            Edit billing
                           </button>
 
                           <button
                             onClick={() => setDeleteTenantTarget(t)}
-                            className="text-[11px] font-semibold text-rose-500 hover:text-rose-700 cursor-pointer"
+                            className="text-xs font-medium text-status-error hover:underline cursor-pointer"
                           >
                             Delete
                           </button>
@@ -844,10 +844,10 @@ export default function SuperAdminClients() {
                         <button
                           onClick={() => handleSendAdminAlert(t.id)}
                           disabled={sendingAdminAlert || !superAdminPhone}
-                          className="px-3 py-1.5 bg-slate-900 hover:bg-black text-white text-xs font-semibold rounded-xl transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium rounded-sm border border-border transition-colors duration-150 flex items-center gap-1 cursor-pointer disabled:opacity-50"
                         >
-                          <Bell className="w-3 h-3" />
-                          <span>Alert My WhatsApp</span>
+                          <Bell className="w-3 h-3 stroke-[1.5]" />
+                          <span>Alert</span>
                         </button>
                       </div>
                     </div>
@@ -861,43 +861,43 @@ export default function SuperAdminClients() {
           {/* ── TAB 3: PLATFORM WEBHOOKS REGISTRY ─────────────────────────────── */}
           {activeTab === 'webhooks' && (
             <div className="space-y-4">
-              <div className="bg-white border border-slate-200 rounded-2xl p-5">
-                <h3 className="text-sm font-bold text-slate-900 font-headline mb-1">
-                  Centralized Meta WhatsApp Webhook Callback Registry
+              <div className="bg-surface border border-border rounded-md p-5">
+                <h3 className="text-xs font-semibold text-text-primary mb-1">
+                  Meta WhatsApp webhook callback registry
                 </h3>
-                <p className="text-xs text-slate-500 mb-4">
+                <p className="text-xs text-text-muted mb-4">
                   Copy each client organization's dedicated Webhook Callback URL and Verification Token into the Meta App Developer Portal (WhatsApp &rarr; Configuration).
                 </p>
 
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                   {tenants.map((t) => {
                     const url = `https://whatsapp-automation-system-eta.vercel.app/webhooks/whatsapp/${t.slug}`;
                     const token = `${t.slug}_token`;
                     return (
-                      <div key={t.id} className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between flex-wrap gap-3">
+                      <div key={t.id} className="p-3 bg-surface-subtle border border-border rounded-sm flex items-center justify-between flex-wrap gap-3">
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-xs text-slate-900 font-headline">{t.name}</span>
-                            <span className="text-[10px] font-mono text-slate-400">({t.slug})</span>
+                            <span className="font-medium text-xs text-text-primary">{t.name}</span>
+                            <span className="text-[11px] font-mono text-text-muted">({t.slug})</span>
                           </div>
-                          <p className="text-[11px] font-mono text-slate-600 mt-0.5">{url}</p>
+                          <p className="text-xs font-mono text-text-secondary mt-0.5 break-all">{url}</p>
                         </div>
 
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => copyToClipboard(url, `url-${t.id}`)}
-                            className="px-3 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 rounded-lg text-xs font-medium transition cursor-pointer flex items-center gap-1.5"
+                            className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-body border border-border rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1"
                           >
-                            {copiedField === `url-${t.id}` ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                            <span>Copy Webhook URL</span>
+                            {copiedField === `url-${t.id}` ? <Check className="w-3 h-3 stroke-[1.5] text-status-success" /> : <Copy className="w-3 h-3 stroke-[1.5]" />}
+                            <span>Copy URL</span>
                           </button>
 
                           <button
                             onClick={() => copyToClipboard(token, `token-${t.id}`)}
-                            className="px-3 py-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 rounded-lg text-xs font-medium transition cursor-pointer flex items-center gap-1.5"
+                            className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-body border border-border rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1"
                           >
-                            {copiedField === `token-${t.id}` ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                            <span>Copy Verify Token</span>
+                            {copiedField === `token-${t.id}` ? <Check className="w-3 h-3 stroke-[1.5] text-status-success" /> : <Copy className="w-3 h-3 stroke-[1.5]" />}
+                            <span>Copy verify token</span>
                           </button>
                         </div>
                       </div>
@@ -910,43 +910,43 @@ export default function SuperAdminClients() {
 
           {/* ── TAB 4: SUPER ADMIN NOTIFICATION SETTINGS ──────────────────────── */}
           {activeTab === 'admin_config' && (
-            <div className="max-w-2xl bg-white border border-slate-200 rounded-2xl p-6 space-y-5">
+            <div className="max-w-xl bg-surface border border-border rounded-md p-5 space-y-4">
               <div>
-                <h3 className="text-sm font-bold text-slate-900 font-headline">
-                  Super Admin Alert Notification Settings
+                <h3 className="text-xs font-semibold text-text-primary">
+                  Super admin alert notification settings
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-text-muted mt-0.5">
                   Configure where platform alerts, Razorpay client renewal reminders, and system notifications are dispatched.
                 </p>
               </div>
 
               <form onSubmit={handleSaveAdminPhone} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Super Admin WhatsApp Phone Number (with Country Code)
+                  <label className="block text-xs font-medium text-text-primary mb-1">
+                    Super admin WhatsApp phone (with country code)
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. 918870341570"
+                    placeholder="e.g. 917603807215"
                     value={superAdminPhone}
                     onChange={(e) => setSuperAdminPhone(e.target.value.replace(/[^0-9]/g, ''))}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-slate-900"
+                    className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                   />
-                  <p className="text-[11px] text-slate-500 mt-1">
+                  <p className="text-xs text-text-muted mt-1">
                     All upcoming Razorpay client auto-debit alerts and due date digests will be sent to this WhatsApp number.
                   </p>
                 </div>
 
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span className="text-xs font-bold text-slate-900">What alerts will you receive?</span>
+                <div className="p-3.5 bg-surface-subtle border border-border rounded-sm space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-status-success stroke-[1.5]" />
+                    <span className="text-xs font-medium text-text-primary">Alert types enabled:</span>
                   </div>
-                  <ul className="text-[11px] text-slate-600 space-y-1 list-disc pl-5">
-                    <li>2-Day Prior Notification before a client's monthly Razorpay renewal.</li>
-                    <li>Same-Day Auto-Debit Settlement confirmation alerts.</li>
-                    <li>Instant manual renewal digests whenever you click "Send Due Digest to My WhatsApp".</li>
+                  <ul className="text-xs text-text-muted space-y-0.5 list-disc pl-5">
+                    <li>2-Day prior notice before client's monthly Razorpay renewal.</li>
+                    <li>Same-day auto-debit settlement confirmation.</li>
+                    <li>Manual renewal digest on demand.</li>
                   </ul>
                 </div>
 
@@ -955,17 +955,17 @@ export default function SuperAdminClients() {
                     type="button"
                     onClick={() => handleSendAdminAlert()}
                     disabled={sendingAdminAlert || !superAdminPhone}
-                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-xl transition cursor-pointer border border-slate-200 flex items-center gap-1.5 disabled:opacity-50"
+                    className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer border border-border flex items-center gap-1.5 disabled:opacity-50"
                   >
-                    <Send className="w-3.5 h-3.5 text-slate-700" />
-                    <span>Send Test WhatsApp Alert Now</span>
+                    <Send className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <span>Send test alert</span>
                   </button>
 
                   <button
                     type="submit"
-                    className="px-5 py-2 bg-slate-900 hover:bg-black text-white text-xs font-semibold rounded-xl transition cursor-pointer"
+                    className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer"
                   >
-                    {savedPhoneNotice ? '✓ Saved!' : 'Save Phone Number'}
+                    {savedPhoneNotice ? 'Saved' : 'Save phone'}
                   </button>
                 </div>
               </form>
@@ -977,33 +977,33 @@ export default function SuperAdminClients() {
 
       {/* ── MODAL: EDIT CLIENT RAZORPAY BILLING SETTINGS ──────────────────────── */}
       {editingBillingTenant && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-300 rounded-2xl w-full max-w-md overflow-hidden animate-scaleIn">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-surface border border-border rounded-md w-full max-w-md overflow-hidden shadow-subtle">
             
-            <div className="h-14 px-6 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+            <div className="h-12 px-5 border-b border-border flex items-center justify-between bg-surface">
               <div className="flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-slate-900" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 font-headline">
-                  Configure Razorpay Billing
+                <CreditCard className="w-4 h-4 text-accent stroke-[1.5]" />
+                <h3 className="text-xs font-semibold text-text-primary">
+                  Configure billing
                 </h3>
               </div>
               <button
                 onClick={() => setEditingBillingTenant(null)}
-                className="p-1 text-slate-400 hover:text-slate-900 rounded-lg transition cursor-pointer"
+                className="p-1 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4 h-4 stroke-[1.5]" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveBilling} className="p-6 space-y-4">
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                <p className="text-[10px] font-bold uppercase text-slate-400">Client Organization</p>
-                <p className="text-xs font-bold text-slate-900 mt-0.5">{editingBillingTenant.name} (/{editingBillingTenant.slug})</p>
+            <form onSubmit={handleSaveBilling} className="p-5 space-y-3.5">
+              <div className="p-2.5 bg-surface-subtle border border-border rounded-sm">
+                <p className="text-xs font-medium text-text-muted">Client organization</p>
+                <p className="text-xs font-semibold text-text-primary mt-0.5">{editingBillingTenant.name} (/{editingBillingTenant.slug})</p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Subscription Plan</label>
+                  <label className="block text-xs font-medium text-text-primary mb-1">Subscription plan</label>
                   <select
                     value={billingPlan}
                     onChange={(e) => {
@@ -1013,68 +1013,66 @@ export default function SuperAdminClients() {
                       else if (p === 'pro') setBillingPrice(2999);
                       else if (p === 'enterprise') setBillingPrice(9999);
                     }}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:border-slate-900"
+                    className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                   >
-                    <option value="starter">Starter Plan (₹999/mo)</option>
-                    <option value="pro">Pro Plan (₹2,999/mo)</option>
-                    <option value="enterprise">Enterprise Plan (₹9,999/mo)</option>
-                    <option value="custom">Custom Pricing Plan</option>
+                    <option value="starter">Starter (₹999/mo)</option>
+                    <option value="pro">Pro (₹2,999/mo)</option>
+                    <option value="enterprise">Enterprise (₹9,999/mo)</option>
+                    <option value="custom">Custom plan</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Monthly Rate (₹) *</label>
+                  <label className="block text-xs font-medium text-text-primary mb-1">Monthly rate (₹) *</label>
                   <input
                     type="number"
                     min={0}
                     value={billingPrice}
                     onChange={(e) => setBillingPrice(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-slate-900"
+                    className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono tabular-nums text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                     required
                   />
-                  <p className="text-[10px] text-slate-400 mt-0.5">Editable custom amount</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Billing Day of Month</label>
+                  <label className="block text-xs font-medium text-text-primary mb-1">Billing day of month</label>
                   <input
                     type="number"
                     min={1}
                     max={31}
                     value={billingDay}
                     onChange={(e) => setBillingDay(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-slate-900"
+                    className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono tabular-nums text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                     required
                   />
-                  <p className="text-[10px] text-slate-400 mt-0.5">Day {billingDay} every month</p>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Razorpay Sub ID</label>
+                  <label className="block text-xs font-medium text-text-primary mb-1">Razorpay sub ID</label>
                   <input
                     type="text"
                     placeholder="sub_N4x89192"
                     value={billingRazorpayId}
                     onChange={(e) => setBillingRazorpayId(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
+                    className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                   />
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <div className="pt-3 border-t border-border flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setEditingBillingTenant(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                  className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={savingBilling}
-                  className="px-5 py-2 bg-slate-900 hover:bg-black text-white text-xs font-semibold rounded-xl transition cursor-pointer disabled:opacity-50"
+                  className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer disabled:opacity-50"
                 >
-                  {savingBilling ? 'Saving...' : 'Save Settings'}
+                  {savingBilling ? 'Saving...' : 'Save settings'}
                 </button>
               </div>
             </form>
@@ -1085,37 +1083,37 @@ export default function SuperAdminClients() {
 
       {/* ── MODAL: DELETE CLIENT ORGANIZATION CONFIRMATION ───────────────────── */}
       {deleteTenantTarget && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-300 rounded-2xl w-full max-w-md overflow-hidden animate-scaleIn">
-            <div className="h-14 px-6 border-b border-slate-200 flex items-center justify-between bg-rose-50/60">
-              <div className="flex items-center gap-2 text-rose-700">
-                <Trash2 className="w-4 h-4" />
-                <h3 className="text-xs font-bold uppercase tracking-wider font-headline">
-                  Delete Organization
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-surface border border-border rounded-md w-full max-w-md overflow-hidden shadow-subtle">
+            <div className="h-12 px-5 border-b border-border flex items-center justify-between bg-surface">
+              <div className="flex items-center gap-2 text-status-error">
+                <Trash2 className="w-4 h-4 stroke-[1.5]" />
+                <h3 className="text-xs font-semibold">
+                  Delete organization
                 </h3>
               </div>
               <button
                 onClick={() => setDeleteTenantTarget(null)}
-                className="p-1 text-slate-400 hover:text-slate-900 rounded-lg transition cursor-pointer"
+                className="p-1 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4 h-4 stroke-[1.5]" />
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
-              <p className="text-xs text-slate-700 leading-relaxed font-medium">
-                Are you sure you want to permanently delete <b>{deleteTenantTarget.name}</b> (/{deleteTenantTarget.slug})?
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-text-body leading-relaxed">
+                Are you sure you want to permanently delete <strong>{deleteTenantTarget.name}</strong> (/{deleteTenantTarget.slug})?
               </p>
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-800 space-y-1">
-                <p className="font-bold">⚠️ Warning: This action cannot be undone.</p>
+              <div className="p-3 bg-status-error-bg border border-status-error-border rounded-sm text-xs text-status-error space-y-1">
+                <p className="font-semibold">Warning: This action cannot be undone.</p>
                 <p>All associated bookings, conversations, contacts, and credentials will be permanently erased.</p>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <div className="pt-3 border-t border-border flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setDeleteTenantTarget(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                  className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1123,10 +1121,10 @@ export default function SuperAdminClients() {
                   type="button"
                   disabled={deletingTenant}
                   onClick={handleDeleteTenant}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-xl transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 bg-status-error hover:bg-status-error text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  {deletingTenant ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                  <span>Yes, Delete Organization</span>
+                  {deletingTenant ? <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" /> : <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />}
+                  <span>Delete organization</span>
                 </button>
               </div>
             </div>
@@ -1136,89 +1134,89 @@ export default function SuperAdminClients() {
 
       {/* ── MODAL: ONBOARD CLIENT ORGANIZATION ────────────────────────────────── */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-300 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-scaleIn">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-surface border border-border rounded-md w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden shadow-subtle">
             
             {/* Modal Header */}
-            <div className="h-14 px-6 border-b border-slate-200 flex items-center justify-between shrink-0 bg-slate-50">
+            <div className="h-12 px-5 border-b border-border flex items-center justify-between shrink-0 bg-surface">
               <div className="flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-slate-900" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 font-headline">
-                  Onboard Client Organization
+                <Building2 className="w-4 h-4 text-accent stroke-[1.5]" />
+                <h3 className="text-xs font-semibold text-text-primary">
+                  Onboard client organization
                 </h3>
               </div>
               <button
                 onClick={() => setShowCreateModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-900 rounded-lg transition cursor-pointer"
+                className="p-1 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4 h-4 stroke-[1.5]" />
               </button>
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleCreateClient} className="p-6 overflow-y-auto space-y-4 flex-1">
+            <form onSubmit={handleCreateClient} className="p-5 overflow-y-auto space-y-3.5 flex-1">
               {formError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl font-medium">
+                <div className="p-3 bg-status-error-bg border border-status-error-border text-status-error text-xs rounded-sm font-medium">
                   {formError}
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Company / Organization Name *</label>
+                  <label className="block text-xs font-medium text-text-primary mb-1">Company / Organization name *</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. Apex Health Clinic"
                     value={formData.name}
                     onChange={(e) => handleNameChange(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-slate-900 font-medium"
+                    className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">URL Identifier (Slug) *</label>
+                  <label className="block text-xs font-medium text-text-primary mb-1">URL Identifier (Slug) *</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. apex-health"
                     value={formData.slug}
                     onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, '') })}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
+                    className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Admin Account Email *</label>
+                  <label className="block text-xs font-medium text-text-primary mb-1">Admin account email *</label>
                   <input
                     type="email"
                     required
                     placeholder="admin@clientclinic.com"
                     value={formData.admin_email}
                     onChange={(e) => setFormData({ ...formData, admin_email: e.target.value })}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-slate-900 font-medium"
+                    className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Admin Initial Password *</label>
+                  <label className="block text-xs font-medium text-text-primary mb-1">Admin initial password *</label>
                   <input
                     type="text"
                     required
                     placeholder="Initial password"
                     value={formData.admin_password}
                     onChange={(e) => setFormData({ ...formData, admin_password: e.target.value })}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
+                    className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                   />
                 </div>
               </div>
 
               {/* Plan & Custom Pricing */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Subscription Plan</label>
+                  <label className="block text-xs font-medium text-text-primary mb-1">Subscription plan</label>
                   <select
                     value={formData.plan}
                     onChange={(e) => {
@@ -1229,70 +1227,68 @@ export default function SuperAdminClients() {
                       else if (p === 'enterprise') price = 9999;
                       setFormData({ ...formData, plan: p, monthly_price: price });
                     }}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-slate-900 font-medium"
+                    className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                   >
-                    <option value="starter">Starter Plan (₹999/mo)</option>
-                    <option value="pro">Pro Plan (₹2,999/mo)</option>
-                    <option value="enterprise">Enterprise Plan (₹9,999/mo)</option>
-                    <option value="custom">Custom Pricing Plan</option>
+                    <option value="starter">Starter (₹999/mo)</option>
+                    <option value="pro">Pro (₹2,999/mo)</option>
+                    <option value="enterprise">Enterprise (₹9,999/mo)</option>
+                    <option value="custom">Custom plan</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Monthly Amount (₹) *</label>
+                  <label className="block text-xs font-medium text-text-primary mb-1">Monthly amount (₹) *</label>
                   <input
                     type="number"
                     required
                     min={0}
-                    placeholder="Enter custom amount"
+                    placeholder="2999"
                     value={formData.monthly_price}
                     onChange={(e) => setFormData({ ...formData, monthly_price: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-slate-900"
+                    className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono tabular-nums text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                   />
-                  <p className="text-[10px] text-slate-400 mt-0.5">Custom monthly rate for this client</p>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Billing Day of Month</label>
+                  <label className="block text-xs font-medium text-text-primary mb-1">Billing day of month</label>
                   <input
                     type="number"
                     min={1}
                     max={31}
                     value={formData.billing_cycle_day}
                     onChange={(e) => setFormData({ ...formData, billing_cycle_day: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
+                    className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono tabular-nums text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                   />
-                  <p className="text-[10px] text-slate-400 mt-0.5">Day {formData.billing_cycle_day} every month</p>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Razorpay Subscription ID (Optional)</label>
+                <label className="block text-xs font-medium text-text-primary mb-1">Razorpay subscription ID (optional)</label>
                 <input
                   type="text"
-                  placeholder="e.g. sub_N4x89192 (Leave empty if direct auto-debit)"
+                  placeholder="e.g. sub_N4x89192"
                   value={formData.razorpay_subscription_id}
                   onChange={(e) => setFormData({ ...formData, razorpay_subscription_id: e.target.value })}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
+                  className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                 />
               </div>
 
               {/* Modal Actions */}
-              <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-3 shrink-0">
+              <div className="pt-3 border-t border-border flex items-center justify-end gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                  className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={formSubmitting}
-                  className="px-5 py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-semibold rounded-xl transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                  className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  {formSubmitting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                  <span>Provision Client Organization</span>
+                  {formSubmitting ? <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" /> : <Plus className="w-3.5 h-3.5 stroke-[1.5]" />}
+                  <span>Provision organization</span>
                 </button>
               </div>
             </form>
@@ -1303,40 +1299,40 @@ export default function SuperAdminClients() {
 
       {/* ── MODAL: RESET CLIENT PASSWORD ──────────────────────────────────────── */}
       {resetTenantId && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-300 rounded-2xl w-full max-w-sm overflow-hidden animate-scaleIn">
-            <div className="h-14 px-6 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-surface border border-border rounded-md w-full max-w-sm overflow-hidden shadow-subtle">
+            <div className="h-12 px-5 border-b border-border flex items-center justify-between bg-surface">
               <div className="flex items-center gap-2">
-                <Lock className="w-4 h-4 text-slate-900" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 font-headline">
-                  Reset Client Password
+                <Lock className="w-4 h-4 text-accent stroke-[1.5]" />
+                <h3 className="text-xs font-semibold text-text-primary">
+                  Reset client password
                 </h3>
               </div>
               <button
                 onClick={() => setResetTenantId(null)}
-                className="p-1 text-slate-400 hover:text-slate-900 rounded-lg transition cursor-pointer"
+                className="p-1 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4 h-4 stroke-[1.5]" />
               </button>
             </div>
 
-            <form onSubmit={handleResetPassword} className="p-6 space-y-4">
+            <form onSubmit={handleResetPassword} className="p-5 space-y-3.5">
               {resetSuccess ? (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl font-medium flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Password reset successfully!</span>
+                <div className="p-3 bg-status-success-bg border border-status-success-border text-status-success text-xs rounded-sm font-medium flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                  <span>Password reset successfully</span>
                 </div>
               ) : (
                 <>
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">New Secure Password</label>
+                    <label className="block text-xs font-medium text-text-primary mb-1">New password</label>
                     <input
                       type="text"
                       required
-                      placeholder="Enter new password (min 6 chars)"
+                      placeholder="Min 6 characters"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-slate-900"
+                      className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                     />
                   </div>
 
@@ -1344,16 +1340,16 @@ export default function SuperAdminClients() {
                     <button
                       type="button"
                       onClick={() => setResetTenantId(null)}
-                      className="px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 cursor-pointer"
+                      className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
                       disabled={!newPassword || newPassword.length < 6}
-                      className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-semibold rounded-xl transition cursor-pointer disabled:opacity-50"
+                      className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer disabled:opacity-50"
                     >
-                      Update Password
+                      Update password
                     </button>
                   </div>
                 </>
