@@ -495,9 +495,43 @@ export const admin = {
     ),
 };
 
+// ── Marketing / Broadcast Campaigns ──────────────────────────────────────────
+export interface BroadcastCampaign {
+  id?: string;
+  campaign_name: string;
+  target_audience: 'all' | 'attended' | 'important' | 'custom';
+  message_text?: string;
+  template_name?: string;
+  template_params?: string[];
+  total_recipients: number;
+  sent_count?: number;
+  failed_count?: number;
+  status: 'queued' | 'completed' | 'in_progress' | 'failed';
+  created_at?: string;
+}
+
+export const marketing = {
+  sendBroadcast: (data: {
+    campaign_name: string;
+    recipient_phones: string[];
+    message_text?: string;
+    template_name?: string;
+    template_params?: string[];
+    target_audience?: string;
+  }) =>
+    request<{ success: boolean; campaign_name: string; total_recipients: number; status: string; message: string }>(
+      '/marketing/broadcast',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    ),
+};
+
 // ── Health ────────────────────────────────────────────────────────────────────
 export const health = {
   check: () => request<{ status: string; service: string }>('/health'),
 };
+
 
 

@@ -2284,4 +2284,54 @@ async def send_admin_due_date_alert(payload: AdminDueAlertRequest, background_ta
     }
 
 
+class MarketingBroadcastPayload(BaseModel):
+    campaign_name: str
+    recipient_phones: List[str]
+    message_text: Optional[str] = None
+    template_name: Optional[str] = None
+    template_params: Optional[List[str]] = None
+    target_audience: Optional[str] = "custom"
+
+
+@app.post("/marketing/broadcast")
+@app.post("/api/v1/marketing/broadcast")
+async def execute_marketing_broadcast(
+    data: MarketingBroadcastPayload,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Dispatch a bulk marketing campaign to targeted customer phone numbers."""
+    if not data.recipient_phones:
+        raise HTTPException(status_code=400, detail="At least one recipient phone number is required.")
+    
+    clean_phones = list(set([p.replace("+", "").replace(" ", "").replace("-", "").strip() for p in data.recipient_phones if p.strip()]))
+    if not clean_phones:
+        raise HTTPException(status_code=400, detail="No valid phone numbers provided.")
+
+    async def _run_broadcast(t_id: str, phones: List[str], text: Optional[str], t_name: Optional[str], t_params: Optional[List[str]]):
+        for p in phones:
+            try:
+                await send_whatsapp_message(
+                    tenant_id=t_id,
+                    phone=p,
+                    text=text or "Hello! Here is an update from our team.",
+                    template_name=t_name,
+                    template_params=t_params
+                )
+                await asyncio.sleep(0.5)  # 500ms safety rate limit
+            except Exception as ex:
+                logger.error("marketing_broadcast_item_failed", phone=p, error=str(ex))
+
+    background_tasks.add_task(_run_broadcast, tenant_id, clean_phones, data.message_text, data.template_name, data.template_params)
+
+    return {
+        "success": True,
+        "campaign_name": data.campaign_name,
+        "total_recipients": len(clean_phones),
+        "status": "queued",
+        "message": f"Broadcast campaign '{data.campaign_name}' initiated for {len(clean_phones)} recipients."
+    }
+
+
+
 
