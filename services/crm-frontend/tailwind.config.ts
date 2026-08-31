@@ -9,8 +9,8 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['var(--font-sans)', 'Open Sans', 'system-ui', '-apple-system', 'sans-serif'],
-        headline: ['var(--font-headline)', 'Urbanist', 'sans-serif'],
+        sans: ["'Open Sans'", 'var(--font-sans)', 'system-ui', '-apple-system', 'sans-serif'],
+        headline: ["'Urbanist'", 'var(--font-headline)', 'sans-serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
       },
       colors: {
