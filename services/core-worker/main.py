@@ -547,11 +547,19 @@ class CoreWorker:
         cancel_action = False
         reschedule_action = None
         ai_used_fallback = (provider_used != primary_provider and provider_used != "gemini")
+
+        # Inbound Customer Cancellation Intent Safety Net
+        inbound_lower = (message_text or "").lower().strip()
+        inbound_cancel_intent = any(w in inbound_lower for w in ["cancell it", "cancel it", "yes cancel", "yes cancell", "cancel booking", "cancell booking", "cancel appointment", "cancell appointment", "cancel my", "cancell my"]) or (inbound_lower in ["cancel", "cancell", "yes cancel", "yes cancell", "cancell it", "cancel it"])
+        if inbound_cancel_intent:
+            cancel_action = True
+            logger.info("inbound_cancellation_intent_detected", customer_msg=message_text)
+
         if response_text:
             response_text = clean_llm_response(response_text)
             
-            # 1. Intercept [ACTION:CANCEL_BOOKING]
-            if "[ACTION:CANCEL_BOOKING]" in response_text or any(phrase in response_text.lower() for phrase in ["cancelled your booking", "have cancelled your", "booking has been cancelled", "appointment is cancelled", "appointment has been cancelled"]):
+            # 1. Intercept [ACTION:CANCEL_BOOKING] or AI confirmation phrases
+            if "[ACTION:CANCEL_BOOKING]" in response_text or any(phrase in response_text.lower() for phrase in ["cancelled your booking", "have cancelled your", "booking has been cancelled", "appointment is cancelled", "appointment has been cancelled", "cancelled your appointment"]):
                 cancel_action = True
                 response_text = response_text.replace("[ACTION:CANCEL_BOOKING]", "").strip()
 
