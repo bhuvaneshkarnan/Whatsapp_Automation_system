@@ -30,6 +30,7 @@ import {
   FileText,
   Copy,
   Check,
+  CheckCheck,
   ToggleLeft,
   ToggleRight,
   Clock,
@@ -2236,18 +2237,18 @@ export default function DashboardPage() {
                                   </div>
                                 )}
                                 <p className="leading-relaxed whitespace-pre-wrap font-sans">{msg.body}</p>
-                                <div className={`text-[10px] mt-1.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-slate-200'}`}>
+                                <div className={`text-[10px] mt-1 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100/90'}`}>
                                   <span>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                                   {!isInbound && (
-                                    <span className="inline-flex items-center ml-0.5" title={msg.status === 'read' ? 'Read' : msg.status === 'delivered' ? 'Delivered' : msg.status === 'sent' ? 'Sent' : 'Pending'}>
+                                    <span className="inline-flex items-center ml-0.5" title={msg.status === 'read' ? 'Read (seen)' : msg.status === 'delivered' ? 'Delivered' : msg.status === 'failed' ? 'Failed' : 'Sent'}>
                                       {msg.status === 'read' ? (
-                                        <span className="text-white font-semibold text-xs leading-none select-none">✓✓</span>
+                                        <CheckCheck className="w-3.5 h-3.5 stroke-[2.2] text-[#53bdeb] shrink-0" />
                                       ) : msg.status === 'delivered' ? (
-                                        <span className="text-slate-300 font-semibold text-xs leading-none select-none">✓✓</span>
+                                        <CheckCheck className="w-3.5 h-3.5 stroke-[2] text-teal-200/80 shrink-0" />
                                       ) : msg.status === 'failed' ? (
-                                        <span className="text-rose-300 font-semibold text-xs leading-none select-none">!</span>
+                                        <AlertCircle className="w-3 h-3 stroke-[2] text-rose-300 shrink-0" />
                                       ) : (
-                                        <span className="text-slate-300 font-semibold text-xs leading-none select-none">✓</span>
+                                        <Check className="w-3.5 h-3.5 stroke-[2] text-teal-200/80 shrink-0" />
                                       )}
                                     </span>
                                   )}
