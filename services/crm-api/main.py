@@ -405,11 +405,13 @@ async def dispatch_automated_status_whatsapp(
     conv_id: str,
     phone: str,
     text: str,
-    delay_seconds: int = 0
+    delay_seconds: int = 0,
+    template_name: Optional[str] = None,
+    template_params: Optional[list] = None,
 ):
     try:
         if delay_seconds > 0:
-            logger.info("delayed_automated_wa_scheduled", tenant_id=tenant_id, delay=delay_seconds, phone=phone)
+            logger.info("delayed_automated_wa_scheduled", tenant_id=tenant_id, delay=delay_seconds, phone=phone, template=template_name)
             await asyncio.sleep(delay_seconds)
 
         async with db_pool.acquire() as conn:
@@ -427,18 +429,62 @@ async def dispatch_automated_status_whatsapp(
 
             clean_phone = phone.replace("+", "").replace(" ", "").replace("-", "").strip()
 
-            # Dispatch via Meta Graph API if credentials configured
+            # Dispatch via Meta Graph API
+            template_sent = False
             if creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-                try:
-                    import httpx
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        await client.post(
-                            f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages",
-                            headers={"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"},
-                            json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": text}}
-                        )
-                except Exception as e:
-                    logger.error("automated_wa_dispatch_failed", error=str(e), phone=clean_phone)
+                import httpx
+                headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
+                url = f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages"
+
+                # 1. Try Meta Approved Template first
+                if template_name and template_params:
+                    components = [
+                        {
+                            "type": "body",
+                            "parameters": [{"type": "text", "text": str(p)} for p in template_params if str(p).strip()]
+                        }
+                    ]
+                    payload = {
+                        "messaging_product": "whatsapp",
+                        "to": clean_phone,
+                        "type": "template",
+                        "template": {
+                            "name": template_name,
+                            "language": {"code": "en"},
+                            "components": components,
+                        }
+                    }
+                    try:
+                        async with httpx.AsyncClient(timeout=10.0) as client:
+                            res = await client.post(url, headers=headers, json=payload)
+                            if res.status_code in (200, 201):
+                                template_sent = True
+                                logger.info("automated_status_template_dispatched", template=template_name, phone=clean_phone)
+                            elif "132000" in res.text and "expected number of params" in res.text:
+                                # Dynamic retry with adapted parameter count
+                                import re
+                                m_count = re.search(r'expected number of params \((\d+)\)', res.text)
+                                if m_count:
+                                    exp_c = int(m_count.group(1))
+                                    payload["template"]["components"][0]["parameters"] = components[0]["parameters"][:exp_c]
+                                    res_retry = await client.post(url, headers=headers, json=payload)
+                                    if res_retry.status_code in (200, 201):
+                                        template_sent = True
+                                        logger.info("automated_status_template_retry_succeeded", template=template_name, phone=clean_phone)
+                    except Exception as e:
+                        logger.warning("template_dispatch_failed_trying_text", error=str(e), template=template_name)
+
+                # 2. Fallback to Text if template was not sent
+                if not template_sent:
+                    try:
+                        async with httpx.AsyncClient(timeout=10.0) as client:
+                            await client.post(
+                                url,
+                                headers=headers,
+                                json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": text}}
+                            )
+                    except Exception as e:
+                        logger.error("automated_wa_text_dispatch_failed", error=str(e), phone=clean_phone)
 
             # Record message in database
             msg_id = str(uuid.uuid4())
@@ -493,21 +539,31 @@ async def update_booking_status(
         service_name = booking["service"] or "appointment"
         tenant_name = booking["tenant_name"] or "our team"
         
-        # Accurate Asia/Kolkata Time formatting
+        # Accurate Time formatting
+        t_settings_dict = booking["tenant_settings"] if booking.get("tenant_settings") else {}
+        if isinstance(t_settings_dict, str):
+            try: t_settings_dict = json.loads(t_settings_dict)
+            except: t_settings_dict = {}
+        tz_name = t_settings_dict.get("timezone", "Asia/Kolkata").strip()
+
         import zoneinfo
         try:
-            kolkata_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
+            local_tz = zoneinfo.ZoneInfo(tz_name)
         except Exception:
-            kolkata_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+            local_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
         time_str = ""
+        date_str = ""
+        clock_str = ""
         if booking["start_time"]:
             st = booking["start_time"]
             if hasattr(st, "astimezone"):
-                st_local = st.astimezone(kolkata_tz)
+                st_local = st.astimezone(local_tz)
             else:
-                st_local = st.replace(tzinfo=datetime.timezone.utc).astimezone(kolkata_tz)
+                st_local = st.replace(tzinfo=datetime.timezone.utc).astimezone(local_tz)
             time_str = st_local.strftime("%A, %d %b %Y at %I:%M %p")
+            date_str = st_local.strftime("%d-%m-%Y")
+            clock_str = st_local.strftime("%I:%M %p")
         
         # If cancelled and synced to Google Calendar, remove the Google Calendar event
         if payload.status == "cancelled" and booking.get("google_event_id"):
@@ -538,15 +594,22 @@ async def update_booking_status(
             except Exception as e:
                 logger.warning("google_calendar_cancellation_sync_failed", error=str(e))
 
+        # Fetch WhatsApp creds for template names
+        wa_row = await conn.fetchrow("SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp'", tenant_id)
+        wa_data = {}
+        if wa_row and wa_row["credential_data"]:
+            wd = wa_row["credential_data"]
+            if isinstance(wd, str):
+                try: wd = json.loads(wd)
+                except: wd = {}
+            wa_data = dict(wd)
+
         automated_text = None
         delay_seconds = 0
+        dispatch_template = None
+        dispatch_params = []
 
-        # Load google_review_link if present
-        t_settings_dict = booking["tenant_settings"] if booking.get("tenant_settings") else {}
-        if isinstance(t_settings_dict, str):
-            try: t_settings_dict = json.loads(t_settings_dict)
-            except: t_settings_dict = {}
-        google_review_link = (t_settings_dict.get("google_review_link") or "").strip()
+        google_review_link = (t_settings_dict.get("google_review_link") or wa_data.get("google_review_link") or "").strip()
 
         if payload.status in ["completed", "attended"]:
             # 15 minutes delay for review request (900 seconds)
@@ -557,6 +620,8 @@ async def update_booking_status(
                 f"We hope you had a wonderful experience! Could you please take 30 seconds to share your review with us?{review_link_block}\n\n"
                 f"Your feedback helps us maintain the highest standard of service. Thank you for choosing {tenant_name}!"
             )
+            dispatch_template = wa_data.get("template_review_request") or "review_request"
+            dispatch_params = [patient_name, service_name, google_review_link]
             # Update review_sent_at timestamp
             await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid", booking_id)
 
@@ -568,6 +633,9 @@ async def update_booking_status(
                 f"We understand that plans can change unexpectedly! Would you like to reschedule for tomorrow or another time?\n\n"
                 f"Simply reply to this message anytime and we'll gladly help you pick a convenient new slot."
             )
+            dispatch_template = wa_data.get("template_reschedule_nudge") or "reschedule_nudge"
+            dispatch_params = [patient_name, service_name]
+
         elif payload.status == "confirmed":
             timing_line = f" on *{time_str}*" if time_str else ""
             automated_text = (
@@ -575,6 +643,9 @@ async def update_booking_status(
                 f"Location: {tenant_name}\n\n"
                 f"We look forward to seeing you. Reply to this chat if you have any questions or need directions."
             )
+            dispatch_template = wa_data.get("template_booking_confirmation") or "booking_confirmationn"
+            dispatch_params = [patient_name, service_name, date_str or "Today", clock_str or "Scheduled Time"]
+
         elif payload.status == "cancelled":
             timing_line = f" on {time_str}" if time_str else ""
             automated_text = (
@@ -582,6 +653,8 @@ async def update_booking_status(
                 f"If you'd like to book a new appointment in the future, just message us here anytime!\n\n"
                 f"Best regards,\n{tenant_name}"
             )
+            dispatch_template = wa_data.get("template_cancellation_confirmation") or "cancellation_confirmation"
+            dispatch_params = [patient_name, service_name, date_str or "Today", clock_str or "Scheduled Time"]
 
         if automated_text and booking["phone"]:
             # Ensure conversation exists
@@ -607,7 +680,9 @@ async def update_booking_status(
                 str(conv_id),
                 booking["phone"],
                 automated_text,
-                delay_seconds
+                delay_seconds,
+                dispatch_template,
+                dispatch_params,
             )
 
     return {
@@ -615,7 +690,8 @@ async def update_booking_status(
         "id": booking_id,
         "new_status": payload.status,
         "automated_message_scheduled": bool(automated_text),
-        "delay_seconds": delay_seconds
+        "delay_seconds": delay_seconds,
+        "template_configured": dispatch_template,
     }
 
 

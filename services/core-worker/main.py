@@ -555,6 +555,21 @@ class CoreWorker:
             cancel_action = True
             logger.info("inbound_cancellation_intent_detected", customer_msg=message_text)
 
+        # Inbound Human Takeover Request Intent
+        human_request_intent = any(w in inbound_lower for w in ["human agent", "talk to human", "speak to human", "talk to agent", "talk to staff", "speak to real person", "real person", "customer care executive", "connect to agent", "human support", "speak with someone"])
+        if human_request_intent:
+            await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid", conv_id)
+            response_text = "I have notified our team. A staff member will take over this conversation shortly!"
+            asyncio.create_task(
+                self._execute_admin_human_alert(
+                    tenant_id=tenant_id,
+                    conv_id=conv_id,
+                    contact_phone=contact_phone,
+                    customer_name=customer_name,
+                    creds=creds,
+                )
+            )
+
         if response_text:
             response_text = clean_llm_response(response_text)
             
@@ -1187,6 +1202,72 @@ class CoreWorker:
                             logger.warning("admin_cancellation_template_failed", error=str(e2))
         except Exception as e:
             logger.error("execute_ai_cancellation_failed", error=str(e), tenant_id=tenant_id)
+
+    async def _execute_admin_human_alert(
+        self,
+        tenant_id: str,
+        conv_id: str,
+        contact_phone: str,
+        customer_name: str,
+        creds: Optional[dict],
+    ):
+        """Sends instant WhatsApp alert and Meta template to Admin when human takeover is requested."""
+        try:
+            name = customer_name or "A customer"
+            admin_phone = (creds.get("admin_whatsapp_number") or "").strip() if creds else ""
+            if not admin_phone:
+                tenant_st_row = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                if tenant_st_row:
+                    if isinstance(tenant_st_row, str):
+                        try: tenant_st_row = json.loads(tenant_st_row)
+                        except: tenant_st_row = {}
+                    admin_phone = (tenant_st_row.get("admin_whatsapp_number") or "").strip()
+
+            if admin_phone and creds and creds.get("phone_number_id") and creds.get("access_token"):
+                clean_admin = re.sub(r'[^0-9+]', '', admin_phone)
+                if not clean_admin.startswith("+"):
+                    clean_admin = f"+91{clean_admin}" if len(clean_admin) == 10 else f"+{clean_admin}"
+
+                alert_text = (
+                    f"🚨 *Staff Takeover Requested!* 👤\n\n"
+                    f"• *Customer:* {name}\n"
+                    f"• *Phone:* {contact_phone}\n\n"
+                    f"💬 The customer requested to speak with a human team member. AI automation has been paused for this chat. Please open your CRM dashboard to reply."
+                )
+                try:
+                    await send_text(
+                        phone_number_id=creds["phone_number_id"],
+                        access_token=creds["access_token"],
+                        to=clean_admin,
+                        body=alert_text,
+                    )
+                    logger.info("admin_human_alert_text_sent", to=clean_admin)
+                except Exception as e:
+                    logger.warning("admin_human_alert_text_failed_trying_template", error=str(e))
+                    admin_template = creds.get("template_admin_human_request") or "admin_human_request"
+                    components = [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": name},
+                                {"type": "text", "text": contact_phone},
+                            ]
+                        }
+                    ]
+                    try:
+                        await send_template(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=clean_admin,
+                            template_name=admin_template,
+                            language_code="en",
+                            components=components,
+                        )
+                        logger.info("admin_human_alert_template_sent", template=admin_template, to=clean_admin)
+                    except Exception as e2:
+                        logger.warning("admin_human_alert_template_failed", error=str(e2))
+        except Exception as e:
+            logger.error("execute_admin_human_alert_failed", error=str(e))
 
     async def _execute_ai_reschedule(
         self,
