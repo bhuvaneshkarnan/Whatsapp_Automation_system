@@ -1969,8 +1969,8 @@ export default function DashboardPage() {
             {activeNav === 'inbox' && (
               <div className="flex-1 flex overflow-hidden border border-border rounded-md bg-surface">
                 {/* Conversations List */}
-                <div className="w-72 bg-surface border-r border-border flex flex-col shrink-0">
-                  <div className="p-3 border-b border-border space-y-2">
+                <div className="w-80 bg-surface border-r border-border flex flex-col shrink-0">
+                  <div className="p-3 border-b border-border space-y-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-text-primary uppercase tracking-wider">Chats</span>
                       <div className="flex items-center gap-1.5">
@@ -2004,41 +2004,56 @@ export default function DashboardPage() {
                       className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent font-sans transition-colors duration-150"
                     />
 
-                    {/* ── Segmentation Filter (All / New / Important) ── */}
-                    <div className="grid grid-cols-3 gap-1 bg-surface-subtle p-0.5 rounded-sm border border-border">
+                    {/* ── Compact & Clean Segmentation Filter Bar ── */}
+                    <div className="flex items-center p-0.5 bg-surface-subtle rounded-sm border border-border gap-1">
                       <button
                         type="button"
                         onClick={() => setFilter('all')}
-                        className={`py-1 text-center text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer ${
+                        className={`flex-1 py-1 px-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
                           filter === 'all'
                             ? 'bg-surface text-text-primary border border-border-strong font-semibold shadow-subtle'
                             : 'text-text-secondary hover:text-text-primary'
                         }`}
                       >
-                        All ({conversations.length})
+                        <span>All</span>
+                        <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'all' ? 'bg-surface-subtle text-text-primary font-semibold' : 'text-text-muted'}`}>
+                          {conversations.length}
+                        </span>
                       </button>
+
                       <button
                         type="button"
                         onClick={() => setFilter('new')}
-                        className={`py-1 text-center text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer ${
+                        className={`flex-1 py-1 px-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
                           filter === 'new'
                             ? 'bg-surface text-text-primary border border-border-strong font-semibold shadow-subtle'
                             : 'text-text-secondary hover:text-text-primary'
                         }`}
                       >
-                        New ({conversations.filter((c) => (c.unread_count || 0) > 0 || (c.last_message_at && (Date.now() - new Date(c.last_message_at).getTime() < 86400000))).length})
+                        <span>New</span>
+                        {conversations.filter((c) => (c.unread_count || 0) > 0 || (c.last_message_at && (Date.now() - new Date(c.last_message_at).getTime() < 86400000))).length > 0 && (
+                          <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'new' ? 'bg-accent/10 text-accent font-semibold' : 'bg-surface-subtle text-text-muted'}`}>
+                            {conversations.filter((c) => (c.unread_count || 0) > 0 || (c.last_message_at && (Date.now() - new Date(c.last_message_at).getTime() < 86400000))).length}
+                          </span>
+                        )}
                       </button>
+
                       <button
                         type="button"
                         onClick={() => setFilter('important')}
-                        className={`py-1 text-center text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 ${
+                        className={`flex-1 py-1 px-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
                           filter === 'important'
                             ? 'bg-surface text-text-primary border border-border-strong font-semibold shadow-subtle'
                             : 'text-text-secondary hover:text-text-primary'
                         }`}
                       >
-                        <Star className={`w-3 h-3 stroke-[1.5] ${importantConvIds.length > 0 ? 'text-amber-500 fill-amber-500' : 'text-text-muted'}`} />
-                        <span>Important ({importantConvIds.length})</span>
+                        <Star className={`w-3 h-3 stroke-[1.5] shrink-0 ${importantConvIds.length > 0 ? 'text-amber-500 fill-amber-500' : 'text-text-muted'}`} />
+                        <span>Important</span>
+                        {importantConvIds.length > 0 && (
+                          <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'important' ? 'bg-amber-100 text-amber-800 font-semibold' : 'bg-surface-subtle text-text-muted'}`}>
+                            {importantConvIds.length}
+                          </span>
+                        )}
                       </button>
                     </div>
                   </div>
