@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,300;1,400;1,500;1,600;1,700;1,800;1,900&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,300;1,400;1,500;1,600;1,700;1,800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-poppins: 'Poppins', sans-serif;
+    --font-sans: 'Poppins', 'Plus Jakarta Sans', sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  
+  *, ::before, ::after {
+    font-family: var(--font-poppins), var(--font-sans), sans-serif;
+  }
+
+  html, body {
+    font-family: var(--font-poppins), var(--font-sans), sans-serif !important;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #ffffff;
+    color: #0f172a;
+    letter-spacing: -0.01em;
+  }
+
+  h1, h2, h3, h4, h5, h6, .font-headline, .font-heading {
+    font-family: 'Poppins', sans-serif !important;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+  }
+
+  button, input, optgroup, select, textarea {
+    font-family: 'Poppins', 'Plus Jakarta Sans', sans-serif !important;
+  }
+}
+
+/* Custom sleek scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

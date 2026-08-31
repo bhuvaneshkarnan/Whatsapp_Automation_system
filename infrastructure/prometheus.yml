@@ -1,0 +1,32 @@
+﻿global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'webhook-ingestion'
+    static_configs:
+      - targets: ['webhook-ingestion:3001']
+
+  - job_name: 'message-processor'
+    static_configs:
+      - targets: ['message-processor:3002']
+
+  - job_name: 'ai-router'
+    static_configs:
+      - targets: ['ai-router:3003']
+
+  - job_name: 'booking-service'
+    static_configs:
+      - targets: ['booking-service:3004']
+
+  - job_name: 'calendar-sync'
+    static_configs:
+      - targets: ['calendar-sync:3005']
+
+  - job_name: 'crm-api'
+    static_configs:
+      - targets: ['crm-api:3007']
+
+  - job_name: 'auth-service'
+    static_configs:
+      - targets: ['auth-service:3008']
