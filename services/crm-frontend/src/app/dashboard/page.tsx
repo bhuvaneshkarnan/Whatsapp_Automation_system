@@ -1357,13 +1357,13 @@ export default function DashboardPage() {
         {/* Logo & Current View Title */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
-            <span className="font-semibold text-sm text-text-primary tracking-tight">
+            <span className="font-bold text-[17px] text-text-primary tracking-tight">
               {settingsForm.name || 'WhatsApp CRM'}
             </span>
           </div>
 
           <div className="hidden sm:flex items-center gap-2 pl-4 border-l border-border">
-            <span className="text-xs text-text-muted">
+            <span className="text-[13px] font-medium text-text-muted">
               / {activeNav === 'overview' ? 'Overview' : activeNav === 'inbox' ? 'Chats' : activeNav === 'bookings' ? 'Bookings' : activeNav === 'calendar' ? 'Calendar schedule' : activeNav === 'customers' ? 'Customer directory' : activeNav === 'marketing' ? 'Marketing' : 'Settings'}
             </span>
           </div>
@@ -3957,10 +3957,10 @@ export default function DashboardPage() {
 
                         <div className="p-3 bg-surface-subtle rounded-sm border border-border flex items-center gap-2.5">
                           <div className="flex items-center gap-2">
-                            <span className="font-semibold text-sm text-text-primary tracking-tight">
+                            <span className="font-bold text-[17px] text-text-primary tracking-tight">
                               {settingsForm.name || 'WhatsApp CRM'}
                             </span>
-                            <span className="text-xs text-text-muted">
+                            <span className="text-[13px] font-medium text-text-muted">
                               / Overview
                             </span>
                           </div>
