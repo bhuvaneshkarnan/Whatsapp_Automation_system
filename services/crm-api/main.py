@@ -521,7 +521,7 @@ async def dispatch_automated_status_whatsapp(
                     components = [
                         {
                             "type": "body",
-                            "parameters": [{"type": "text", "text": str(p)} for p in template_params if str(p).strip()]
+                            "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in template_params]
                         }
                     ]
                     payload = {
@@ -537,20 +537,30 @@ async def dispatch_automated_status_whatsapp(
                     try:
                         async with httpx.AsyncClient(timeout=10.0) as client:
                             res = await client.post(url, headers=headers, json=payload)
+                            logger.info("meta_template_api_response", status=res.status_code, template=template_name, text=res.text)
                             if res.status_code in (200, 201):
                                 template_sent = True
                                 logger.info("automated_status_template_dispatched", template=template_name, phone=clean_phone)
-                            elif "132000" in res.text and "expected number of params" in res.text:
-                                # Dynamic retry with adapted parameter count
-                                import re
-                                m_count = re.search(r'expected number of params \((\d+)\)', res.text)
-                                if m_count:
-                                    exp_c = int(m_count.group(1))
-                                    payload["template"]["components"][0]["parameters"] = components[0]["parameters"][:exp_c]
-                                    res_retry = await client.post(url, headers=headers, json=payload)
-                                    if res_retry.status_code in (200, 201):
-                                        template_sent = True
-                                        logger.info("automated_status_template_retry_succeeded", template=template_name, phone=clean_phone)
+                            elif "132000" in res.text or "132001" in res.text or "does not exist in" in res.text:
+                                # Try with en_US if en fails
+                                payload["template"]["language"] = {"code": "en_US"}
+                                res_retry_lang = await client.post(url, headers=headers, json=payload)
+                                logger.info("meta_template_retry_lang_response", status=res_retry_lang.status_code, text=res_retry_lang.text)
+                                if res_retry_lang.status_code in (200, 201):
+                                    template_sent = True
+                                    logger.info("automated_status_template_retry_lang_succeeded", template=template_name, phone=clean_phone)
+                                else:
+                                    # Adapt parameter count dynamically if mismatch
+                                    import re
+                                    m_count = re.search(r'expected number of params \((\d+)\)', res.text) or re.search(r'expected number of params \((\d+)\)', res_retry_lang.text)
+                                    if m_count:
+                                        exp_c = int(m_count.group(1))
+                                        payload["template"]["language"] = {"code": "en"}
+                                        payload["template"]["components"][0]["parameters"] = components[0]["parameters"][:exp_c]
+                                        res_retry = await client.post(url, headers=headers, json=payload)
+                                        if res_retry.status_code in (200, 201):
+                                            template_sent = True
+                                            logger.info("automated_status_template_param_retry_succeeded", template=template_name, phone=clean_phone)
                     except Exception as e:
                         logger.warning("template_dispatch_failed_trying_text", error=str(e), template=template_name)
 
@@ -558,11 +568,12 @@ async def dispatch_automated_status_whatsapp(
                 if not template_sent:
                     try:
                         async with httpx.AsyncClient(timeout=10.0) as client:
-                            await client.post(
+                            res_txt = await client.post(
                                 url,
                                 headers=headers,
                                 json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": text}}
                             )
+                            logger.info("fallback_text_dispatch_response", status=res_txt.status_code, text=res_txt.text)
                     except Exception as e:
                         logger.error("automated_wa_text_dispatch_failed", error=str(e), phone=clean_phone)
 
@@ -574,7 +585,7 @@ async def dispatch_automated_status_whatsapp(
                 msg_id, conv_id, tenant_id, text
             )
             await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
-            logger.info("automated_status_message_dispatched", tenant_id=tenant_id, phone=clean_phone, delay=delay_seconds)
+            logger.info("automated_status_message_dispatched", tenant_id=tenant_id, phone=clean_phone, delay=delay_seconds, template_sent=template_sent)
     except Exception as e:
         logger.error("automated_task_exception", error=str(e))
 
@@ -724,51 +735,71 @@ async def update_booking_status(
         dispatch_params = []
 
         google_review_link = (t_settings_dict.get("google_review_link") or wa_data.get("google_review_link") or "").strip()
+        if not google_review_link:
+            google_review_link = f"https://search.google.com/local/writereview?placeid={tenant_name.replace(' ', '+')}"
 
         if payload.status in ["completed", "attended"]:
-            # 15 minutes delay for review request (900 seconds)
-            delay_seconds = 900
+            delay_seconds = 2
             review_link_block = f"\n\n⭐ *Leave a quick Google Review here:*\n{google_review_link}" if google_review_link else ""
             automated_text = (
                 f"Hi {patient_name}, thank you for attending your {service_name} session with {tenant_name} today! 😊\n\n"
                 f"We hope you had a wonderful experience! Could you please take 30 seconds to share your review with us?{review_link_block}\n\n"
                 f"Your feedback helps us maintain the highest standard of service. Thank you for choosing {tenant_name}!"
             )
-            dispatch_template = wa_data.get("template_review_request") or "review_request"
-            dispatch_params = [patient_name, service_name, google_review_link]
+            dispatch_template = (
+                t_settings_dict.get("template_review_request") or
+                t_settings_dict.get("template_post_service_review") or
+                wa_data.get("template_review_request") or
+                wa_data.get("template_post_service_review") or
+                "review_request"
+            )
+            dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", google_review_link]
             # Update review_sent_at timestamp
             await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid", booking_id)
 
         elif payload.status in ["no_show", "no-show"]:
-            # 15 minutes delay for reschedule nudge (900 seconds)
-            delay_seconds = 900
+            delay_seconds = 2
             automated_text = (
                 f"Hi {patient_name}, we missed you today for your scheduled {service_name} appointment with {tenant_name}.\n\n"
                 f"We understand that plans can change unexpectedly! Would you like to reschedule for tomorrow or another time?\n\n"
                 f"Simply reply to this message anytime and we'll gladly help you pick a convenient new slot."
             )
-            dispatch_template = wa_data.get("template_reschedule_nudge") or "reschedule_nudge"
-            dispatch_params = [patient_name, service_name]
+            dispatch_template = (
+                t_settings_dict.get("template_reschedule_nudge") or
+                wa_data.get("template_reschedule_nudge") or
+                "reschedule_nudge"
+            )
+            dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment"]
 
         elif payload.status == "confirmed":
+            delay_seconds = 0
             timing_line = f" on *{time_str}*" if time_str else ""
             automated_text = (
                 f"Hi {patient_name}, your booking for *{service_name}*{timing_line} is officially confirmed! ✅\n\n"
                 f"Location: {tenant_name}\n\n"
                 f"We look forward to seeing you. Reply to this chat if you have any questions or need directions."
             )
-            dispatch_template = wa_data.get("template_booking_confirmation") or "booking_confirmationn"
-            dispatch_params = [patient_name, service_name, date_str or "Today", clock_str or "Scheduled Time"]
+            dispatch_template = (
+                t_settings_dict.get("template_booking_confirmation") or
+                wa_data.get("template_booking_confirmation") or
+                "booking_confirmationn"
+            )
+            dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", date_str or "Today", clock_str or "Scheduled Time"]
 
         elif payload.status == "cancelled":
+            delay_seconds = 0
             timing_line = f" on {time_str}" if time_str else ""
             automated_text = (
                 f"Hi {patient_name}, your {service_name} booking{timing_line} has been cancelled as requested.\n\n"
                 f"If you'd like to book a new appointment in the future, just message us here anytime!\n\n"
                 f"Best regards,\n{tenant_name}"
             )
-            dispatch_template = wa_data.get("template_cancellation_confirmation") or "cancellation_confirmation"
-            dispatch_params = [patient_name, service_name, date_str or "Today", clock_str or "Scheduled Time"]
+            dispatch_template = (
+                t_settings_dict.get("template_cancellation_confirmation") or
+                wa_data.get("template_cancellation_confirmation") or
+                "cancellation_confirmation"
+            )
+            dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", date_str or "Today", clock_str or "Scheduled Time"]
 
         if automated_text and booking["phone"]:
             # Ensure conversation exists
