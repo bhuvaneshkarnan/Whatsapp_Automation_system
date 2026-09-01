@@ -4305,9 +4305,9 @@ export default function DashboardPage() {
 
               {/* Add New Note Box */}
               {isAddingNote && (
-                <form onSubmit={handleAddStickyNote} className="bg-surface-subtle border border-border rounded-md p-3 space-y-2.5">
+                <form onSubmit={handleAddStickyNote} className="bg-surface-subtle border border-border rounded-md p-3 space-y-2.5 shadow-subtle">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-text-muted">Color</span>
+                    <span className="text-xs font-medium text-text-secondary">Color Theme</span>
                     <div className="flex items-center gap-1.5">
                       {[
                         { id: 'yellow', bg: 'bg-[#fef08a]', border: 'border-amber-300' },
@@ -4320,9 +4320,10 @@ export default function DashboardPage() {
                           type="button"
                           key={c.id}
                           onClick={() => setNewNoteColor(c.id as any)}
-                          className={`w-4 h-4 rounded-full ${c.bg} ${c.border} border transition cursor-pointer ${
-                            newNoteColor === c.id ? 'ring-2 ring-accent scale-110' : 'hover:scale-105'
+                          className={`w-4.5 h-4.5 rounded-full ${c.bg} ${c.border} border transition-all cursor-pointer ${
+                            newNoteColor === c.id ? 'ring-2 ring-accent ring-offset-1 scale-110 shadow-xs' : 'hover:scale-105 opacity-80 hover:opacity-100'
                           }`}
+                          title={`Select ${c.id} note`}
                         />
                       ))}
                     </div>
@@ -4348,16 +4349,16 @@ export default function DashboardPage() {
                     <button
                       type="submit"
                       disabled={!newNoteText.trim()}
-                      className="px-2.5 py-1 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer"
+                      className="px-3 py-1 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-semibold rounded-sm transition-colors duration-150 cursor-pointer shadow-subtle"
                     >
-                      Add
+                      Add Note
                     </button>
                   </div>
                 </form>
               )}
 
               {/* Sticky Notes Cards List */}
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {stickyNotes.length === 0 ? (
                   <div className="text-center py-8 px-4 bg-surface rounded-md border border-dashed border-border">
                     <StickyNote className="w-6 h-6 text-text-muted mx-auto mb-1.5 stroke-[1.5]" />
@@ -4366,15 +4367,24 @@ export default function DashboardPage() {
                   </div>
                 ) : (
                   stickyNotes.map((note) => {
+                    const colorStyles: Record<string, { bg: string; border: string; text: string; badge: string }> = {
+                      yellow: { bg: 'bg-[#fefce8]', border: 'border-[#fef08a]', text: 'text-amber-950', badge: 'bg-[#fef08a] text-amber-900 border-[#fde047]' },
+                      green: { bg: 'bg-[#f0fdf4]', border: 'border-[#bbf7d0]', text: 'text-emerald-950', badge: 'bg-[#bbf7d0] text-emerald-900 border-[#86efac]' },
+                      blue: { bg: 'bg-[#f0f9ff]', border: 'border-[#bae6fd]', text: 'text-sky-950', badge: 'bg-[#bae6fd] text-sky-900 border-[#7dd3fc]' },
+                      purple: { bg: 'bg-[#faf5ff]', border: 'border-[#e9d5ff]', text: 'text-purple-950', badge: 'bg-[#e9d5ff] text-purple-900 border-[#d8b4fe]' },
+                      pink: { bg: 'bg-[#fff1f2]', border: 'border-[#fecdd3]', text: 'text-rose-950', badge: 'bg-[#fecdd3] text-rose-900 border-[#fda4af]' },
+                    };
+                    const currentStyle = colorStyles[note.color] || colorStyles.yellow;
+
                     return (
                       <div
                         key={note.id}
-                        className={`p-3 rounded-md border transition-colors duration-150 relative group bg-surface border-border ${
-                          note.done ? 'opacity-50' : ''
+                        className={`p-3 rounded-md border transition-all duration-150 relative group ${currentStyle.bg} ${currentStyle.border} ${
+                          note.done ? 'opacity-55' : 'shadow-2xs'
                         }`}
                       >
                         {/* Pin & Actions bar */}
-                        <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center justify-between mb-1.5">
                           <div className="flex items-center gap-1.5">
                             <button
                               onClick={() => handleTogglePin(note.id)}
@@ -4384,16 +4394,16 @@ export default function DashboardPage() {
                               <Pin className={`w-3.5 h-3.5 stroke-[1.5] ${note.pinned ? 'fill-accent text-accent' : ''}`} />
                             </button>
                             {note.pinned && (
-                              <span className="text-[10px] font-medium uppercase tracking-wider bg-surface-subtle text-text-secondary px-1.5 py-0.2 rounded-sm border border-border">
+                              <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.2 rounded-sm border ${currentStyle.badge}`}>
                                 Pinned
                               </span>
                             )}
                           </div>
 
-                          <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition">
+                          <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
                             <button
                               onClick={() => handleToggleDone(note.id)}
-                              className="text-text-muted hover:text-text-primary transition cursor-pointer"
+                              className="text-text-muted hover:text-text-primary transition cursor-pointer p-0.5"
                               title={note.done ? 'Mark pending' : 'Mark completed'}
                             >
                               {note.done ? (
@@ -4404,7 +4414,7 @@ export default function DashboardPage() {
                             </button>
                             <button
                               onClick={() => handleDeleteStickyNote(note.id)}
-                              className="text-text-muted hover:text-status-error transition cursor-pointer ml-1"
+                              className="text-text-muted hover:text-status-error transition cursor-pointer p-0.5 ml-1"
                               title="Delete note"
                             >
                               <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -4413,14 +4423,14 @@ export default function DashboardPage() {
                         </div>
 
                         {/* Note Content */}
-                        <p className={`text-xs font-normal leading-relaxed break-words text-text-body ${note.done ? 'line-through text-text-muted' : ''}`}>
+                        <p className={`text-xs font-normal leading-relaxed break-words ${currentStyle.text} ${note.done ? 'line-through opacity-70' : ''}`}>
                           {note.text}
                         </p>
 
                         {/* Timestamp */}
-                        <div className="mt-2 pt-1 border-t border-border flex items-center justify-between text-[10px] text-text-muted font-mono">
+                        <div className="mt-2 pt-1 border-t border-black/5 flex items-center justify-between text-[10px] text-text-muted">
                           <span>{note.createdAt}</span>
-                          {note.done && <span className="text-status-success font-medium">Done</span>}
+                          {note.done && <span className="text-emerald-700 font-semibold">Done</span>}
                         </div>
                       </div>
                     );
