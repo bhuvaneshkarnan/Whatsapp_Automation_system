@@ -739,7 +739,8 @@ async def update_booking_status(
             google_review_link = f"https://search.google.com/local/writereview?placeid={tenant_name.replace(' ', '+')}"
 
         if payload.status in ["completed", "attended"]:
-            delay_seconds = 2
+            # 15 minutes delay (900 seconds) for post-service review request
+            delay_seconds = 900
             review_link_block = f"\n\n⭐ *Leave a quick Google Review here:*\n{google_review_link}" if google_review_link else ""
             automated_text = (
                 f"Hi {patient_name}, thank you for attending your {service_name} session with {tenant_name} today! 😊\n\n"
@@ -758,7 +759,8 @@ async def update_booking_status(
             await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid", booking_id)
 
         elif payload.status in ["no_show", "no-show"]:
-            delay_seconds = 2
+            # 15 minutes delay (900 seconds) for reschedule nudge
+            delay_seconds = 900
             automated_text = (
                 f"Hi {patient_name}, we missed you today for your scheduled {service_name} appointment with {tenant_name}.\n\n"
                 f"We understand that plans can change unexpectedly! Would you like to reschedule for tomorrow or another time?\n\n"
