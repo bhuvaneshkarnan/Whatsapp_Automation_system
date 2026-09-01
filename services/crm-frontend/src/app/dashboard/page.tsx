@@ -1506,8 +1506,23 @@ export default function DashboardPage() {
             </nav>
           </div>
 
-          {/* Bottom Settings Link */}
+          {/* Bottom Settings Link & Powered By Footer */}
           <div className="pt-2 border-t border-border">
+            {/* Powered by Boldlabs Link */}
+            <a
+              href="https://goboldlabs.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-center justify-between px-2 py-1.5 mb-2 rounded-sm bg-surface-subtle/50 hover:bg-surface-subtle text-[11px] text-text-muted hover:text-text-primary transition-colors duration-150 border border-border/60 hover:border-border cursor-pointer"
+              title="Visit goboldlabs.com"
+            >
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-text-muted tracking-tight">Powered by</span>
+                <span className="font-semibold text-text-primary group-hover:text-accent transition-colors">Boldlabs</span>
+              </div>
+              <ArrowUpRight className="w-3 h-3 text-text-muted group-hover:text-accent transition-colors stroke-[1.5]" />
+            </a>
+
             <button
               onClick={() => navigateTo('settings')}
               className={`w-full text-left p-2 rounded-sm border transition-colors duration-150 cursor-pointer flex items-center justify-between ${
