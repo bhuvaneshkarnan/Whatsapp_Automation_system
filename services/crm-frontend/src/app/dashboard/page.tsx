@@ -76,6 +76,7 @@ import {
   Globe,
   DollarSign,
   Coins,
+  TrendingUp,
 } from 'lucide-react';
 
 const COUNTRY_CODES = [
@@ -1356,12 +1357,7 @@ export default function DashboardPage() {
         {/* Logo & Current View Title */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-sm bg-accent flex items-center justify-center text-white shrink-0">
-              <span className="font-semibold text-xs">
-                {(settingsForm.name || 'CRM').charAt(0).toUpperCase()}
-              </span>
-            </div>
-            <span className="font-semibold text-sm text-text-primary">
+            <span className="font-semibold text-sm text-text-primary tracking-tight">
               {settingsForm.name || 'WhatsApp CRM'}
             </span>
           </div>
@@ -1573,7 +1569,7 @@ export default function DashboardPage() {
 
                 {/* Quick Access Metric Cards */}
                 <div className="space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                     {/* Card 1: Active Conversations */}
                     <div
                       onClick={() => setActiveNav('inbox')}
@@ -1642,6 +1638,26 @@ export default function DashboardPage() {
                       </p>
                       <p className="text-xs text-text-muted">
                         Total contacts on file
+                      </p>
+                    </div>
+
+                    {/* Card 5: Total Revenue */}
+                    <div
+                      onClick={() => {
+                        setActiveNav('bookings');
+                        setBookingFilter('completed');
+                      }}
+                      className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 cursor-pointer space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-text-muted">Total revenue</span>
+                        <TrendingUp className="w-4 h-4 stroke-[1.5] text-text-muted" />
+                      </div>
+                      <p className="text-2xl font-semibold text-emerald-700 font-mono tabular-nums">
+                        {currentCurrencySymbol}{bookings.filter((b) => b.status === 'completed' || b.status === 'attended').reduce((sum, b) => sum + (Number(b.price) || 0), 0).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-text-muted">
+                        From {bookings.filter((b) => b.status === 'completed' || b.status === 'attended').length} attended bookings
                       </p>
                     </div>
                   </div>
@@ -3940,13 +3956,8 @@ export default function DashboardPage() {
                         </div>
 
                         <div className="p-3 bg-surface-subtle rounded-sm border border-border flex items-center gap-2.5">
-                          <div className="w-7 h-7 rounded-sm bg-accent flex items-center justify-center text-white shrink-0">
-                            <span className="font-semibold text-xs">
-                              {(settingsForm.name || 'CRM').charAt(0).toUpperCase()}
-                            </span>
-                          </div>
                           <div className="flex items-center gap-2">
-                            <span className="font-semibold text-sm text-text-primary">
+                            <span className="font-semibold text-sm text-text-primary tracking-tight">
                               {settingsForm.name || 'WhatsApp CRM'}
                             </span>
                             <span className="text-xs text-text-muted">
