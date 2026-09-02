@@ -523,6 +523,12 @@ export default function DashboardPage() {
       router.push('/login');
       return;
     }
+    if (typeof window !== 'undefined') {
+      const storedSlug = localStorage.getItem('tenant_slug') || 'boldlabs';
+      if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
+        window.history.replaceState(null, '', `/${storedSlug}`);
+      }
+    }
     crm.getMe()
       .then((data) => {
         setUser(data);
@@ -756,6 +762,13 @@ export default function DashboardPage() {
     try {
       const data = await crm.getSettings();
       setSettingsForm(data);
+      if (typeof window !== 'undefined') {
+        const slug = data?.slug || localStorage.getItem('tenant_slug') || 'boldlabs';
+        localStorage.setItem('tenant_slug', slug);
+        if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
+          window.history.replaceState(null, '', `/${slug}`);
+        }
+      }
     } catch (err: unknown) {
       setSettingsError(err instanceof Error ? err.message : 'Failed to load client settings.');
     } finally {
@@ -772,6 +785,13 @@ export default function DashboardPage() {
       const updated = await crm.updateSettings(settingsForm);
       if (updated && updated.name !== undefined) {
         setSettingsForm(updated);
+        if (typeof window !== 'undefined') {
+          const slug = updated.slug || settingsForm.slug || localStorage.getItem('tenant_slug') || 'boldlabs';
+          localStorage.setItem('tenant_slug', slug);
+          if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
+            window.history.replaceState(null, '', `/${slug}`);
+          }
+        }
       } else {
         await loadSettings();
       }

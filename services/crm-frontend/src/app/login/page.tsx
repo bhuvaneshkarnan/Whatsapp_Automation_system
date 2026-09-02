@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth } from '@/lib/api';
+import { auth, crm } from '@/lib/api';
 import { MessageSquare, Lock, Mail, ArrowRight, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
@@ -20,7 +20,18 @@ export default function LoginPage() {
       const res = await auth.login(email, password);
       localStorage.setItem('auth_token', res.access_token);
       localStorage.setItem('tenant_id', res.tenant_id);
-      router.push('/dashboard');
+
+      // Resolve fixed onboarding business slug
+      try {
+        const settings = await crm.getSettings();
+        const slug = settings.slug || 'boldlabs';
+        localStorage.setItem('tenant_slug', slug);
+        router.push(`/${slug}`);
+      } catch {
+        const defaultSlug = 'boldlabs';
+        localStorage.setItem('tenant_slug', defaultSlug);
+        router.push(`/${defaultSlug}`);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Invalid credentials. Please verify your email and password.');
     } finally {

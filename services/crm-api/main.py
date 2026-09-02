@@ -288,7 +288,19 @@ async def create_booking(
             booking_id, tenant_id, contact_id, conv_id, payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0)
         )
 
-        # 3. Fetch WhatsApp credentials & templates
+        # 3. Fetch Tenant & WhatsApp credentials & templates
+        tenant_row = await conn.fetchrow("SELECT name, slug, settings FROM tenants WHERE id = $1::uuid", tenant_id)
+        tenant_settings = {}
+        tenant_name = "our team"
+        if tenant_row:
+            tenant_name = tenant_row["name"] or "our team"
+            if tenant_row["settings"]:
+                if isinstance(tenant_row["settings"], str):
+                    try: tenant_settings = json.loads(tenant_row["settings"])
+                    except: tenant_settings = {}
+                elif isinstance(tenant_row["settings"], dict):
+                    tenant_settings = tenant_row["settings"]
+
         cred_row = await conn.fetchrow(
             """SELECT credential_data FROM tenant_credentials
                WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true""",
@@ -302,21 +314,85 @@ async def create_booking(
                 except: d = {}
             creds = dict(d)
 
-        # 4. Push WhatsApp confirmation to customer
-        time_str = st_dt.strftime("%d %b %Y at %I:%M %p")
-        confirmation_msg = f"🎉 *Appointment Confirmed!*\n\nHi {clean_name},\nYour booking for *{payload.service.strip()}* has been scheduled for *{time_str}*.\n\nFee: ₹{payload.price or 0}\n\nIf you need to make any changes or have questions, simply reply here anytime!"
+        # Timezone formatting
+        tz_name = tenant_settings.get("timezone", "Asia/Kolkata").strip()
+        import zoneinfo
+        try:
+            local_tz = zoneinfo.ZoneInfo(tz_name)
+        except Exception:
+            local_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
+        if hasattr(st_dt, "astimezone"):
+            st_local = st_dt.astimezone(local_tz)
+        else:
+            st_local = st_dt.replace(tzinfo=datetime.timezone.utc).astimezone(local_tz)
+
+        date_str = st_local.strftime("%d %b %Y")
+        clock_str = st_local.strftime("%I:%M %p")
+        time_str = st_local.strftime("%d %b %Y at %I:%M %p")
+
+        # 4. Push Approved WhatsApp Confirmation Template to customer
+        tpl_name = (
+            tenant_settings.get("template_booking_confirmation") or
+            creds.get("template_booking_confirmation") or
+            "booking_confirmationn"
+        )
+        tpl_params = [clean_name or "Valued Customer", payload.service.strip(), date_str, clock_str]
+        
+        confirmation_msg = f"Hello {clean_name},\n\nYour appointment is confirmed.\nService: {payload.service.strip()}\nDate: {date_str}\nTime: {clock_str}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you."
+
+        template_sent = False
         if creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+            headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
+            url = f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages"
+            
+            # 1. Try approved Meta template first
+            payload_tpl = {
+                "messaging_product": "whatsapp",
+                "to": clean_phone,
+                "type": "template",
+                "template": {
+                    "name": tpl_name,
+                    "language": {"code": "en"},
+                    "components": [
+                        {
+                            "type": "body",
+                            "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in tpl_params]
+                        }
+                    ]
+                }
+            }
             try:
                 import httpx
-                async with httpx.AsyncClient(timeout=8.0) as client:
-                    await client.post(
-                        f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages",
-                        headers={"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"},
-                        json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": confirmation_msg}}
-                    )
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    res = await client.post(url, headers=headers, json=payload_tpl)
+                    logger.info("manual_booking_template_response", status=res.status_code, template=tpl_name, body=res.text)
+                    if res.status_code in (200, 201):
+                        template_sent = True
+                        logger.info("manual_booking_wa_template_dispatched", template=tpl_name, phone=clean_phone)
+                    elif "132000" in res.text or "132001" in res.text or "does not exist in" in res.text:
+                        # Try language retry en_US
+                        payload_tpl["template"]["language"] = {"code": "en_US"}
+                        res_retry = await client.post(url, headers=headers, json=payload_tpl)
+                        if res_retry.status_code in (200, 201):
+                            template_sent = True
+                            logger.info("manual_booking_wa_template_retry_succeeded", template=tpl_name, phone=clean_phone)
             except Exception as e:
-                logger.error("manual_booking_wa_confirm_error", error=str(e))
+                logger.error("manual_booking_wa_template_error", error=str(e))
+
+            # 2. Fallback to direct text ONLY if template failed
+            if not template_sent:
+                try:
+                    import httpx
+                    async with httpx.AsyncClient(timeout=8.0) as client:
+                        res_txt = await client.post(
+                            url,
+                            headers=headers,
+                            json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": confirmation_msg}}
+                        )
+                        logger.info("manual_booking_wa_text_fallback_response", status=res_txt.status_code, text=res_txt.text)
+                except Exception as e:
+                    logger.error("manual_booking_wa_text_error", error=str(e))
 
         # Record confirmation message in DB
         msg_id = str(uuid.uuid4())
@@ -328,14 +404,7 @@ async def create_booking(
         await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
 
         # 4b. Send Business Address & Google Maps Location (if configured)
-        full_location = (creds.get("full_location_text") or "").strip()
-        if not full_location:
-            tenant_st = await conn.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
-            if tenant_st:
-                if isinstance(tenant_st, str):
-                    try: tenant_st = json.loads(tenant_st)
-                    except: tenant_st = {}
-                full_location = (tenant_st.get("full_location_text") or "").strip()
+        full_location = (creds.get("full_location_text") or tenant_settings.get("full_location_text") or "").strip()
 
         if full_location and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
             loc_msg = f"📍 *Location & Directions:*\n{full_location}"
@@ -358,17 +427,45 @@ async def create_booking(
                 logger.error("manual_booking_location_send_error", error=str(e))
 
         # 5. Push Admin WhatsApp notification (if configured)
-        admin_phone = creds.get("admin_whatsapp_number")
+        admin_phone = creds.get("admin_whatsapp_number") or tenant_settings.get("admin_whatsapp_number")
         if admin_phone and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-            admin_notify_msg = f"📅 *New Booking Alert!*\n\n• Client: {clean_name} ({clean_phone})\n• Service: {payload.service.strip()}\n• Date/Time: {time_str}\n• Fee: ₹{payload.price or 0}\n• Notes: {payload.notes or 'None'}"
+            clean_admin_phone = admin_phone.replace("+", "").replace(" ", "").replace("-", "").strip()
+            admin_tpl_name = (
+                tenant_settings.get("template_admin_notification") or
+                creds.get("template_admin_notification") or
+                "admin_notification"
+            )
+            admin_tpl_params = [clean_name or "Client", clean_phone, payload.service.strip(), date_str, clock_str]
+            admin_notify_msg = f"New appointment booked.\n\nCustomer: {clean_name}\nPhone: {clean_phone}\nService: {payload.service.strip()}\nDate: {date_str}\nTime: {clock_str}"
+
             try:
                 import httpx
-                async with httpx.AsyncClient(timeout=8.0) as client:
-                    await client.post(
-                        f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages",
-                        headers={"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"},
-                        json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": admin_phone, "type": "text", "text": {"body": admin_notify_msg}}
-                    )
+                headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
+                url = f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages"
+                admin_payload_tpl = {
+                    "messaging_product": "whatsapp",
+                    "to": clean_admin_phone,
+                    "type": "template",
+                    "template": {
+                        "name": admin_tpl_name,
+                        "language": {"code": "en"},
+                        "components": [
+                            {
+                                "type": "body",
+                                "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in admin_tpl_params]
+                            }
+                        ]
+                    }
+                }
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    admin_res = await client.post(url, headers=headers, json=admin_payload_tpl)
+                    if admin_res.status_code not in (200, 201):
+                        # Fallback to direct text for admin
+                        await client.post(
+                            url,
+                            headers=headers,
+                            json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_admin_phone, "type": "text", "text": {"body": admin_notify_msg}}
+                        )
             except Exception as e:
                 logger.error("admin_booking_wa_notify_error", error=str(e))
 
