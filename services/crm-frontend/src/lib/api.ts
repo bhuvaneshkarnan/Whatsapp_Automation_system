@@ -106,6 +106,8 @@ export interface Contact {
   wa_profile_name?: string | null;
   tags?: string[];
   notes?: string;
+  opt_in?: boolean;
+  opt_in_at?: string;
   created_at?: string;
 }
 
@@ -128,6 +130,24 @@ export const crm = {
       return [];
     }
   },
+
+  updateContactConsent: (contactId: string, optIn: boolean) =>
+    request<{ status: string; contact_id: string; opt_in: boolean }>(
+      `/api/v1/crm/contacts/${contactId}/consent`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ opt_in: optIn }),
+      }
+    ),
+
+  batchUpdateContactConsent: (contactIds: string[], optIn: boolean) =>
+    request<{ status: string; updated_count: number; opt_in: boolean }>(
+      '/api/v1/crm/contacts/batch-consent',
+      {
+        method: 'POST',
+        body: JSON.stringify({ contact_ids: contactIds, opt_in: optIn }),
+      }
+    ),
 
   bookings: (status?: string, limit = 50) =>
     crm.getBookings(status, limit),
@@ -495,22 +515,60 @@ export const admin = {
     ),
 };
 
-// ── Marketing / Broadcast Campaigns ──────────────────────────────────────────
+// ── Marketing / Broadcast Campaigns & Automations ───────────────────────────
 export interface BroadcastCampaign {
   id?: string;
   campaign_name: string;
-  target_audience: 'all' | 'attended' | 'important' | 'custom';
+  target_audience: 'contacts_only' | 'sheet_only' | 'both' | 'all' | 'attended' | 'important' | 'custom' | string;
+  message_mode?: 'template' | 'text';
   message_text?: string;
   template_name?: string;
   template_params?: string[];
   total_recipients: number;
   sent_count?: number;
+  delivered_count?: number;
+  read_count?: number;
+  replied_count?: number;
+  converted_count?: number;
   failed_count?: number;
-  status: 'queued' | 'completed' | 'in_progress' | 'failed';
+  status: 'queued' | 'completed' | 'in_progress' | 'scheduled' | 'failed';
+  scheduled_at?: string | null;
   created_at?: string;
 }
 
+export interface ReengagementTrigger {
+  id: string;
+  name: string;
+  trigger_type: 'recall_reminder' | 'birthday_greeting' | 'post_treatment_followup' | 'seasonal_promo' | string;
+  condition_label: string;
+  condition_days: number;
+  template_name: string;
+  template_params?: string[];
+  is_active: boolean;
+  reached_count: number;
+  last_triggered_at?: string | null;
+  created_at?: string;
+}
+
+export interface MarketingAnalyticsSummary {
+  total_broadcasts: number;
+  total_sent: number;
+  total_delivered: number;
+  delivery_rate: number;
+  total_read: number;
+  read_rate: number;
+  total_replied: number;
+  reply_rate: number;
+  total_converted: number;
+  conversion_rate: number;
+  attributed_revenue: number;
+  average_ticket_size: number;
+}
+
 export const marketing = {
+  getCampaigns: () =>
+    request<BroadcastCampaign[]>('/api/v1/marketing/campaigns'),
+
   sendBroadcast: (data: {
     campaign_name: string;
     recipient_phones: string[];
@@ -518,13 +576,59 @@ export const marketing = {
     template_name?: string;
     template_params?: string[];
     target_audience?: string;
+    message_mode?: 'template' | 'text';
+    is_scheduled?: boolean;
+    scheduled_at?: string | null;
   }) =>
-    request<{ success: boolean; campaign_name: string; total_recipients: number; status: string; message: string }>(
-      '/marketing/broadcast',
+    request<{ success: boolean; campaign_id?: string; campaign_name: string; total_recipients: number; status: string; scheduled_at?: string; message: string }>(
+      '/api/v1/marketing/broadcast',
       {
         method: 'POST',
         body: JSON.stringify(data),
       }
+    ),
+
+  deleteCampaign: (campaignId: string) =>
+    request<{ status: string; deleted_id: string }>(
+      `/api/v1/marketing/campaigns/${campaignId}`,
+      { method: 'DELETE' }
+    ),
+
+  getTriggers: () =>
+    request<ReengagementTrigger[]>('/api/v1/marketing/triggers'),
+
+  createTrigger: (data: {
+    name: string;
+    trigger_type: string;
+    condition_label: string;
+    condition_days?: number;
+    template_name: string;
+    template_params?: string[];
+    is_active?: boolean;
+  }) =>
+    request<{ status: string; id: string; name: string }>(
+      '/api/v1/marketing/triggers',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    ),
+
+  toggleTrigger: (triggerId: string) =>
+    request<{ status: string; id: string; is_active: boolean }>(
+      `/api/v1/marketing/triggers/${triggerId}/toggle`,
+      { method: 'PATCH' }
+    ),
+
+  testTrigger: (triggerId: string) =>
+    request<{ status: string; trigger_name: string; recipient: string; template: string }>(
+      `/api/v1/marketing/triggers/${triggerId}/test`,
+      { method: 'POST' }
+    ),
+
+  getAnalytics: () =>
+    request<{ summary: MarketingAnalyticsSummary; campaigns: BroadcastCampaign[] }>(
+      '/api/v1/marketing/analytics'
     ),
 };
 
