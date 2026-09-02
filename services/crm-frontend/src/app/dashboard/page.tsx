@@ -8,6 +8,10 @@ import {
   BroadcastCampaign,
   ReengagementTrigger,
   MarketingAnalyticsSummary,
+  Customer,
+  CustomerNote,
+  CustomerChatHistory,
+  FollowupTask,
   Conversation,
   Message,
   Booking,
@@ -32,6 +36,8 @@ import {
   Building2,
   CheckCircle2,
   Calendar,
+  CalendarClock,
+  CalendarCheck,
   Key,
   MapPin,
   FileText,
@@ -79,6 +85,13 @@ import {
   DollarSign,
   Coins,
   TrendingUp,
+  Stethoscope,
+  Flame,
+  Sun,
+  Snowflake,
+  SendHorizontal,
+  UserCheck,
+  MessageCircle,
 } from 'lucide-react';
 
 const COUNTRY_CODES = [
@@ -192,10 +205,42 @@ const TIMEZONE_LIST = [
 export default function DashboardPage() {
   const router = useRouter();
   
-  // Navigation: overview | inbox | bookings | calendar | customers | marketing | settings
-  const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'marketing' | 'settings'>('overview');
+  // Navigation: overview | inbox | bookings | calendar | customers | followup | marketing | settings
+  const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'followup' | 'marketing' | 'settings'>('overview');
   const [sidebarFilter, setSidebarFilter] = useState<'all' | 'recent' | 'favorites' | 'active'>('all');
   const [settingsTab, setSettingsTab] = useState<'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'account'>('ai');
+
+  // Customer Follow-up & Task Calendar State
+  const [followupView, setFollowupView] = useState<'list' | 'tasks'>('list');
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [followupStatusFilter, setFollowupStatusFilter] = useState<string>('all');
+  const [followupProbabilityFilter, setFollowupProbabilityFilter] = useState<string>('all');
+  const [followupDoctorFilter, setFollowupDoctorFilter] = useState<string>('all');
+  const [followupSearch, setFollowupSearch] = useState<string>('');
+
+  // Selected Customer Detail Drawer
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerNotes, setCustomerNotes] = useState<CustomerNote[]>([]);
+  const [loadingCustomerNotes, setLoadingCustomerNotes] = useState(false);
+  const [newCustomerNoteText, setNewCustomerNoteText] = useState('');
+  const [newCustomerNoteAuthor, setNewCustomerNoteAuthor] = useState('Admin');
+  const [addingCustomerNote, setAddingCustomerNote] = useState(false);
+
+  // Customer WhatsApp Chat in Detail Drawer
+  const [customerChat, setCustomerChat] = useState<CustomerChatHistory | null>(null);
+  const [loadingCustomerChat, setLoadingCustomerChat] = useState(false);
+  const [customerReplyText, setCustomerReplyText] = useState('');
+  const [sendingCustomerReply, setSendingCustomerReply] = useState(false);
+
+  // Google Tasks Sync State
+  const [syncingGoogleTasks, setSyncingGoogleTasks] = useState(false);
+
+  // Tasks Calendar State
+  const [tasks, setTasks] = useState<FollowupTask[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+  const [taskFilter, setTaskFilter] = useState<'all' | 'today' | 'upcoming' | 'overdue' | 'completed'>('all');
+  const [togglingTaskId, setTogglingTaskId] = useState<string | null>(null);
 
   // Marketing Broadcast State
   const [marketingSubTab, setMarketingSubTab] = useState<'broadcasts' | 'reengagement' | 'analytics'>('broadcasts');
@@ -602,6 +647,9 @@ export default function DashboardPage() {
       loadBookings();
     } else if (activeNav === 'customers') {
       loadContacts();
+    } else if (activeNav === 'followup') {
+      loadCustomers();
+      loadTasks();
     } else if (activeNav === 'settings') {
       loadSettings();
     } else if (activeNav === 'marketing') {
@@ -619,6 +667,20 @@ export default function DashboardPage() {
         .finally(() => setLoadingTriggers(false));
     }
   }, [activeNav]);
+
+  // Refetch customers when filter state changes
+  useEffect(() => {
+    if (activeNav === 'followup') {
+      loadCustomers();
+    }
+  }, [followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupSearch]);
+
+  // Refetch tasks when task filter changes
+  useEffect(() => {
+    if (activeNav === 'followup') {
+      loadTasks();
+    }
+  }, [taskFilter]);
 
   // Load analytics when sub-tab switches to analytics
   useEffect(() => {
@@ -771,6 +833,163 @@ export default function DashboardPage() {
       console.error('Error fetching contacts:', err);
     } finally {
       setLoadingContacts(false);
+    }
+  }
+
+  async function loadCustomers() {
+    setLoadingCustomers(true);
+    try {
+      const data = await crm.getCustomers({
+        status: followupStatusFilter,
+        lead_probability: followupProbabilityFilter,
+        preferred_doctor: followupDoctorFilter,
+        q: followupSearch,
+      });
+      setCustomers(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Error fetching customers:', err);
+    } finally {
+      setLoadingCustomers(false);
+    }
+  }
+
+  async function loadTasks() {
+    setLoadingTasks(true);
+    try {
+      const data = await crm.getTasks(taskFilter);
+      setTasks(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Error fetching tasks:', err);
+    } finally {
+      setLoadingTasks(false);
+    }
+  }
+
+  async function handleSelectCustomer(cust: Customer) {
+    setSelectedCustomer(cust);
+    setLoadingCustomerNotes(true);
+    setLoadingCustomerChat(true);
+    setCustomerNotes([]);
+    setCustomerChat(null);
+    try {
+      const [notes, chat] = await Promise.all([
+        crm.getCustomerNotes(cust.id),
+        crm.getCustomerChat(cust.id),
+      ]);
+      setCustomerNotes(Array.isArray(notes) ? notes : []);
+      setCustomerChat(chat);
+    } catch (err) {
+      console.error('Error loading customer details:', err);
+    } finally {
+      setLoadingCustomerNotes(false);
+      setLoadingCustomerChat(false);
+    }
+  }
+
+  async function handleUpdateCustomer(customerId: string, patch: Partial<Customer>) {
+    // Instant optimistic update
+    setCustomers((prev) => prev.map((c) => (c.id === customerId ? { ...c, ...patch } : c)));
+    if (selectedCustomer && selectedCustomer.id === customerId) {
+      setSelectedCustomer((prev) => (prev ? { ...prev, ...patch } : null));
+    }
+    try {
+      const updated = await crm.updateCustomer(customerId, patch);
+      if (updated && updated.id) {
+        setCustomers((prev) => prev.map((c) => (c.id === customerId ? { ...c, ...updated } : c)));
+        if (selectedCustomer && selectedCustomer.id === customerId) {
+          setSelectedCustomer((prev) => (prev ? { ...prev, ...updated } : null));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update customer:', err);
+      setActionNotice('Failed to update customer field.');
+      setTimeout(() => setActionNotice(null), 3000);
+      loadCustomers();
+    }
+  }
+
+  async function handleAddCustomerNote(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedCustomer || !newCustomerNoteText.trim()) return;
+    setAddingCustomerNote(true);
+    try {
+      await crm.addCustomerNote(selectedCustomer.id, {
+        author: newCustomerNoteAuthor.trim() || 'Admin',
+        note_text: newCustomerNoteText.trim(),
+      });
+      const updatedNotes = await crm.getCustomerNotes(selectedCustomer.id);
+      setCustomerNotes(Array.isArray(updatedNotes) ? updatedNotes : []);
+      setNewCustomerNoteText('');
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === selectedCustomer.id
+            ? { ...c, notes_count: (c.notes_count || 0) + 1, latest_note: newCustomerNoteText.trim() }
+            : c
+        )
+      );
+      setActionNotice('Note added successfully.');
+      setTimeout(() => setActionNotice(null), 2500);
+    } catch (err) {
+      console.error('Error adding note:', err);
+      alert('Failed to add note.');
+    } finally {
+      setAddingCustomerNote(false);
+    }
+  }
+
+  async function handleSendCustomerReply(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedCustomer || !customerReplyText.trim()) return;
+    setSendingCustomerReply(true);
+    try {
+      await crm.sendCustomerChat(selectedCustomer.id, customerReplyText.trim());
+      setCustomerReplyText('');
+      const chat = await crm.getCustomerChat(selectedCustomer.id);
+      setCustomerChat(chat);
+      setActionNotice(`WhatsApp message sent to ${selectedCustomer.phone}!`);
+      setTimeout(() => setActionNotice(null), 3500);
+    } catch (err) {
+      console.error('Error sending WhatsApp message:', err);
+      alert('Failed to send WhatsApp message.');
+    } finally {
+      setSendingCustomerReply(false);
+    }
+  }
+
+  async function handleSyncCustomerToGoogleTasks(customerId: string) {
+    setSyncingGoogleTasks(true);
+    try {
+      const res = await crm.syncCustomerToGoogleTasks(customerId);
+      if (res && res.google_task_id) {
+        setCustomers((prev) =>
+          prev.map((c) => (c.id === customerId ? { ...c, google_task_id: res.google_task_id } : c))
+        );
+        if (selectedCustomer && selectedCustomer.id === customerId) {
+          setSelectedCustomer((prev) => (prev ? { ...prev, google_task_id: res.google_task_id } : null));
+        }
+        setActionNotice('Added to Google Tasks successfully!');
+        setTimeout(() => setActionNotice(null), 4000);
+        loadTasks();
+      }
+    } catch (err: any) {
+      console.error('Error syncing Google Tasks:', err);
+      alert(err.message || 'Failed to sync with Google Tasks. Please make sure Google is connected in Settings.');
+    } finally {
+      setSyncingGoogleTasks(false);
+    }
+  }
+
+  async function handleToggleTask(taskId: string) {
+    setTogglingTaskId(taskId);
+    try {
+      const res = await crm.toggleTask(taskId);
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, completed: res.completed, is_overdue: false } : t))
+      );
+    } catch (err) {
+      console.error('Error toggling task:', err);
+    } finally {
+      setTogglingTaskId(null);
     }
   }
 
@@ -1402,7 +1621,7 @@ export default function DashboardPage() {
 
           <div className="hidden sm:flex items-center gap-2 pl-4 border-l border-border">
             <span className="text-[13px] font-medium text-text-muted">
-              / {activeNav === 'overview' ? 'Overview' : activeNav === 'inbox' ? 'Chats' : activeNav === 'bookings' ? 'Bookings' : activeNav === 'calendar' ? 'Calendar schedule' : activeNav === 'customers' ? 'Customer directory' : activeNav === 'marketing' ? 'Marketing' : 'Settings'}
+              / {activeNav === 'overview' ? 'Overview' : activeNav === 'inbox' ? 'Chats' : activeNav === 'bookings' ? 'Bookings' : activeNav === 'calendar' ? 'Calendar schedule' : activeNav === 'customers' ? 'Customer directory' : activeNav === 'followup' ? 'Customer Followup' : activeNav === 'marketing' ? 'Marketing' : 'Settings'}
             </span>
           </div>
         </div>
@@ -1528,6 +1747,18 @@ export default function DashboardPage() {
               >
                 <Users className="w-4 h-4 stroke-[1.5] shrink-0" />
                 <span>Customer directory</span>
+              </button>
+
+              <button
+                onClick={() => navigateTo('followup')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                  activeNav === 'followup'
+                    ? 'bg-surface-subtle text-text-primary font-semibold'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                }`}
+              >
+                <CalendarClock className="w-4 h-4 stroke-[1.5] shrink-0" />
+                <span>Customer Followup</span>
               </button>
 
               <button
@@ -2817,6 +3048,723 @@ export default function DashboardPage() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+
+            {/* ── VIEW 5: CUSTOMER FOLLOWUP & TASK CALENDAR ───────────────────── */}
+            {activeNav === 'followup' && (
+              <div className="flex-1 flex flex-col overflow-hidden space-y-4">
+                {/* Header & View Switcher */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-3">
+                  <div>
+                    <h3 className="font-semibold text-base text-text-primary flex items-center gap-2">
+                      <CalendarClock className="w-5 h-5 text-accent stroke-[1.5]" />
+                      <span>Customer Follow-up & Task Calendar</span>
+                    </h3>
+                    <p className="text-xs text-text-muted mt-0.5">
+                      Database-backed follow-up management, WhatsApp chat histories, timestamped doctor notes, and Google Tasks sync.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* View Switcher: List vs Tasks Calendar */}
+                    <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5">
+                      <button
+                        onClick={() => setFollowupView('list')}
+                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer ${
+                          followupView === 'list'
+                            ? 'bg-surface text-text-primary shadow-none border border-border font-semibold'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        <List className="w-3.5 h-3.5" />
+                        <span>Follow-up List ({customers.length})</span>
+                      </button>
+                      <button
+                        onClick={() => setFollowupView('tasks')}
+                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer ${
+                          followupView === 'tasks'
+                            ? 'bg-surface text-text-primary shadow-none border border-border font-semibold'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        <CalendarCheck className="w-3.5 h-3.5" />
+                        <span>Task Calendar ({tasks.filter(t => !t.completed).length})</span>
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        loadCustomers();
+                        loadTasks();
+                      }}
+                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Refresh"
+                    >
+                      <RotateCcw className={`w-3.5 h-3.5 ${loadingCustomers || loadingTasks ? 'animate-spin' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* ── SUB-VIEW A: FOLLOW-UP LIST ──────────────────────────────── */}
+                {followupView === 'list' && (
+                  <div className="flex-1 flex flex-col overflow-hidden space-y-3">
+                    {/* Filter & Segment Controls */}
+                    <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-surface border border-border rounded-sm">
+                      {/* Left: Status Filter Pills */}
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="text-[11px] font-medium text-text-muted mr-1">Status:</span>
+                        {[
+                          { key: 'all', label: 'All' },
+                          { key: 'new', label: 'New', color: 'text-slate-700 bg-slate-100 border-slate-200' },
+                          { key: 'contacted', label: 'Contacted', color: 'text-blue-700 bg-blue-50 border-blue-200' },
+                          { key: 'follow-up', label: 'Follow-up', color: 'text-amber-700 bg-amber-50 border-amber-200' },
+                          { key: 'converted', label: 'Converted', color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+                          { key: 'lost', label: 'Lost', color: 'text-rose-700 bg-rose-50 border-rose-200' },
+                        ].map((st) => (
+                          <button
+                            key={st.key}
+                            onClick={() => setFollowupStatusFilter(st.key)}
+                            className={`px-2.5 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer ${
+                              followupStatusFilter === st.key
+                                ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
+                                : 'bg-surface border-border text-text-secondary hover:text-text-primary hover:bg-surface-subtle'
+                            }`}
+                          >
+                            {st.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Middle: Probability Badges */}
+                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] font-medium text-text-muted mr-1">Lead:</span>
+                        {[
+                          { key: 'all', label: 'All' },
+                          { key: 'hot', label: '🔥 Hot', color: 'text-rose-700 bg-rose-50 border-rose-200' },
+                          { key: 'warm', label: '⚡ Warm', color: 'text-amber-700 bg-amber-50 border-amber-200' },
+                          { key: 'cold', label: '❄️ Cold', color: 'text-blue-700 bg-blue-50 border-blue-200' },
+                        ].map((prob) => (
+                          <button
+                            key={prob.key}
+                            onClick={() => setFollowupProbabilityFilter(prob.key)}
+                            className={`px-2 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer ${
+                              followupProbabilityFilter === prob.key
+                                ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
+                                : 'bg-surface border-border text-text-secondary hover:text-text-primary'
+                            }`}
+                          >
+                            {prob.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Right: Doctor Selector & Search */}
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={followupDoctorFilter}
+                          onChange={(e) => setFollowupDoctorFilter(e.target.value)}
+                          className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                        >
+                          <option value="all">All Doctors</option>
+                          <option value="Dr. Sarah Mitchell">Dr. Sarah Mitchell</option>
+                          <option value="Dr. Rajesh Kumar">Dr. Rajesh Kumar</option>
+                          <option value="Dr. Emily Stone">Dr. Emily Stone</option>
+                        </select>
+
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
+                          <input
+                            type="text"
+                            placeholder="Filter name, phone, issue..."
+                            value={followupSearch}
+                            onChange={(e) => setFollowupSearch(e.target.value)}
+                            className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-48"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quick KPI Summary Bar */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-text-muted font-medium">Total Customers</p>
+                          <p className="text-base font-semibold text-text-primary mt-0.5">{customers.length}</p>
+                        </div>
+                        <Users className="w-4 h-4 text-text-muted" />
+                      </div>
+
+                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-amber-700 font-medium">Pending Follow-ups</p>
+                          <p className="text-base font-semibold text-amber-900 mt-0.5">
+                            {customers.filter(c => c.status === 'follow-up' || c.status === 'new').length}
+                          </p>
+                        </div>
+                        <Clock3 className="w-4 h-4 text-amber-600" />
+                      </div>
+
+                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-rose-700 font-medium">🔥 Hot Leads</p>
+                          <p className="text-base font-semibold text-rose-900 mt-0.5">
+                            {customers.filter(c => c.lead_probability === 'hot').length}
+                          </p>
+                        </div>
+                        <Flame className="w-4 h-4 text-rose-600" />
+                      </div>
+
+                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-emerald-700 font-medium">Converted Patients</p>
+                          <p className="text-base font-semibold text-emerald-900 mt-0.5">
+                            {customers.filter(c => c.converted).length}
+                            <span className="text-[10px] text-emerald-600 ml-1.5 font-normal">
+                              ({customers.length ? Math.round((customers.filter(c => c.converted).length / customers.length) * 100) : 0}%)
+                            </span>
+                          </p>
+                        </div>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      </div>
+                    </div>
+
+                    {/* Main Table + Slide-Over / Detail Split */}
+                    <div className="flex-1 flex overflow-hidden gap-4">
+                      {/* Customers Table */}
+                      <div className="flex-1 overflow-y-auto border border-border rounded-sm bg-surface">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium sticky top-0 z-10">
+                            <tr>
+                              <th className="p-3 pl-4">Patient / Contact</th>
+                              <th className="p-3">Doctor</th>
+                              <th className="p-3">Health Concern</th>
+                              <th className="p-3">Status</th>
+                              <th className="p-3">Lead</th>
+                              <th className="p-3 text-center">Converted</th>
+                              <th className="p-3">Follow-up Due</th>
+                              <th className="p-3">Latest Note</th>
+                              <th className="p-3 text-right pr-4">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {loadingCustomers ? (
+                              <tr>
+                                <td colSpan={9} className="p-8 text-center text-text-muted">
+                                  Loading customers...
+                                </td>
+                              </tr>
+                            ) : customers.length === 0 ? (
+                              <tr>
+                                <td colSpan={9} className="p-8 text-center text-text-muted">
+                                  No customers match the selected filters.
+                                </td>
+                              </tr>
+                            ) : (
+                              customers.map((cust) => {
+                                const isSelected = selectedCustomer?.id === cust.id;
+                                const isOverdue = cust.followup_date && new Date(cust.followup_date) < new Date(new Date().setHours(0, 0, 0, 0)) && !cust.converted;
+                                const isToday = cust.followup_date && new Date(cust.followup_date).toDateString() === new Date().toDateString();
+
+                                return (
+                                  <tr
+                                    key={cust.id}
+                                    onClick={() => handleSelectCustomer(cust)}
+                                    className={`cursor-pointer transition-colors duration-150 ${
+                                      isSelected ? 'bg-surface-subtle/80 font-medium' : 'hover:bg-surface-subtle'
+                                    }`}
+                                  >
+                                    <td className="p-3 pl-4">
+                                      <div className="font-semibold text-text-primary">{cust.name || 'Patient'}</div>
+                                      <div className="font-mono text-[11px] text-text-muted mt-0.5">{cust.phone}</div>
+                                    </td>
+
+                                    <td className="p-3 text-text-secondary whitespace-nowrap">
+                                      <div className="flex items-center gap-1.5">
+                                        <Stethoscope className="w-3.5 h-3.5 text-accent shrink-0" />
+                                        <span>{cust.preferred_doctor || 'Dr. Sarah Mitchell'}</span>
+                                      </div>
+                                    </td>
+
+                                    <td className="p-3 text-text-secondary max-w-[180px] truncate" title={cust.health_concern}>
+                                      <span className="px-2 py-0.5 bg-surface-subtle border border-border rounded-sm text-[11px]">
+                                        {cust.health_concern || 'General'}
+                                      </span>
+                                    </td>
+
+                                    {/* Instant Status Selector */}
+                                    <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                                      <select
+                                        value={cust.status}
+                                        onChange={(e) => handleUpdateCustomer(cust.id, { status: e.target.value as any })}
+                                        className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border focus:outline-none cursor-pointer ${
+                                          cust.status === 'converted'
+                                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                            : cust.status === 'follow-up'
+                                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                            : cust.status === 'contacted'
+                                            ? 'bg-blue-50 text-blue-800 border-blue-200'
+                                            : cust.status === 'lost'
+                                            ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                            : 'bg-slate-100 text-slate-800 border-slate-200'
+                                        }`}
+                                      >
+                                        <option value="new">New</option>
+                                        <option value="contacted">Contacted</option>
+                                        <option value="follow-up">Follow-up</option>
+                                        <option value="converted">Converted</option>
+                                        <option value="lost">Lost</option>
+                                      </select>
+                                    </td>
+
+                                    {/* Instant Lead Probability Selector */}
+                                    <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                                      <select
+                                        value={cust.lead_probability}
+                                        onChange={(e) => handleUpdateCustomer(cust.id, { lead_probability: e.target.value as any })}
+                                        className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border focus:outline-none cursor-pointer ${
+                                          cust.lead_probability === 'hot'
+                                            ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                            : cust.lead_probability === 'warm'
+                                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                            : 'bg-blue-50 text-blue-800 border-blue-200'
+                                        }`}
+                                      >
+                                        <option value="hot">🔥 Hot</option>
+                                        <option value="warm">⚡ Warm</option>
+                                        <option value="cold">❄️ Cold</option>
+                                      </select>
+                                    </td>
+
+                                    {/* Instant Converted Toggle */}
+                                    <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                      <button
+                                        onClick={() => handleUpdateCustomer(cust.id, { converted: !cust.converted, status: !cust.converted ? 'converted' : cust.status })}
+                                        className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border transition-colors cursor-pointer ${
+                                          cust.converted
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                                            : 'bg-surface text-text-muted border-border hover:text-text-primary'
+                                        }`}
+                                      >
+                                        {cust.converted ? '✓ Converted' : '— Pending'}
+                                      </button>
+                                    </td>
+
+                                    {/* Follow-up Date & Time */}
+                                    <td className="p-3 whitespace-nowrap">
+                                      {cust.followup_date ? (
+                                        <div className="flex flex-col gap-0.5">
+                                          <span className={`inline-flex items-center gap-1 font-mono text-[11px] ${
+                                            isOverdue ? 'text-rose-700 font-semibold' : isToday ? 'text-amber-700 font-semibold' : 'text-text-body'
+                                          }`}>
+                                            {isOverdue && <AlertCircle className="w-3 h-3 stroke-[2] text-rose-600" />}
+                                            {isToday && <Clock className="w-3 h-3 stroke-[2] text-amber-600" />}
+                                            <span>{cust.followup_date}</span>
+                                          </span>
+                                          <span className="text-[10px] text-text-muted font-mono">{cust.followup_time || '10:00 AM'}</span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-text-muted text-[11px]">—</span>
+                                      )}
+                                    </td>
+
+                                    {/* Latest Note Snippet */}
+                                    <td className="p-3 max-w-[200px]">
+                                      {cust.latest_note ? (
+                                        <div className="truncate text-text-secondary text-[11px]" title={cust.latest_note}>
+                                          {cust.latest_note}
+                                        </div>
+                                      ) : (
+                                        <span className="text-text-muted text-[11px]">No notes yet</span>
+                                      )}
+                                      <div className="text-[10px] text-text-muted mt-0.5">
+                                        {cust.notes_count || 0} {cust.notes_count === 1 ? 'note' : 'notes'}
+                                      </div>
+                                    </td>
+
+                                    {/* Action Button */}
+                                    <td className="p-3 text-right pr-4">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleSelectCustomer(cust);
+                                        }}
+                                        className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-primary font-medium text-xs rounded-sm border border-border transition-colors cursor-pointer"
+                                      >
+                                        Details
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Customer Detail Drawer / Side Panel */}
+                      {selectedCustomer && (
+                        <div className="w-[420px] bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden">
+                          {/* Panel Header */}
+                          <div className="p-3.5 border-b border-border flex items-center justify-between bg-surface-subtle/50">
+                            <div>
+                              <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
+                                <User className="w-3.5 h-3.5 text-accent" />
+                                <span>{selectedCustomer.name || 'Patient'}</span>
+                              </h4>
+                              <p className="text-[11px] font-mono text-text-muted mt-0.5">{selectedCustomer.phone}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => setSelectedCustomer(null)}
+                                className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
+                              >
+                                <X className="w-4 h-4 stroke-[1.5]" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Panel Body Scroll Area */}
+                          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                            {/* 1. Editable Follow-up Date & Google Tasks Sync Card */}
+                            <div className="p-3 bg-surface-subtle border border-border rounded-sm space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                                  <CalendarClock className="w-3.5 h-3.5 text-accent" />
+                                  <span>Schedule Follow-up</span>
+                                </span>
+                                {selectedCustomer.google_task_id && (
+                                  <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium">
+                                    ✓ Google Tasks Synced
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Date</label>
+                                  <input
+                                    type="date"
+                                    value={selectedCustomer.followup_date || ''}
+                                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_date: e.target.value })}
+                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Time</label>
+                                  <input
+                                    type="text"
+                                    value={selectedCustomer.followup_time || '10:00 AM'}
+                                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_time: e.target.value })}
+                                    placeholder="e.g. 10:30 AM"
+                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Google Tasks Sync Action */}
+                              <div className="pt-1">
+                                <button
+                                  type="button"
+                                  disabled={syncingGoogleTasks}
+                                  onClick={() => handleSyncCustomerToGoogleTasks(selectedCustomer.id)}
+                                  className="w-full py-1.5 px-2.5 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium border border-border rounded-sm flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  <CalendarCheck className="w-3.5 h-3.5 text-accent" />
+                                  <span>
+                                    {syncingGoogleTasks
+                                      ? 'Syncing to Google Tasks...'
+                                      : selectedCustomer.google_task_id
+                                      ? 'Re-sync with Google Tasks'
+                                      : 'Add to Google Tasks'}
+                                  </span>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* 2. Customer Attributes & Doctor Selection */}
+                            <div className="space-y-2 text-xs">
+                              <div>
+                                <label className="text-[10px] text-text-muted block mb-1">Preferred Doctor</label>
+                                <select
+                                  value={selectedCustomer.preferred_doctor || 'Dr. Sarah Mitchell'}
+                                  onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { preferred_doctor: e.target.value })}
+                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
+                                >
+                                  <option value="Dr. Sarah Mitchell">Dr. Sarah Mitchell (Physiotherapy & Wellness)</option>
+                                  <option value="Dr. Rajesh Kumar">Dr. Rajesh Kumar (Dental & Orthodontics)</option>
+                                  <option value="Dr. Emily Stone">Dr. Emily Stone (Dermatology & Skin Care)</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="text-[10px] text-text-muted block mb-1">Health Concern / Treatment</label>
+                                <input
+                                  type="text"
+                                  value={selectedCustomer.health_concern || ''}
+                                  onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { health_concern: e.target.value })}
+                                  placeholder="e.g. Back Pain & Physio Therapy"
+                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
+                                />
+                              </div>
+                            </div>
+
+                            {/* 3. Timestamped Customer Notes Log */}
+                            <div className="space-y-2 border-t border-border pt-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                                  <StickyNote className="w-3.5 h-3.5 text-accent" />
+                                  <span>Doctor & Staff Notes ({customerNotes.length})</span>
+                                </span>
+                              </div>
+
+                              {/* Notes Timeline List */}
+                              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                {loadingCustomerNotes ? (
+                                  <p className="text-[11px] text-text-muted text-center py-2">Loading notes...</p>
+                                ) : customerNotes.length === 0 ? (
+                                  <p className="text-[11px] text-text-muted text-center py-2 bg-surface-subtle/50 rounded-sm border border-border">
+                                    No notes added yet.
+                                  </p>
+                                ) : (
+                                  customerNotes.map((nt) => (
+                                    <div key={nt.id} className="p-2.5 bg-surface-subtle border border-border rounded-sm space-y-1">
+                                      <div className="flex items-center justify-between text-[10px]">
+                                        <span className="font-semibold text-text-primary">{nt.author}</span>
+                                        <span className="text-text-muted font-mono">
+                                          {nt.created_at ? new Date(nt.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                                        </span>
+                                      </div>
+                                      <p className="text-xs text-text-body whitespace-pre-wrap leading-relaxed font-sans">{nt.note_text}</p>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+
+                              {/* Add Note Input */}
+                              <form onSubmit={handleAddCustomerNote} className="space-y-1.5 pt-1">
+                                <div className="flex gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={newCustomerNoteAuthor}
+                                    onChange={(e) => setNewCustomerNoteAuthor(e.target.value)}
+                                    placeholder="Author name"
+                                    className="w-28 px-2 py-1 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={newCustomerNoteText}
+                                    onChange={(e) => setNewCustomerNoteText(e.target.value)}
+                                    placeholder="Add clinical note or follow-up details..."
+                                    className="flex-1 px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                </div>
+                                <button
+                                  type="submit"
+                                  disabled={!newCustomerNoteText.trim() || addingCustomerNote}
+                                  className="w-full py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  {addingCustomerNote ? 'Adding note...' : '+ Save Note'}
+                                </button>
+                              </form>
+                            </div>
+
+                            {/* 4. WhatsApp Chat Thread & Direct Reply */}
+                            <div className="space-y-2 border-t border-border pt-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                                  <MessageSquare className="w-3.5 h-3.5 text-accent" />
+                                  <span>WhatsApp Chat History</span>
+                                </span>
+                                {customerChat?.unread_count ? (
+                                  <span className="px-1.5 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-bold">
+                                    {customerChat.unread_count} unread
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              {/* Chat Activity Metadata */}
+                              {customerChat && (
+                                <div className="flex items-center justify-between text-[10px] text-text-muted px-1">
+                                  <span>First: {customerChat.first_message_at ? new Date(customerChat.first_message_at).toLocaleDateString() : '—'}</span>
+                                  <span>Last: {customerChat.last_message_at ? new Date(customerChat.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+                                </div>
+                              )}
+
+                              {/* Chat Thread Container */}
+                              <div className="h-56 overflow-y-auto p-2.5 bg-canvas border border-border rounded-sm space-y-2">
+                                {loadingCustomerChat ? (
+                                  <p className="text-[11px] text-text-muted text-center py-8">Loading chat history...</p>
+                                ) : !customerChat || !customerChat.messages || customerChat.messages.length === 0 ? (
+                                  <p className="text-[11px] text-text-muted text-center py-8">No WhatsApp messages yet.</p>
+                                ) : (
+                                  customerChat.messages.map((msg) => {
+                                    const isInbound = msg.direction === 'inbound';
+                                    return (
+                                      <div key={msg.id} className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
+                                        <div
+                                          className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${
+                                            isInbound
+                                              ? 'bg-surface text-text-body border border-border'
+                                              : 'bg-accent text-white'
+                                          }`}
+                                        >
+                                          <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
+                                          <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}>
+                                            <span>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                            {!isInbound && (
+                                              <span>{msg.status === 'read' ? '✓✓' : msg.status === 'delivered' ? '✓✓' : '✓'}</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+
+                              {/* Direct Reply Form */}
+                              <form onSubmit={handleSendCustomerReply} className="flex gap-1.5 pt-1">
+                                <input
+                                  type="text"
+                                  value={customerReplyText}
+                                  onChange={(e) => setCustomerReplyText(e.target.value)}
+                                  placeholder="Type WhatsApp follow-up reply..."
+                                  className="flex-1 px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                />
+                                <button
+                                  type="submit"
+                                  disabled={!customerReplyText.trim() || sendingCustomerReply}
+                                  className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  <Send className="w-3.5 h-3.5" />
+                                </button>
+                              </form>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── SUB-VIEW B: TASK CALENDAR VIEW ─────────────────────────── */}
+                {followupView === 'tasks' && (
+                  <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-5xl">
+                    {/* Task Filter Pills */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface border border-border rounded-sm">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] font-medium text-text-muted mr-1">Filter Tasks:</span>
+                        {[
+                          { key: 'all', label: 'All Tasks' },
+                          { key: 'today', label: 'Due Today' },
+                          { key: 'upcoming', label: 'Upcoming (7d)' },
+                          { key: 'overdue', label: '⚠️ Overdue' },
+                          { key: 'completed', label: '✓ Completed' },
+                        ].map((tf) => (
+                          <button
+                            key={tf.key}
+                            onClick={() => setTaskFilter(tf.key as any)}
+                            className={`px-2.5 py-1 text-xs rounded-sm border transition-colors cursor-pointer ${
+                              taskFilter === tf.key
+                                ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
+                                : 'bg-surface border-border text-text-secondary hover:text-text-primary'
+                            }`}
+                          >
+                            {tf.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="text-xs text-text-muted">
+                        Showing {tasks.length} follow-up {tasks.length === 1 ? 'task' : 'tasks'}
+                      </div>
+                    </div>
+
+                    {/* Tasks List */}
+                    <div className="space-y-2.5">
+                      {loadingTasks ? (
+                        <div className="p-8 text-center text-text-muted bg-surface border border-border rounded-sm">
+                          Loading tasks...
+                        </div>
+                      ) : tasks.length === 0 ? (
+                        <div className="p-8 text-center text-text-muted bg-surface border border-border rounded-sm">
+                          No follow-up tasks found for this filter.
+                        </div>
+                      ) : (
+                        tasks.map((tsk) => (
+                          <div
+                            key={tsk.id}
+                            className={`p-3.5 bg-surface border rounded-sm flex items-start justify-between gap-4 transition-colors ${
+                              tsk.completed
+                                ? 'border-border opacity-70 bg-surface-subtle/30'
+                                : tsk.is_overdue
+                                ? 'border-rose-300 bg-rose-50/30'
+                                : 'border-border hover:border-border-strong'
+                            }`}
+                          >
+                            {/* Checkbox & Task Info */}
+                            <div className="flex items-start gap-3">
+                              <button
+                                onClick={() => handleToggleTask(tsk.id)}
+                                disabled={togglingTaskId === tsk.id}
+                                className={`mt-0.5 w-4 h-4 rounded-sm border flex items-center justify-center transition-colors cursor-pointer ${
+                                  tsk.completed
+                                    ? 'bg-accent border-accent text-white'
+                                    : tsk.is_overdue
+                                    ? 'border-rose-400 bg-white hover:border-rose-600'
+                                    : 'border-border bg-white hover:border-accent'
+                                }`}
+                              >
+                                {tsk.completed && <Check className="w-3 h-3 stroke-[2.5]" />}
+                              </button>
+
+                              <div className="space-y-1">
+                                <h5 className={`text-xs font-semibold ${tsk.completed ? 'line-through text-text-muted' : 'text-text-primary'}`}>
+                                  {tsk.title}
+                                </h5>
+                                {tsk.description && (
+                                  <p className="text-[11px] text-text-secondary">{tsk.description}</p>
+                                )}
+
+                                <div className="flex flex-wrap items-center gap-2 pt-1">
+                                  {tsk.customer_phone && (
+                                    <span className="font-mono text-[10px] text-text-muted bg-surface-subtle border border-border px-1.5 py-0.5 rounded-sm">
+                                      📞 {tsk.customer_phone}
+                                    </span>
+                                  )}
+                                  {tsk.preferred_doctor && (
+                                    <span className="text-[10px] text-text-secondary bg-surface-subtle border border-border px-1.5 py-0.5 rounded-sm">
+                                      🩺 {tsk.preferred_doctor}
+                                    </span>
+                                  )}
+                                  {tsk.google_task_id && (
+                                    <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium">
+                                      ⚡ Google Tasks
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Due Date & Overdue Badge */}
+                            <div className="text-right shrink-0">
+                              {tsk.is_overdue && !tsk.completed && (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-sm font-semibold mb-1">
+                                  <AlertCircle className="w-3 h-3 text-rose-600" />
+                                  Overdue
+                                </span>
+                              )}
+                              <p className={`text-xs font-mono ${tsk.is_overdue && !tsk.completed ? 'text-rose-700 font-semibold' : 'text-text-muted'}`}>
+                                {tsk.due_date ? new Date(tsk.due_date).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'No due date'}
+                              </p>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

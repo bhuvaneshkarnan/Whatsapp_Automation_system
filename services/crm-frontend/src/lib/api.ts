@@ -99,6 +99,59 @@ export interface Booking {
   created_at?: string;
 }
 
+export interface Customer {
+  id: string;
+  phone: string;
+  name?: string | null;
+  preferred_doctor: string;
+  status: 'new' | 'contacted' | 'follow-up' | 'converted' | 'lost';
+  health_concern: string;
+  lead_probability: 'hot' | 'warm' | 'cold';
+  converted: boolean;
+  followup_date?: string | null;
+  followup_time?: string | null;
+  google_task_id?: string | null;
+  notes_count?: number;
+  latest_note?: string | null;
+  last_chat_at?: string | null;
+  created_at?: string;
+}
+
+export interface CustomerNote {
+  id: string;
+  customer_id: string;
+  author: string;
+  note_text: string;
+  created_at: string;
+}
+
+export interface CustomerChatHistory {
+  customer_id: string;
+  phone: string;
+  name?: string | null;
+  first_message_at?: string | null;
+  last_message_at?: string | null;
+  unread_count: number;
+  messages: Message[];
+}
+
+export interface FollowupTask {
+  id: string;
+  customer_id?: string | null;
+  google_task_id?: string | null;
+  title: string;
+  description?: string | null;
+  due_date?: string | null;
+  completed: boolean;
+  is_overdue: boolean;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  preferred_doctor?: string | null;
+  health_concern?: string | null;
+  lead_probability?: 'hot' | 'warm' | 'cold';
+  created_at?: string;
+}
+
 export interface Contact {
   id: string;
   phone: string;
@@ -314,6 +367,96 @@ export const crm = {
     request<{ status: string }>('/api/v1/crm/oauth/google/disconnect', {
       method: 'POST',
     }),
+
+  // Customer Follow-up & Tasks
+  getCustomers: async (filters?: {
+    status?: string;
+    lead_probability?: string;
+    preferred_doctor?: string;
+    q?: string;
+    limit?: number;
+  }): Promise<Customer[]> => {
+    try {
+      const params = new URLSearchParams();
+      if (filters?.status && filters.status !== 'all') params.set('status', filters.status);
+      if (filters?.lead_probability && filters.lead_probability !== 'all') params.set('lead_probability', filters.lead_probability);
+      if (filters?.preferred_doctor && filters.preferred_doctor !== 'all') params.set('preferred_doctor', filters.preferred_doctor);
+      if (filters?.q) params.set('q', filters.q);
+      if (filters?.limit) params.set('limit', String(filters.limit));
+      const qs = params.toString();
+      const rows = await request<Customer[]>(`/api/v1/crm/customers${qs ? `?${qs}` : ''}`);
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  },
+
+  createCustomer: (data: Partial<Customer>) =>
+    request<{ status: string; id: string; phone: string }>('/api/v1/crm/customers', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateCustomer: (customerId: string, data: Partial<Customer>) =>
+    request<Customer>(`/api/v1/crm/customers/${customerId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  getCustomerNotes: async (customerId: string): Promise<CustomerNote[]> => {
+    try {
+      const rows = await request<CustomerNote[]>(`/api/v1/crm/customers/${customerId}/notes`);
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  },
+
+  addCustomerNote: (customerId: string, data: { author: string; note_text: string }) =>
+    request<{ status: string; id: string; customer_id: string }>(`/api/v1/crm/customers/${customerId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getCustomerChat: async (customerId: string): Promise<CustomerChatHistory | null> => {
+    try {
+      return await request<CustomerChatHistory>(`/api/v1/crm/customers/${customerId}/chat`);
+    } catch {
+      return null;
+    }
+  },
+
+  sendCustomerChat: (customerId: string, message: string) =>
+    request<{ status: string; phone: string; message: string }>(`/api/v1/crm/customers/${customerId}/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
+
+  getTasks: async (filter = 'all'): Promise<FollowupTask[]> => {
+    try {
+      const rows = await request<FollowupTask[]>(`/api/v1/crm/tasks?filter=${filter}`);
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  },
+
+  createTask: (data: { customer_id?: string; title: string; description?: string; due_date?: string }) =>
+    request<{ status: string; id: string; title: string }>('/api/v1/crm/tasks', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  toggleTask: (taskId: string) =>
+    request<{ status: string; id: string; completed: boolean }>(`/api/v1/crm/tasks/${taskId}/toggle`, {
+      method: 'PATCH',
+    }),
+
+  syncCustomerToGoogleTasks: (customerId: string) =>
+    request<{ status: string; google_task_id: string; customer_id: string; title: string; due_date: string }>(
+      `/api/v1/crm/customers/${customerId}/google-tasks`,
+      { method: 'POST' }
+    ),
 };
 
 export interface TenantSettingsResponse {
