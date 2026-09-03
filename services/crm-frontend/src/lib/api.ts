@@ -68,6 +68,7 @@ export interface Conversation {
   id: string;
   status: string;
   last_message_at?: string;
+  last_message?: string;
   unread_count?: number;
   name?: string | null;
   phone?: string;
@@ -90,6 +91,7 @@ export interface Booking {
   service: string;
   start_time: string;
   end_time: string;
+  appointment_time?: string;
   status: 'pending' | 'confirmed' | 'rescheduled' | 'cancelled' | 'completed' | string;
   notes?: string;
   price?: number;
@@ -103,6 +105,7 @@ export interface Customer {
   id: string;
   phone: string;
   name?: string | null;
+  wa_profile_name?: string | null;
   preferred_doctor: string;
   status: 'new' | 'contacted' | 'follow-up' | 'converted' | 'lost';
   health_concern: string;
@@ -122,6 +125,11 @@ export interface CustomerNote {
   customer_id: string;
   author: string;
   note_text: string;
+  color?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  preferred_doctor?: string;
+  customer_status?: string;
   created_at: string;
 }
 
@@ -139,6 +147,7 @@ export interface FollowupTask {
   id: string;
   customer_id?: string | null;
   google_task_id?: string | null;
+  google_event_id?: string | null;
   title: string;
   description?: string | null;
   due_date?: string | null;
@@ -412,10 +421,36 @@ export const crm = {
     }
   },
 
-  addCustomerNote: (customerId: string, data: { author: string; note_text: string }) =>
-    request<{ status: string; id: string; customer_id: string }>(`/api/v1/crm/customers/${customerId}/notes`, {
+  getAllNotes: async (params?: { color?: string; q?: string; limit?: number; offset?: number }): Promise<CustomerNote[]> => {
+    try {
+      const qs = new URLSearchParams();
+      if (params?.color && params.color !== 'all') qs.set('color', params.color);
+      if (params?.q) qs.set('q', params.q);
+      if (params?.limit) qs.set('limit', String(params.limit));
+      if (params?.offset) qs.set('offset', String(params.offset));
+      const url = `/api/v1/crm/notes${qs.toString() ? '?' + qs.toString() : ''}`;
+      const rows = await request<CustomerNote[]>(url);
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  },
+
+  addCustomerNote: (customerId: string, data: { author: string; note_text: string; color?: string }) =>
+    request<{ status: string; id: string; customer_id: string; color: string }>(`/api/v1/crm/customers/${customerId}/notes`, {
       method: 'POST',
       body: JSON.stringify(data),
+    }),
+
+  createOverallNote: (data: { customer_id: string; note_text: string; author?: string; color?: string }) =>
+    request<{ status: string; id: string; customer_id: string; color: string }>('/api/v1/crm/notes', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  deleteCustomerNote: (noteId: string) =>
+    request<{ status: string; id: string }>(`/api/v1/crm/notes/${noteId}`, {
+      method: 'DELETE',
     }),
 
   getCustomerChat: async (customerId: string): Promise<CustomerChatHistory | null> => {
@@ -432,6 +467,14 @@ export const crm = {
       body: JSON.stringify({ message }),
     }),
 
+  getCustomerBookings: async (customerId: string): Promise<{ bookings: any[]; total_revenue: number; total_sessions: number; completed_sessions: number } | null> => {
+    try {
+      return await request<any>(`/api/v1/crm/customers/${customerId}/bookings`);
+    } catch {
+      return null;
+    }
+  },
+
   getTasks: async (filter = 'all'): Promise<FollowupTask[]> => {
     try {
       const rows = await request<FollowupTask[]>(`/api/v1/crm/tasks?filter=${filter}`);
@@ -441,10 +484,25 @@ export const crm = {
     }
   },
 
-  createTask: (data: { customer_id?: string; title: string; description?: string; due_date?: string }) =>
-    request<{ status: string; id: string; title: string }>('/api/v1/crm/tasks', {
+  createTask: (data: { customer_id?: string; title: string; description?: string; due_date?: string; sync_google_tasks?: boolean; sync_google_calendar?: boolean }) =>
+    request<{
+      status: string;
+      id: string;
+      title: string;
+      due_date?: string;
+      google_task_id?: string;
+      google_event_id?: string;
+      google_tasks_synced?: boolean;
+      google_calendar_synced?: boolean;
+      tasks_permission_needed?: boolean;
+    }>('/api/v1/crm/tasks', {
       method: 'POST',
       body: JSON.stringify(data),
+    }),
+
+  deleteTask: (taskId: string) =>
+    request<{ status: string; id: string }>(`/api/v1/crm/tasks/${taskId}`, {
+      method: 'DELETE',
     }),
 
   toggleTask: (taskId: string) =>
@@ -508,6 +566,7 @@ export interface TenantSettingsResponse {
   template_appointment_reminder?: string;
   template_reschedule_nudge?: string;
   template_review_request?: string;
+  template_admin_daily_digest?: string;
   google_review_link?: string;
   
   google_client_id?: string;
@@ -617,7 +676,7 @@ export const admin = {
       body: JSON.stringify(data),
     }),
   getTenant: (id: string) => request<any>(`/api/v1/crm/admin/tenants/${id}`),
-  toggleTenantStatus: (id: string) =>
+  toggleTenantStatus: (id: string, active?: boolean) =>
     request<{ id: string; name: string; is_active: boolean; status: string }>(
       `/api/v1/crm/admin/tenants/${id}/toggle-status`,
       { method: 'PATCH' }

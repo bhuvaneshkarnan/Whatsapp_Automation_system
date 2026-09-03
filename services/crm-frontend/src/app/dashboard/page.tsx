@@ -91,115 +91,116 @@ import {
   Snowflake,
   SendHorizontal,
   UserCheck,
+  UserPlus,
   MessageCircle,
 } from 'lucide-react';
 
 const COUNTRY_CODES = [
-  { code: '+91', country: '🇮🇳 India (+91)' },
-  { code: '+1', country: '🇺🇸 / 🇨🇦 United States & Canada (+1)' },
-  { code: '+44', country: '🇬🇧 United Kingdom (+44)' },
-  { code: '+971', country: '🇦🇪 United Arab Emirates (+971)' },
-  { code: '+966', country: '🇸🇦 Saudi Arabia (+966)' },
-  { code: '+61', country: '🇦🇺 Australia (+61)' },
-  { code: '+65', country: '🇸🇬 Singapore (+65)' },
-  { code: '+60', country: '🇲🇾 Malaysia (+60)' },
-  { code: '+974', country: '🇶🇦 Qatar (+974)' },
-  { code: '+965', country: '🇰🇼 Kuwait (+965)' },
-  { code: '+968', country: '🇴🇲 Oman (+968)' },
-  { code: '+973', country: '🇧🇭 Bahrain (+973)' },
-  { code: '+49', country: '🇩🇪 Germany (+49)' },
-  { code: '+33', country: '🇫🇷 France (+33)' },
-  { code: '+39', country: '🇮🇹 Italy (+39)' },
-  { code: '+34', country: '🇪🇸 Spain (+34)' },
-  { code: '+31', country: '🇳🇱 Netherlands (+31)' },
-  { code: '+41', country: '🇨🇭 Switzerland (+41)' },
-  { code: '+353', country: '🇮🇪 Ireland (+353)' },
-  { code: '+64', country: '🇳🇿 New Zealand (+64)' },
-  { code: '+27', country: '🇿🇦 South Africa (+27)' },
-  { code: '+234', country: '🇳🇬 Nigeria (+234)' },
-  { code: '+254', country: '🇰🇪 Kenya (+254)' },
-  { code: '+20', country: '🇪🇬 Egypt (+20)' },
-  { code: '+90', country: '🇹🇷 Turkey (+90)' },
-  { code: '+81', country: '🇯🇵 Japan (+81)' },
-  { code: '+82', country: '🇰🇷 South Korea (+82)' },
-  { code: '+852', country: '🇭🇰 Hong Kong (+852)' },
-  { code: '+63', country: '🇵🇭 Philippines (+63)' },
-  { code: '+62', country: '🇮🇩 Indonesia (+62)' },
-  { code: '+66', country: '🇹🇭 Thailand (+66)' },
-  { code: '+84', country: '🇻🇳 Vietnam (+84)' },
-  { code: '+94', country: '🇱🇰 Sri Lanka (+94)' },
-  { code: '+880', country: '🇧🇩 Bangladesh (+880)' },
-  { code: '+92', country: '🇵🇰 Pakistan (+92)' },
-  { code: '+977', country: '🇳🇵 Nepal (+977)' },
-  { code: '+55', country: '🇧🇷 Brazil (+55)' },
-  { code: '+52', country: '🇲🇽 Mexico (+52)' },
-  { code: '+54', country: '🇦🇷 Argentina (+54)' },
-  { code: '+57', country: '🇨🇴 Colombia (+57)' },
-  { code: '+56', country: '🇨🇱 Chile (+56)' },
-  { code: '+46', country: '🇸🇪 Sweden (+46)' },
-  { code: '+47', country: '🇳🇴 Norway (+47)' },
-  { code: '+45', country: '🇩🇰 Denmark (+45)' },
-  { code: '+358', country: '🇫🇮 Finland (+358)' },
-  { code: '+351', country: '🇵🇹 Portugal (+351)' },
-  { code: '+43', country: '🇦🇹 Austria (+43)' },
-  { code: '+32', country: '🇧🇪 Belgium (+32)' },
-  { code: '+48', country: '🇵🇱 Poland (+48)' },
-  { code: '+972', country: '🇮🇱 Israel (+972)' },
+  { code: '+91', country: 'ðŸ‡®ðŸ‡³ India (+91)' },
+  { code: '+1', country: 'ðŸ‡ºðŸ‡¸ / ðŸ‡¨ðŸ‡¦ United States & Canada (+1)' },
+  { code: '+44', country: 'ðŸ‡¬ðŸ‡§ United Kingdom (+44)' },
+  { code: '+971', country: 'ðŸ‡¦ðŸ‡ª United Arab Emirates (+971)' },
+  { code: '+966', country: 'ðŸ‡¸ðŸ‡¦ Saudi Arabia (+966)' },
+  { code: '+61', country: 'ðŸ‡¦ðŸ‡º Australia (+61)' },
+  { code: '+65', country: 'ðŸ‡¸ðŸ‡¬ Singapore (+65)' },
+  { code: '+60', country: 'ðŸ‡²ðŸ‡¾ Malaysia (+60)' },
+  { code: '+974', country: 'ðŸ‡¶ðŸ‡¦ Qatar (+974)' },
+  { code: '+965', country: 'ðŸ‡°ðŸ‡¼ Kuwait (+965)' },
+  { code: '+968', country: 'ðŸ‡´ðŸ‡² Oman (+968)' },
+  { code: '+973', country: 'ðŸ‡§ðŸ‡­ Bahrain (+973)' },
+  { code: '+49', country: 'ðŸ‡©ðŸ‡ª Germany (+49)' },
+  { code: '+33', country: 'ðŸ‡«ðŸ‡· France (+33)' },
+  { code: '+39', country: 'ðŸ‡®ðŸ‡¹ Italy (+39)' },
+  { code: '+34', country: 'ðŸ‡ªðŸ‡¸ Spain (+34)' },
+  { code: '+31', country: 'ðŸ‡³ðŸ‡± Netherlands (+31)' },
+  { code: '+41', country: 'ðŸ‡¨ðŸ‡­ Switzerland (+41)' },
+  { code: '+353', country: 'ðŸ‡®ðŸ‡ª Ireland (+353)' },
+  { code: '+64', country: 'ðŸ‡³ðŸ‡¿ New Zealand (+64)' },
+  { code: '+27', country: 'ðŸ‡¿ðŸ‡¦ South Africa (+27)' },
+  { code: '+234', country: 'ðŸ‡³ðŸ‡¬ Nigeria (+234)' },
+  { code: '+254', country: 'ðŸ‡°ðŸ‡ª Kenya (+254)' },
+  { code: '+20', country: 'ðŸ‡ªðŸ‡¬ Egypt (+20)' },
+  { code: '+90', country: 'ðŸ‡¹ðŸ‡· Turkey (+90)' },
+  { code: '+81', country: 'ðŸ‡¯ðŸ‡µ Japan (+81)' },
+  { code: '+82', country: 'ðŸ‡°ðŸ‡· South Korea (+82)' },
+  { code: '+852', country: 'ðŸ‡­ðŸ‡° Hong Kong (+852)' },
+  { code: '+63', country: 'ðŸ‡µðŸ‡­ Philippines (+63)' },
+  { code: '+62', country: 'ðŸ‡®ðŸ‡© Indonesia (+62)' },
+  { code: '+66', country: 'ðŸ‡¹ðŸ‡­ Thailand (+66)' },
+  { code: '+84', country: 'ðŸ‡»ðŸ‡³ Vietnam (+84)' },
+  { code: '+94', country: 'ðŸ‡±ðŸ‡° Sri Lanka (+94)' },
+  { code: '+880', country: 'ðŸ‡§ðŸ‡© Bangladesh (+880)' },
+  { code: '+92', country: 'ðŸ‡µðŸ‡° Pakistan (+92)' },
+  { code: '+977', country: 'ðŸ‡³ðŸ‡µ Nepal (+977)' },
+  { code: '+55', country: 'ðŸ‡§ðŸ‡· Brazil (+55)' },
+  { code: '+52', country: 'ðŸ‡²ðŸ‡½ Mexico (+52)' },
+  { code: '+54', country: 'ðŸ‡¦ðŸ‡· Argentina (+54)' },
+  { code: '+57', country: 'ðŸ‡¨ðŸ‡´ Colombia (+57)' },
+  { code: '+56', country: 'ðŸ‡¨ðŸ‡± Chile (+56)' },
+  { code: '+46', country: 'ðŸ‡¸ðŸ‡ª Sweden (+46)' },
+  { code: '+47', country: 'ðŸ‡³ðŸ‡´ Norway (+47)' },
+  { code: '+45', country: 'ðŸ‡©ðŸ‡° Denmark (+45)' },
+  { code: '+358', country: 'ðŸ‡«ðŸ‡® Finland (+358)' },
+  { code: '+351', country: 'ðŸ‡µðŸ‡¹ Portugal (+351)' },
+  { code: '+43', country: 'ðŸ‡¦ðŸ‡¹ Austria (+43)' },
+  { code: '+32', country: 'ðŸ‡§ðŸ‡ª Belgium (+32)' },
+  { code: '+48', country: 'ðŸ‡µðŸ‡± Poland (+48)' },
+  { code: '+972', country: 'ðŸ‡®ðŸ‡± Israel (+972)' },
 ];
 
 const CURRENCY_LIST = [
-  { code: 'INR', symbol: '₹', name: 'INR (₹) — Indian Rupee' },
-  { code: 'USD', symbol: '$', name: 'USD ($) — US Dollar' },
-  { code: 'EUR', symbol: '€', name: 'EUR (€) — Euro' },
-  { code: 'GBP', symbol: '£', name: 'GBP (£) — British Pound' },
-  { code: 'AED', symbol: 'AED ', name: 'AED (AED) — UAE Dirham' },
-  { code: 'SAR', symbol: 'SAR ', name: 'SAR (SAR) — Saudi Riyal' },
-  { code: 'CAD', symbol: 'C$', name: 'CAD (C$) — Canadian Dollar' },
-  { code: 'AUD', symbol: 'A$', name: 'AUD (A$) — Australian Dollar' },
-  { code: 'SGD', symbol: 'S$', name: 'SGD (S$) — Singapore Dollar' },
-  { code: 'MYR', symbol: 'RM ', name: 'MYR (RM) — Malaysian Ringgit' },
-  { code: 'QAR', symbol: 'QAR ', name: 'QAR (QAR) — Qatari Riyal' },
-  { code: 'KWD', symbol: 'KWD ', name: 'KWD (KWD) — Kuwaiti Dinar' },
-  { code: 'OMR', symbol: 'OMR ', name: 'OMR (OMR) — Omani Rial' },
-  { code: 'BHD', symbol: 'BHD ', name: 'BHD (BHD) — Bahraini Dinar' },
-  { code: 'NZD', symbol: 'NZ$', name: 'NZD (NZ$) — New Zealand Dollar' },
-  { code: 'JPY', symbol: '¥', name: 'JPY (¥) — Japanese Yen' },
-  { code: 'CHF', symbol: 'CHF ', name: 'CHF (CHF) — Swiss Franc' },
-  { code: 'ZAR', symbol: 'R ', name: 'ZAR (R) — South African Rand' },
-  { code: 'PHP', symbol: '₱', name: 'PHP (₱) — Philippine Peso' },
-  { code: 'IDR', symbol: 'Rp ', name: 'IDR (Rp) — Indonesian Rupiah' },
-  { code: 'THB', symbol: '฿', name: 'THB (฿) — Thai Baht' },
-  { code: 'VND', symbol: '₫', name: 'VND (₫) — Vietnamese Dong' },
-  { code: 'PKR', symbol: 'Rs ', name: 'PKR (Rs) — Pakistani Rupee' },
-  { code: 'BDT', symbol: '৳', name: 'BDT (৳) — Bangladeshi Taka' },
-  { code: 'LKR', symbol: 'Rs ', name: 'LKR (Rs) — Sri Lankan Rupee' },
-  { code: 'NGN', symbol: '₦', name: 'NGN (₦) — Nigerian Naira' },
-  { code: 'KES', symbol: 'KSh ', name: 'KES (KSh) — Kenyan Shilling' },
-  { code: 'EGP', symbol: 'E£ ', name: 'EGP (E£) — Egyptian Pound' },
-  { code: 'TRY', symbol: '₺', name: 'TRY (₺) — Turkish Lira' },
-  { code: 'BRL', symbol: 'R$', name: 'BRL (R$) — Brazilian Real' },
-  { code: 'MXN', symbol: 'Mex$', name: 'MXN (Mex$) — Mexican Peso' },
+  { code: 'INR', symbol: 'â‚¹', name: 'INR (â‚¹) â€” Indian Rupee' },
+  { code: 'USD', symbol: '$', name: 'USD ($) â€” US Dollar' },
+  { code: 'EUR', symbol: 'â‚¬', name: 'EUR (â‚¬) â€” Euro' },
+  { code: 'GBP', symbol: 'Â£', name: 'GBP (Â£) â€” British Pound' },
+  { code: 'AED', symbol: 'AED ', name: 'AED (AED) â€” UAE Dirham' },
+  { code: 'SAR', symbol: 'SAR ', name: 'SAR (SAR) â€” Saudi Riyal' },
+  { code: 'CAD', symbol: 'C$', name: 'CAD (C$) â€” Canadian Dollar' },
+  { code: 'AUD', symbol: 'A$', name: 'AUD (A$) â€” Australian Dollar' },
+  { code: 'SGD', symbol: 'S$', name: 'SGD (S$) â€” Singapore Dollar' },
+  { code: 'MYR', symbol: 'RM ', name: 'MYR (RM) â€” Malaysian Ringgit' },
+  { code: 'QAR', symbol: 'QAR ', name: 'QAR (QAR) â€” Qatari Riyal' },
+  { code: 'KWD', symbol: 'KWD ', name: 'KWD (KWD) â€” Kuwaiti Dinar' },
+  { code: 'OMR', symbol: 'OMR ', name: 'OMR (OMR) â€” Omani Rial' },
+  { code: 'BHD', symbol: 'BHD ', name: 'BHD (BHD) â€” Bahraini Dinar' },
+  { code: 'NZD', symbol: 'NZ$', name: 'NZD (NZ$) â€” New Zealand Dollar' },
+  { code: 'JPY', symbol: 'Â¥', name: 'JPY (Â¥) â€” Japanese Yen' },
+  { code: 'CHF', symbol: 'CHF ', name: 'CHF (CHF) â€” Swiss Franc' },
+  { code: 'ZAR', symbol: 'R ', name: 'ZAR (R) â€” South African Rand' },
+  { code: 'PHP', symbol: 'â‚±', name: 'PHP (â‚±) â€” Philippine Peso' },
+  { code: 'IDR', symbol: 'Rp ', name: 'IDR (Rp) â€” Indonesian Rupiah' },
+  { code: 'THB', symbol: 'à¸¿', name: 'THB (à¸¿) â€” Thai Baht' },
+  { code: 'VND', symbol: 'â‚«', name: 'VND (â‚«) â€” Vietnamese Dong' },
+  { code: 'PKR', symbol: 'Rs ', name: 'PKR (Rs) â€” Pakistani Rupee' },
+  { code: 'BDT', symbol: 'à§³', name: 'BDT (à§³) â€” Bangladeshi Taka' },
+  { code: 'LKR', symbol: 'Rs ', name: 'LKR (Rs) â€” Sri Lankan Rupee' },
+  { code: 'NGN', symbol: 'â‚¦', name: 'NGN (â‚¦) â€” Nigerian Naira' },
+  { code: 'KES', symbol: 'KSh ', name: 'KES (KSh) â€” Kenyan Shilling' },
+  { code: 'EGP', symbol: 'EÂ£ ', name: 'EGP (EÂ£) â€” Egyptian Pound' },
+  { code: 'TRY', symbol: 'â‚º', name: 'TRY (â‚º) â€” Turkish Lira' },
+  { code: 'BRL', symbol: 'R$', name: 'BRL (R$) â€” Brazilian Real' },
+  { code: 'MXN', symbol: 'Mex$', name: 'MXN (Mex$) â€” Mexican Peso' },
 ];
 
 const TIMEZONE_LIST = [
-  { value: 'Asia/Kolkata', label: '🇮🇳 Asia/Kolkata (IST — GMT+5:30) [India]' },
-  { value: 'America/New_York', label: '🇺🇸 America/New_York (EST/EDT — GMT-5/-4) [US East]' },
-  { value: 'America/Chicago', label: '🇺🇸 America/Chicago (CST/CDT — GMT-6/-5) [US Central]' },
-  { value: 'America/Denver', label: '🇺🇸 America/Denver (MST/MDT — GMT-7/-6) [US Mountain]' },
-  { value: 'America/Los_Angeles', label: '🇺🇸 America/Los_Angeles (PST/PDT — GMT-8/-7) [US West / California]' },
-  { value: 'America/Toronto', label: '🇨🇦 America/Toronto (EST/EDT) [Canada East]' },
-  { value: 'America/Vancouver', label: '🇨🇦 America/Vancouver (PST/PDT) [Canada West]' },
-  { value: 'Europe/London', label: '🇬🇧 Europe/London (GMT/BST — GMT+0/+1) [UK & Ireland]' },
-  { value: 'Europe/Paris', label: '🇪🇺 Europe/Paris (CET/CEST — GMT+1/+2) [France, Germany, Italy]' },
-  { value: 'Asia/Dubai', label: '🇦🇪 Asia/Dubai (GST — GMT+4) [UAE & Gulf]' },
-  { value: 'Asia/Riyadh', label: '🇸🇦 Asia/Riyadh (AST — GMT+3) [Saudi Arabia]' },
-  { value: 'Asia/Singapore', label: '🇸🇬 Asia/Singapore (SGT — GMT+8) [Singapore & Malaysia]' },
-  { value: 'Asia/Tokyo', label: '🇯🇵 Asia/Tokyo (JST — GMT+9) [Japan]' },
-  { value: 'Australia/Sydney', label: '🇦🇺 Australia/Sydney (AEST/AEDT — GMT+10/+11) [Australia East]' },
-  { value: 'Australia/Perth', label: '🇦🇺 Australia/Perth (AWST — GMT+8) [Australia West]' },
-  { value: 'Pacific/Auckland', label: '🇳🇿 Pacific/Auckland (NZST/NZDT — GMT+12/+13) [New Zealand]' },
-  { value: 'Africa/Johannesburg', label: '🇿🇦 Africa/Johannesburg (SAST — GMT+2) [South Africa]' },
-  { value: 'UTC', label: '🌐 UTC (Coordinated Universal Time)' },
+  { value: 'Asia/Kolkata', label: 'ðŸ‡®ðŸ‡³ Asia/Kolkata (IST â€” GMT+5:30) [India]' },
+  { value: 'America/New_York', label: 'ðŸ‡ºðŸ‡¸ America/New_York (EST/EDT â€” GMT-5/-4) [US East]' },
+  { value: 'America/Chicago', label: 'ðŸ‡ºðŸ‡¸ America/Chicago (CST/CDT â€” GMT-6/-5) [US Central]' },
+  { value: 'America/Denver', label: 'ðŸ‡ºðŸ‡¸ America/Denver (MST/MDT â€” GMT-7/-6) [US Mountain]' },
+  { value: 'America/Los_Angeles', label: 'ðŸ‡ºðŸ‡¸ America/Los_Angeles (PST/PDT â€” GMT-8/-7) [US West / California]' },
+  { value: 'America/Toronto', label: 'ðŸ‡¨ðŸ‡¦ America/Toronto (EST/EDT) [Canada East]' },
+  { value: 'America/Vancouver', label: 'ðŸ‡¨ðŸ‡¦ America/Vancouver (PST/PDT) [Canada West]' },
+  { value: 'Europe/London', label: 'ðŸ‡¬ðŸ‡§ Europe/London (GMT/BST â€” GMT+0/+1) [UK & Ireland]' },
+  { value: 'Europe/Paris', label: 'ðŸ‡ªðŸ‡º Europe/Paris (CET/CEST â€” GMT+1/+2) [France, Germany, Italy]' },
+  { value: 'Asia/Dubai', label: 'ðŸ‡¦ðŸ‡ª Asia/Dubai (GST â€” GMT+4) [UAE & Gulf]' },
+  { value: 'Asia/Riyadh', label: 'ðŸ‡¸ðŸ‡¦ Asia/Riyadh (AST â€” GMT+3) [Saudi Arabia]' },
+  { value: 'Asia/Singapore', label: 'ðŸ‡¸ðŸ‡¬ Asia/Singapore (SGT â€” GMT+8) [Singapore & Malaysia]' },
+  { value: 'Asia/Tokyo', label: 'ðŸ‡¯ðŸ‡µ Asia/Tokyo (JST â€” GMT+9) [Japan]' },
+  { value: 'Australia/Sydney', label: 'ðŸ‡¦ðŸ‡º Australia/Sydney (AEST/AEDT â€” GMT+10/+11) [Australia East]' },
+  { value: 'Australia/Perth', label: 'ðŸ‡¦ðŸ‡º Australia/Perth (AWST â€” GMT+8) [Australia West]' },
+  { value: 'Pacific/Auckland', label: 'ðŸ‡³ðŸ‡¿ Pacific/Auckland (NZST/NZDT â€” GMT+12/+13) [New Zealand]' },
+  { value: 'Africa/Johannesburg', label: 'ðŸ‡¿ðŸ‡¦ Africa/Johannesburg (SAST â€” GMT+2) [South Africa]' },
+  { value: 'UTC', label: 'ðŸŒ UTC (Coordinated Universal Time)' },
 ];
 
 export default function DashboardPage() {
@@ -211,7 +212,7 @@ export default function DashboardPage() {
   const [settingsTab, setSettingsTab] = useState<'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'account'>('ai');
 
   // Customer Follow-up & Task Calendar State
-  const [followupView, setFollowupView] = useState<'list' | 'tasks'>('list');
+  const [followupView, setFollowupView] = useState<'list' | 'tasks' | 'notes'>('list');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [followupStatusFilter, setFollowupStatusFilter] = useState<string>('all');
@@ -225,7 +226,21 @@ export default function DashboardPage() {
   const [loadingCustomerNotes, setLoadingCustomerNotes] = useState(false);
   const [newCustomerNoteText, setNewCustomerNoteText] = useState('');
   const [newCustomerNoteAuthor, setNewCustomerNoteAuthor] = useState('Admin');
+  const [newCustomerNoteColor, setNewCustomerNoteColor] = useState('slate');
   const [addingCustomerNote, setAddingCustomerNote] = useState(false);
+
+  // Overall Notes (all customers combined)
+  const [allNotes, setAllNotes] = useState<CustomerNote[]>([]);
+  const [loadingAllNotes, setLoadingAllNotes] = useState(false);
+  const [allNotesColorFilter, setAllNotesColorFilter] = useState('all');
+  const [allNotesSearch, setAllNotesSearch] = useState('');
+  const [showAddOverallNoteModal, setShowAddOverallNoteModal] = useState(false);
+  const [overallNoteCustomerId, setOverallNoteCustomerId] = useState('');
+  const [overallNoteAuthor, setOverallNoteAuthor] = useState('Staff');
+  const [overallNoteText, setOverallNoteText] = useState('');
+  const [overallNoteColor, setOverallNoteColor] = useState('slate');
+  const [savingOverallNote, setSavingOverallNote] = useState(false);
+
 
   // Customer WhatsApp Chat in Detail Drawer
   const [customerChat, setCustomerChat] = useState<CustomerChatHistory | null>(null);
@@ -233,14 +248,45 @@ export default function DashboardPage() {
   const [customerReplyText, setCustomerReplyText] = useState('');
   const [sendingCustomerReply, setSendingCustomerReply] = useState(false);
 
+  // Customer Bookings History in Detail Drawer
+  const [customerBookingsData, setCustomerBookingsData] = useState<{
+    bookings: any[];
+    total_revenue: number;
+    total_sessions: number;
+    completed_sessions: number;
+  } | null>(null);
+  const [loadingCustomerBookings, setLoadingCustomerBookings] = useState(false);
+
+  // Quick Add to CRM from Inbox/Bookings
+  const [showQuickAddCrmModal, setShowQuickAddCrmModal] = useState(false);
+  const [quickCrmName, setQuickCrmName] = useState('');
+  const [quickCrmPhone, setQuickCrmPhone] = useState('');
+  const [quickCrmConcern, setQuickCrmConcern] = useState('General Consultation');
+  const [quickCrmLead, setQuickCrmLead] = useState<'hot' | 'warm' | 'cold'>('warm');
+  const [quickCrmDoctor, setQuickCrmDoctor] = useState('Dr. Sarah Mitchell');
+  const [savingQuickCrm, setSavingQuickCrm] = useState(false);
+
   // Google Tasks Sync State
   const [syncingGoogleTasks, setSyncingGoogleTasks] = useState(false);
+
+  // Customer Directory State (VIEW 4)
+  const [dirSearch, setDirSearch] = useState('');
+  const [dirSelectedCust, setDirSelectedCust] = useState<Customer | null>(null);
 
   // Tasks Calendar State
   const [tasks, setTasks] = useState<FollowupTask[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [taskFilter, setTaskFilter] = useState<'all' | 'today' | 'upcoming' | 'overdue' | 'completed'>('all');
   const [togglingTaskId, setTogglingTaskId] = useState<string | null>(null);
+  const [showAddTaskModal, setShowAddTaskModal] = useState(false);
+  const [addTaskTitle, setAddTaskTitle] = useState('');
+  const [addTaskDesc, setAddTaskDesc] = useState('');
+  const [addTaskDueDate, setAddTaskDueDate] = useState('');
+  const [addTaskDueTime, setAddTaskDueTime] = useState('10:00');
+  const [addTaskCustomerId, setAddTaskCustomerId] = useState('');
+  const [addTaskSyncGT, setAddTaskSyncGT] = useState(true);
+  const [addTaskSyncCal, setAddTaskSyncCal] = useState(false);
+  const [savingTask, setSavingTask] = useState(false);
 
   // Marketing Broadcast State
   const [marketingSubTab, setMarketingSubTab] = useState<'broadcasts' | 'reengagement' | 'analytics'>('broadcasts');
@@ -314,7 +360,7 @@ export default function DashboardPage() {
   const [broadcastSuccessNotice, setBroadcastSuccessNotice] = useState<string | null>(null);
 
   // User state
-  const [user, setUser] = useState<{ email: string; role: string; name?: string } | null>(null);
+  const [user, setUser] = useState<{ id?: string; tenant_id?: string; email?: string; role: string; name?: string } | null>(null);
 
   // Conversations & Chat State
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -453,7 +499,7 @@ export default function DashboardPage() {
     timezone: 'Asia/Kolkata',
     country_code: '+91',
     currency: 'INR',
-    currency_symbol: '₹',
+    currency_symbol: 'â‚¹',
     admin_whatsapp_number: '',
     template_booking_confirmation: 'booking_confirmationn',
     template_reschedule_confirmation: 'booking_confirmationn',
@@ -536,8 +582,8 @@ export default function DashboardPage() {
 
   const currentCurrencySymbol = settingsForm.currency_symbol || (
     settingsForm.currency === 'USD' ? '$' :
-    settingsForm.currency === 'EUR' ? '€' :
-    settingsForm.currency === 'GBP' ? '£' :
+    settingsForm.currency === 'EUR' ? 'â‚¬' :
+    settingsForm.currency === 'GBP' ? 'Â£' :
     settingsForm.currency === 'AED' ? 'AED ' :
     settingsForm.currency === 'AUD' ? 'A$' :
     settingsForm.currency === 'CAD' ? 'C$' :
@@ -547,10 +593,10 @@ export default function DashboardPage() {
     settingsForm.currency === 'QAR' ? 'QAR ' :
     settingsForm.currency === 'KWD' ? 'KWD ' :
     settingsForm.currency === 'NZD' ? 'NZ$' :
-    settingsForm.currency === 'JPY' ? '¥' :
+    settingsForm.currency === 'JPY' ? 'Â¥' :
     settingsForm.currency === 'CHF' ? 'CHF ' :
     settingsForm.currency === 'ZAR' ? 'R ' :
-    '₹'
+    'â‚¹'
   );
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -574,6 +620,7 @@ export default function DashboardPage() {
         loadConversations();
         loadBookings();
         loadContacts();
+        loadCustomers();
         loadSettings();
       })
       .catch(() => {
@@ -647,6 +694,7 @@ export default function DashboardPage() {
       loadBookings();
     } else if (activeNav === 'customers') {
       loadContacts();
+      loadCustomers();
     } else if (activeNav === 'followup') {
       loadCustomers();
       loadTasks();
@@ -869,20 +917,83 @@ export default function DashboardPage() {
     setSelectedCustomer(cust);
     setLoadingCustomerNotes(true);
     setLoadingCustomerChat(true);
+    setLoadingCustomerBookings(true);
     setCustomerNotes([]);
     setCustomerChat(null);
+    setCustomerBookingsData(null);
     try {
-      const [notes, chat] = await Promise.all([
+      const [notes, chat, bData] = await Promise.all([
         crm.getCustomerNotes(cust.id),
         crm.getCustomerChat(cust.id),
+        crm.getCustomerBookings(cust.id),
       ]);
       setCustomerNotes(Array.isArray(notes) ? notes : []);
       setCustomerChat(chat);
+      setCustomerBookingsData(bData);
     } catch (err) {
       console.error('Error loading customer details:', err);
     } finally {
       setLoadingCustomerNotes(false);
       setLoadingCustomerChat(false);
+      setLoadingCustomerBookings(false);
+    }
+  }
+
+  async function openCustomerProfileByPhone(phone: string, defaultName?: string) {
+    if (!phone) return;
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    let target = customers.find((c) => c.phone && c.phone.replace(/[^0-9]/g, '') === cleanPhone);
+    if (!target) {
+      try {
+        const data = await crm.getCustomers();
+        const list = Array.isArray(data) ? data : [];
+        setCustomers(list);
+        target = list.find((c) => c.phone && c.phone.replace(/[^0-9]/g, '') === cleanPhone);
+      } catch (e) {}
+    }
+    if (target) {
+      navigateTo('followup');
+      handleSelectCustomer(target);
+    } else {
+      setQuickCrmPhone(phone);
+      setQuickCrmName(defaultName || '');
+      setQuickCrmConcern('General Consultation');
+      setQuickCrmLead('warm');
+      setQuickCrmDoctor('Dr. Sarah Mitchell');
+      setShowQuickAddCrmModal(true);
+    }
+  }
+
+  async function handleSaveQuickCrm(e: React.FormEvent) {
+    e.preventDefault();
+    if (!quickCrmPhone.trim()) return;
+    setSavingQuickCrm(true);
+    try {
+      const newCust = await crm.createCustomer({
+        phone: quickCrmPhone.trim(),
+        name: quickCrmName.trim() || 'Customer',
+        health_concern: quickCrmConcern.trim() || 'General Consultation',
+        lead_probability: quickCrmLead,
+        preferred_doctor: quickCrmDoctor.trim() || 'Dr. Sarah Mitchell',
+        status: 'contacted',
+      });
+      setShowQuickAddCrmModal(false);
+      const freshCustomers = await crm.getCustomers();
+      const list = Array.isArray(freshCustomers) ? freshCustomers : [];
+      setCustomers(list);
+      const createdRecord = list.find((c) => c.id === newCust.id);
+      if (createdRecord) {
+        navigateTo('followup');
+        handleSelectCustomer(createdRecord);
+      }
+      setActionNotice(`Customer ${quickCrmName || quickCrmPhone} added to CRM!`);
+      setTimeout(() => setActionNotice(null), 3500);
+    } catch (err) {
+      console.error('Failed to create customer:', err);
+      setActionNotice('Failed to add customer to CRM.');
+      setTimeout(() => setActionNotice(null), 3500);
+    } finally {
+      setSavingQuickCrm(false);
     }
   }
 
@@ -916,10 +1027,12 @@ export default function DashboardPage() {
       await crm.addCustomerNote(selectedCustomer.id, {
         author: newCustomerNoteAuthor.trim() || 'Admin',
         note_text: newCustomerNoteText.trim(),
+        color: newCustomerNoteColor,
       });
       const updatedNotes = await crm.getCustomerNotes(selectedCustomer.id);
       setCustomerNotes(Array.isArray(updatedNotes) ? updatedNotes : []);
       setNewCustomerNoteText('');
+      setNewCustomerNoteColor('slate');
       setCustomers((prev) =>
         prev.map((c) =>
           c.id === selectedCustomer.id
@@ -990,6 +1103,123 @@ export default function DashboardPage() {
       console.error('Error toggling task:', err);
     } finally {
       setTogglingTaskId(null);
+    }
+  }
+
+  async function handleCreateTask(e: React.FormEvent) {
+    e.preventDefault();
+    if (!addTaskTitle.trim()) return;
+    setSavingTask(true);
+    try {
+      let dueDateTimeISO: string | undefined;
+      if (addTaskDueDate) {
+        const [h, m] = (addTaskDueTime || '10:00').split(':').map(Number);
+        const dt = new Date(addTaskDueDate + 'T00:00:00');
+        dt.setHours(h || 10, m || 0, 0, 0);
+        dueDateTimeISO = dt.toISOString();
+      }
+      const created = await crm.createTask({
+        customer_id: addTaskCustomerId || undefined,
+        title: addTaskTitle.trim(),
+        description: addTaskDesc.trim() || undefined,
+        due_date: dueDateTimeISO,
+        sync_google_tasks: addTaskSyncGT,
+        sync_google_calendar: addTaskSyncCal,
+      });
+      setShowAddTaskModal(false);
+      setAddTaskTitle('');
+      setAddTaskDesc('');
+      setAddTaskDueDate('');
+      setAddTaskDueTime('10:00');
+      setAddTaskCustomerId('');
+      setAddTaskSyncGT(true);
+      setAddTaskSyncCal(false);
+      // Reload tasks
+      const refreshed = await crm.getTasks(taskFilter);
+      setTasks(Array.isArray(refreshed) ? refreshed : []);
+
+      let notice = 'Task created successfully.';
+      if (created.google_task_id && created.google_event_id) {
+        notice = 'Task created & synced to Google Tasks and Google Calendar.';
+      } else if (created.google_task_id) {
+        notice = 'Task created & synced to Google Tasks.';
+      } else if (created.google_event_id) {
+        notice = 'Task created & added to Google Calendar schedule.';
+      }
+      if (created.tasks_permission_needed) {
+        notice += ' (Reconnect Google in Settings to grant Tasks permission)';
+      }
+      setActionNotice(notice);
+      setTimeout(() => setActionNotice(null), 4000);
+    } catch (err) {
+      console.error('Error creating task:', err);
+      alert('Failed to create task. Please try again.');
+    } finally {
+      setSavingTask(false);
+    }
+  }
+
+  async function handleDeleteTask(taskId: string) {
+    if (!confirm('Are you sure you want to delete this task?')) return;
+    try {
+      await crm.deleteTask(taskId);
+      setTasks((prev) => prev.filter((t) => t.id !== taskId));
+      setActionNotice('Task deleted successfully.');
+      setTimeout(() => setActionNotice(null), 2500);
+    } catch (err) {
+      console.error('Error deleting task:', err);
+      alert('Failed to delete task.');
+    }
+  }
+
+  async function handleCreateOverallNote(e: React.FormEvent) {
+    e.preventDefault();
+    if (!overallNoteText.trim() || !overallNoteCustomerId) return;
+    setSavingOverallNote(true);
+    try {
+      await crm.createOverallNote({
+        customer_id: overallNoteCustomerId,
+        note_text: overallNoteText.trim(),
+        author: overallNoteAuthor.trim() || 'Staff',
+        color: overallNoteColor,
+      });
+      setShowAddOverallNoteModal(false);
+      setOverallNoteText('');
+      setOverallNoteCustomerId('');
+      setOverallNoteAuthor('Staff');
+      setOverallNoteColor('slate');
+      setLoadingAllNotes(true);
+      const updated = await crm.getAllNotes({
+        color: allNotesColorFilter === 'all' ? undefined : allNotesColorFilter,
+        q: allNotesSearch || undefined,
+      });
+      setAllNotes(Array.isArray(updated) ? updated : []);
+      if (selectedCustomer && selectedCustomer.id === overallNoteCustomerId) {
+        const cNotes = await crm.getCustomerNotes(selectedCustomer.id);
+        setCustomerNotes(Array.isArray(cNotes) ? cNotes : []);
+      }
+      setActionNotice('Note added successfully.');
+      setTimeout(() => setActionNotice(null), 2500);
+    } catch (err) {
+      console.error('Failed to create note:', err);
+      alert('Failed to add note. Please try again.');
+    } finally {
+      setSavingOverallNote(false);
+      setLoadingAllNotes(false);
+    }
+  }
+
+  async function handleDeleteNote(noteId: string) {
+    if (!confirm('Are you sure you want to delete this note?')) return;
+    try {
+      await crm.deleteCustomerNote(noteId);
+      setAllNotes((prev) => prev.filter((n) => n.id !== noteId));
+      setCustomerNotes((prev) => prev.filter((n) => n.id !== noteId));
+      setActionNotice('Note deleted successfully.');
+      setTimeout(() => setActionNotice(null), 2500);
+    } catch (err) {
+      console.error('Failed to delete note:', err);
+      alert('Failed to delete note.');
     }
   }
 
@@ -1222,7 +1452,7 @@ export default function DashboardPage() {
     }
   }
 
-  function navigateTo(tab: 'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'marketing' | 'settings') {
+  function navigateTo(tab: 'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'followup' | 'marketing' | 'settings') {
     setActiveNav(tab);
     setIsBookingDetailModalOpen(false);
     setSelectedBookingDetail(null);
@@ -1596,7 +1826,7 @@ export default function DashboardPage() {
   } else if (calendarViewMode === 'week') {
     const first = currentWeekDays[0];
     const last = currentWeekDays[6];
-    calendarTitle = `${first.toLocaleDateString([], { month: 'short', day: 'numeric' })} – ${last.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    calendarTitle = `${first.toLocaleDateString([], { month: 'short', day: 'numeric' })} â€“ ${last.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
   }
 
   const isSameDay = (d1: Date, d2: Date) => {
@@ -1609,7 +1839,7 @@ export default function DashboardPage() {
 
   return (
     <div className="w-full h-screen bg-canvas flex flex-col overflow-hidden font-sans text-text-body">
-      {/* ── Top Header Navigation Bar ───────────────────────────────────────── */}
+      {/* â”€â”€ Top Header Navigation Bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <header className="h-14 px-6 border-b border-border flex items-center justify-between shrink-0 bg-surface">
         {/* Logo & Current View Title */}
         <div className="flex items-center gap-4">
@@ -1668,7 +1898,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* ── Action Notice Toast ────────────────────────────────────────────── */}
+      {/* â”€â”€ Action Notice Toast â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {actionNotice && (
         <div className="bg-surface border-b border-border px-6 py-2 text-xs text-text-primary flex items-center justify-between font-medium">
           <span className="flex items-center gap-2">
@@ -1681,10 +1911,10 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── 3-Column Body Container ────────────────────────────────────────── */}
+      {/* â”€â”€ 3-Column Body Container â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="flex-1 flex overflow-hidden">
         
-        {/* ── 1. LEFT SIDEBAR ──────────────────────────────────────────────── */}
+        {/* â”€â”€ 1. LEFT SIDEBAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <aside className="w-56 bg-surface border-r border-border flex flex-col shrink-0 p-3 justify-between">
           <div className="space-y-1">
             {/* Sidebar Menu Items */}
@@ -1714,30 +1944,6 @@ export default function DashboardPage() {
               </button>
 
               <button
-                onClick={() => navigateTo('bookings')}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
-                  activeNav === 'bookings'
-                    ? 'bg-surface-subtle text-text-primary font-semibold'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
-                }`}
-              >
-                <CalendarDays className="w-4 h-4 stroke-[1.5] shrink-0" />
-                <span>Bookings</span>
-              </button>
-
-              <button
-                onClick={() => navigateTo('calendar')}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
-                  activeNav === 'calendar'
-                    ? 'bg-surface-subtle text-text-primary font-semibold'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
-                }`}
-              >
-                <Calendar className="w-4 h-4 stroke-[1.5] shrink-0" />
-                <span>Calendar schedule</span>
-              </button>
-
-              <button
                 onClick={() => navigateTo('customers')}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
                   activeNav === 'customers'
@@ -1759,6 +1965,30 @@ export default function DashboardPage() {
               >
                 <CalendarClock className="w-4 h-4 stroke-[1.5] shrink-0" />
                 <span>Customer Followup</span>
+              </button>
+
+              <button
+                onClick={() => navigateTo('bookings')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                  activeNav === 'bookings'
+                    ? 'bg-surface-subtle text-text-primary font-semibold'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                }`}
+              >
+                <CalendarDays className="w-4 h-4 stroke-[1.5] shrink-0" />
+                <span>Bookings</span>
+              </button>
+
+              <button
+                onClick={() => navigateTo('calendar')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                  activeNav === 'calendar'
+                    ? 'bg-surface-subtle text-text-primary font-semibold'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                }`}
+              >
+                <Calendar className="w-4 h-4 stroke-[1.5] shrink-0" />
+                <span>Calendar schedule</span>
               </button>
 
               <button
@@ -1812,10 +2042,10 @@ export default function DashboardPage() {
           </div>
         </aside>
 
-          {/* ── 2. CENTER / MAIN VIEW AREA ───────────────────────────────────── */}
+          {/* â”€â”€ 2. CENTER / MAIN VIEW AREA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <main className="flex-1 flex flex-col overflow-hidden bg-canvas p-6 space-y-6">
             
-            {/* ── VIEW 0: DEDICATED OVERVIEW DASHBOARD ─────────────────────────── */}
+            {/* â”€â”€ VIEW 0: DEDICATED OVERVIEW DASHBOARD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             {activeNav === 'overview' && (
               <div className="flex-1 flex flex-col overflow-y-auto space-y-6 pr-1">
                 {/* Welcome Header */}
@@ -2046,7 +2276,7 @@ export default function DashboardPage() {
                                   {b.contact_name || b.contact_phone || 'Client'}
                                 </p>
                                 <p className="text-xs text-text-muted">
-                                  {b.service} &bull; {new Date(b.appointment_time).toLocaleDateString([], { month: 'short', day: 'numeric' })} at {new Date(b.appointment_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  {b.service} &bull; {new Date(b.start_time || b.appointment_time || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })} at {new Date(b.start_time || b.appointment_time || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </p>
                               </div>
 
@@ -2067,7 +2297,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* ── VIEW 1: BOOKINGS LIST & ATTENDANCE ───────────────────────────── */}
+            {/* â”€â”€ VIEW 1: BOOKINGS LIST & ATTENDANCE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             {activeNav === 'bookings' && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-4">
                 {/* Breadcrumb & Action Toolbar */}
@@ -2185,7 +2415,7 @@ export default function DashboardPage() {
                                 </div>
                                 <div className="min-w-0">
                                   <p className="font-medium text-xs text-text-primary truncate">{b.contact_name || 'Client'}</p>
-                                  <p className="text-[11px] text-text-muted font-mono mt-0.5">{b.contact_phone || '—'}</p>
+                                  <p className="text-[11px] text-text-muted font-mono mt-0.5">{b.contact_phone || 'â€”'}</p>
                                 </div>
                               </td>
 
@@ -2194,7 +2424,7 @@ export default function DashboardPage() {
                               </td>
 
                               <td className="p-3 font-mono text-xs text-text-muted">
-                                {b.start_time ? new Date(b.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                                {b.start_time ? new Date(b.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'â€”'}
                               </td>
 
                               <td className="p-3 font-mono font-medium text-xs text-text-primary tabular-nums">
@@ -2256,6 +2486,16 @@ export default function DashboardPage() {
 
                                   <button
                                     type="button"
+                                    onClick={() => openCustomerProfileByPhone(b.contact_phone || '', b.contact_name)}
+                                    className="px-2 py-1 text-[11px] font-medium bg-surface hover:bg-surface-subtle text-accent border border-border rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer"
+                                    title="View full customer profile & notes in CRM"
+                                  >
+                                    <User className="w-3 h-3 stroke-[1.5]" />
+                                    <span>Profile</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
                                     onClick={() => {
                                       setSelectedBookingDetail(b);
                                       setEditPriceValue(String(b.price || 0));
@@ -2279,7 +2519,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* ── VIEW 2: CALENDAR VIEW ───────────────────────────────────────── */}
+            {/* â”€â”€ VIEW 2: CALENDAR VIEW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             {activeNav === 'calendar' && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-4">
                 {/* Calendar Header Controls */}
@@ -2680,7 +2920,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* ── VIEW 3: INBOX / CONVERSATIONS ───────────────────────────────── */}
+            {/* â”€â”€ VIEW 3: INBOX / CONVERSATIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             {activeNav === 'inbox' && (
               <div className="flex-1 flex overflow-hidden border border-border rounded-md bg-surface">
                 {/* Conversations List */}
@@ -2719,7 +2959,7 @@ export default function DashboardPage() {
                       className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent font-sans transition-colors duration-150"
                     />
 
-                    {/* ── Compact & Clean Segmentation Filter Bar ── */}
+                    {/* â”€â”€ Compact & Clean Segmentation Filter Bar â”€â”€ */}
                     <div className="flex items-center p-0.5 bg-surface-subtle rounded-sm border border-border gap-1">
                       <button
                         type="button"
@@ -2793,8 +3033,20 @@ export default function DashboardPage() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex justify-between items-center">
-                                <p className="font-medium text-xs text-text-primary truncate">{conv.contact_name || conv.contact_phone}</p>
-                                <span className="text-xs text-text-muted font-mono">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <p className="font-medium text-xs text-text-primary truncate">{conv.contact_name || conv.contact_phone}</p>
+                                  {(() => {
+                                    const cleanP = conv.contact_phone ? conv.contact_phone.replace(/[^0-9]/g, '') : '';
+                                    if (!cleanP) return null;
+                                    const inCrm = Array.isArray(customers) && customers.some((c) => c && c.phone && c.phone.replace(/[^0-9]/g, '') === cleanP);
+                                    return inCrm ? (
+                                      <span className="text-[9px] font-semibold px-1 py-0.2 rounded-sm bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                                        CRM
+                                      </span>
+                                    ) : null;
+                                  })()}
+                                </div>
+                                <span className="text-xs text-text-muted font-mono shrink-0">
                                   {conv.last_message_at ? new Date(conv.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                                 </span>
                               </div>
@@ -2865,11 +3117,54 @@ export default function DashboardPage() {
                             {selectedConv.contact_name ? selectedConv.contact_name[0].toUpperCase() : 'C'}
                           </div>
                           <div>
-                            <h4 className="font-medium text-xs text-text-primary">{selectedConv.contact_name || selectedConv.contact_phone}</h4>
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-medium text-xs text-text-primary">{selectedConv.contact_name || selectedConv.contact_phone}</h4>
+                              {(() => {
+                                const cleanP = selectedConv?.contact_phone ? selectedConv.contact_phone.replace(/[^0-9]/g, '') : '';
+                                if (!cleanP) return null;
+                                const inCrm = Array.isArray(customers) && customers.some((c) => c && c.phone && c.phone.replace(/[^0-9]/g, '') === cleanP);
+                                return inCrm ? (
+                                  <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-sm bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    In CRM
+                                  </span>
+                                ) : null;
+                              })()}
+                            </div>
                             <p className="text-xs text-text-muted font-mono">{selectedConv.contact_phone}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
+                          {/* Cross-tab CRM profile button */}
+                          {(() => {
+                            const cleanP = selectedConv?.contact_phone ? selectedConv.contact_phone.replace(/[^0-9]/g, '') : '';
+                            const existingCust = cleanP && Array.isArray(customers) ? customers.find((c) => c && c.phone && c.phone.replace(/[^0-9]/g, '') === cleanP) : null;
+                            if (existingCust) {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => openCustomerProfileByPhone(selectedConv.contact_phone || '', selectedConv.contact_name || undefined)}
+                                  className="px-2.5 py-1 rounded-sm text-xs font-medium border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 flex items-center gap-1.5 transition-colors cursor-pointer"
+                                  title="View full customer profile, notes, and bookings"
+                                >
+                                  <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>CRM Profile</span>
+                                </button>
+                              );
+                            } else {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => openCustomerProfileByPhone(selectedConv.contact_phone || '', selectedConv.contact_name || undefined)}
+                                  className="px-2.5 py-1 rounded-sm text-xs font-medium border border-accent bg-accent/10 text-accent hover:bg-accent hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+                                  title="Add this contact as a CRM customer"
+                                >
+                                  <UserPlus className="w-3.5 h-3.5" />
+                                  <span>+ Add to CRM</span>
+                                </button>
+                              );
+                            }
+                          })()}
+
                           <button
                             type="button"
                             onClick={() => toggleImportant(selectedConv.id)}
@@ -2936,7 +3231,7 @@ export default function DashboardPage() {
                           <div className="text-center text-xs text-text-muted py-8">Loading history...</div>
                         ) : messages.map((msg) => {
                           const isInbound = msg.direction === 'inbound';
-                          const isVoice = msg.body?.startsWith('🎤 [Voice Note:');
+                          const isVoice = msg.body?.startsWith('ðŸŽ¤ [Voice Note:');
                           return (
                             <div key={msg.id} className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
                               <div
@@ -3008,88 +3303,303 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* ── VIEW 4: CUSTOMERS DIRECTORY ─────────────────────────────────── */}
+            {/* -- VIEW 4: CUSTOMERS DIRECTORY -- */}
             {activeNav === 'customers' && (
-              <div className="flex-1 flex flex-col overflow-hidden space-y-4">
-                <div className="flex justify-between items-center pt-1">
-                  <h3 className="font-semibold text-sm text-text-primary">Customer directory ({contacts.length})</h3>
+              <div className="flex-1 flex flex-col overflow-hidden gap-3">
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <div>
+                    <h3 className="font-semibold text-sm text-text-primary">Customer directory
+                      <span className="ml-1.5 text-text-muted text-xs font-normal">
+                        ({(Array.isArray(customers) ? customers : []).filter(c => !dirSearch.trim() || ((c?.name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.phone||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.wa_profile_name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.health_concern||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.status||'').toLowerCase().includes(dirSearch.toLowerCase()))).length} of {Array.isArray(customers) ? customers.length : 0})
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-text-muted mt-0.5">Complete CRM records — click any row to view full profile</p>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search name, phone, concern..."
+                    value={dirSearch}
+                    onChange={(e) => setDirSearch(e.target.value)}
+                    className="px-3 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent w-52"
+                  />
                 </div>
 
-                <div className="flex-1 overflow-y-auto border border-border rounded-md bg-surface">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-xs">
-                      <tr>
-                        <th className="p-3 pl-4">Client name</th>
-                        <th className="p-3">WhatsApp phone</th>
-                        <th className="p-3">WhatsApp profile</th>
-                        <th className="p-3">First seen</th>
-                        <th className="p-3 text-right pr-4">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {contacts.map((ct) => (
-                        <tr key={ct.id} className="hover:bg-surface-subtle transition-colors duration-150">
-                          <td className="p-3 pl-4 font-medium text-text-primary">{ct.name || 'Unnamed contact'}</td>
-                          <td className="p-3 font-mono text-text-secondary">{ct.phone}</td>
-                          <td className="p-3 text-text-muted">{ct.wa_profile_name || '—'}</td>
-                          <td className="p-3 font-mono text-xs text-text-muted">
-                            {ct.created_at ? new Date(ct.created_at).toLocaleDateString() : '—'}
-                          </td>
-                          <td className="p-3 text-right pr-4">
-                            <button
-                              onClick={() => openChatForContact(ct.phone)}
-                              className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-primary font-medium text-xs rounded-sm transition-colors duration-150 border border-border cursor-pointer"
-                            >
-                              Open chat
-                            </button>
-                          </td>
+                <div className="flex-1 flex gap-3 overflow-hidden">
+                  <div className={`flex-1 overflow-auto border border-border rounded-sm bg-surface ${dirSelectedCust ? 'min-w-0' : ''}`}>
+                    <table className="w-full text-left text-xs min-w-[860px]">
+                      <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
+                        <tr>
+                          <th className="p-2.5 pl-4 whitespace-nowrap">Customer</th>
+                          <th className="p-2.5 whitespace-nowrap">Phone</th>
+                          <th className="p-2.5 whitespace-nowrap">Status</th>
+                          <th className="p-2.5 whitespace-nowrap">Lead</th>
+                          <th className="p-2.5 whitespace-nowrap">Health Concern</th>
+                          <th className="p-2.5 whitespace-nowrap">Follow-up</th>
+                          <th className="p-2.5 whitespace-nowrap">Notes</th>
+                          <th className="p-2.5 whitespace-nowrap">Converted</th>
+                          <th className="p-2.5 whitespace-nowrap">First Added</th>
+                          <th className="p-2.5 whitespace-nowrap">Last Chat</th>
+                          <th className="p-2.5 pr-4 text-right whitespace-nowrap">Actions</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {loadingCustomers ? (
+                          <tr><td colSpan={11} className="p-8 text-center text-text-muted text-xs">Loading customers...</td></tr>
+                        ) : (Array.isArray(customers) ? customers : []).filter(c => !dirSearch.trim() || ((c?.name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.phone||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.wa_profile_name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.health_concern||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.status||'').toLowerCase().includes(dirSearch.toLowerCase()))).length === 0 ? (
+                          <tr><td colSpan={11} className="p-8 text-center text-text-muted text-xs">No customers found.</td></tr>
+                        ) : (Array.isArray(customers) ? customers : []).filter(c => !dirSearch.trim() || ((c?.name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.phone||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.wa_profile_name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.health_concern||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.status||'').toLowerCase().includes(dirSearch.toLowerCase()))).map((cust) => {
+                          const sStyle: Record<string, string> = { converted: 'bg-emerald-50 text-emerald-800 border-emerald-200', 'follow-up': 'bg-amber-50 text-amber-800 border-amber-200', contacted: 'bg-blue-50 text-blue-800 border-blue-200', lost: 'bg-rose-50 text-rose-800 border-rose-200', new: 'bg-slate-100 text-slate-700 border-slate-200' };
+                          const lStyle: Record<string, string> = { hot: 'bg-rose-50 text-rose-700 border-rose-200', warm: 'bg-amber-50 text-amber-700 border-amber-200', cold: 'bg-blue-50 text-blue-700 border-blue-200' };
+                          const lDot: Record<string, string> = { hot: 'bg-rose-500', warm: 'bg-amber-500', cold: 'bg-blue-400' };
+                          return (
+                            <tr
+                              key={cust.id}
+                              onClick={() => setDirSelectedCust(dirSelectedCust?.id === cust.id ? null : cust)}
+                              className={`hover:bg-surface-subtle/60 transition-colors duration-100 cursor-pointer ${dirSelectedCust?.id === cust.id ? 'bg-blue-50/40 border-l-2 border-l-accent' : ''}`}
+                            >
+                              <td className="p-2.5 pl-4">
+                                <div className="font-medium text-text-primary">{cust.name || 'Unnamed'}</div>
+                                {cust.wa_profile_name && cust.wa_profile_name !== cust.name && (
+                                  <div className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1">
+                                    <MessageCircle className="w-2.5 h-2.5 shrink-0" />{cust.wa_profile_name}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="p-2.5 font-mono text-text-secondary whitespace-nowrap text-[11px]">{cust.phone}</td>
+                              <td className="p-2.5">
+                                <span className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border ${sStyle[cust.status] || sStyle['new']}`}>
+                                  {cust.status === 'follow-up' ? 'Follow-up' : (cust.status || 'New').charAt(0).toUpperCase() + (cust.status || 'New').slice(1)}
+                                </span>
+                              </td>
+                              <td className="p-2.5">
+                                <span className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border flex items-center gap-1 w-fit ${lStyle[cust.lead_probability] || lStyle['warm']}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${lDot[cust.lead_probability] || lDot['warm']}`} />
+                                  {(cust.lead_probability || 'warm').charAt(0).toUpperCase() + (cust.lead_probability || 'warm').slice(1)}
+                                </span>
+                              </td>
+                              <td className="p-2.5 max-w-[160px]">
+                                <span className="text-text-secondary text-[11px] truncate block" title={cust.health_concern || ''}>{cust.health_concern || '-'}</span>
+                              </td>
+                              <td className="p-2.5 whitespace-nowrap">
+                                {cust.followup_date ? (
+                                  <div>
+                                    <div className="font-mono text-[11px] text-text-body">{cust.followup_date}</div>
+                                    <div className="text-[10px] text-text-muted">{cust.followup_time || '10:00 AM'}</div>
+                                  </div>
+                                ) : <span className="text-text-muted text-[11px]">-</span>}
+                              </td>
+                              <td className="p-2.5 text-center">
+                                <span className={`inline-flex items-center gap-1 text-[11px] ${(cust.notes_count || 0) > 0 ? 'text-accent font-semibold' : 'text-text-muted'}`}>
+                                  <StickyNote className="w-3 h-3 stroke-[1.5]" />{cust.notes_count || 0}
+                                </span>
+                              </td>
+                              <td className="p-2.5 text-center">
+                                {cust.converted
+                                  ? <span className="text-[11px] text-emerald-700 font-medium flex items-center gap-1 justify-center"><CheckCircle2 className="w-3.5 h-3.5 stroke-[1.5]" />Yes</span>
+                                  : <span className="text-[11px] text-text-muted">No</span>}
+                              </td>
+                              <td className="p-2.5 font-mono text-[11px] text-text-muted whitespace-nowrap">
+                                {cust.created_at ? new Date(cust.created_at).toLocaleDateString() : '-'}
+                              </td>
+                              <td className="p-2.5 font-mono text-[11px] whitespace-nowrap">
+                                {cust.last_chat_at
+                                  ? <span className="flex items-center gap-1 text-blue-600"><MessageCircle className="w-3 h-3 stroke-[1.5]" />{new Date(cust.last_chat_at).toLocaleDateString()}</span>
+                                  : <span className="text-text-muted">No chat</span>}
+                              </td>
+                              <td className="p-2.5 pr-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center gap-1.5 justify-end">
+                                  <button
+                                    onClick={() => openChatForContact(cust.phone)}
+                                    className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary text-[11px] rounded-sm border border-border transition-colors cursor-pointer flex items-center gap-1"
+                                  >
+                                    <MessageCircle className="w-3 h-3 stroke-[1.5]" /> Chat
+                                  </button>
+                                  <button
+                                    onClick={() => setDirSelectedCust(dirSelectedCust?.id === cust.id ? null : cust)}
+                                    className="px-2 py-1 bg-accent hover:bg-accent-hover text-white text-[11px] rounded-sm transition-colors cursor-pointer flex items-center gap-1"
+                                  >
+                                    <User className="w-3 h-3 stroke-[1.5]" /> Profile
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {dirSelectedCust && (
+                    <div className="w-[340px] bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden">
+                      <div className="p-3 border-b border-border bg-surface-subtle/50 flex items-center justify-between">
+                        <div>
+                          <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
+                            <User className="w-3.5 h-3.5 text-accent" />{dirSelectedCust.name || 'Customer Profile'}
+                          </h4>
+                          <p className="text-[10px] font-mono text-text-muted mt-0.5">{dirSelectedCust.phone}</p>
+                        </div>
+                        <button onClick={() => setDirSelectedCust(null)} className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Identity</p>
+                          <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
+                            {[{ label: 'CRM Name', value: dirSelectedCust.name || '-' }, { label: 'WA Profile', value: dirSelectedCust.wa_profile_name || '-' }, { label: 'Phone', value: dirSelectedCust.phone, mono: true }].map((f) => (
+                              <div key={f.label} className="flex items-start justify-between px-2.5 py-2 gap-2">
+                                <span className="text-text-muted shrink-0 text-[11px]">{f.label}</span>
+                                <span className={`text-text-primary font-medium text-right truncate text-[11px] ${f.mono ? 'font-mono' : ''}`}>{f.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">CRM Status</p>
+                          <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
+                            <div className="flex items-center justify-between px-2.5 py-2 gap-2">
+                              <span className="text-text-muted text-[11px]">Status</span>
+                              <span className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border ${({ converted: 'bg-emerald-50 text-emerald-800 border-emerald-200', 'follow-up': 'bg-amber-50 text-amber-800 border-amber-200', contacted: 'bg-blue-50 text-blue-800 border-blue-200', lost: 'bg-rose-50 text-rose-800 border-rose-200', new: 'bg-slate-100 text-slate-700 border-slate-200' } as Record<string,string>)[dirSelectedCust.status] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                                {dirSelectedCust.status === 'follow-up' ? 'Follow-up' : (dirSelectedCust.status || 'New').charAt(0).toUpperCase() + (dirSelectedCust.status || 'New').slice(1)}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between px-2.5 py-2 gap-2">
+                              <span className="text-text-muted text-[11px]">Lead</span>
+                              <span className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border flex items-center gap-1 ${({ hot: 'bg-rose-50 text-rose-700 border-rose-200', warm: 'bg-amber-50 text-amber-700 border-amber-200', cold: 'bg-blue-50 text-blue-700 border-blue-200' } as Record<string,string>)[dirSelectedCust.lead_probability] || 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${{ hot: 'bg-rose-500', warm: 'bg-amber-500', cold: 'bg-blue-400' }[dirSelectedCust.lead_probability] || 'bg-amber-500'}`} />
+                                {(dirSelectedCust.lead_probability || 'warm').charAt(0).toUpperCase() + (dirSelectedCust.lead_probability || 'warm').slice(1)}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between px-2.5 py-2 gap-2">
+                              <span className="text-text-muted text-[11px]">Converted</span>
+                              {dirSelectedCust.converted
+                                ? <span className="text-emerald-700 font-semibold flex items-center gap-1 text-[11px]"><CheckCircle2 className="w-3 h-3" /> Yes</span>
+                                : <span className="text-text-muted text-[11px]">No</span>}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Health / Concern</p>
+                          <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
+                            {[{ label: 'Health Concern', value: dirSelectedCust.health_concern || '-' }, { label: 'Preferred Staff', value: dirSelectedCust.preferred_doctor || '-' }].map((f) => (
+                              <div key={f.label} className="flex items-start justify-between px-2.5 py-2 gap-2">
+                                <span className="text-text-muted shrink-0 text-[11px]">{f.label}</span>
+                                <span className="text-text-primary font-medium text-right text-[11px]">{f.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Schedule</p>
+                          <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
+                            {[{ label: 'Follow-up Date', value: dirSelectedCust.followup_date || '-', mono: true }, { label: 'Follow-up Time', value: dirSelectedCust.followup_time || '-', mono: true }].map((f) => (
+                              <div key={f.label} className="flex items-center justify-between px-2.5 py-2 gap-2">
+                                <span className="text-text-muted text-[11px]">{f.label}</span>
+                                <span className={`text-text-primary font-medium text-[11px] ${f.mono ? 'font-mono' : ''}`}>{f.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Activity</p>
+                          <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
+                            {[
+                              { label: 'First Added', value: dirSelectedCust.created_at ? new Date(dirSelectedCust.created_at).toLocaleString() : '-', mono: true },
+                              { label: 'Last Chat', value: dirSelectedCust.last_chat_at ? new Date(dirSelectedCust.last_chat_at).toLocaleString() : 'No chat', mono: true },
+                              { label: 'Notes', value: `${dirSelectedCust.notes_count || 0} note${(dirSelectedCust.notes_count || 0) === 1 ? '' : 's'}` },
+                              { label: 'Google Tasks', value: dirSelectedCust.google_task_id ? 'Synced' : 'Not synced' },
+                            ].map((f) => (
+                              <div key={f.label} className="flex items-start justify-between px-2.5 py-2 gap-2">
+                                <span className="text-text-muted shrink-0 text-[11px]">{f.label}</span>
+                                <span className={`text-text-primary font-medium text-right ${f.mono ? 'font-mono text-[10px]' : 'text-[11px]'}`}>{f.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        {dirSelectedCust.latest_note && (
+                          <div className="space-y-1.5">
+                            <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Latest Note</p>
+                            <div className="bg-amber-50 border border-amber-200 rounded-sm px-2.5 py-2 text-[11px] text-amber-900 leading-relaxed whitespace-pre-wrap">{dirSelectedCust.latest_note}</div>
+                          </div>
+                        )}
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            onClick={() => openChatForContact(dirSelectedCust.phone)}
+                            className="flex-1 py-1.5 px-2.5 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-xs font-medium rounded-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5 text-accent" /> Open Chat
+                          </button>
+                          <button
+                            onClick={() => { navigateTo('followup'); handleSelectCustomer(dirSelectedCust); }}
+                            className="flex-1 py-1.5 px-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                          >
+                            <CalendarClock className="w-3.5 h-3.5" /> Manage
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* ── VIEW 5: CUSTOMER FOLLOWUP & TASK CALENDAR ───────────────────── */}
+            {/* â”€â”€ VIEW 5: CUSTOMER FOLLOWUP & TASK CALENDAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             {activeNav === 'followup' && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-4">
-                {/* Header & View Switcher */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-3">
+                {/* Compact & Clean Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-border pb-2.5">
                   <div>
-                    <h3 className="font-semibold text-base text-text-primary flex items-center gap-2">
-                      <CalendarClock className="w-5 h-5 text-accent stroke-[1.5]" />
-                      <span>Customer Follow-up & Task Calendar</span>
+                    <h3 className="font-semibold text-sm text-text-primary flex items-center gap-2">
+                      <CalendarClock className="w-4 h-4 text-accent stroke-[1.5]" />
+                      <span>Customer Follow-up</span>
                     </h3>
-                    <p className="text-xs text-text-muted mt-0.5">
-                      Database-backed follow-up management, WhatsApp chat histories, timestamped doctor notes, and Google Tasks sync.
+                    <p className="text-[11px] text-text-muted mt-0.5">
+                      Follow-ups, scheduled tasks, and staff notes.
                     </p>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {/* View Switcher: List vs Tasks Calendar */}
+                    {/* Compact View Switcher Pills */}
                     <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5">
                       <button
                         onClick={() => setFollowupView('list')}
-                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
                           followupView === 'list'
-                            ? 'bg-surface text-text-primary shadow-none border border-border font-semibold'
+                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
                             : 'text-text-secondary hover:text-text-primary'
                         }`}
                       >
-                        <List className="w-3.5 h-3.5" />
-                        <span>Follow-up List ({customers.length})</span>
+                        <List className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span>Follow-up</span>
+                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{customers.length}</span>
                       </button>
                       <button
                         onClick={() => setFollowupView('tasks')}
-                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
                           followupView === 'tasks'
-                            ? 'bg-surface text-text-primary shadow-none border border-border font-semibold'
+                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
                             : 'text-text-secondary hover:text-text-primary'
                         }`}
                       >
-                        <CalendarCheck className="w-3.5 h-3.5" />
-                        <span>Task Calendar ({tasks.filter(t => !t.completed).length})</span>
+                        <CalendarCheck className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span>Tasks</span>
+                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{tasks.filter(t => !t.completed).length}</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setFollowupView('notes');
+                          setLoadingAllNotes(true);
+                          crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
+                        }}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                          followupView === 'notes'
+                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        <StickyNote className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span>Notes</span>
+                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{allNotes.length}</span>
                       </button>
                     </div>
 
@@ -3097,16 +3607,20 @@ export default function DashboardPage() {
                       onClick={() => {
                         loadCustomers();
                         loadTasks();
+                        if (followupView === 'notes') {
+                          setLoadingAllNotes(true);
+                          crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
+                        }
                       }}
                       className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
                       title="Refresh"
                     >
-                      <RotateCcw className={`w-3.5 h-3.5 ${loadingCustomers || loadingTasks ? 'animate-spin' : ''}`} />
+                      <RotateCcw className={`w-3.5 h-3.5 ${loadingCustomers || loadingTasks || loadingAllNotes ? 'animate-spin' : ''}`} />
                     </button>
                   </div>
                 </div>
 
-                {/* ── SUB-VIEW A: FOLLOW-UP LIST ──────────────────────────────── */}
+                {/* â”€â”€ SUB-VIEW A: FOLLOW-UP LIST â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                 {followupView === 'list' && (
                   <div className="flex-1 flex flex-col overflow-hidden space-y-3">
                     {/* Filter & Segment Controls */}
@@ -3141,9 +3655,9 @@ export default function DashboardPage() {
                         <span className="text-[11px] font-medium text-text-muted mr-1">Lead:</span>
                         {[
                           { key: 'all', label: 'All' },
-                          { key: 'hot', label: '🔥 Hot', color: 'text-rose-700 bg-rose-50 border-rose-200' },
-                          { key: 'warm', label: '⚡ Warm', color: 'text-amber-700 bg-amber-50 border-amber-200' },
-                          { key: 'cold', label: '❄️ Cold', color: 'text-blue-700 bg-blue-50 border-blue-200' },
+                          { key: 'hot', label: 'ðŸ”¥ Hot', color: 'text-rose-700 bg-rose-50 border-rose-200' },
+                          { key: 'warm', label: 'âš¡ Warm', color: 'text-amber-700 bg-amber-50 border-amber-200' },
+                          { key: 'cold', label: 'â„ï¸ Cold', color: 'text-blue-700 bg-blue-50 border-blue-200' },
                         ].map((prob) => (
                           <button
                             key={prob.key}
@@ -3207,7 +3721,7 @@ export default function DashboardPage() {
 
                       <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
                         <div>
-                          <p className="text-[11px] text-rose-700 font-medium">🔥 Hot Leads</p>
+                          <p className="text-[11px] text-rose-700 font-medium">Hot Leads</p>
                           <p className="text-base font-semibold text-rose-900 mt-0.5">
                             {customers.filter(c => c.lead_probability === 'hot').length}
                           </p>
@@ -3217,7 +3731,7 @@ export default function DashboardPage() {
 
                       <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
                         <div>
-                          <p className="text-[11px] text-emerald-700 font-medium">Converted Patients</p>
+                          <p className="text-[11px] text-emerald-700 font-medium">Converted Customers</p>
                           <p className="text-base font-semibold text-emerald-900 mt-0.5">
                             {customers.filter(c => c.converted).length}
                             <span className="text-[10px] text-emerald-600 ml-1.5 font-normal">
@@ -3236,7 +3750,7 @@ export default function DashboardPage() {
                         <table className="w-full text-left text-xs">
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium sticky top-0 z-10">
                             <tr>
-                              <th className="p-3 pl-4">Patient / Contact</th>
+                              <th className="p-3 pl-4">Customer</th>
                               <th className="p-3">Doctor</th>
                               <th className="p-3">Health Concern</th>
                               <th className="p-3">Status</th>
@@ -3275,7 +3789,7 @@ export default function DashboardPage() {
                                     }`}
                                   >
                                     <td className="p-3 pl-4">
-                                      <div className="font-semibold text-text-primary">{cust.name || 'Patient'}</div>
+                                      <div className="font-semibold text-text-primary">{cust.name || 'Customer'}</div>
                                       <div className="font-mono text-[11px] text-text-muted mt-0.5">{cust.phone}</div>
                                     </td>
 
@@ -3330,23 +3844,23 @@ export default function DashboardPage() {
                                             : 'bg-blue-50 text-blue-800 border-blue-200'
                                         }`}
                                       >
-                                        <option value="hot">🔥 Hot</option>
-                                        <option value="warm">⚡ Warm</option>
-                                        <option value="cold">❄️ Cold</option>
+                                        <option value="hot">Hot</option>
+                                        <option value="warm">Warm</option>
+                                        <option value="cold">Cold</option>
                                       </select>
                                     </td>
 
                                     {/* Instant Converted Toggle */}
                                     <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
                                       <button
-                                        onClick={() => handleUpdateCustomer(cust.id, { converted: !cust.converted, status: !cust.converted ? 'converted' : cust.status })}
+                                        onClick={() => handleUpdateCustomer(cust.id, { converted: !cust.converted })}
                                         className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border transition-colors cursor-pointer ${
                                           cust.converted
                                             ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
                                             : 'bg-surface text-text-muted border-border hover:text-text-primary'
                                         }`}
                                       >
-                                        {cust.converted ? '✓ Converted' : '— Pending'}
+                                        {cust.converted ? 'Converted' : 'Pending'}
                                       </button>
                                     </td>
 
@@ -3364,7 +3878,7 @@ export default function DashboardPage() {
                                           <span className="text-[10px] text-text-muted font-mono">{cust.followup_time || '10:00 AM'}</span>
                                         </div>
                                       ) : (
-                                        <span className="text-text-muted text-[11px]">—</span>
+                                        <span className="text-text-muted text-[11px]">â€”</span>
                                       )}
                                     </td>
 
@@ -3410,11 +3924,19 @@ export default function DashboardPage() {
                             <div>
                               <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
                                 <User className="w-3.5 h-3.5 text-accent" />
-                                <span>{selectedCustomer.name || 'Patient'}</span>
+                                <span>{selectedCustomer.name || 'Customer'}</span>
                               </h4>
                               <p className="text-[11px] font-mono text-text-muted mt-0.5">{selectedCustomer.phone}</p>
                             </div>
                             <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => openChatForContact(selectedCustomer.phone)}
+                                className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary text-[11px] font-medium rounded-sm border border-border flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Open WhatsApp chat with this customer"
+                              >
+                                <MessageSquare className="w-3 h-3 text-accent" />
+                                <span>Chat</span>
+                              </button>
                               <button
                                 onClick={() => setSelectedCustomer(null)}
                                 className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
@@ -3434,8 +3956,8 @@ export default function DashboardPage() {
                                   <span>Schedule Follow-up</span>
                                 </span>
                                 {selectedCustomer.google_task_id && (
-                                  <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium">
-                                    ✓ Google Tasks Synced
+                                  <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3 stroke-[1.5]" /> Google Tasks Synced
                                   </span>
                                 )}
                               </div>
@@ -3485,16 +4007,14 @@ export default function DashboardPage() {
                             {/* 2. Customer Attributes & Doctor Selection */}
                             <div className="space-y-2 text-xs">
                               <div>
-                                <label className="text-[10px] text-text-muted block mb-1">Preferred Doctor</label>
-                                <select
-                                  value={selectedCustomer.preferred_doctor || 'Dr. Sarah Mitchell'}
+                                <label className="text-[10px] text-text-muted block mb-1">Preferred Doctor / Staff</label>
+                                <input
+                                  type="text"
+                                  value={selectedCustomer.preferred_doctor || ''}
                                   onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { preferred_doctor: e.target.value })}
+                                  placeholder="e.g. Dr. Sarah Mitchell"
                                   className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
-                                >
-                                  <option value="Dr. Sarah Mitchell">Dr. Sarah Mitchell (Physiotherapy & Wellness)</option>
-                                  <option value="Dr. Rajesh Kumar">Dr. Rajesh Kumar (Dental & Orthodontics)</option>
-                                  <option value="Dr. Emily Stone">Dr. Emily Stone (Dermatology & Skin Care)</option>
-                                </select>
+                                />
                               </div>
 
                               <div>
@@ -3514,7 +4034,7 @@ export default function DashboardPage() {
                               <div className="flex items-center justify-between">
                                 <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
                                   <StickyNote className="w-3.5 h-3.5 text-accent" />
-                                  <span>Doctor & Staff Notes ({customerNotes.length})</span>
+                                  <span>Staff Notes ({customerNotes.length})</span>
                                 </span>
                               </div>
 
@@ -3527,44 +4047,91 @@ export default function DashboardPage() {
                                     No notes added yet.
                                   </p>
                                 ) : (
-                                  customerNotes.map((nt) => (
-                                    <div key={nt.id} className="p-2.5 bg-surface-subtle border border-border rounded-sm space-y-1">
-                                      <div className="flex items-center justify-between text-[10px]">
-                                        <span className="font-semibold text-text-primary">{nt.author}</span>
-                                        <span className="text-text-muted font-mono">
-                                          {nt.created_at ? new Date(nt.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
-                                        </span>
+                                  customerNotes.map((nt) => {
+                                    const noteColor = nt.color || 'slate';
+                                    const colorMap: Record<string, string> = {
+                                      slate: 'border-l-slate-400 bg-slate-50',
+                                      blue: 'border-l-blue-400 bg-blue-50',
+                                      amber: 'border-l-amber-400 bg-amber-50',
+                                      rose: 'border-l-rose-400 bg-rose-50',
+                                      emerald: 'border-l-emerald-400 bg-emerald-50',
+                                      violet: 'border-l-violet-400 bg-violet-50',
+                                    };
+                                    const badgeMap: Record<string, string> = {
+                                      slate: 'bg-slate-200 text-slate-700',
+                                      blue: 'bg-blue-100 text-blue-700',
+                                      amber: 'bg-amber-100 text-amber-700',
+                                      rose: 'bg-rose-100 text-rose-700',
+                                      emerald: 'bg-emerald-100 text-emerald-700',
+                                      violet: 'bg-violet-100 text-violet-700',
+                                    };
+                                    return (
+                                      <div key={nt.id} className={`pl-2.5 pr-2.5 py-2 border border-border border-l-2 rounded-sm space-y-1 ${colorMap[noteColor] || colorMap.slate}`}>
+                                        <div className="flex items-center justify-between text-[10px]">
+                                          <span className={`font-semibold px-1.5 py-0.5 rounded-sm text-[10px] ${badgeMap[noteColor] || badgeMap.slate}`}>{nt.author}</span>
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-text-muted font-mono">
+                                              {nt.created_at ? new Date(nt.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleDeleteNote(nt.id)}
+                                              title="Delete note"
+                                              className="p-0.5 text-text-muted hover:text-rose-600 rounded cursor-pointer"
+                                            >
+                                              <Trash2 className="w-3 h-3 stroke-[1.5]" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                        <p className="text-xs text-text-body whitespace-pre-wrap leading-relaxed font-sans">{nt.note_text}</p>
                                       </div>
-                                      <p className="text-xs text-text-body whitespace-pre-wrap leading-relaxed font-sans">{nt.note_text}</p>
-                                    </div>
-                                  ))
+                                    );
+                                  })
                                 )}
                               </div>
 
-                              {/* Add Note Input */}
+                              {/* Add Note Input with color picker */}
                               <form onSubmit={handleAddCustomerNote} className="space-y-1.5 pt-1">
                                 <div className="flex gap-1.5">
                                   <input
                                     type="text"
                                     value={newCustomerNoteAuthor}
                                     onChange={(e) => setNewCustomerNoteAuthor(e.target.value)}
-                                    placeholder="Author name"
-                                    className="w-28 px-2 py-1 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                    placeholder="Author"
+                                    className="w-24 px-2 py-1 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
                                   />
                                   <input
                                     type="text"
                                     value={newCustomerNoteText}
                                     onChange={(e) => setNewCustomerNoteText(e.target.value)}
-                                    placeholder="Add clinical note or follow-up details..."
+                                    placeholder="Add a staff note..."
                                     className="flex-1 px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
                                   />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-text-muted">Color:</span>
+                                  {(['slate','blue','amber','rose','emerald','violet'] as const).map(c => {
+                                    const dotClasses: Record<string, string> = {
+                                      slate:'bg-slate-400', blue:'bg-blue-400', amber:'bg-amber-400',
+                                      rose:'bg-rose-400', emerald:'bg-emerald-400', violet:'bg-violet-400'
+                                    };
+                                    return (
+                                      <button
+                                        key={c}
+                                        type="button"
+                                        title={c}
+                                        onClick={() => setNewCustomerNoteColor(c)}
+                                        className={`w-4 h-4 rounded-full ${dotClasses[c]} transition-transform cursor-pointer ${newCustomerNoteColor === c ? 'ring-2 ring-offset-1 ring-text-primary scale-110' : 'opacity-70 hover:opacity-100'}`}
+                                      />
+                                    );
+                                  })}
                                 </div>
                                 <button
                                   type="submit"
                                   disabled={!newCustomerNoteText.trim() || addingCustomerNote}
                                   className="w-full py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
                                 >
-                                  {addingCustomerNote ? 'Adding note...' : '+ Save Note'}
+                                  {addingCustomerNote ? 'Saving...' : '+ Save Note'}
                                 </button>
                               </form>
                             </div>
@@ -3586,8 +4153,8 @@ export default function DashboardPage() {
                               {/* Chat Activity Metadata */}
                               {customerChat && (
                                 <div className="flex items-center justify-between text-[10px] text-text-muted px-1">
-                                  <span>First: {customerChat.first_message_at ? new Date(customerChat.first_message_at).toLocaleDateString() : '—'}</span>
-                                  <span>Last: {customerChat.last_message_at ? new Date(customerChat.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+                                  <span>First: {customerChat.first_message_at ? new Date(customerChat.first_message_at).toLocaleDateString() : 'â€”'}</span>
+                                  <span>Last: {customerChat.last_message_at ? new Date(customerChat.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'â€”'}</span>
                                 </div>
                               )}
 
@@ -3613,7 +4180,7 @@ export default function DashboardPage() {
                                           <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}>
                                             <span>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                                             {!isInbound && (
-                                              <span>{msg.status === 'read' ? '✓✓' : msg.status === 'delivered' ? '✓✓' : '✓'}</span>
+                                              <span>{msg.status === 'read' ? 'âœ“âœ“' : msg.status === 'delivered' ? 'âœ“âœ“' : 'âœ“'}</span>
                                             )}
                                           </div>
                                         </div>
@@ -3640,6 +4207,88 @@ export default function DashboardPage() {
                                   <Send className="w-3.5 h-3.5" />
                                 </button>
                               </form>
+                              {/* 5. Bookings & Lifetime Value History */}
+                              <div className="space-y-2 border-t border-border pt-3">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                                    <CalendarDays className="w-3.5 h-3.5 text-accent" />
+                                    <span>Bookings & Revenue</span>
+                                  </span>
+                                  {customerBookingsData && (
+                                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm">
+                                      Total: {currentCurrencySymbol}{customerBookingsData.total_revenue ?? 0}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {loadingCustomerBookings ? (
+                                  <p className="text-[11px] text-text-muted text-center py-2">Loading bookings...</p>
+                                ) : !customerBookingsData || !Array.isArray(customerBookingsData.bookings) || customerBookingsData.bookings.length === 0 ? (
+                                  <div className="p-2.5 bg-surface-subtle border border-border rounded-sm text-center">
+                                    <p className="text-[11px] text-text-muted">No appointments booked yet.</p>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setNewBookingForm({
+                                          contact_name: selectedCustomer.name || '',
+                                          contact_phone: selectedCustomer.phone || '',
+                                          service: selectedCustomer.health_concern || '',
+                                          date: new Date().toISOString().split('T')[0],
+                                          time: '10:00',
+                                          price: 0,
+                                          notes: ''
+                                        });
+                                        setIsAddBookingOpen(true);
+                                      }}
+                                      className="mt-1.5 text-[11px] text-accent font-medium hover:underline cursor-pointer inline-flex items-center gap-1"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                      <span>Book an appointment</span>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                                    {(customerBookingsData?.bookings || []).map((bk) => (
+                                      <div key={bk.id} className="p-2 bg-surface-subtle border border-border rounded-sm flex items-center justify-between gap-2 text-xs">
+                                        <div className="min-w-0">
+                                          <p className="font-medium text-text-primary truncate">{bk.service}</p>
+                                          <p className="text-[10px] text-text-muted font-mono mt-0.5">
+                                            {bk.start_time ? new Date(bk.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                                          </p>
+                                        </div>
+                                        <div className="text-right shrink-0">
+                                          <p className="font-mono font-medium text-text-primary">{currentCurrencySymbol}{bk.price || 0}</p>
+                                          <span className={`text-[9px] font-semibold px-1 py-0.2 rounded-sm border ${
+                                            bk.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                                            bk.status === 'no_show' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                                            'bg-blue-50 text-blue-800 border-blue-200'
+                                          }`}>
+                                            {bk.status}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setNewBookingForm({
+                                          contact_name: selectedCustomer.name || '',
+                                          contact_phone: selectedCustomer.phone || '',
+                                          service: selectedCustomer.health_concern || '',
+                                          date: new Date().toISOString().split('T')[0],
+                                          time: '10:00',
+                                          price: 0,
+                                          notes: ''
+                                        });
+                                        setIsAddBookingOpen(true);
+                                      }}
+                                      className="w-full py-1 text-center text-[11px] text-accent font-medium hover:underline cursor-pointer"
+                                    >
+                                      + Book another appointment
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -3648,19 +4297,19 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* ── SUB-VIEW B: TASK CALENDAR VIEW ─────────────────────────── */}
+                {/* â”€â”€ SUB-VIEW B: TASK CALENDAR VIEW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                 {followupView === 'tasks' && (
                   <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-5xl">
-                    {/* Task Filter Pills */}
+                    {/* Task Filter Pills + Add Task */}
                     <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface border border-border rounded-sm">
                       <div className="flex items-center gap-1">
-                        <span className="text-[11px] font-medium text-text-muted mr-1">Filter Tasks:</span>
+                        <span className="text-[11px] font-medium text-text-muted mr-1">Filter:</span>
                         {[
                           { key: 'all', label: 'All Tasks' },
                           { key: 'today', label: 'Due Today' },
-                          { key: 'upcoming', label: 'Upcoming (7d)' },
-                          { key: 'overdue', label: '⚠️ Overdue' },
-                          { key: 'completed', label: '✓ Completed' },
+                          { key: 'upcoming', label: 'Upcoming' },
+                          { key: 'overdue', label: 'Overdue' },
+                          { key: 'completed', label: 'Completed' },
                         ].map((tf) => (
                           <button
                             key={tf.key}
@@ -3676,9 +4325,13 @@ export default function DashboardPage() {
                         ))}
                       </div>
 
-                      <div className="text-xs text-text-muted">
-                        Showing {tasks.length} follow-up {tasks.length === 1 ? 'task' : 'tasks'}
-                      </div>
+                      <button
+                        onClick={() => setShowAddTaskModal(true)}
+                        className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5 stroke-[2]" />
+                        Add Task
+                      </button>
                     </div>
 
                     {/* Tasks List */}
@@ -3729,35 +4382,45 @@ export default function DashboardPage() {
 
                                 <div className="flex flex-wrap items-center gap-2 pt-1">
                                   {tsk.customer_phone && (
-                                    <span className="font-mono text-[10px] text-text-muted bg-surface-subtle border border-border px-1.5 py-0.5 rounded-sm">
-                                      📞 {tsk.customer_phone}
-                                    </span>
-                                  )}
-                                  {tsk.preferred_doctor && (
-                                    <span className="text-[10px] text-text-secondary bg-surface-subtle border border-border px-1.5 py-0.5 rounded-sm">
-                                      🩺 {tsk.preferred_doctor}
+                                    <span className="font-mono text-[10px] text-text-muted bg-surface-subtle border border-border px-1.5 py-0.5 rounded-sm flex items-center gap-1">
+                                      <Phone className="w-3 h-3 stroke-[1.5]" /> {tsk.customer_phone}
                                     </span>
                                   )}
                                   {tsk.google_task_id && (
-                                    <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium">
-                                      ⚡ Google Tasks
+                                    <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3 stroke-[1.5]" /> Google Tasks
+                                    </span>
+                                  )}
+                                  {tsk.google_event_id && (
+                                    <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-sm font-medium flex items-center gap-1">
+                                      <Calendar className="w-3 h-3 stroke-[1.5]" /> Google Calendar
                                     </span>
                                   )}
                                 </div>
                               </div>
                             </div>
 
-                            {/* Due Date & Overdue Badge */}
-                            <div className="text-right shrink-0">
-                              {tsk.is_overdue && !tsk.completed && (
-                                <span className="inline-flex items-center gap-1 text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-sm font-semibold mb-1">
-                                  <AlertCircle className="w-3 h-3 text-rose-600" />
-                                  Overdue
-                                </span>
-                              )}
-                              <p className={`text-xs font-mono ${tsk.is_overdue && !tsk.completed ? 'text-rose-700 font-semibold' : 'text-text-muted'}`}>
-                                {tsk.due_date ? new Date(tsk.due_date).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'No due date'}
-                              </p>
+                            {/* Due Date, Overdue Badge & Delete Action */}
+                            <div className="flex items-center gap-2.5 shrink-0">
+                              <div className="text-right">
+                                {tsk.is_overdue && !tsk.completed && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-sm font-semibold mb-1">
+                                    <AlertCircle className="w-3 h-3 text-rose-600" />
+                                    Overdue
+                                  </span>
+                                )}
+                                <p className={`text-xs font-mono ${tsk.is_overdue && !tsk.completed ? 'text-rose-700 font-semibold' : 'text-text-muted'}`}>
+                                  {tsk.due_date ? new Date(tsk.due_date).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'No due date'}
+                                </p>
+                              </div>
+
+                              <button
+                                onClick={() => handleDeleteTask(tsk.id)}
+                                title="Delete task"
+                                className="p-1 text-text-muted hover:text-rose-600 hover:bg-rose-50 rounded-sm border border-transparent hover:border-rose-200 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                              </button>
                             </div>
                           </div>
                         ))
@@ -3765,10 +4428,124 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 )}
+
+                {/* â”€â”€ SUB-VIEW C: OVERALL NOTES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                {followupView === 'notes' && (
+                  <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-5xl">
+                    {/* Notes Filters & Add Button */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface border border-border rounded-sm">
+                      <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[200px]">
+                        <div className="relative flex-1 min-w-[180px]">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
+                          <input
+                            type="text"
+                            value={allNotesSearch}
+                            onChange={(e) => setAllNotesSearch(e.target.value)}
+                            placeholder="Search notes, customers..."
+                            className="w-full pl-7 pr-3 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[11px] text-text-muted">Color:</span>
+                          {(['all','slate','blue','amber','rose','emerald','violet'] as const).map(c => {
+                            const dotClasses: Record<string, string> = {
+                              all:'bg-text-muted', slate:'bg-slate-400', blue:'bg-blue-400',
+                              amber:'bg-amber-400', rose:'bg-rose-400', emerald:'bg-emerald-400', violet:'bg-violet-400'
+                            };
+                            return (
+                              <button
+                                key={c}
+                                title={c}
+                                onClick={() => {
+                                  setAllNotesColorFilter(c);
+                                  setLoadingAllNotes(true);
+                                  crm.getAllNotes({ color: c === 'all' ? undefined : c, q: allNotesSearch || undefined }).then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
+                                }}
+                                className={`w-4 h-4 rounded-full ${dotClasses[c]} cursor-pointer transition-transform ${allNotesColorFilter === c ? 'ring-2 ring-offset-1 ring-text-primary scale-110' : 'opacity-60 hover:opacity-100'}`}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => setShowAddOverallNoteModal(true)}
+                        className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5 stroke-[2]" />
+                        <span>Add Note</span>
+                      </button>
+                    </div>
+
+                    {/* Notes List */}
+                    <div className="space-y-2.5">
+                      {loadingAllNotes ? (
+                        <div className="p-8 text-center text-text-muted bg-surface border border-border rounded-sm">Loading notes...</div>
+                      ) : allNotes.length === 0 ? (
+                        <div className="p-8 text-center text-text-muted bg-surface border border-border rounded-sm">No notes found.</div>
+                      ) : (
+                        allNotes
+                          .filter(n => {
+                            if (!allNotesSearch) return true;
+                            const q = allNotesSearch.toLowerCase();
+                            return (n.note_text || '').toLowerCase().includes(q) ||
+                              (n.author || '').toLowerCase().includes(q) ||
+                              (n.customer_name || '').toLowerCase().includes(q) ||
+                              (n.customer_phone || '').toLowerCase().includes(q);
+                          })
+                          .map(n => {
+                            const noteColor = n.color || 'slate';
+                            const colorMap: Record<string, string> = {
+                              slate: 'border-l-slate-400 bg-slate-50',
+                              blue: 'border-l-blue-400 bg-blue-50',
+                              amber: 'border-l-amber-400 bg-amber-50',
+                              rose: 'border-l-rose-400 bg-rose-50',
+                              emerald: 'border-l-emerald-400 bg-emerald-50',
+                              violet: 'border-l-violet-400 bg-violet-50',
+                            };
+                            const badgeMap: Record<string, string> = {
+                              slate:'bg-slate-200 text-slate-700', blue:'bg-blue-100 text-blue-700',
+                              amber:'bg-amber-100 text-amber-700', rose:'bg-rose-100 text-rose-700',
+                              emerald:'bg-emerald-100 text-emerald-700', violet:'bg-violet-100 text-violet-700'
+                            };
+                            return (
+                              <div key={n.id} className={`pl-3 pr-3.5 py-3 border border-border border-l-2 rounded-sm ${colorMap[noteColor] || colorMap.slate}`}>
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-sm ${badgeMap[noteColor] || badgeMap.slate}`}>{n.author}</span>
+                                      <span className="text-[11px] font-medium text-text-primary">{n.customer_name}</span>
+                                      {n.customer_phone && <span className="font-mono text-[10px] text-text-muted">{n.customer_phone}</span>}
+                                      {n.preferred_doctor && <span className="text-[10px] text-text-secondary flex items-center gap-0.5"><Stethoscope className="w-3 h-3 stroke-[1.5]" />{n.preferred_doctor}</span>}
+                                    </div>
+                                    <p className="text-xs text-text-body whitespace-pre-wrap leading-relaxed">{n.note_text}</p>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-[10px] font-mono text-text-muted">
+                                      {n.created_at ? new Date(n.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                                    </span>
+                                    <button
+                                      onClick={() => handleDeleteNote(n.id)}
+                                      title="Delete note"
+                                      className="p-1 text-text-muted hover:text-rose-600 hover:bg-rose-50 rounded-sm border border-transparent hover:border-rose-200 transition-colors cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* ── VIEW 6: MARKETING HUB ─────────────────────────────────────── */}
+
+            {/* â”€â”€ VIEW 6: MARKETING HUB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             {activeNav === 'marketing' && (
               <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-6xl pb-8">
                 {/* Header */}
@@ -3779,7 +4556,7 @@ export default function DashboardPage() {
                       <span>Marketing Hub</span>
                     </h3>
                     <p className="text-xs text-text-muted mt-0.5">
-                      Broadcasts, automated re-engagement triggers, and campaign analytics — all in one place.
+                      Broadcasts, automated re-engagement triggers, and campaign analytics â€” all in one place.
                     </p>
                   </div>
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-status-success-bg text-status-success border border-status-success-border text-xs font-medium">
@@ -3791,9 +4568,9 @@ export default function DashboardPage() {
                 {/* Sub-Tab Switcher */}
                 <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5 w-fit">
                   {([
-                    { key: 'broadcasts', icon: '📢', label: 'Broadcasts' },
-                    { key: 'reengagement', icon: '🔄', label: 'Re-engagement' },
-                    { key: 'analytics', icon: '📊', label: 'Analytics' },
+                    { key: 'broadcasts', icon: 'ðŸ“¢', label: 'Broadcasts' },
+                    { key: 'reengagement', icon: 'ðŸ”„', label: 'Re-engagement' },
+                    { key: 'analytics', icon: 'ðŸ“Š', label: 'Analytics' },
                   ] as const).map((tab) => (
                     <button
                       key={tab.key}
@@ -3823,9 +4600,9 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* ═══════════════════════════════════════════════════════════
+                {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
                     SUB-TAB 1: BROADCASTS
-                ═══════════════════════════════════════════════════════════ */}
+                â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
                 {marketingSubTab === 'broadcasts' && (
                   <div className="space-y-4">
                     {/* KPI Cards */}
@@ -3839,7 +4616,7 @@ export default function DashboardPage() {
                           {contacts.length > 0 ? contacts.length : conversations.length}
                         </p>
                         <p className="text-[11px] text-text-muted">
-                          {contacts.filter((c) => c.opt_in !== false).length} opted-in · {contacts.filter((c) => c.opt_in === false).length} opted-out
+                          {contacts.filter((c) => c.opt_in !== false).length} opted-in Â· {contacts.filter((c) => c.opt_in === false).length} opted-out
                         </p>
                       </div>
                       <div className="p-4 bg-surface border border-border rounded-md space-y-1">
@@ -3851,7 +4628,7 @@ export default function DashboardPage() {
                           {campaigns.filter((c) => c.status === 'completed').length}
                         </p>
                         <p className="text-[11px] text-text-muted">
-                          {campaigns.filter((c) => c.status === 'scheduled').length} scheduled · {campaigns.length} total
+                          {campaigns.filter((c) => c.status === 'scheduled').length} scheduled Â· {campaigns.length} total
                         </p>
                       </div>
                       <div className="p-4 bg-surface border border-border rounded-md space-y-1">
@@ -4010,7 +4787,7 @@ export default function DashboardPage() {
                                     })}
                                 </div>
                                 <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-sm px-2 py-1 flex items-center gap-1">
-                                  ⚠️ WhatsApp marketing messages require explicit opt-in. Only opted-in contacts will receive campaigns.
+                                  âš ï¸ WhatsApp marketing messages require explicit opt-in. Only opted-in contacts will receive campaigns.
                                 </p>
                               </div>
                             )}
@@ -4159,7 +4936,7 @@ export default function DashboardPage() {
                                   onChange={(e) => setCampaignForm({ ...campaignForm, message_text: e.target.value })}
                                   className="w-full p-2.5 bg-surface border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:border-accent"
                                 />
-                                <p className="text-[10px] text-text-muted">💡 Direct text only works within Meta's 24-hour customer care window.</p>
+                                <p className="text-[10px] text-text-muted">ðŸ’¡ Direct text only works within Meta's 24-hour customer care window.</p>
                               </div>
                             )}
                           </div>
@@ -4178,7 +4955,7 @@ export default function DashboardPage() {
                                     {campaignForm.send_mode === mode && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                                   </div>
                                   <span className={`font-medium ${campaignForm.send_mode === mode ? 'text-text-primary' : 'text-text-secondary'}`}>
-                                    {mode === 'now' ? '⚡ Send Immediately' : '📅 Schedule for Later'}
+                                    {mode === 'now' ? 'âš¡ Send Immediately' : 'ðŸ“… Schedule for Later'}
                                   </span>
                                 </label>
                               ))}
@@ -4295,7 +5072,7 @@ export default function DashboardPage() {
                                     </span>
                                   </div>
                                   <div className="flex items-center justify-between text-[11px] text-text-muted">
-                                    <span>{cmp.total_recipients} recipients · {cmp.template_name || 'text'}</span>
+                                    <span>{cmp.total_recipients} recipients Â· {cmp.template_name || 'text'}</span>
                                     <span className="font-mono text-[10px]">
                                       {cmp.scheduled_at ? `Scheduled: ${new Date(cmp.scheduled_at).toLocaleDateString()}` : cmp.created_at ? new Date(cmp.created_at).toLocaleDateString() : 'Just now'}
                                     </span>
@@ -4310,9 +5087,9 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* ═══════════════════════════════════════════════════════════
+                {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
                     SUB-TAB 2: RE-ENGAGEMENT TRIGGERS
-                ═══════════════════════════════════════════════════════════ */}
+                â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
                 {marketingSubTab === 'reengagement' && (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
@@ -4337,10 +5114,10 @@ export default function DashboardPage() {
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {triggers.map((trigger) => {
-                          const typeIcon = trigger.trigger_type === 'birthday_greeting' ? '🎂'
-                            : trigger.trigger_type === 'post_treatment_followup' ? '💆'
-                            : trigger.trigger_type === 'seasonal_promo' ? '🌟'
-                            : '📅';
+                          const typeIcon = trigger.trigger_type === 'birthday_greeting' ? 'ðŸŽ‚'
+                            : trigger.trigger_type === 'post_treatment_followup' ? 'ðŸ’†'
+                            : trigger.trigger_type === 'seasonal_promo' ? 'ðŸŒŸ'
+                            : 'ðŸ“…';
                           return (
                             <div key={trigger.id} className={`bg-surface border rounded-md p-4 space-y-3 transition-all duration-150 ${trigger.is_active ? 'border-border' : 'border-border opacity-70'}`}>
                               <div className="flex items-start justify-between gap-2">
@@ -4357,7 +5134,7 @@ export default function DashboardPage() {
                                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                       : 'bg-surface-subtle text-text-muted border-border'
                                   }`}>
-                                    {trigger.is_active ? '● Active' : '○ Paused'}
+                                    {trigger.is_active ? 'â— Active' : 'â—‹ Paused'}
                                   </span>
                                 </div>
                               </div>
@@ -4368,7 +5145,7 @@ export default function DashboardPage() {
                                   <p className="text-[10px] text-text-muted">Reached</p>
                                 </div>
                                 <div className="bg-surface-subtle rounded-sm p-2 border border-border">
-                                  <p className="text-sm font-semibold text-text-primary">{trigger.condition_days || '—'}</p>
+                                  <p className="text-sm font-semibold text-text-primary">{trigger.condition_days || 'â€”'}</p>
                                   <p className="text-[10px] text-text-muted">Days trigger</p>
                                 </div>
                                 <div className="bg-surface-subtle rounded-sm p-2 border border-border">
@@ -4401,7 +5178,7 @@ export default function DashboardPage() {
                                       : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                                   } disabled:opacity-50`}
                                 >
-                                  {togglingTriggerId === trigger.id ? '...' : trigger.is_active ? '⏸ Pause' : '▶ Activate'}
+                                  {togglingTriggerId === trigger.id ? '...' : trigger.is_active ? 'â¸ Pause' : 'â–¶ Activate'}
                                 </button>
                                 <button
                                   onClick={async () => {
@@ -4417,7 +5194,7 @@ export default function DashboardPage() {
                                   disabled={testingTriggerId === trigger.id}
                                   className="flex-1 py-1.5 text-[11px] font-medium rounded-sm border border-border bg-surface hover:bg-surface-subtle text-text-secondary cursor-pointer transition-colors disabled:opacity-50"
                                 >
-                                  {testingTriggerId === trigger.id ? '...' : '🧪 Test Fire'}
+                                  {testingTriggerId === trigger.id ? '...' : 'ðŸ§ª Test Fire'}
                                 </button>
                               </div>
                             </div>
@@ -4425,7 +5202,7 @@ export default function DashboardPage() {
                         })}
                         {triggers.length === 0 && !loadingTriggers && (
                           <div className="md:col-span-2 py-12 text-center text-text-muted text-xs">
-                            <p className="text-base mb-2">🔄</p>
+                            <p className="text-base mb-2">ðŸ”„</p>
                             <p className="font-medium">No triggers configured yet.</p>
                             <p>Click "New Trigger" to set up your first automated re-engagement campaign.</p>
                           </div>
@@ -4498,9 +5275,9 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* ═══════════════════════════════════════════════════════════
+                {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
                     SUB-TAB 3: ANALYTICS
-                ═══════════════════════════════════════════════════════════ */}
+                â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
                 {marketingSubTab === 'analytics' && (
                   <div className="space-y-4">
                     <div>
@@ -4518,12 +5295,12 @@ export default function DashboardPage() {
                         {/* Summary KPI Grid */}
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                           {[
-                            { label: 'Total Sent', value: analyticsData?.summary?.total_sent ?? campaigns.reduce((a, c) => a + (c.sent_count || 0), 0), suffix: '', icon: '📤', color: 'text-text-primary' },
-                            { label: 'Delivery Rate', value: analyticsData?.summary?.delivery_rate ?? 98.2, suffix: '%', icon: '✅', color: 'text-emerald-700' },
-                            { label: 'Read Rate', value: analyticsData?.summary?.read_rate ?? 82.5, suffix: '%', icon: '👁️', color: 'text-blue-700' },
-                            { label: 'Reply Rate', value: analyticsData?.summary?.reply_rate ?? 38.0, suffix: '%', icon: '💬', color: 'text-purple-700' },
-                            { label: 'Conversions', value: analyticsData?.summary?.total_converted ?? 0, suffix: '', icon: '📈', color: 'text-orange-700' },
-                            { label: 'Revenue', value: analyticsData?.summary?.attributed_revenue ?? 0, suffix: '', prefix: '₹', icon: '💰', color: 'text-emerald-700' },
+                            { label: 'Total Sent', value: analyticsData?.summary?.total_sent ?? campaigns.reduce((a, c) => a + (c.sent_count || 0), 0), suffix: '', icon: 'ðŸ“¤', color: 'text-text-primary' },
+                            { label: 'Delivery Rate', value: analyticsData?.summary?.delivery_rate ?? 98.2, suffix: '%', icon: 'âœ…', color: 'text-emerald-700' },
+                            { label: 'Read Rate', value: analyticsData?.summary?.read_rate ?? 82.5, suffix: '%', icon: 'ðŸ‘ï¸', color: 'text-blue-700' },
+                            { label: 'Reply Rate', value: analyticsData?.summary?.reply_rate ?? 38.0, suffix: '%', icon: 'ðŸ’¬', color: 'text-purple-700' },
+                            { label: 'Conversions', value: analyticsData?.summary?.total_converted ?? 0, suffix: '', icon: 'ðŸ“ˆ', color: 'text-orange-700' },
+                            { label: 'Revenue', value: analyticsData?.summary?.attributed_revenue ?? 0, suffix: '', prefix: 'â‚¹', icon: 'ðŸ’°', color: 'text-emerald-700' },
                           ].map((kpi) => (
                             <div key={kpi.label} className="bg-surface border border-border rounded-md p-3 space-y-1 text-center">
                               <p className="text-base">{kpi.icon}</p>
@@ -4596,7 +5373,7 @@ export default function DashboardPage() {
                                           </div>
                                         </td>
                                         <td className="px-3 py-2.5 text-[10px] text-text-muted font-mono whitespace-nowrap">
-                                          {cmp.created_at ? new Date(cmp.created_at).toLocaleDateString() : '—'}
+                                          {cmp.created_at ? new Date(cmp.created_at).toLocaleDateString() : 'â€”'}
                                         </td>
                                       </tr>
                                     );
@@ -4614,7 +5391,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* ── VIEW 5: SETTINGS & BYOK ─────────────────────────────────────── */}
+            {/* â”€â”€ VIEW 5: SETTINGS & BYOK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             {activeNav === 'settings' && (
               <div className="flex-1 overflow-y-auto space-y-6 max-w-4xl">
                 {settingsSaved && (
@@ -4661,7 +5438,7 @@ export default function DashboardPage() {
 
                 <form onSubmit={handleSaveSettings} className="space-y-6">
                   
-                  {/* ── 1. AI BRAIN & BYOK MODEL KEYS ──────────────────────── */}
+                  {/* â”€â”€ 1. AI BRAIN & BYOK MODEL KEYS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                   {settingsTab === 'ai' && (
                     <div className="space-y-4 bg-surface p-5 rounded-md border border-border">
                       <div className="flex items-center justify-between pb-2 border-b border-border">
@@ -4829,7 +5606,7 @@ export default function DashboardPage() {
                                   setSettingsForm({
                                     ...settingsForm,
                                     currency: e.target.value,
-                                    currency_symbol: sel ? sel.symbol : settingsForm.currency_symbol || '₹',
+                                    currency_symbol: sel ? sel.symbol : settingsForm.currency_symbol || 'â‚¹',
                                   });
                                 }}
                                 className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
@@ -4918,7 +5695,7 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* ── 2. META WHATSAPP API CREDENTIALS ─────────────────────── */}
+                  {/* â”€â”€ 2. META WHATSAPP API CREDENTIALS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                   {settingsTab === 'whatsapp' && (
                     <div className="space-y-4 bg-surface p-5 rounded-md border border-border">
                       <div className="pb-2 border-b border-border">
@@ -5019,7 +5796,7 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* ── 3. LIFECYCLE MESSAGE TEMPLATES ───────────────────────── */}
+                  {/* â”€â”€ 3. LIFECYCLE MESSAGE TEMPLATES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                   {settingsTab === 'templates' && (
                     <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
                       <div className="pb-2 border-b border-border flex items-center justify-between">
@@ -5194,7 +5971,7 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* ── 4. BRANDING & LOCALIZATION ──────────────────────────── */}
+                  {/* â”€â”€ 4. BRANDING & LOCALIZATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                   {settingsTab === 'location' && (
                     <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
                       <div className="pb-2 border-b border-border flex items-center justify-between">
@@ -5298,7 +6075,7 @@ export default function DashboardPage() {
                                 setSettingsForm({
                                   ...settingsForm,
                                   currency: e.target.value,
-                                  currency_symbol: sel ? sel.symbol : settingsForm.currency_symbol || '₹',
+                                  currency_symbol: sel ? sel.symbol : settingsForm.currency_symbol || 'â‚¹',
                                 });
                               }}
                               className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
@@ -5350,7 +6127,7 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* ── 5. GOOGLE CALENDAR SYNC ─────────────────────────────── */}
+                  {/* â”€â”€ 5. GOOGLE CALENDAR SYNC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                   {settingsTab === 'calendar' && (
                     <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
                       <div className="flex items-center justify-between pb-2 border-b border-border">
@@ -5471,7 +6248,7 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* ── 6. ACCOUNT & LOGOUT ───────────────────────────────── */}
+                  {/* â”€â”€ 6. ACCOUNT & LOGOUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                   {settingsTab === 'account' && (
                     <div className="space-y-4 bg-surface p-5 rounded-md border border-border">
                       <div className="flex items-center justify-between pb-2 border-b border-border">
@@ -5538,7 +6315,7 @@ export default function DashboardPage() {
             )}
           </main>
 
-          {/* ── 3. RIGHT STICKY NOTES & SCRATCHPAD DRAWER ─────────────────────── */}
+          {/* â”€â”€ 3. RIGHT STICKY NOTES & SCRATCHPAD DRAWER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           {showRightDrawer ? (
             <aside className="w-80 bg-surface border-l border-border flex flex-col shrink-0 p-4 overflow-y-auto space-y-4">
               {/* Header */}
@@ -5712,7 +6489,7 @@ export default function DashboardPage() {
           ) : null}
         </div>
 
-        {/* ── CREATE BOOKING MODAL ─────────────────────────────────────────── */}
+        {/* â”€â”€ CREATE BOOKING MODAL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         {isAddBookingOpen && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-surface rounded-md border border-border w-full max-w-lg overflow-hidden shadow-subtle p-6 space-y-4 my-auto">
@@ -5887,7 +6664,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── BOOKING DETAIL MODAL / DRAWER ─────────────────────────────────── */}
+        {/* â”€â”€ BOOKING DETAIL MODAL / DRAWER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         {isBookingDetailModalOpen && selectedBookingDetail && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-surface rounded-md border border-border w-full max-w-lg overflow-hidden shadow-subtle p-6 space-y-4 my-auto">
@@ -5944,7 +6721,7 @@ export default function DashboardPage() {
                   <div>
                     <p className="text-xs font-medium text-text-muted">Scheduled date & time</p>
                     <p className="font-mono text-xs text-text-primary mt-0.5">
-                      {selectedBookingDetail.start_time ? new Date(selectedBookingDetail.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                      {selectedBookingDetail.start_time ? new Date(selectedBookingDetail.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'â€”'}
                     </p>
                   </div>
                 </div>
@@ -6071,7 +6848,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── MODAL 1: CONFIRM SINGLE CHAT TAKE HUMAN ACTION ───────────────── */}
+        {/* â”€â”€ MODAL 1: CONFIRM SINGLE CHAT TAKE HUMAN ACTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         {confirmSingleAiModal?.isOpen && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-surface rounded-md border border-border w-full max-w-md overflow-hidden shadow-subtle p-6 space-y-4">
@@ -6118,7 +6895,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── MODAL 2: CONFIRM GLOBAL ALL CHATS TAKE HUMAN ACTION ─────────────── */}
+        {/* â”€â”€ MODAL 2: CONFIRM GLOBAL ALL CHATS TAKE HUMAN ACTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         {confirmAllAiModal && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-surface rounded-md border border-border w-full max-w-md overflow-hidden shadow-subtle p-6 space-y-4">
@@ -6163,7 +6940,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── MODAL 3: DELETE CONVERSATION CONFIRMATION ───── */}
+        {/* â”€â”€ MODAL 3: DELETE CONVERSATION CONFIRMATION â”€â”€â”€â”€â”€ */}
         {deleteChatModal?.isOpen && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-surface rounded-md border border-border w-full max-w-md overflow-hidden shadow-subtle p-6 space-y-4">
@@ -6207,7 +6984,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── MODAL 4: ADD APPROVED WHATSAPP TEMPLATE NAME ───── */}
+        {/* â”€â”€ MODAL 4: ADD APPROVED WHATSAPP TEMPLATE NAME â”€â”€â”€â”€â”€ */}
         {newTemplateModal && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-surface rounded-md border border-border w-full max-w-md overflow-hidden shadow-subtle p-6 space-y-4">
@@ -6277,6 +7054,227 @@ export default function DashboardPage() {
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Save & Select Template</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ADD TASK MODAL */}
+        {showAddTaskModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAddTaskModal(false)}>
+            <div className="w-full max-w-md bg-surface border border-border rounded-sm shadow-xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-subtle/50">
+                <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+                  <CalendarCheck className="w-4 h-4 text-accent stroke-[1.5]" />Add Task
+                </h3>
+                <button onClick={() => setShowAddTaskModal(false)} className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer">
+                  <X className="w-4 h-4 stroke-[1.5]" />
+                </button>
+              </div>
+              <form onSubmit={handleCreateTask} className="p-4 space-y-3.5 text-xs">
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1 font-medium">Task Title *</label>
+                  <input type="text" required value={addTaskTitle} onChange={e => setAddTaskTitle(e.target.value)} placeholder="e.g. Follow-up call with customer" className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1 font-medium">Notes / Description</label>
+                  <textarea rows={2} value={addTaskDesc} onChange={e => setAddTaskDesc(e.target.value)} placeholder="Add context or notes..." className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs resize-none" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-text-muted block mb-1 font-medium">Due Date</label>
+                    <input type="date" value={addTaskDueDate} onChange={e => setAddTaskDueDate(e.target.value)} className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-text-muted block mb-1 font-medium">Time</label>
+                    <input type="time" value={addTaskDueTime} onChange={e => setAddTaskDueTime(e.target.value)} className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1 font-medium">Link to Customer (optional)</label>
+                  <select value={addTaskCustomerId} onChange={e => setAddTaskCustomerId(e.target.value)} className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs">
+                    <option value="">— No customer linked —</option>
+                    {customers.map(c => (<option key={c.id} value={c.id}>{c.name} ({c.phone})</option>))}
+                  </select>
+                </div>
+                <div className="border-t border-border pt-3 space-y-2">
+                  <p className="text-[10px] font-medium text-text-muted">Google Sync</p>
+                  <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={addTaskSyncGT} onChange={e => setAddTaskSyncGT(e.target.checked)} className="w-3.5 h-3.5 accent-accent cursor-pointer" /><span className="text-xs text-text-body">Sync to Google Tasks</span></label>
+                  <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={addTaskSyncCal} onChange={e => setAddTaskSyncCal(e.target.checked)} className="w-3.5 h-3.5 accent-accent cursor-pointer" /><span className="text-xs text-text-body">Add to Google Calendar</span></label>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button type="button" onClick={() => setShowAddTaskModal(false)} className="flex-1 py-1.5 border border-border text-text-secondary hover:text-text-primary rounded-sm text-xs font-medium cursor-pointer">Cancel</button>
+                  <button type="submit" disabled={!addTaskTitle.trim() || savingTask} className="flex-1 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-semibold cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5">
+                    <CalendarCheck className="w-3.5 h-3.5" />
+                    {savingTask ? 'Creating...' : 'Create Task'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ADD OVERALL NOTE MODAL */}
+        {showAddOverallNoteModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAddOverallNoteModal(false)}>
+            <div className="w-full max-w-md bg-surface border border-border rounded-sm shadow-xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-subtle/50">
+                <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+                  <StickyNote className="w-4 h-4 text-accent stroke-[1.5]" />Add Customer Note
+                </h3>
+                <button onClick={() => setShowAddOverallNoteModal(false)} className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer">
+                  <X className="w-4 h-4 stroke-[1.5]" />
+                </button>
+              </div>
+              <form onSubmit={handleCreateOverallNote} className="p-4 space-y-3 text-xs">
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1 font-medium">Select Customer / Contact *</label>
+                  <select
+                    required
+                    value={overallNoteCustomerId}
+                    onChange={e => setOverallNoteCustomerId(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
+                  >
+                    <option value="">— Choose Customer —</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1 font-medium">Author / Staff Name</label>
+                  <input
+                    type="text"
+                    value={overallNoteAuthor}
+                    onChange={e => setOverallNoteAuthor(e.target.value)}
+                    placeholder="e.g. Staff, Dr. Sarah Mitchell"
+                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1 font-medium">Note Content *</label>
+                  <textarea
+                    required
+                    rows={3}
+                    value={overallNoteText}
+                    onChange={e => setOverallNoteText(e.target.value)}
+                    placeholder="Enter clinical notes, patient preferences, follow-up remarks..."
+                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs resize-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1 font-medium">Color Category</label>
+                  <div className="flex items-center gap-2">
+                    {(['slate','blue','amber','rose','emerald','violet'] as const).map(c => {
+                      const dotClasses: Record<string, string> = {
+                        slate:'bg-slate-400', blue:'bg-blue-400', amber:'bg-amber-400',
+                        rose:'bg-rose-400', emerald:'bg-emerald-400', violet:'bg-violet-400'
+                      };
+                      return (
+                        <button
+                          type="button"
+                          key={c}
+                          title={c}
+                          onClick={() => setOverallNoteColor(c)}
+                          className={`w-5 h-5 rounded-full ${dotClasses[c]} cursor-pointer transition-transform ${overallNoteColor === c ? 'ring-2 ring-offset-2 ring-text-primary scale-110' : 'opacity-60 hover:opacity-100'}`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2 border-t border-border">
+                  <button type="button" onClick={() => setShowAddOverallNoteModal(false)} className="flex-1 py-1.5 border border-border text-text-secondary hover:text-text-primary rounded-sm text-xs font-medium cursor-pointer">Cancel</button>
+                  <button type="submit" disabled={!overallNoteText.trim() || !overallNoteCustomerId || savingOverallNote} className="flex-1 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-semibold cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5">
+                    <StickyNote className="w-3.5 h-3.5" />
+                    {savingOverallNote ? 'Saving...' : 'Save Note'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* QUICK ADD TO CRM MODAL */}
+        {showQuickAddCrmModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowQuickAddCrmModal(false)}>
+            <div className="w-full max-w-md bg-surface border border-border rounded-sm shadow-xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-subtle/50">
+                <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-accent stroke-[1.5]" />
+                  <span>Add Customer to CRM</span>
+                </h3>
+                <button onClick={() => setShowQuickAddCrmModal(false)} className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer">
+                  <X className="w-4 h-4 stroke-[1.5]" />
+                </button>
+              </div>
+              <form onSubmit={handleSaveQuickCrm} className="p-4 space-y-3 text-xs">
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1 font-medium">WhatsApp Phone Number *</label>
+                  <input
+                    type="text"
+                    required
+                    value={quickCrmPhone}
+                    onChange={e => setQuickCrmPhone(e.target.value)}
+                    placeholder="e.g. 918870341570"
+                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1 font-medium">Client / Patient Name</label>
+                  <input
+                    type="text"
+                    value={quickCrmName}
+                    onChange={e => setQuickCrmName(e.target.value)}
+                    placeholder="e.g. John Doe"
+                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1 font-medium">Health Concern / Primary Treatment</label>
+                  <input
+                    type="text"
+                    value={quickCrmConcern}
+                    onChange={e => setQuickCrmConcern(e.target.value)}
+                    placeholder="e.g. General Consultation, Dental Checkup"
+                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-text-muted block mb-1 font-medium">Lead Priority</label>
+                    <select
+                      value={quickCrmLead}
+                      onChange={e => setQuickCrmLead(e.target.value as any)}
+                      className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
+                    >
+                      <option value="hot">Hot (Ready to convert)</option>
+                      <option value="warm">Warm (Interested)</option>
+                      <option value="cold">Cold (Inquiry)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-text-muted block mb-1 font-medium">Assigned Staff / Doctor</label>
+                    <input
+                      type="text"
+                      value={quickCrmDoctor}
+                      onChange={e => setQuickCrmDoctor(e.target.value)}
+                      placeholder="e.g. Dr. Sarah Mitchell"
+                      className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2 border-t border-border">
+                  <button type="button" onClick={() => setShowQuickAddCrmModal(false)} className="flex-1 py-1.5 border border-border text-text-secondary hover:text-text-primary rounded-sm text-xs font-medium cursor-pointer">Cancel</button>
+                  <button type="submit" disabled={!quickCrmPhone.trim() || savingQuickCrm} className="flex-1 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-semibold cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5">
+                    <UserPlus className="w-3.5 h-3.5" />
+                    {savingQuickCrm ? 'Saving...' : 'Add to CRM'}
                   </button>
                 </div>
               </form>
