@@ -3662,7 +3662,7 @@ export default function DashboardPage() {
                           { key: 'all', label: 'All' },
                           { key: 'hot', label: 'ðŸ”¥ Hot', color: 'text-rose-700 bg-rose-50 border-rose-200' },
                           { key: 'warm', label: 'âš¡ Warm', color: 'text-amber-700 bg-amber-50 border-amber-200' },
-                          { key: 'cold', label: 'â„ï¸ Cold', color: 'text-blue-700 bg-blue-50 border-blue-200' },
+                          { key: 'cold', label: '❄️ Cold', color: 'text-blue-700 bg-blue-50 border-blue-200' },
                         ].map((prob) => (
                           <button
                             key={prob.key}
@@ -4631,7 +4631,7 @@ export default function DashboardPage() {
                           {contacts.length > 0 ? contacts.length : conversations.length}
                         </p>
                         <p className="text-[11px] text-text-muted">
-                          {contacts.filter((c) => c.opt_in !== false).length} opted-in Â· {contacts.filter((c) => c.opt_in === false).length} opted-out
+                          {contacts.filter((c) => c.opt_in !== false).length} opted-in · {contacts.filter((c) => c.opt_in === false).length} opted-out
                         </p>
                       </div>
                       <div className="p-4 bg-surface border border-border rounded-md space-y-1">
@@ -4643,7 +4643,7 @@ export default function DashboardPage() {
                           {campaigns.filter((c) => c.status === 'completed').length}
                         </p>
                         <p className="text-[11px] text-text-muted">
-                          {campaigns.filter((c) => c.status === 'scheduled').length} scheduled Â· {campaigns.length} total
+                          {campaigns.filter((c) => c.status === 'scheduled').length} scheduled · {campaigns.length} total
                         </p>
                       </div>
                       <div className="p-4 bg-surface border border-border rounded-md space-y-1">
@@ -4802,7 +4802,7 @@ export default function DashboardPage() {
                                     })}
                                 </div>
                                 <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-sm px-2 py-1 flex items-center gap-1">
-                                  âš ï¸ WhatsApp marketing messages require explicit opt-in. Only opted-in contacts will receive campaigns.
+                                  âš ️ WhatsApp marketing messages require explicit opt-in. Only opted-in contacts will receive campaigns.
                                 </p>
                               </div>
                             )}
@@ -5087,7 +5087,7 @@ export default function DashboardPage() {
                                     </span>
                                   </div>
                                   <div className="flex items-center justify-between text-[11px] text-text-muted">
-                                    <span>{cmp.total_recipients} recipients Â· {cmp.template_name || 'text'}</span>
+                                    <span>{cmp.total_recipients} recipients · {cmp.template_name || 'text'}</span>
                                     <span className="font-mono text-[10px]">
                                       {cmp.scheduled_at ? `Scheduled: ${new Date(cmp.scheduled_at).toLocaleDateString()}` : cmp.created_at ? new Date(cmp.created_at).toLocaleDateString() : 'Just now'}
                                     </span>
@@ -5193,7 +5193,7 @@ export default function DashboardPage() {
                                       : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                                   } disabled:opacity-50`}
                                 >
-                                  {togglingTriggerId === trigger.id ? '...' : trigger.is_active ? 'â¸ Pause' : 'â–¶ Activate'}
+                                  {togglingTriggerId === trigger.id ? '...' : trigger.is_active ? '⏸ Pause' : 'â–¶ Activate'}
                                 </button>
                                 <button
                                   onClick={async () => {
@@ -5312,7 +5312,7 @@ export default function DashboardPage() {
                           {[
                             { label: 'Total Sent', value: analyticsData?.summary?.total_sent ?? campaigns.reduce((a, c) => a + (c.sent_count || 0), 0), suffix: '', icon: 'ðŸ“¤', color: 'text-text-primary' },
                             { label: 'Delivery Rate', value: analyticsData?.summary?.delivery_rate ?? 98.2, suffix: '%', icon: 'âœ…', color: 'text-emerald-700' },
-                            { label: 'Read Rate', value: analyticsData?.summary?.read_rate ?? 82.5, suffix: '%', icon: 'ðŸ‘ï¸', color: 'text-blue-700' },
+                            { label: 'Read Rate', value: analyticsData?.summary?.read_rate ?? 82.5, suffix: '%', icon: 'ðŸ‘️', color: 'text-blue-700' },
                             { label: 'Reply Rate', value: analyticsData?.summary?.reply_rate ?? 38.0, suffix: '%', icon: 'ðŸ’¬', color: 'text-purple-700' },
                             { label: 'Conversions', value: analyticsData?.summary?.total_converted ?? 0, suffix: '', icon: 'ðŸ“ˆ', color: 'text-orange-700' },
                             { label: 'Revenue', value: analyticsData?.summary?.attributed_revenue ?? 0, suffix: '', prefix: 'â‚¹', icon: 'ðŸ’°', color: 'text-emerald-700' },
