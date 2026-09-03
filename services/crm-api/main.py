@@ -2507,6 +2507,9 @@ class TenantSettingsUpdate(BaseModel):
     google_refresh_token: Optional[str] = None
     google_calendar_id: Optional[str] = None
     notification_email: Optional[str] = None
+    
+    industry: Optional[str] = None
+    taxonomy: Optional[Dict[str, str]] = None
 
 
 @app.get("/settings")
@@ -2649,6 +2652,16 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         "google_calendar_id": gcal_data.get("calendar_id", "primary"),
         "notification_email": gcal_data.get("notification_email", ""),
         "google_calendar_configured": bool(gcal_data.get("client_id") and gcal_data.get("refresh_token")),
+        
+        # Industry & Taxonomy
+        "industry": tenant_settings.get("industry", "clinic"),
+        "taxonomy": tenant_settings.get("taxonomy", {
+            "staff_label": "Preferred Doctor / Staff",
+            "client_label": "Patient / Customer",
+            "requirement_label": "Health Concern / Treatment",
+            "event_label": "Appointment",
+            "booking_cta": "Schedule Appointment",
+        }),
     }
 
 
@@ -2662,7 +2675,7 @@ async def update_tenant_settings(
         # 1. Update tenant name, logo, timezone, country_code, currency if provided
         if payload.name:
             await conn.execute("UPDATE tenants SET name = $1 WHERE id = $2::uuid", payload.name.strip(), tenant_id)
-        if payload.logo_url is not None or payload.timezone is not None or payload.country_code is not None or payload.currency is not None or payload.currency_symbol is not None or payload.notification_email is not None or payload.admin_whatsapp_number is not None or payload.google_review_link is not None:
+        if payload.logo_url is not None or payload.timezone is not None or payload.country_code is not None or payload.currency is not None or payload.currency_symbol is not None or payload.notification_email is not None or payload.admin_whatsapp_number is not None or payload.google_review_link is not None or payload.industry is not None or payload.taxonomy is not None:
             t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
             cur_settings = t_row["settings"] if t_row and t_row["settings"] else {}
             if isinstance(cur_settings, str):
@@ -2676,6 +2689,8 @@ async def update_tenant_settings(
             if payload.notification_email is not None: cur_settings["notification_email"] = payload.notification_email.strip()
             if payload.admin_whatsapp_number is not None: cur_settings["admin_whatsapp_number"] = payload.admin_whatsapp_number.strip()
             if payload.google_review_link is not None: cur_settings["google_review_link"] = payload.google_review_link.strip()
+            if payload.industry is not None: cur_settings["industry"] = payload.industry.strip()
+            if payload.taxonomy is not None: cur_settings["taxonomy"] = payload.taxonomy
             await conn.execute(
                 "UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid",
                 json.dumps(cur_settings), tenant_id

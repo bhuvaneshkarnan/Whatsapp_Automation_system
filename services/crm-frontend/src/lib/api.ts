@@ -575,6 +575,15 @@ export interface TenantSettingsResponse {
   google_calendar_id?: string;
   notification_email?: string;
   google_calendar_configured?: boolean;
+
+  industry?: string;
+  taxonomy?: {
+    staff_label?: string;
+    client_label?: string;
+    requirement_label?: string;
+    event_label?: string;
+    booking_cta?: string;
+  };
 }
 
 // ── Super Admin (/api/v1/crm/admin) ───────────────────────────────────────────

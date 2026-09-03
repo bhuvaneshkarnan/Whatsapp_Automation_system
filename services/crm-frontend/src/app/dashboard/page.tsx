@@ -216,6 +216,108 @@ const TIMEZONE_LIST = [
 ];
 
 
+export const INDUSTRY_PRESETS = [
+  {
+    id: 'education',
+    name: 'Education, Academies & Coaching Institutes',
+    taxonomy: {
+      staff_label: 'Tutor / Counselor / Faculty',
+      client_label: 'Student / Parent',
+      requirement_label: 'Target Course & Grade',
+      event_label: 'Demo Class / Counseling Session',
+      booking_cta: '+ Book Demo Class / Counseling',
+    },
+  },
+  {
+    id: 'clinic',
+    name: 'Healthcare, Clinics & Wellness Centers',
+    taxonomy: {
+      staff_label: 'Preferred Doctor / Staff',
+      client_label: 'Patient',
+      requirement_label: 'Health Concern / Symptoms',
+      event_label: 'Clinic Appointment',
+      booking_cta: '+ New Appointment',
+    },
+  },
+  {
+    id: 'real_estate',
+    name: 'Real Estate, Developers & Property Brokers',
+    taxonomy: {
+      staff_label: 'Property Agent / Consultant',
+      client_label: 'Buyer / Lead',
+      requirement_label: 'Budget, Location & Unit Size',
+      event_label: 'Site Visit / Walkthrough',
+      booking_cta: '+ Schedule Site Visit',
+    },
+  },
+  {
+    id: 'salon_spa',
+    name: 'Salons, Spas & Beauty Parlors',
+    taxonomy: {
+      staff_label: 'Preferred Stylist / Therapist',
+      client_label: 'Client',
+      requirement_label: 'Hair/Skin Goal & Desired Service',
+      event_label: 'Salon Session / Slot',
+      booking_cta: '+ Book Salon Session',
+    },
+  },
+  {
+    id: 'automobile',
+    name: 'Automobile Dealerships & Garages',
+    taxonomy: {
+      staff_label: 'Service Advisor / Mechanic',
+      client_label: 'Vehicle Owner',
+      requirement_label: 'Vehicle Model & Issue',
+      event_label: 'Service Slot / Test Drive',
+      booking_cta: '+ Book Service Slot',
+    },
+  },
+  {
+    id: 'consulting',
+    name: 'Consulting, Legal & Digital Agencies',
+    taxonomy: {
+      staff_label: 'Assigned Consultant / Executive',
+      client_label: 'Client / Prospect',
+      requirement_label: 'Project Scope & Requirements',
+      event_label: 'Strategy Call / Consultation',
+      booking_cta: '+ Book Discovery Call',
+    },
+  },
+  {
+    id: 'gym_fitness',
+    name: 'Gyms, Fitness & Yoga Studios',
+    taxonomy: {
+      staff_label: 'Trainer / Coach',
+      client_label: 'Member / Lead',
+      requirement_label: 'Fitness Goal & Health Notes',
+      event_label: 'Trial Class / Assessment',
+      booking_cta: '+ Book Trial Class',
+    },
+  },
+  {
+    id: 'restaurant',
+    name: 'Restaurants, Cafes & Fine Dining',
+    taxonomy: {
+      staff_label: 'Captain / Host',
+      client_label: 'Guest',
+      requirement_label: 'Party Size & Dietary Preferences',
+      event_label: 'Table Reservation',
+      booking_cta: '+ Reserve Table',
+    },
+  },
+  {
+    id: 'custom',
+    name: 'Custom / General Business Services',
+    taxonomy: {
+      staff_label: 'Staff / Specialist',
+      client_label: 'Customer',
+      requirement_label: 'Primary Requirement / Notes',
+      event_label: 'Booking / Session',
+      booking_cta: '+ New Booking',
+    },
+  },
+];
+
 export default function DashboardPage() {
   const router = useRouter();
   
@@ -592,6 +694,15 @@ export default function DashboardPage() {
     } finally {
       setDisconnectingGoogle(false);
     }
+  };
+
+  
+  const currentTaxonomy = {
+    staff_label: settingsForm.taxonomy?.staff_label || (settingsForm.industry === 'education' ? 'Tutor / Counselor' : 'Preferred Doctor / Staff'),
+    client_label: settingsForm.taxonomy?.client_label || (settingsForm.industry === 'education' ? 'Student / Parent' : 'Customer'),
+    requirement_label: settingsForm.taxonomy?.requirement_label || (settingsForm.industry === 'education' ? 'Target Course & Grade' : 'Health Concern / Treatment'),
+    event_label: settingsForm.taxonomy?.event_label || (settingsForm.industry === 'education' ? 'Demo Class / Counseling' : 'Appointment'),
+    booking_cta: settingsForm.taxonomy?.booking_cta || (settingsForm.industry === 'education' ? '+ Book Demo Class' : '+ New Appointment'),
   };
 
   const currentCurrencySymbol = settingsForm.currency_symbol || (
@@ -4035,23 +4146,23 @@ export default function DashboardPage() {
                             {/* 2. Customer Attributes & Doctor Selection */}
                             <div className="space-y-2 text-xs">
                               <div>
-                                <label className="text-[10px] text-text-muted block mb-1">Preferred Doctor / Staff</label>
+                                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.staff_label}</label>
                                 <input
                                   type="text"
                                   value={selectedCustomer.preferred_doctor || ''}
                                   onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { preferred_doctor: e.target.value })}
-                                  placeholder="e.g. Dr. Sarah Mitchell"
+                                  placeholder={`e.g. Assigned ${currentTaxonomy.staff_label}`}
                                   className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
                                 />
                               </div>
 
                               <div>
-                                <label className="text-[10px] text-text-muted block mb-1">Health Concern / Treatment</label>
+                                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.requirement_label}</label>
                                 <input
                                   type="text"
                                   value={selectedCustomer.health_concern || ''}
                                   onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { health_concern: e.target.value })}
-                                  placeholder="e.g. Back Pain & Physio Therapy"
+                                  placeholder={`e.g. Primary ${currentTaxonomy.requirement_label}`}
                                   className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
                                 />
                               </div>
@@ -5575,6 +5686,134 @@ export default function DashboardPage() {
                             <p className="text-xs text-text-muted">
                               Receives email confirmations and Google Calendar invites.
                             </p>
+                          </div>
+                        </div>
+
+                                                {/* Business Industry & Dynamic CRM Terminology */}
+                        <div className="p-4 bg-surface rounded-md border border-border space-y-3 pt-3">
+                          <div className="flex items-center justify-between pb-2 border-b border-border">
+                            <div className="flex items-center gap-2">
+                              <Building2 className="w-4 h-4 text-text-secondary stroke-[1.5]" />
+                              <div>
+                                <h5 className="font-medium text-xs text-text-primary">Business industry & CRM terminology</h5>
+                                <p className="text-xs text-text-muted">Choose your industry preset or customize terminology for your business.</p>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/20">
+                              {INDUSTRY_PRESETS.find((p) => p.id === (settingsForm.industry || 'clinic'))?.name || 'Custom'}
+                            </span>
+                          </div>
+
+                          {/* Preset Dropdown */}
+                          <div>
+                            <label className="block text-xs font-medium text-text-primary mb-1">
+                              Industry Preset (Select to auto-fill CRM labels)
+                            </label>
+                            <select
+                              value={settingsForm.industry || 'clinic'}
+                              onChange={(e) => {
+                                const selectedPreset = INDUSTRY_PRESETS.find((p) => p.id === e.target.value);
+                                setSettingsForm({
+                                  ...settingsForm,
+                                  industry: e.target.value,
+                                  taxonomy: selectedPreset ? { ...selectedPreset.taxonomy } : settingsForm.taxonomy,
+                                });
+                              }}
+                              className="w-full px-2.5 py-2 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer font-medium"
+                            >
+                              {INDUSTRY_PRESETS.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* 4 Customizable Label Fields */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">
+                                Staff / Specialist Label
+                              </label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.staff_label ?? currentTaxonomy.staff_label}
+                                onChange={(e) =>
+                                  setSettingsForm({
+                                    ...settingsForm,
+                                    taxonomy: {
+                                      ...(settingsForm.taxonomy || currentTaxonomy),
+                                      staff_label: e.target.value,
+                                    },
+                                  })
+                                }
+                                placeholder="e.g. Tutor / Counselor"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">
+                                Customer / Client Label
+                              </label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.client_label ?? currentTaxonomy.client_label}
+                                onChange={(e) =>
+                                  setSettingsForm({
+                                    ...settingsForm,
+                                    taxonomy: {
+                                      ...(settingsForm.taxonomy || currentTaxonomy),
+                                      client_label: e.target.value,
+                                    },
+                                  })
+                                }
+                                placeholder="e.g. Student / Parent"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">
+                                Requirement / Notes Label
+                              </label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.requirement_label ?? currentTaxonomy.requirement_label}
+                                onChange={(e) =>
+                                  setSettingsForm({
+                                    ...settingsForm,
+                                    taxonomy: {
+                                      ...(settingsForm.taxonomy || currentTaxonomy),
+                                      requirement_label: e.target.value,
+                                    },
+                                  })
+                                }
+                                placeholder="e.g. Target Course & Grade"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">
+                                Event / Booking Label
+                              </label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.event_label ?? currentTaxonomy.event_label}
+                                onChange={(e) =>
+                                  setSettingsForm({
+                                    ...settingsForm,
+                                    taxonomy: {
+                                      ...(settingsForm.taxonomy || currentTaxonomy),
+                                      event_label: e.target.value,
+                                    },
+                                  })
+                                }
+                                placeholder="e.g. Demo Class / Counseling"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
                           </div>
                         </div>
 
