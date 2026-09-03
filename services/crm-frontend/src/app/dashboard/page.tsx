@@ -95,55 +95,64 @@ import {
   MessageCircle,
   Maximize2,
   Minimize2,
+  Play,
+  Pause,
+  Eye,
+  FlaskConical,
+  HeartPulse,
+  Cake,
+  Zap,
+  Lightbulb,
+  BarChart2,
 } from 'lucide-react';
 
 const COUNTRY_CODES = [
-  { code: '+91', country: '🇮🇳 India (+91)' },
-  { code: '+1', country: '🇺🇸 United States / 🇨🇦 Canada (+1)' },
-  { code: '+44', country: '🇬🇧 United Kingdom (+44)' },
-  { code: '+971', country: '🇦🇪 United Arab Emirates (+971)' },
-  { code: '+966', country: '🇸🇦 Saudi Arabia (+966)' },
-  { code: '+61', country: '🇦🇺 Australia (+61)' },
-  { code: '+65', country: '🇸🇬 Singapore (+65)' },
-  { code: '+60', country: '🇲🇾 Malaysia (+60)' },
-  { code: '+974', country: '🇶🇦 Qatar (+974)' },
-  { code: '+965', country: '🇰🇼 Kuwait (+965)' },
-  { code: '+968', country: '🇴🇲 Oman (+968)' },
-  { code: '+973', country: '🇧🇭 Bahrain (+973)' },
-  { code: '+49', country: '🇩🇪 Germany (+49)' },
-  { code: '+33', country: '🇫🇷 France (+33)' },
-  { code: '+39', country: '🇮🇹 Italy (+39)' },
-  { code: '+34', country: '🇪🇸 Spain (+34)' },
-  { code: '+31', country: '🇳🇱 Netherlands (+31)' },
-  { code: '+41', country: '🇨🇭 Switzerland (+41)' },
-  { code: '+353', country: '🇮🇪 Ireland (+353)' },
-  { code: '+64', country: '🇳🇿 New Zealand (+64)' },
-  { code: '+27', country: '🇿🇦 South Africa (+27)' },
-  { code: '+234', country: '🇳🇬 Nigeria (+234)' },
-  { code: '+254', country: '🇰🇪 Kenya (+254)' },
-  { code: '+20', country: '🇪🇬 Egypt (+20)' },
-  { code: '+90', country: '🇹🇷 Turkey (+90)' },
-  { code: '+81', country: '🇯🇵 Japan (+81)' },
-  { code: '+82', country: '🇰🇷 South Korea (+82)' },
-  { code: '+852', country: '🇭🇰 Hong Kong (+852)' },
-  { code: '+63', country: '🇵🇭 Philippines (+63)' },
-  { code: '+62', country: '🇮🇩 Indonesia (+62)' },
-  { code: '+66', country: '🇹🇭 Thailand (+66)' },
-  { code: '+84', country: '🇻🇳 Vietnam (+84)' },
-  { code: '+94', country: '🇱🇰 Sri Lanka (+94)' },
-  { code: '+880', country: '🇧🇩 Bangladesh (+880)' },
-  { code: '+92', country: '🇵🇰 Pakistan (+92)' },
-  { code: '+977', country: '🇳🇵 Nepal (+977)' },
-  { code: '+55', country: '🇧🇷 Brazil (+55)' },
-  { code: '+52', country: '🇲🇽 Mexico (+52)' },
-  { code: '+54', country: '🇦🇷 Argentina (+54)' },
-  { code: '+57', country: '🇨🇴 Colombia (+57)' },
-  { code: '+46', country: '🇸🇪 Sweden (+46)' },
-  { code: '+47', country: '🇳🇴 Norway (+47)' },
-  { code: '+45', country: '🇩🇰 Denmark (+45)' },
-  { code: '+358', country: '🇫🇮 Finland (+358)' },
-  { code: '+48', country: '🇵🇱 Poland (+48)' },
-  { code: '+972', country: '🇮🇱 Israel (+972)' },
+  { code: '+91', country: 'India (+91)' },
+  { code: '+1', country: 'United States / Canada (+1)' },
+  { code: '+44', country: 'United Kingdom (+44)' },
+  { code: '+971', country: 'United Arab Emirates (+971)' },
+  { code: '+966', country: 'Saudi Arabia (+966)' },
+  { code: '+61', country: 'Australia (+61)' },
+  { code: '+65', country: 'Singapore (+65)' },
+  { code: '+60', country: 'Malaysia (+60)' },
+  { code: '+974', country: 'Qatar (+974)' },
+  { code: '+965', country: 'Kuwait (+965)' },
+  { code: '+968', country: 'Oman (+968)' },
+  { code: '+973', country: 'Bahrain (+973)' },
+  { code: '+49', country: 'Germany (+49)' },
+  { code: '+33', country: 'France (+33)' },
+  { code: '+39', country: 'Italy (+39)' },
+  { code: '+34', country: 'Spain (+34)' },
+  { code: '+31', country: 'Netherlands (+31)' },
+  { code: '+41', country: 'Switzerland (+41)' },
+  { code: '+353', country: 'Ireland (+353)' },
+  { code: '+64', country: 'New Zealand (+64)' },
+  { code: '+27', country: 'South Africa (+27)' },
+  { code: '+234', country: 'Nigeria (+234)' },
+  { code: '+254', country: 'Kenya (+254)' },
+  { code: '+20', country: 'Egypt (+20)' },
+  { code: '+90', country: 'Turkey (+90)' },
+  { code: '+81', country: 'Japan (+81)' },
+  { code: '+82', country: 'South Korea (+82)' },
+  { code: '+852', country: 'Hong Kong (+852)' },
+  { code: '+63', country: 'Philippines (+63)' },
+  { code: '+62', country: 'Indonesia (+62)' },
+  { code: '+66', country: 'Thailand (+66)' },
+  { code: '+84', country: 'Vietnam (+84)' },
+  { code: '+94', country: 'Sri Lanka (+94)' },
+  { code: '+880', country: 'Bangladesh (+880)' },
+  { code: '+92', country: 'Pakistan (+92)' },
+  { code: '+977', country: 'Nepal (+977)' },
+  { code: '+55', country: 'Brazil (+55)' },
+  { code: '+52', country: 'Mexico (+52)' },
+  { code: '+54', country: 'Argentina (+54)' },
+  { code: '+57', country: 'Colombia (+57)' },
+  { code: '+46', country: 'Sweden (+46)' },
+  { code: '+47', country: 'Norway (+47)' },
+  { code: '+45', country: 'Denmark (+45)' },
+  { code: '+358', country: 'Finland (+358)' },
+  { code: '+48', country: 'Poland (+48)' },
+  { code: '+972', country: 'Israel (+972)' },
 ];
 
 const CURRENCY_LIST = [
@@ -504,7 +513,7 @@ export default function DashboardPage() {
     timezone: 'Asia/Kolkata',
     country_code: '+91',
     currency: 'INR',
-    currency_symbol: 'â‚¹',
+    currency_symbol: '₹',
     admin_whatsapp_number: '',
     template_booking_confirmation: 'booking_confirmationn',
     template_reschedule_confirmation: 'booking_confirmationn',
@@ -587,7 +596,7 @@ export default function DashboardPage() {
 
   const currentCurrencySymbol = settingsForm.currency_symbol || (
     settingsForm.currency === 'USD' ? '$' :
-    settingsForm.currency === 'EUR' ? 'â‚¬' :
+    settingsForm.currency === 'EUR' ? '€' :
     settingsForm.currency === 'GBP' ? '£' :
     settingsForm.currency === 'AED' ? 'AED ' :
     settingsForm.currency === 'AUD' ? 'A$' :
@@ -601,7 +610,7 @@ export default function DashboardPage() {
     settingsForm.currency === 'JPY' ? '¥' :
     settingsForm.currency === 'CHF' ? 'CHF ' :
     settingsForm.currency === 'ZAR' ? 'R ' :
-    'â‚¹'
+    '₹'
   );
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1831,7 +1840,7 @@ export default function DashboardPage() {
   } else if (calendarViewMode === 'week') {
     const first = currentWeekDays[0];
     const last = currentWeekDays[6];
-    calendarTitle = `${first.toLocaleDateString([], { month: 'short', day: 'numeric' })} â€“ ${last.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    calendarTitle = `${first.toLocaleDateString([], { month: 'short', day: 'numeric' })} – ${last.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
   }
 
   const isSameDay = (d1: Date, d2: Date) => {
@@ -1844,7 +1853,7 @@ export default function DashboardPage() {
 
   return (
     <div className="w-full h-screen bg-canvas flex flex-col overflow-hidden font-sans text-text-body">
-      {/* â”€â”€ Top Header Navigation Bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Top Header Navigation Bar ───────────────────────────────────────── */}
       <header className="h-14 px-6 border-b border-border flex items-center justify-between shrink-0 bg-surface">
         {/* Logo & Current View Title */}
         <div className="flex items-center gap-4">
@@ -1903,7 +1912,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* â”€â”€ Action Notice Toast â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Action Notice Toast ────────────────────────────────────────────── */}
       {actionNotice && (
         <div className="bg-surface border-b border-border px-6 py-2 text-xs text-text-primary flex items-center justify-between font-medium">
           <span className="flex items-center gap-2">
@@ -1916,10 +1925,10 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* â”€â”€ 3-Column Body Container â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── 3-Column Body Container ────────────────────────────────────────── */}
       <div className="flex-1 flex overflow-hidden">
         
-        {/* â”€â”€ 1. LEFT SIDEBAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── 1. LEFT SIDEBAR ──────────────────────────────────────────────── */}
         <aside className="w-56 bg-surface border-r border-border flex flex-col shrink-0 p-3 justify-between">
           <div className="space-y-1">
             {/* Sidebar Menu Items */}
@@ -2047,10 +2056,10 @@ export default function DashboardPage() {
           </div>
         </aside>
 
-          {/* â”€â”€ 2. CENTER / MAIN VIEW AREA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+          {/* ── 2. CENTER / MAIN VIEW AREA ───────────────────────────────────── */}
           <main className="flex-1 flex flex-col overflow-hidden bg-canvas p-6 space-y-6">
             
-            {/* â”€â”€ VIEW 0: DEDICATED OVERVIEW DASHBOARD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── VIEW 0: DEDICATED OVERVIEW DASHBOARD ─────────────────────────── */}
             {activeNav === 'overview' && (
               <div className="flex-1 flex flex-col overflow-y-auto space-y-6 pr-1">
                 {/* Welcome Header */}
@@ -2302,7 +2311,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* â”€â”€ VIEW 1: BOOKINGS LIST & ATTENDANCE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── VIEW 1: BOOKINGS LIST & ATTENDANCE ───────────────────────────── */}
             {activeNav === 'bookings' && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-4">
                 {/* Breadcrumb & Action Toolbar */}
@@ -2420,7 +2429,7 @@ export default function DashboardPage() {
                                 </div>
                                 <div className="min-w-0">
                                   <p className="font-medium text-xs text-text-primary truncate">{b.contact_name || 'Client'}</p>
-                                  <p className="text-[11px] text-text-muted font-mono mt-0.5">{b.contact_phone || 'â€”'}</p>
+                                  <p className="text-[11px] text-text-muted font-mono mt-0.5">{b.contact_phone || '—'}</p>
                                 </div>
                               </td>
 
@@ -2429,7 +2438,7 @@ export default function DashboardPage() {
                               </td>
 
                               <td className="p-3 font-mono text-xs text-text-muted">
-                                {b.start_time ? new Date(b.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'â€”'}
+                                {b.start_time ? new Date(b.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
                               </td>
 
                               <td className="p-3 font-mono font-medium text-xs text-text-primary tabular-nums">
@@ -2524,7 +2533,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* â”€â”€ VIEW 2: CALENDAR VIEW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── VIEW 2: CALENDAR VIEW ───────────────────────────────────────── */}
             {activeNav === 'calendar' && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-4">
                 {/* Calendar Header Controls */}
@@ -2925,7 +2934,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* â”€â”€ VIEW 3: INBOX / CONVERSATIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── VIEW 3: INBOX / CONVERSATIONS ───────────────────────────────── */}
             {activeNav === 'inbox' && (
               <div className="flex-1 flex overflow-hidden border border-border rounded-md bg-surface">
                 {/* Conversations List */}
@@ -2964,7 +2973,7 @@ export default function DashboardPage() {
                       className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent font-sans transition-colors duration-150"
                     />
 
-                    {/* â”€â”€ Compact & Clean Segmentation Filter Bar â”€â”€ */}
+                    {/* ── Compact & Clean Segmentation Filter Bar ── */}
                     <div className="flex items-center p-0.5 bg-surface-subtle rounded-sm border border-border gap-1">
                       <button
                         type="button"
@@ -3236,7 +3245,7 @@ export default function DashboardPage() {
                           <div className="text-center text-xs text-text-muted py-8">Loading history...</div>
                         ) : messages.map((msg) => {
                           const isInbound = msg.direction === 'inbound';
-                          const isVoice = msg.body?.startsWith('ðŸŽ¤ [Voice Note:');
+                          const isVoice = msg.body?.startsWith('[Voice Note:');
                           return (
                             <div key={msg.id} className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
                               <div
@@ -3548,7 +3557,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* â”€â”€ VIEW 5: CUSTOMER FOLLOWUP & TASK CALENDAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── VIEW 5: CUSTOMER FOLLOWUP & TASK CALENDAR ───────────────────── */}
             {activeNav === 'followup' && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-4">
                 {/* Compact & Clean Header */}
@@ -3625,7 +3634,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* â”€â”€ SUB-VIEW A: FOLLOW-UP LIST â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                {/* ── SUB-VIEW A: FOLLOW-UP LIST ──────────────────────────────── */}
                 {followupView === 'list' && (
                   <div className="flex-1 flex flex-col overflow-hidden space-y-3">
                     {/* Filter & Segment Controls */}
@@ -3659,23 +3668,27 @@ export default function DashboardPage() {
                       <div className="flex items-center gap-1">
                         <span className="text-[11px] font-medium text-text-muted mr-1">Lead:</span>
                         {[
-                          { key: 'all', label: 'All' },
-                          { key: 'hot', label: 'ðŸ”¥ Hot', color: 'text-rose-700 bg-rose-50 border-rose-200' },
-                          { key: 'warm', label: 'âš¡ Warm', color: 'text-amber-700 bg-amber-50 border-amber-200' },
-                          { key: 'cold', label: '❄️ Cold', color: 'text-blue-700 bg-blue-50 border-blue-200' },
-                        ].map((prob) => (
-                          <button
-                            key={prob.key}
-                            onClick={() => setFollowupProbabilityFilter(prob.key)}
-                            className={`px-2 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer ${
-                              followupProbabilityFilter === prob.key
-                                ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
-                                : 'bg-surface border-border text-text-secondary hover:text-text-primary'
-                            }`}
-                          >
-                            {prob.label}
-                          </button>
-                        ))}
+                          { key: 'all', label: 'All', Icon: null },
+                          { key: 'hot', label: 'Hot', Icon: Flame, color: 'text-rose-700 bg-rose-50 border-rose-200' },
+                          { key: 'warm', label: 'Warm', Icon: Sun, color: 'text-amber-700 bg-amber-50 border-amber-200' },
+                          { key: 'cold', label: 'Cold', Icon: Snowflake, color: 'text-blue-700 bg-blue-50 border-blue-200' },
+                        ].map((prob) => {
+                          const ProbIcon = prob.Icon;
+                          return (
+                            <button
+                              key={prob.key}
+                              onClick={() => setFollowupProbabilityFilter(prob.key)}
+                              className={`px-2 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer flex items-center gap-1 ${
+                                followupProbabilityFilter === prob.key
+                                  ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
+                                  : 'bg-surface border-border text-text-secondary hover:text-text-primary'
+                              }`}
+                            >
+                              {ProbIcon && <ProbIcon className="w-3 h-3" />}
+                              <span>{prob.label}</span>
+                            </button>
+                          );
+                        })}
                       </div>
 
                       {/* Right: Doctor Selector & Search */}
@@ -3883,7 +3896,7 @@ export default function DashboardPage() {
                                           <span className="text-[10px] text-text-muted font-mono">{cust.followup_time || '10:00 AM'}</span>
                                         </div>
                                       ) : (
-                                        <span className="text-text-muted text-[11px]">â€”</span>
+                                        <span className="text-text-muted text-[11px]">—</span>
                                       )}
                                     </td>
 
@@ -4168,8 +4181,8 @@ export default function DashboardPage() {
                               {/* Chat Activity Metadata */}
                               {customerChat && (
                                 <div className="flex items-center justify-between text-[10px] text-text-muted px-1">
-                                  <span>First: {customerChat.first_message_at ? new Date(customerChat.first_message_at).toLocaleDateString() : 'â€”'}</span>
-                                  <span>Last: {customerChat.last_message_at ? new Date(customerChat.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'â€”'}</span>
+                                  <span>First: {customerChat.first_message_at ? new Date(customerChat.first_message_at).toLocaleDateString() : '—'}</span>
+                                  <span>Last: {customerChat.last_message_at ? new Date(customerChat.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
                                 </div>
                               )}
 
@@ -4195,7 +4208,7 @@ export default function DashboardPage() {
                                           <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}>
                                             <span>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                                             {!isInbound && (
-                                              <span>{msg.status === 'read' ? 'âœ“âœ“' : msg.status === 'delivered' ? 'âœ“âœ“' : 'âœ“'}</span>
+                                              <span>{msg.status === 'read' ? <CheckCheck className="w-3 h-3 text-sky-400 inline" /> : msg.status === 'delivered' ? <CheckCheck className="w-3 h-3 text-teal-200 inline" /> : <Check className="w-3 h-3 text-teal-200 inline" />}</span>
                                             )}
                                           </div>
                                         </div>
@@ -4312,7 +4325,7 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* â”€â”€ SUB-VIEW B: TASK CALENDAR VIEW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                {/* ── SUB-VIEW B: TASK CALENDAR VIEW ─────────────────────────── */}
                 {followupView === 'tasks' && (
                   <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-5xl">
                     {/* Task Filter Pills + Add Task */}
@@ -4444,7 +4457,7 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* â”€â”€ SUB-VIEW C: OVERALL NOTES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                {/* ── SUB-VIEW C: OVERALL NOTES ────────────────────────────────── */}
                 {followupView === 'notes' && (
                   <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-5xl">
                     {/* Notes Filters & Add Button */}
@@ -4560,7 +4573,7 @@ export default function DashboardPage() {
             )}
 
 
-            {/* â”€â”€ VIEW 6: MARKETING HUB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── VIEW 6: MARKETING HUB ─────────────────────────────────────── */}
             {activeNav === 'marketing' && (
               <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-6xl pb-8">
                 {/* Header */}
@@ -4571,7 +4584,7 @@ export default function DashboardPage() {
                       <span>Marketing Hub</span>
                     </h3>
                     <p className="text-xs text-text-muted mt-0.5">
-                      Broadcasts, automated re-engagement triggers, and campaign analytics â€” all in one place.
+                      Broadcasts, automated re-engagement triggers, and campaign analytics — all in one place.
                     </p>
                   </div>
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-status-success-bg text-status-success border border-status-success-border text-xs font-medium">
@@ -4583,9 +4596,9 @@ export default function DashboardPage() {
                 {/* Sub-Tab Switcher */}
                 <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5 w-fit">
                   {([
-                    { key: 'broadcasts', icon: 'ðŸ“¢', label: 'Broadcasts' },
-                    { key: 'reengagement', icon: 'ðŸ”„', label: 'Re-engagement' },
-                    { key: 'analytics', icon: 'ðŸ“Š', label: 'Analytics' },
+                    { key: 'broadcasts', Icon: Megaphone, label: 'Broadcasts' },
+                    { key: 'reengagement', Icon: RotateCcw, label: 'Re-engagement' },
+                    { key: 'analytics', Icon: BarChart2, label: 'Analytics' },
                   ] as const).map((tab) => (
                     <button
                       key={tab.key}
@@ -4596,7 +4609,7 @@ export default function DashboardPage() {
                           : 'text-text-secondary hover:text-text-primary'
                       }`}
                     >
-                      <span>{tab.icon}</span>
+                      <tab.Icon className="w-3.5 h-3.5" />
                       <span>{tab.label}</span>
                     </button>
                   ))}
@@ -4802,7 +4815,7 @@ export default function DashboardPage() {
                                     })}
                                 </div>
                                 <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-sm px-2 py-1 flex items-center gap-1">
-                                  âš ️ WhatsApp marketing messages require explicit opt-in. Only opted-in contacts will receive campaigns.
+                                  WhatsApp marketing messages require explicit opt-in. Only opted-in contacts will receive campaigns.
                                 </p>
                               </div>
                             )}
@@ -4951,7 +4964,7 @@ export default function DashboardPage() {
                                   onChange={(e) => setCampaignForm({ ...campaignForm, message_text: e.target.value })}
                                   className="w-full p-2.5 bg-surface border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:border-accent"
                                 />
-                                <p className="text-[10px] text-text-muted">ðŸ’¡ Direct text only works within Meta's 24-hour customer care window.</p>
+                                <p className="text-[10px] text-text-muted flex items-center gap-1"><Lightbulb className="w-3 h-3 shrink-0" />Direct text only works within Meta's 24-hour customer care window.</p>
                               </div>
                             )}
                           </div>
@@ -4970,7 +4983,7 @@ export default function DashboardPage() {
                                     {campaignForm.send_mode === mode && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                                   </div>
                                   <span className={`font-medium ${campaignForm.send_mode === mode ? 'text-text-primary' : 'text-text-secondary'}`}>
-                                    {mode === 'now' ? 'âš¡ Send Immediately' : 'ðŸ“… Schedule for Later'}
+                                    <span className="flex items-center justify-center gap-1.5">{mode === 'now' ? <><Zap className="w-3.5 h-3.5" />Send Immediately</> : <><Calendar className="w-3.5 h-3.5" />Schedule for Later</>}</span>
                                   </span>
                                 </label>
                               ))}
@@ -5129,15 +5142,15 @@ export default function DashboardPage() {
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {triggers.map((trigger) => {
-                          const typeIcon = trigger.trigger_type === 'birthday_greeting' ? 'ðŸŽ‚'
-                            : trigger.trigger_type === 'post_treatment_followup' ? 'ðŸ’†'
-                            : trigger.trigger_type === 'seasonal_promo' ? 'ðŸŒŸ'
-                            : 'ðŸ“…';
+                          const TriggerIcon = trigger.trigger_type === 'birthday_greeting' ? Cake
+                            : trigger.trigger_type === 'post_treatment_followup' ? HeartPulse
+                            : trigger.trigger_type === 'seasonal_promo' ? Sparkles
+                            : Calendar;
                           return (
                             <div key={trigger.id} className={`bg-surface border rounded-md p-4 space-y-3 transition-all duration-150 ${trigger.is_active ? 'border-border' : 'border-border opacity-70'}`}>
                               <div className="flex items-start justify-between gap-2">
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <span className="text-lg shrink-0">{typeIcon}</span>
+                                  <div className="w-7 h-7 rounded-full bg-surface-subtle border border-border flex items-center justify-center shrink-0"><TriggerIcon className="w-3.5 h-3.5 text-accent" /></div>
                                   <div className="min-w-0">
                                     <p className="font-semibold text-sm text-text-primary truncate">{trigger.name}</p>
                                     <p className="text-[11px] text-text-muted mt-0.5">{trigger.condition_label}</p>
@@ -5149,7 +5162,7 @@ export default function DashboardPage() {
                                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                       : 'bg-surface-subtle text-text-muted border-border'
                                   }`}>
-                                    {trigger.is_active ? 'â— Active' : 'â—‹ Paused'}
+                                    {trigger.is_active ? 'Active' : 'Paused'}
                                   </span>
                                 </div>
                               </div>
@@ -5160,7 +5173,7 @@ export default function DashboardPage() {
                                   <p className="text-[10px] text-text-muted">Reached</p>
                                 </div>
                                 <div className="bg-surface-subtle rounded-sm p-2 border border-border">
-                                  <p className="text-sm font-semibold text-text-primary">{trigger.condition_days || 'â€”'}</p>
+                                  <p className="text-sm font-semibold text-text-primary">{trigger.condition_days || '—'}</p>
                                   <p className="text-[10px] text-text-muted">Days trigger</p>
                                 </div>
                                 <div className="bg-surface-subtle rounded-sm p-2 border border-border">
@@ -5193,7 +5206,7 @@ export default function DashboardPage() {
                                       : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                                   } disabled:opacity-50`}
                                 >
-                                  {togglingTriggerId === trigger.id ? '...' : trigger.is_active ? '⏸ Pause' : 'â–¶ Activate'}
+                                  <span className="flex items-center justify-center gap-1">{togglingTriggerId === trigger.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : trigger.is_active ? <><Pause className="w-3 h-3" />Pause</> : <><Play className="w-3 h-3" />Activate</>}</span>
                                 </button>
                                 <button
                                   onClick={async () => {
@@ -5209,7 +5222,7 @@ export default function DashboardPage() {
                                   disabled={testingTriggerId === trigger.id}
                                   className="flex-1 py-1.5 text-[11px] font-medium rounded-sm border border-border bg-surface hover:bg-surface-subtle text-text-secondary cursor-pointer transition-colors disabled:opacity-50"
                                 >
-                                  {testingTriggerId === trigger.id ? '...' : 'ðŸ§ª Test Fire'}
+                                  <span className="flex items-center justify-center gap-1">{testingTriggerId === trigger.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <><FlaskConical className="w-3 h-3" />Test Fire</>}</span>
                                 </button>
                               </div>
                             </div>
@@ -5217,7 +5230,7 @@ export default function DashboardPage() {
                         })}
                         {triggers.length === 0 && !loadingTriggers && (
                           <div className="md:col-span-2 py-12 text-center text-text-muted text-xs">
-                            <p className="text-base mb-2">ðŸ”„</p>
+                            <RotateCcw className="w-6 h-6 mx-auto mb-2 text-text-muted" />
                             <p className="font-medium">No triggers configured yet.</p>
                             <p>Click "New Trigger" to set up your first automated re-engagement campaign.</p>
                           </div>
@@ -5310,15 +5323,15 @@ export default function DashboardPage() {
                         {/* Summary KPI Grid */}
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                           {[
-                            { label: 'Total Sent', value: analyticsData?.summary?.total_sent ?? campaigns.reduce((a, c) => a + (c.sent_count || 0), 0), suffix: '', icon: 'ðŸ“¤', color: 'text-text-primary' },
-                            { label: 'Delivery Rate', value: analyticsData?.summary?.delivery_rate ?? 98.2, suffix: '%', icon: 'âœ…', color: 'text-emerald-700' },
-                            { label: 'Read Rate', value: analyticsData?.summary?.read_rate ?? 82.5, suffix: '%', icon: 'ðŸ‘️', color: 'text-blue-700' },
-                            { label: 'Reply Rate', value: analyticsData?.summary?.reply_rate ?? 38.0, suffix: '%', icon: 'ðŸ’¬', color: 'text-purple-700' },
-                            { label: 'Conversions', value: analyticsData?.summary?.total_converted ?? 0, suffix: '', icon: 'ðŸ“ˆ', color: 'text-orange-700' },
-                            { label: 'Revenue', value: analyticsData?.summary?.attributed_revenue ?? 0, suffix: '', prefix: 'â‚¹', icon: 'ðŸ’°', color: 'text-emerald-700' },
+                            { label: 'Total Sent', value: analyticsData?.summary?.total_sent ?? campaigns.reduce((a, c) => a + (c.sent_count || 0), 0), suffix: '', Icon: SendHorizontal, color: 'text-text-primary' },
+                            { label: 'Delivery Rate', value: analyticsData?.summary?.delivery_rate ?? 98.2, suffix: '%', Icon: CheckCircle, color: 'text-emerald-700' },
+                            { label: 'Read Rate', value: analyticsData?.summary?.read_rate ?? 82.5, suffix: '%', Icon: Eye, color: 'text-blue-700' },
+                            { label: 'Reply Rate', value: analyticsData?.summary?.reply_rate ?? 38.0, suffix: '%', Icon: MessageSquare, color: 'text-purple-700' },
+                            { label: 'Conversions', value: analyticsData?.summary?.total_converted ?? 0, suffix: '', Icon: TrendingUp, color: 'text-orange-700' },
+                            { label: 'Revenue', value: analyticsData?.summary?.attributed_revenue ?? 0, suffix: '', prefix: currentCurrencySymbol, Icon: Coins, color: 'text-emerald-700' },
                           ].map((kpi) => (
                             <div key={kpi.label} className="bg-surface border border-border rounded-md p-3 space-y-1 text-center">
-                              <p className="text-base">{kpi.icon}</p>
+                              <kpi.Icon className="w-4 h-4 mx-auto text-text-muted" />
                               <p className={`text-xl font-semibold font-headline ${kpi.color}`}>
                                 {(kpi as any).prefix || ''}{typeof kpi.value === 'number' ? (kpi.suffix === '%' ? kpi.value.toFixed(1) : kpi.value.toLocaleString()) : kpi.value}{kpi.suffix}
                               </p>
@@ -5388,7 +5401,7 @@ export default function DashboardPage() {
                                           </div>
                                         </td>
                                         <td className="px-3 py-2.5 text-[10px] text-text-muted font-mono whitespace-nowrap">
-                                          {cmp.created_at ? new Date(cmp.created_at).toLocaleDateString() : 'â€”'}
+                                          {cmp.created_at ? new Date(cmp.created_at).toLocaleDateString() : '—'}
                                         </td>
                                       </tr>
                                     );
@@ -5406,7 +5419,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* â”€â”€ VIEW 5: SETTINGS & BYOK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── VIEW 5: SETTINGS & BYOK ─────────────────────────────────────── */}
             {activeNav === 'settings' && (
               <div className="flex-1 overflow-y-auto space-y-6 max-w-4xl">
                 {settingsSaved && (
@@ -5453,7 +5466,7 @@ export default function DashboardPage() {
 
                 <form onSubmit={handleSaveSettings} className="space-y-6">
                   
-                  {/* â”€â”€ 1. AI BRAIN & BYOK MODEL KEYS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  {/* ── 1. AI BRAIN & BYOK MODEL KEYS ──────────────────────── */}
                   {settingsTab === 'ai' && (
                     <div className="space-y-4 bg-surface p-5 rounded-md border border-border">
                       <div className="flex items-center justify-between pb-2 border-b border-border">
@@ -5621,7 +5634,7 @@ export default function DashboardPage() {
                                   setSettingsForm({
                                     ...settingsForm,
                                     currency: e.target.value,
-                                    currency_symbol: sel ? sel.symbol : settingsForm.currency_symbol || 'â‚¹',
+                                    currency_symbol: sel ? sel.symbol : settingsForm.currency_symbol || '₹',
                                   });
                                 }}
                                 className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
@@ -5710,7 +5723,7 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* â”€â”€ 2. META WHATSAPP API CREDENTIALS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  {/* ── 2. META WHATSAPP API CREDENTIALS ─────────────────────── */}
                   {settingsTab === 'whatsapp' && (
                     <div className="space-y-4 bg-surface p-5 rounded-md border border-border">
                       <div className="pb-2 border-b border-border">
@@ -5811,7 +5824,7 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* â”€â”€ 3. LIFECYCLE MESSAGE TEMPLATES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  {/* ── 3. LIFECYCLE MESSAGE TEMPLATES ───────────────────────── */}
                   {settingsTab === 'templates' && (
                     <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
                       <div className="pb-2 border-b border-border flex items-center justify-between">
@@ -5986,7 +5999,7 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* â”€â”€ 4. BRANDING & LOCALIZATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  {/* ── 4. BRANDING & LOCALIZATION ──────────────────────────── */}
                   {settingsTab === 'location' && (
                     <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
                       <div className="pb-2 border-b border-border flex items-center justify-between">
@@ -6090,7 +6103,7 @@ export default function DashboardPage() {
                                 setSettingsForm({
                                   ...settingsForm,
                                   currency: e.target.value,
-                                  currency_symbol: sel ? sel.symbol : settingsForm.currency_symbol || 'â‚¹',
+                                  currency_symbol: sel ? sel.symbol : settingsForm.currency_symbol || '₹',
                                 });
                               }}
                               className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
@@ -6142,7 +6155,7 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* â”€â”€ 5. GOOGLE CALENDAR SYNC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  {/* ── 5. GOOGLE CALENDAR SYNC ─────────────────────────────── */}
                   {settingsTab === 'calendar' && (
                     <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
                       <div className="flex items-center justify-between pb-2 border-b border-border">
@@ -6263,7 +6276,7 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* â”€â”€ 6. ACCOUNT & LOGOUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  {/* ── 6. ACCOUNT & LOGOUT ───────────────────────────────── */}
                   {settingsTab === 'account' && (
                     <div className="space-y-4 bg-surface p-5 rounded-md border border-border">
                       <div className="flex items-center justify-between pb-2 border-b border-border">
@@ -6330,7 +6343,7 @@ export default function DashboardPage() {
             )}
           </main>
 
-          {/* â”€â”€ 3. RIGHT STICKY NOTES & SCRATCHPAD DRAWER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+          {/* ── 3. RIGHT STICKY NOTES & SCRATCHPAD DRAWER ─────────────────────── */}
           {showRightDrawer ? (
             <aside className="w-80 bg-surface border-l border-border flex flex-col shrink-0 p-4 overflow-y-auto space-y-4">
               {/* Header */}
@@ -6504,7 +6517,7 @@ export default function DashboardPage() {
           ) : null}
         </div>
 
-        {/* â”€â”€ CREATE BOOKING MODAL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── CREATE BOOKING MODAL ─────────────────────────────────────────── */}
         {isAddBookingOpen && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-surface rounded-md border border-border w-full max-w-lg overflow-hidden shadow-subtle p-6 space-y-4 my-auto">
@@ -6679,7 +6692,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* â”€â”€ BOOKING DETAIL MODAL / DRAWER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── BOOKING DETAIL MODAL / DRAWER ─────────────────────────────────── */}
         {isBookingDetailModalOpen && selectedBookingDetail && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-surface rounded-md border border-border w-full max-w-lg overflow-hidden shadow-subtle p-6 space-y-4 my-auto">
@@ -6736,7 +6749,7 @@ export default function DashboardPage() {
                   <div>
                     <p className="text-xs font-medium text-text-muted">Scheduled date & time</p>
                     <p className="font-mono text-xs text-text-primary mt-0.5">
-                      {selectedBookingDetail.start_time ? new Date(selectedBookingDetail.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'â€”'}
+                      {selectedBookingDetail.start_time ? new Date(selectedBookingDetail.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
                     </p>
                   </div>
                 </div>
@@ -6863,7 +6876,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* â”€â”€ MODAL 1: CONFIRM SINGLE CHAT TAKE HUMAN ACTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── MODAL 1: CONFIRM SINGLE CHAT TAKE HUMAN ACTION ───────────────── */}
         {confirmSingleAiModal?.isOpen && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-surface rounded-md border border-border w-full max-w-md overflow-hidden shadow-subtle p-6 space-y-4">
@@ -6910,7 +6923,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* â”€â”€ MODAL 2: CONFIRM GLOBAL ALL CHATS TAKE HUMAN ACTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── MODAL 2: CONFIRM GLOBAL ALL CHATS TAKE HUMAN ACTION ─────────────── */}
         {confirmAllAiModal && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-surface rounded-md border border-border w-full max-w-md overflow-hidden shadow-subtle p-6 space-y-4">
@@ -6955,7 +6968,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* â”€â”€ MODAL 3: DELETE CONVERSATION CONFIRMATION â”€â”€â”€â”€â”€ */}
+        {/* ── MODAL 3: DELETE CONVERSATION CONFIRMATION ───── */}
         {deleteChatModal?.isOpen && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-surface rounded-md border border-border w-full max-w-md overflow-hidden shadow-subtle p-6 space-y-4">
@@ -6999,7 +7012,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* â”€â”€ MODAL 4: ADD APPROVED WHATSAPP TEMPLATE NAME â”€â”€â”€â”€â”€ */}
+        {/* ── MODAL 4: ADD APPROVED WHATSAPP TEMPLATE NAME ───── */}
         {newTemplateModal && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-surface rounded-md border border-border w-full max-w-md overflow-hidden shadow-subtle p-6 space-y-4">
