@@ -93,115 +93,119 @@ import {
   UserCheck,
   UserPlus,
   MessageCircle,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 
 const COUNTRY_CODES = [
-  { code: '+91', country: 'ðŸ‡®ðŸ‡³ India (+91)' },
-  { code: '+1', country: 'ðŸ‡ºðŸ‡¸ / ðŸ‡¨ðŸ‡¦ United States & Canada (+1)' },
-  { code: '+44', country: 'ðŸ‡¬ðŸ‡§ United Kingdom (+44)' },
-  { code: '+971', country: 'ðŸ‡¦ðŸ‡ª United Arab Emirates (+971)' },
-  { code: '+966', country: 'ðŸ‡¸ðŸ‡¦ Saudi Arabia (+966)' },
-  { code: '+61', country: 'ðŸ‡¦ðŸ‡º Australia (+61)' },
-  { code: '+65', country: 'ðŸ‡¸ðŸ‡¬ Singapore (+65)' },
-  { code: '+60', country: 'ðŸ‡²ðŸ‡¾ Malaysia (+60)' },
-  { code: '+974', country: 'ðŸ‡¶ðŸ‡¦ Qatar (+974)' },
-  { code: '+965', country: 'ðŸ‡°ðŸ‡¼ Kuwait (+965)' },
-  { code: '+968', country: 'ðŸ‡´ðŸ‡² Oman (+968)' },
-  { code: '+973', country: 'ðŸ‡§ðŸ‡­ Bahrain (+973)' },
-  { code: '+49', country: 'ðŸ‡©ðŸ‡ª Germany (+49)' },
-  { code: '+33', country: 'ðŸ‡«ðŸ‡· France (+33)' },
-  { code: '+39', country: 'ðŸ‡®ðŸ‡¹ Italy (+39)' },
-  { code: '+34', country: 'ðŸ‡ªðŸ‡¸ Spain (+34)' },
-  { code: '+31', country: 'ðŸ‡³ðŸ‡± Netherlands (+31)' },
-  { code: '+41', country: 'ðŸ‡¨ðŸ‡­ Switzerland (+41)' },
-  { code: '+353', country: 'ðŸ‡®ðŸ‡ª Ireland (+353)' },
-  { code: '+64', country: 'ðŸ‡³ðŸ‡¿ New Zealand (+64)' },
-  { code: '+27', country: 'ðŸ‡¿ðŸ‡¦ South Africa (+27)' },
-  { code: '+234', country: 'ðŸ‡³ðŸ‡¬ Nigeria (+234)' },
-  { code: '+254', country: 'ðŸ‡°ðŸ‡ª Kenya (+254)' },
-  { code: '+20', country: 'ðŸ‡ªðŸ‡¬ Egypt (+20)' },
-  { code: '+90', country: 'ðŸ‡¹ðŸ‡· Turkey (+90)' },
-  { code: '+81', country: 'ðŸ‡¯ðŸ‡µ Japan (+81)' },
-  { code: '+82', country: 'ðŸ‡°ðŸ‡· South Korea (+82)' },
-  { code: '+852', country: 'ðŸ‡­ðŸ‡° Hong Kong (+852)' },
-  { code: '+63', country: 'ðŸ‡µðŸ‡­ Philippines (+63)' },
-  { code: '+62', country: 'ðŸ‡®ðŸ‡© Indonesia (+62)' },
-  { code: '+66', country: 'ðŸ‡¹ðŸ‡­ Thailand (+66)' },
-  { code: '+84', country: 'ðŸ‡»ðŸ‡³ Vietnam (+84)' },
-  { code: '+94', country: 'ðŸ‡±ðŸ‡° Sri Lanka (+94)' },
-  { code: '+880', country: 'ðŸ‡§ðŸ‡© Bangladesh (+880)' },
-  { code: '+92', country: 'ðŸ‡µðŸ‡° Pakistan (+92)' },
-  { code: '+977', country: 'ðŸ‡³ðŸ‡µ Nepal (+977)' },
-  { code: '+55', country: 'ðŸ‡§ðŸ‡· Brazil (+55)' },
-  { code: '+52', country: 'ðŸ‡²ðŸ‡½ Mexico (+52)' },
-  { code: '+54', country: 'ðŸ‡¦ðŸ‡· Argentina (+54)' },
-  { code: '+57', country: 'ðŸ‡¨ðŸ‡´ Colombia (+57)' },
-  { code: '+56', country: 'ðŸ‡¨ðŸ‡± Chile (+56)' },
-  { code: '+46', country: 'ðŸ‡¸ðŸ‡ª Sweden (+46)' },
-  { code: '+47', country: 'ðŸ‡³ðŸ‡´ Norway (+47)' },
-  { code: '+45', country: 'ðŸ‡©ðŸ‡° Denmark (+45)' },
-  { code: '+358', country: 'ðŸ‡«ðŸ‡® Finland (+358)' },
-  { code: '+351', country: 'ðŸ‡µðŸ‡¹ Portugal (+351)' },
-  { code: '+43', country: 'ðŸ‡¦ðŸ‡¹ Austria (+43)' },
-  { code: '+32', country: 'ðŸ‡§ðŸ‡ª Belgium (+32)' },
-  { code: '+48', country: 'ðŸ‡µðŸ‡± Poland (+48)' },
-  { code: '+972', country: 'ðŸ‡®ðŸ‡± Israel (+972)' },
+  { code: '+91', country: '🇮🇳 India (+91)' },
+  { code: '+1', country: '🇺🇸 United States / 🇨🇦 Canada (+1)' },
+  { code: '+44', country: '🇬🇧 United Kingdom (+44)' },
+  { code: '+971', country: '🇦🇪 United Arab Emirates (+971)' },
+  { code: '+966', country: '🇸🇦 Saudi Arabia (+966)' },
+  { code: '+61', country: '🇦🇺 Australia (+61)' },
+  { code: '+65', country: '🇸🇬 Singapore (+65)' },
+  { code: '+60', country: '🇲🇾 Malaysia (+60)' },
+  { code: '+974', country: '🇶🇦 Qatar (+974)' },
+  { code: '+965', country: '🇰🇼 Kuwait (+965)' },
+  { code: '+968', country: '🇴🇲 Oman (+968)' },
+  { code: '+973', country: '🇧🇭 Bahrain (+973)' },
+  { code: '+49', country: '🇩🇪 Germany (+49)' },
+  { code: '+33', country: '🇫🇷 France (+33)' },
+  { code: '+39', country: '🇮🇹 Italy (+39)' },
+  { code: '+34', country: '🇪🇸 Spain (+34)' },
+  { code: '+31', country: '🇳🇱 Netherlands (+31)' },
+  { code: '+41', country: '🇨🇭 Switzerland (+41)' },
+  { code: '+353', country: '🇮🇪 Ireland (+353)' },
+  { code: '+64', country: '🇳🇿 New Zealand (+64)' },
+  { code: '+27', country: '🇿🇦 South Africa (+27)' },
+  { code: '+234', country: '🇳🇬 Nigeria (+234)' },
+  { code: '+254', country: '🇰🇪 Kenya (+254)' },
+  { code: '+20', country: '🇪🇬 Egypt (+20)' },
+  { code: '+90', country: '🇹🇷 Turkey (+90)' },
+  { code: '+81', country: '🇯🇵 Japan (+81)' },
+  { code: '+82', country: '🇰🇷 South Korea (+82)' },
+  { code: '+852', country: '🇭🇰 Hong Kong (+852)' },
+  { code: '+63', country: '🇵🇭 Philippines (+63)' },
+  { code: '+62', country: '🇮🇩 Indonesia (+62)' },
+  { code: '+66', country: '🇹🇭 Thailand (+66)' },
+  { code: '+84', country: '🇻🇳 Vietnam (+84)' },
+  { code: '+94', country: '🇱🇰 Sri Lanka (+94)' },
+  { code: '+880', country: '🇧🇩 Bangladesh (+880)' },
+  { code: '+92', country: '🇵🇰 Pakistan (+92)' },
+  { code: '+977', country: '🇳🇵 Nepal (+977)' },
+  { code: '+55', country: '🇧🇷 Brazil (+55)' },
+  { code: '+52', country: '🇲🇽 Mexico (+52)' },
+  { code: '+54', country: '🇦🇷 Argentina (+54)' },
+  { code: '+57', country: '🇨🇴 Colombia (+57)' },
+  { code: '+46', country: '🇸🇪 Sweden (+46)' },
+  { code: '+47', country: '🇳🇴 Norway (+47)' },
+  { code: '+45', country: '🇩🇰 Denmark (+45)' },
+  { code: '+358', country: '🇫🇮 Finland (+358)' },
+  { code: '+48', country: '🇵🇱 Poland (+48)' },
+  { code: '+972', country: '🇮🇱 Israel (+972)' },
 ];
 
 const CURRENCY_LIST = [
-  { code: 'INR', symbol: 'â‚¹', name: 'INR (â‚¹) â€” Indian Rupee' },
-  { code: 'USD', symbol: '$', name: 'USD ($) â€” US Dollar' },
-  { code: 'EUR', symbol: 'â‚¬', name: 'EUR (â‚¬) â€” Euro' },
-  { code: 'GBP', symbol: 'Â£', name: 'GBP (Â£) â€” British Pound' },
-  { code: 'AED', symbol: 'AED ', name: 'AED (AED) â€” UAE Dirham' },
-  { code: 'SAR', symbol: 'SAR ', name: 'SAR (SAR) â€” Saudi Riyal' },
-  { code: 'CAD', symbol: 'C$', name: 'CAD (C$) â€” Canadian Dollar' },
-  { code: 'AUD', symbol: 'A$', name: 'AUD (A$) â€” Australian Dollar' },
-  { code: 'SGD', symbol: 'S$', name: 'SGD (S$) â€” Singapore Dollar' },
-  { code: 'MYR', symbol: 'RM ', name: 'MYR (RM) â€” Malaysian Ringgit' },
-  { code: 'QAR', symbol: 'QAR ', name: 'QAR (QAR) â€” Qatari Riyal' },
-  { code: 'KWD', symbol: 'KWD ', name: 'KWD (KWD) â€” Kuwaiti Dinar' },
-  { code: 'OMR', symbol: 'OMR ', name: 'OMR (OMR) â€” Omani Rial' },
-  { code: 'BHD', symbol: 'BHD ', name: 'BHD (BHD) â€” Bahraini Dinar' },
-  { code: 'NZD', symbol: 'NZ$', name: 'NZD (NZ$) â€” New Zealand Dollar' },
-  { code: 'JPY', symbol: 'Â¥', name: 'JPY (Â¥) â€” Japanese Yen' },
-  { code: 'CHF', symbol: 'CHF ', name: 'CHF (CHF) â€” Swiss Franc' },
-  { code: 'ZAR', symbol: 'R ', name: 'ZAR (R) â€” South African Rand' },
-  { code: 'PHP', symbol: 'â‚±', name: 'PHP (â‚±) â€” Philippine Peso' },
-  { code: 'IDR', symbol: 'Rp ', name: 'IDR (Rp) â€” Indonesian Rupiah' },
-  { code: 'THB', symbol: 'à¸¿', name: 'THB (à¸¿) â€” Thai Baht' },
-  { code: 'VND', symbol: 'â‚«', name: 'VND (â‚«) â€” Vietnamese Dong' },
-  { code: 'PKR', symbol: 'Rs ', name: 'PKR (Rs) â€” Pakistani Rupee' },
-  { code: 'BDT', symbol: 'à§³', name: 'BDT (à§³) â€” Bangladeshi Taka' },
-  { code: 'LKR', symbol: 'Rs ', name: 'LKR (Rs) â€” Sri Lankan Rupee' },
-  { code: 'NGN', symbol: 'â‚¦', name: 'NGN (â‚¦) â€” Nigerian Naira' },
-  { code: 'KES', symbol: 'KSh ', name: 'KES (KSh) â€” Kenyan Shilling' },
-  { code: 'EGP', symbol: 'EÂ£ ', name: 'EGP (EÂ£) â€” Egyptian Pound' },
-  { code: 'TRY', symbol: 'â‚º', name: 'TRY (â‚º) â€” Turkish Lira' },
-  { code: 'BRL', symbol: 'R$', name: 'BRL (R$) â€” Brazilian Real' },
-  { code: 'MXN', symbol: 'Mex$', name: 'MXN (Mex$) â€” Mexican Peso' },
+  { code: 'INR', symbol: '₹', name: 'INR (₹) - Indian Rupee' },
+  { code: 'USD', symbol: '$', name: 'USD ($) - US Dollar' },
+  { code: 'EUR', symbol: '€', name: 'EUR (€) - Euro' },
+  { code: 'GBP', symbol: '£', name: 'GBP (£) - British Pound' },
+  { code: 'AED', symbol: 'AED ', name: 'AED - UAE Dirham' },
+  { code: 'SAR', symbol: 'SAR ', name: 'SAR - Saudi Riyal' },
+  { code: 'CAD', symbol: 'C$', name: 'CAD (C$) - Canadian Dollar' },
+  { code: 'AUD', symbol: 'A$', name: 'AUD (A$) - Australian Dollar' },
+  { code: 'SGD', symbol: 'S$', name: 'SGD (S$) - Singapore Dollar' },
+  { code: 'MYR', symbol: 'RM ', name: 'MYR (RM) - Malaysian Ringgit' },
+  { code: 'QAR', symbol: 'QAR ', name: 'QAR - Qatari Riyal' },
+  { code: 'KWD', symbol: 'KWD ', name: 'KWD - Kuwaiti Dinar' },
+  { code: 'OMR', symbol: 'OMR ', name: 'OMR - Omani Rial' },
+  { code: 'BHD', symbol: 'BHD ', name: 'BHD - Bahraini Dinar' },
+  { code: 'NZD', symbol: 'NZ$', name: 'NZD (NZ$) - New Zealand Dollar' },
+  { code: 'JPY', symbol: '¥', name: 'JPY (¥) - Japanese Yen' },
+  { code: 'CHF', symbol: 'CHF ', name: 'CHF - Swiss Franc' },
+  { code: 'ZAR', symbol: 'R ', name: 'ZAR (R) - South African Rand' },
+  { code: 'PHP', symbol: '₱', name: 'PHP (₱) - Philippine Peso' },
+  { code: 'IDR', symbol: 'Rp ', name: 'IDR (Rp) - Indonesian Rupiah' },
+  { code: 'THB', symbol: '฿', name: 'THB (฿) - Thai Baht' },
+  { code: 'VND', symbol: '₫', name: 'VND (₫) - Vietnamese Dong' },
+  { code: 'PKR', symbol: 'Rs ', name: 'PKR (Rs) - Pakistani Rupee' },
+  { code: 'BDT', symbol: '৳', name: 'BDT (৳) - Bangladeshi Taka' },
+  { code: 'NGN', symbol: '₦', name: 'NGN (₦) - Nigerian Naira' },
+  { code: 'KES', symbol: 'KSh ', name: 'KES (KSh) - Kenyan Shilling' },
+  { code: 'EGP', symbol: 'E£ ', name: 'EGP (E£) - Egyptian Pound' },
+  { code: 'TRY', symbol: '₺', name: 'TRY (₺) - Turkish Lira' },
+  { code: 'BRL', symbol: 'R$', name: 'BRL (R$) - Brazilian Real' },
+  { code: 'MXN', symbol: 'Mex$', name: 'MXN (Mex$) - Mexican Peso' },
 ];
 
 const TIMEZONE_LIST = [
-  { value: 'Asia/Kolkata', label: 'ðŸ‡®ðŸ‡³ Asia/Kolkata (IST â€” GMT+5:30) [India]' },
-  { value: 'America/New_York', label: 'ðŸ‡ºðŸ‡¸ America/New_York (EST/EDT â€” GMT-5/-4) [US East]' },
-  { value: 'America/Chicago', label: 'ðŸ‡ºðŸ‡¸ America/Chicago (CST/CDT â€” GMT-6/-5) [US Central]' },
-  { value: 'America/Denver', label: 'ðŸ‡ºðŸ‡¸ America/Denver (MST/MDT â€” GMT-7/-6) [US Mountain]' },
-  { value: 'America/Los_Angeles', label: 'ðŸ‡ºðŸ‡¸ America/Los_Angeles (PST/PDT â€” GMT-8/-7) [US West / California]' },
-  { value: 'America/Toronto', label: 'ðŸ‡¨ðŸ‡¦ America/Toronto (EST/EDT) [Canada East]' },
-  { value: 'America/Vancouver', label: 'ðŸ‡¨ðŸ‡¦ America/Vancouver (PST/PDT) [Canada West]' },
-  { value: 'Europe/London', label: 'ðŸ‡¬ðŸ‡§ Europe/London (GMT/BST â€” GMT+0/+1) [UK & Ireland]' },
-  { value: 'Europe/Paris', label: 'ðŸ‡ªðŸ‡º Europe/Paris (CET/CEST â€” GMT+1/+2) [France, Germany, Italy]' },
-  { value: 'Asia/Dubai', label: 'ðŸ‡¦ðŸ‡ª Asia/Dubai (GST â€” GMT+4) [UAE & Gulf]' },
-  { value: 'Asia/Riyadh', label: 'ðŸ‡¸ðŸ‡¦ Asia/Riyadh (AST â€” GMT+3) [Saudi Arabia]' },
-  { value: 'Asia/Singapore', label: 'ðŸ‡¸ðŸ‡¬ Asia/Singapore (SGT â€” GMT+8) [Singapore & Malaysia]' },
-  { value: 'Asia/Tokyo', label: 'ðŸ‡¯ðŸ‡µ Asia/Tokyo (JST â€” GMT+9) [Japan]' },
-  { value: 'Australia/Sydney', label: 'ðŸ‡¦ðŸ‡º Australia/Sydney (AEST/AEDT â€” GMT+10/+11) [Australia East]' },
-  { value: 'Australia/Perth', label: 'ðŸ‡¦ðŸ‡º Australia/Perth (AWST â€” GMT+8) [Australia West]' },
-  { value: 'Pacific/Auckland', label: 'ðŸ‡³ðŸ‡¿ Pacific/Auckland (NZST/NZDT â€” GMT+12/+13) [New Zealand]' },
-  { value: 'Africa/Johannesburg', label: 'ðŸ‡¿ðŸ‡¦ Africa/Johannesburg (SAST â€” GMT+2) [South Africa]' },
-  { value: 'UTC', label: 'ðŸŒ UTC (Coordinated Universal Time)' },
+  { value: 'Asia/Kolkata', label: 'Asia/Kolkata (IST - GMT+5:30) [India]' },
+  { value: 'America/New_York', label: 'America/New_York (EST/EDT - GMT-5/-4) [US East]' },
+  { value: 'America/Chicago', label: 'America/Chicago (CST/CDT - GMT-6/-5) [US Central]' },
+  { value: 'America/Denver', label: 'America/Denver (MST/MDT - GMT-7/-6) [US Mountain]' },
+  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (PST/PDT - GMT-8/-7) [US West]' },
+  { value: 'America/Toronto', label: 'America/Toronto (EST/EDT) [Canada East]' },
+  { value: 'America/Vancouver', label: 'America/Vancouver (PST/PDT) [Canada West]' },
+  { value: 'Europe/London', label: 'Europe/London (GMT/BST - GMT+0/+1) [UK]' },
+  { value: 'Europe/Paris', label: 'Europe/Paris (CET/CEST - GMT+1/+2) [W. Europe]' },
+  { value: 'Europe/Berlin', label: 'Europe/Berlin (CET/CEST - GMT+1/+2) [Germany]' },
+  { value: 'Asia/Dubai', label: 'Asia/Dubai (GST - GMT+4) [UAE]' },
+  { value: 'Asia/Riyadh', label: 'Asia/Riyadh (AST - GMT+3) [Saudi Arabia]' },
+  { value: 'Asia/Singapore', label: 'Asia/Singapore (SGT - GMT+8) [Singapore]' },
+  { value: 'Asia/Kuala_Lumpur', label: 'Asia/Kuala_Lumpur (MYT - GMT+8) [Malaysia]' },
+  { value: 'Asia/Tokyo', label: 'Asia/Tokyo (JST - GMT+9) [Japan]' },
+  { value: 'Asia/Seoul', label: 'Asia/Seoul (KST - GMT+9) [South Korea]' },
+  { value: 'Asia/Shanghai', label: 'Asia/Shanghai (CST - GMT+8) [China]' },
+  { value: 'Asia/Bangkok', label: 'Asia/Bangkok (ICT - GMT+7) [Thailand/Vietnam]' },
+  { value: 'Australia/Sydney', label: 'Australia/Sydney (AEST/AEDT) [Australia East]' },
+  { value: 'Australia/Perth', label: 'Australia/Perth (AWST - GMT+8) [Australia West]' },
+  { value: 'Pacific/Auckland', label: 'Pacific/Auckland (NZST - GMT+12/+13) [New Zealand]' },
+  { value: 'Africa/Johannesburg', label: 'Africa/Johannesburg (SAST - GMT+2) [South Africa]' },
+  { value: 'Africa/Nairobi', label: 'Africa/Nairobi (EAT - GMT+3) [East Africa]' },
+  { value: 'UTC', label: 'UTC - Coordinated Universal Time' },
 ];
+
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -222,6 +226,7 @@ export default function DashboardPage() {
 
   // Selected Customer Detail Drawer
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [isDrawerExpanded, setIsDrawerExpanded] = useState(false);
   const [customerNotes, setCustomerNotes] = useState<CustomerNote[]>([]);
   const [loadingCustomerNotes, setLoadingCustomerNotes] = useState(false);
   const [newCustomerNoteText, setNewCustomerNoteText] = useState('');
@@ -583,7 +588,7 @@ export default function DashboardPage() {
   const currentCurrencySymbol = settingsForm.currency_symbol || (
     settingsForm.currency === 'USD' ? '$' :
     settingsForm.currency === 'EUR' ? 'â‚¬' :
-    settingsForm.currency === 'GBP' ? 'Â£' :
+    settingsForm.currency === 'GBP' ? '£' :
     settingsForm.currency === 'AED' ? 'AED ' :
     settingsForm.currency === 'AUD' ? 'A$' :
     settingsForm.currency === 'CAD' ? 'C$' :
@@ -593,7 +598,7 @@ export default function DashboardPage() {
     settingsForm.currency === 'QAR' ? 'QAR ' :
     settingsForm.currency === 'KWD' ? 'KWD ' :
     settingsForm.currency === 'NZD' ? 'NZ$' :
-    settingsForm.currency === 'JPY' ? 'Â¥' :
+    settingsForm.currency === 'JPY' ? '¥' :
     settingsForm.currency === 'CHF' ? 'CHF ' :
     settingsForm.currency === 'ZAR' ? 'R ' :
     'â‚¹'
@@ -3430,7 +3435,7 @@ export default function DashboardPage() {
                   </div>
 
                   {dirSelectedCust && (
-                    <div className="w-[340px] bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden">
+                    <div className="w-[480px] xl:w-[540px] bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden shadow-sm">
                       <div className="p-3 border-b border-border bg-surface-subtle/50 flex items-center justify-between">
                         <div>
                           <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
@@ -3918,7 +3923,7 @@ export default function DashboardPage() {
 
                       {/* Customer Detail Drawer / Side Panel */}
                       {selectedCustomer && (
-                        <div className="w-[420px] bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden">
+                        <div className={`${isDrawerExpanded ? 'w-[780px] max-w-[60vw]' : 'w-[540px] xl:w-[620px]'} bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-sm`}>
                           {/* Panel Header */}
                           <div className="p-3.5 border-b border-border flex items-center justify-between bg-surface-subtle/50">
                             <div>
@@ -3931,15 +3936,25 @@ export default function DashboardPage() {
                             <div className="flex items-center gap-1.5">
                               <button
                                 onClick={() => openChatForContact(selectedCustomer.phone)}
-                                className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary text-[11px] font-medium rounded-sm border border-border flex items-center gap-1 transition-colors cursor-pointer"
+                                className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium rounded-sm border border-border flex items-center gap-1.5 transition-colors cursor-pointer"
                                 title="Open WhatsApp chat with this customer"
                               >
-                                <MessageSquare className="w-3 h-3 text-accent" />
+                                <MessageSquare className="w-3.5 h-3.5 text-accent" />
                                 <span>Chat</span>
                               </button>
                               <button
-                                onClick={() => setSelectedCustomer(null)}
+                                type="button"
+                                onClick={() => setIsDrawerExpanded(!isDrawerExpanded)}
                                 className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
+                                title={isDrawerExpanded ? 'Collapse panel' : 'Expand to full width'}
+                              >
+                                {isDrawerExpanded ? <Minimize2 className="w-4 h-4 stroke-[1.5]" /> : <Maximize2 className="w-4 h-4 stroke-[1.5]" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setSelectedCustomer(null); setIsDrawerExpanded(false); }}
+                                className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
+                                title="Close panel"
                               >
                                 <X className="w-4 h-4 stroke-[1.5]" />
                               </button>
@@ -4039,7 +4054,7 @@ export default function DashboardPage() {
                               </div>
 
                               {/* Notes Timeline List */}
-                              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                                 {loadingCustomerNotes ? (
                                   <p className="text-[11px] text-text-muted text-center py-2">Loading notes...</p>
                                 ) : customerNotes.length === 0 ? (
