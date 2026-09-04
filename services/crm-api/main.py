@@ -452,9 +452,9 @@ async def create_customer(
                 followup_date = COALESCE(EXCLUDED.followup_date, customers.followup_date),
                 followup_time = COALESCE(EXCLUDED.followup_time, customers.followup_time),
                 updated_at = now()""",
-            cust_id, tenant_id, clean_phone, payload.name, payload.age, payload.location, payload.preferred_doctor or "Dr. Sarah Mitchell",
-            payload.status or "new", payload.health_concern or "General Consultation",
-            payload.lead_probability or "warm", payload.converted or False, f_date, payload.followup_time or "10:00 AM"
+            cust_id, tenant_id, clean_phone, payload.name, payload.age, payload.location, payload.preferred_doctor or None,
+            payload.status or "new", payload.health_concern or None,
+            payload.lead_probability or "warm", payload.converted or False, f_date, payload.followup_time or (payload.followup_date and "10:00 AM" or None)
         )
         if payload.initial_note and payload.initial_note.strip():
             await conn.execute(

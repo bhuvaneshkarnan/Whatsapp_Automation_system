@@ -723,6 +723,7 @@ export default function DashboardPage() {
 
   // Calendar View State (day | week | month)
   const [calendarViewMode, setCalendarViewMode] = useState<'day' | 'week' | 'month'>('month');
+  const [calendarLayerFilter, setCalendarLayerFilter] = useState<'all' | 'bookings' | 'followups' | 'tasks'>('all');
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
 
   // Customers State
@@ -1039,8 +1040,12 @@ export default function DashboardPage() {
 
   // Load section data based on active tab
   useEffect(() => {
-    if (activeNav === 'bookings' || activeNav === 'calendar') {
+    if (activeNav === 'bookings') {
       loadBookings();
+    } else if (activeNav === 'calendar') {
+      loadBookings();
+      loadCustomers();
+      loadTasks();
     } else if (activeNav === 'customers') {
       loadContacts();
       loadCustomers();
@@ -2978,11 +2983,15 @@ export default function DashboardPage() {
 
             {/* ── VIEW 2: CALENDAR VIEW ───────────────────────────────────────── */}
             {activeNav === 'calendar' && (
-              <div className="flex-1 flex flex-col overflow-hidden space-y-4">
-                {/* Calendar Header Controls */}
-                <div className="flex items-center justify-between pt-1">
+              <div className="flex-1 flex flex-col overflow-hidden space-y-3">
+                {/* Calendar Top Controls & Unified Filter Layer */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                  {/* Left: Date Navigation & Title */}
                   <div className="flex items-center gap-3">
-                    <h3 className="font-semibold text-sm text-text-primary">{calendarTitle}</h3>
+                    <h3 className="font-semibold text-sm text-text-primary flex items-center gap-1.5">
+                      <CalendarDays className="w-4 h-4 text-accent stroke-[1.5]" />
+                      <span>{calendarTitle}</span>
+                    </h3>
                     <div className="flex items-center gap-0.5 bg-surface-subtle p-0.5 rounded-sm border border-border">
                       <button
                         type="button"
@@ -3010,8 +3019,37 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
+                  {/* Middle: Unified Layer / Filter Selector (All, Appointments, Follow-ups, Tasks) */}
+                  <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5">
+                    {[
+                      { key: 'all', label: 'All Schedule', icon: LayoutGrid, count: (bookings?.length || 0) + (customers?.filter(c => c.followup_date).length || 0) + (tasks?.filter(t => !t.completed).length || 0) },
+                      { key: 'bookings', label: currentTaxonomy.event_label || 'Appointments', icon: Calendar, count: bookings?.length || 0 },
+                      { key: 'followups', label: 'Follow-ups', icon: Phone, count: customers?.filter(c => c.followup_date).length || 0 },
+                      { key: 'tasks', label: 'Tasks', icon: CheckSquare, count: tasks?.filter(t => !t.completed).length || 0 },
+                    ].map((tab) => {
+                      const IconComp = tab.icon;
+                      const isActive = calendarLayerFilter === tab.key;
+                      return (
+                        <button
+                          key={tab.key}
+                          type="button"
+                          onClick={() => setCalendarLayerFilter(tab.key as any)}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-sm transition-colors cursor-pointer ${
+                            isActive
+                              ? 'bg-surface text-text-primary font-semibold border border-border shadow-xs'
+                              : 'text-text-secondary hover:text-text-primary'
+                          }`}
+                        >
+                          <IconComp className="w-3.5 h-3.5 stroke-[1.5]" />
+                          <span>{tab.label}</span>
+                          <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{tab.count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Right: View Switcher (Day/Week/Month) & Actions */}
                   <div className="flex items-center gap-2">
-                    {/* View Mode Switcher */}
                     <div className="flex gap-0.5 bg-surface-subtle p-0.5 rounded-sm border border-border">
                       {(['day', 'week', 'month'] as const).map((mode) => (
                         <button
@@ -3031,16 +3069,26 @@ export default function DashboardPage() {
 
                     <button
                       type="button"
+                      onClick={() => setShowAddTaskModal(true)}
+                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer"
+                      title="Create a new task"
+                    >
+                      <CheckSquare className="w-3.5 h-3.5 stroke-[1.5] text-amber-600" />
+                      <span>+ Task</span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => setIsAddBookingOpen(true)}
-                      className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer"
+                      className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs"
                     >
                       <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>Add booking</span>
+                      <span>{currentTaxonomy.booking_cta || '+ New Appointment'}</span>
                     </button>
                   </div>
                 </div>
 
-                {/* 1. MONTH VIEW */}
+                {/* ── 1. MONTH VIEW (Unified Schedule) ────────────────────────── */}
                 {calendarViewMode === 'month' && (
                   <div className="flex-1 overflow-y-auto border border-border rounded-md bg-surface flex flex-col">
                     <div className="grid grid-cols-7 bg-surface-subtle border-b border-border text-center text-xs font-medium text-text-muted py-2">
@@ -3055,18 +3103,42 @@ export default function DashboardPage() {
 
                     <div className="grid grid-cols-7 auto-rows-fr divide-x divide-y divide-border flex-1">
                       {Array.from({ length: firstDayOfMonth }).map((_, i) => (
-                        <div key={`offset-${i}`} className="min-h-[90px] p-2 bg-surface-subtle/30" />
+                        <div key={`offset-${i}`} className="min-h-[100px] p-2 bg-surface-subtle/30" />
                       ))}
 
                       {Array.from({ length: daysInMonth }).map((_, i) => {
                         const dayNum = i + 1;
                         const cellDate = new Date(year, month, dayNum);
-                        const dayBookings = (bookings || []).filter((b) => {
+                        const isToday = isSameDay(new Date(), cellDate);
+
+                        // 1. Matching Bookings
+                        const cellBookings = (bookings || []).filter((b) => {
                           if (!b || !b.start_time) return false;
                           const bDate = new Date(b.start_time);
                           return isSameDay(bDate, cellDate);
                         });
-                        const isToday = isSameDay(new Date(), cellDate);
+
+                        // 2. Matching Customer Follow-ups
+                        const cellFollowups = (customers || []).filter((c) => {
+                          if (!c || !c.followup_date) return false;
+                          const fDate = new Date(c.followup_date + (c.followup_date.includes('T') ? '' : 'T00:00:00'));
+                          return isSameDay(fDate, cellDate);
+                        });
+
+                        // 3. Matching Tasks
+                        const cellTasks = (tasks || []).filter((t) => {
+                          if (!t || !t.due_date) return false;
+                          const tDate = new Date(t.due_date);
+                          return isSameDay(tDate, cellDate);
+                        });
+
+                        const showBookings = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings';
+                        const showFollowups = calendarLayerFilter === 'all' || calendarLayerFilter === 'followups';
+                        const showTasks = calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks';
+
+                        const totalEvents = (showBookings ? cellBookings.length : 0) +
+                                            (showFollowups ? cellFollowups.length : 0) +
+                                            (showTasks ? cellTasks.length : 0);
 
                         return (
                           <div
@@ -3075,7 +3147,7 @@ export default function DashboardPage() {
                               setCurrentDate(cellDate);
                               setCalendarViewMode('day');
                             }}
-                            className={`min-h-[90px] p-2 flex flex-col justify-between transition-colors duration-150 cursor-pointer ${
+                            className={`min-h-[100px] p-2 flex flex-col justify-between transition-colors duration-150 cursor-pointer ${
                               isToday ? 'bg-surface-subtle' : 'hover:bg-surface-subtle/60'
                             }`}
                           >
@@ -3089,34 +3161,72 @@ export default function DashboardPage() {
                               >
                                 {dayNum}
                               </span>
-                              {dayBookings.length > 0 && (
-                                <span className="text-[11px] font-mono text-text-muted bg-surface px-1.5 py-0.5 rounded-sm border border-border">
-                                  {dayBookings.length}
+                              {totalEvents > 0 && (
+                                <span className="text-[10px] font-mono text-text-muted bg-surface px-1.5 py-0.2 rounded-sm border border-border font-medium">
+                                  {totalEvents} {totalEvents === 1 ? 'event' : 'events'}
                                 </span>
                               )}
                             </div>
 
-                            <div className="space-y-1 mt-1 overflow-y-auto max-h-[65px]">
-                              {dayBookings.map((b) => (
+                            <div className="space-y-1 mt-1 overflow-y-auto max-h-[85px] pr-0.5">
+                              {/* A. Bookings */}
+                              {showBookings && cellBookings.map((b) => (
                                 <button
                                   type="button"
-                                  key={b.id}
+                                  key={`b-${b.id}`}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setSelectedBookingDetail(b);
                                     setIsBookingDetailModalOpen(true);
                                   }}
-                                  className={`w-full text-left px-1.5 py-0.5 rounded-sm text-[11px] truncate block font-medium transition-colors duration-150 border ${
+                                  className={`w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium transition-colors duration-150 border ${
                                     b.status === 'completed'
-                                      ? 'bg-status-success-bg text-status-success border-status-success-border'
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                                       : b.status === 'no_show'
-                                      ? 'bg-status-warning-bg text-status-warning border-status-warning-border'
+                                      ? 'bg-amber-50 text-amber-800 border-amber-300'
                                       : b.status === 'cancelled'
-                                      ? 'bg-status-error-bg text-status-error border-status-error-border'
+                                      ? 'bg-rose-50 text-rose-800 border-rose-300'
                                       : 'bg-accent text-white border-accent'
                                   }`}
+                                  title={`Appointment: ${b.contact_name || b.service} (${b.status})`}
                                 >
-                                  {b.start_time ? new Date(b.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''} &bull; {b.contact_name || b.service}
+                                  {b.start_time ? new Date(b.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''} · {b.contact_name || b.service}
+                                </button>
+                              ))}
+
+                              {/* B. Scheduled Follow-ups */}
+                              {showFollowups && cellFollowups.map((cust) => (
+                                <button
+                                  type="button"
+                                  key={`f-${cust.id}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openCustomerProfileByPhone(cust.phone, cust.name || undefined);
+                                  }}
+                                  className="w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100 transition-colors"
+                                  title={`Follow-up with ${cust.name || cust.phone} (${cust.followup_time || '10:00 AM'})`}
+                                >
+                                  {cust.followup_time || '10:00 AM'} · 📞 {cust.name || cust.phone}
+                                </button>
+                              ))}
+
+                              {/* C. Tasks */}
+                              {showTasks && cellTasks.map((t) => (
+                                <button
+                                  type="button"
+                                  key={`t-${t.id}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleTask(t.id);
+                                  }}
+                                  className={`w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium transition-colors border ${
+                                    t.completed
+                                      ? 'bg-surface text-text-muted border-border line-through opacity-70'
+                                      : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
+                                  }`}
+                                  title={`Task: ${t.title} (Click to toggle completed)`}
+                                >
+                                  {t.completed ? '✓' : '□'} {t.title}
                                 </button>
                               ))}
                             </div>
@@ -3127,7 +3237,7 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* 2. WEEK VIEW */}
+                {/* ── 2. WEEK VIEW (Unified Schedule) ─────────────────────────── */}
                 {calendarViewMode === 'week' && (
                   <div className="flex-1 overflow-y-auto border border-border rounded-md bg-surface flex flex-col">
                     {/* Week Days Header */}
@@ -3162,7 +3272,7 @@ export default function DashboardPage() {
                     {/* Week Hours Grid */}
                     <div className="divide-y divide-border flex-1 overflow-y-auto">
                       {[8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((hour) => (
-                        <div key={hour} className="grid grid-cols-8 min-h-[56px] divide-x divide-border">
+                        <div key={hour} className="grid grid-cols-8 min-h-[64px] divide-x divide-border">
                           {/* Hour Label */}
                           <div className="p-2 text-right text-xs font-mono text-text-muted bg-surface-subtle/30">
                             {hour % 12 === 0 ? 12 : hour % 12} {hour >= 12 ? 'PM' : 'AM'}
@@ -3176,12 +3286,42 @@ export default function DashboardPage() {
                               return isSameDay(bDate, day) && bDate.getHours() === hour;
                             });
 
+                            const slotFollowups = (customers || []).filter((c) => {
+                              if (!c || !c.followup_date) return false;
+                              const fDate = new Date(c.followup_date + (c.followup_date.includes('T') ? '' : 'T00:00:00'));
+                              if (!isSameDay(fDate, day)) return false;
+                              const fTimeStr = c.followup_time || '10:00 AM';
+                              const match = fTimeStr.match(/(\d+)(?::(\d+))?\s*(AM|PM)?/i);
+                              if (match) {
+                                let h = parseInt(match[1], 10);
+                                const isPM = match[3] && match[3].toUpperCase() === 'PM';
+                                if (isPM && h < 12) h += 12;
+                                if (!isPM && match[3] && h === 12) h = 0;
+                                return h === hour;
+                              }
+                              return hour === 10;
+                            });
+
+                            const slotTasks = (tasks || []).filter((t) => {
+                              if (!t || !t.due_date) return false;
+                              const tDate = new Date(t.due_date);
+                              return isSameDay(tDate, day) && tDate.getHours() === hour;
+                            });
+
+                            const showBookings = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings';
+                            const showFollowups = calendarLayerFilter === 'all' || calendarLayerFilter === 'followups';
+                            const showTasks = calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks';
+
+                            const hasAny = (showBookings && slotBookings.length > 0) ||
+                                           (showFollowups && slotFollowups.length > 0) ||
+                                           (showTasks && slotTasks.length > 0);
+
                             return (
                               <div
                                 key={dIdx}
-                                className="p-1 relative group hover:bg-surface-subtle/50 transition-colors duration-150 min-h-[56px]"
+                                className="p-1 relative group hover:bg-surface-subtle/50 transition-colors duration-150 min-h-[64px]"
                               >
-                                {slotBookings.length === 0 ? (
+                                {!hasAny ? (
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -3197,7 +3337,7 @@ export default function DashboardPage() {
                                   </button>
                                 ) : (
                                   <div className="space-y-1">
-                                    {slotBookings.map((b) => (
+                                    {showBookings && slotBookings.map((b) => (
                                       <div
                                         key={b.id}
                                         onClick={(e) => {
@@ -3205,25 +3345,53 @@ export default function DashboardPage() {
                                           setSelectedBookingDetail(b);
                                           setIsBookingDetailModalOpen(true);
                                         }}
-                                        className={`p-1.5 rounded-sm border text-left cursor-pointer transition-colors duration-150 ${
+                                        className={`p-1 rounded-sm border text-left cursor-pointer transition-colors duration-150 text-[10px] ${
                                           b.status === 'completed'
-                                            ? 'bg-status-success-bg border-status-success-border text-status-success'
+                                            ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
                                             : b.status === 'no_show'
-                                            ? 'bg-status-warning-bg border-status-warning-border text-status-warning'
+                                            ? 'bg-amber-50 border-amber-300 text-amber-800'
                                             : b.status === 'cancelled'
-                                            ? 'bg-status-error-bg border-status-error-border text-status-error'
+                                            ? 'bg-rose-50 border-rose-300 text-rose-800'
                                             : 'bg-accent border-accent text-white'
                                         }`}
                                       >
-                                        <div className="flex items-center justify-between gap-1">
-                                          <p className="text-[11px] font-medium truncate">
-                                            {b.contact_name || 'Client'}
-                                          </p>
-                                          <span className="text-[10px] font-mono opacity-80">
-                                            {b.start_time ? new Date(b.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                                          </span>
+                                        <div className="flex items-center justify-between gap-1 font-medium">
+                                          <span className="truncate">{b.contact_name || 'Client'}</span>
+                                          <span className="font-mono opacity-80">{b.start_time ? new Date(b.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                                         </div>
-                                        <p className="text-[10px] truncate opacity-90">{b.service}</p>
+                                        <p className="truncate opacity-90">{b.service}</p>
+                                      </div>
+                                    ))}
+
+                                    {showFollowups && slotFollowups.map((cust) => (
+                                      <div
+                                        key={cust.id}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openCustomerProfileByPhone(cust.phone, cust.name || undefined);
+                                        }}
+                                        className="p-1 rounded-sm border bg-blue-50 border-blue-200 text-blue-800 text-left cursor-pointer hover:bg-blue-100 text-[10px]"
+                                        title={`Follow-up with ${cust.name || cust.phone}`}
+                                      >
+                                        <p className="font-semibold truncate">📞 {cust.name || cust.phone}</p>
+                                        <p className="truncate text-blue-700">{cust.health_concern || 'Follow-up Call'}</p>
+                                      </div>
+                                    ))}
+
+                                    {showTasks && slotTasks.map((t) => (
+                                      <div
+                                        key={t.id}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleToggleTask(t.id);
+                                        }}
+                                        className={`p-1 rounded-sm border text-left cursor-pointer text-[10px] ${
+                                          t.completed
+                                            ? 'bg-surface text-text-muted border-border line-through'
+                                            : 'bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100'
+                                        }`}
+                                      >
+                                        <p className="font-medium truncate">{t.completed ? '✓' : '□'} {t.title}</p>
                                       </div>
                                     ))}
                                   </div>
@@ -3237,38 +3405,72 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* 3. DAY VIEW */}
+                {/* ── 3. DAY VIEW (Unified Schedule) ──────────────────────────── */}
                 {calendarViewMode === 'day' && (
                   <div className="flex-1 overflow-y-auto border border-border rounded-md bg-surface flex flex-col p-4 space-y-4">
-                    {/* Day Overview Cards */}
+                    {/* Day Overview Summary Cards */}
                     {(() => {
                       const dayBookings = (bookings || []).filter((b) => {
                         if (!b || !b.start_time) return false;
-                        const bDate = new Date(b.start_time);
-                        return isSameDay(bDate, currentDate);
+                        return isSameDay(new Date(b.start_time), currentDate);
                       });
+                      const dayFollowups = (customers || []).filter((c) => {
+                        if (!c || !c.followup_date) return false;
+                        const fDate = new Date(c.followup_date + (c.followup_date.includes('T') ? '' : 'T00:00:00'));
+                        return isSameDay(fDate, currentDate);
+                      });
+                      const dayTasks = (tasks || []).filter((t) => {
+                        if (!t || !t.due_date) return false;
+                        return isSameDay(new Date(t.due_date), currentDate);
+                      });
+
                       const totalRev = dayBookings.reduce((sum, b) => sum + (Number(b.price) || 0), 0);
-                      const attended = dayBookings.filter((b) => b.status === 'completed').length;
-                      const confirmed = dayBookings.filter((b) => b.status === 'confirmed').length;
-                      const noShow = dayBookings.filter((b) => b.status === 'no_show').length;
+                      const pendingTasks = dayTasks.filter((t) => !t.completed).length;
 
                       return (
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                           <div className="p-3 bg-surface border border-border rounded-md">
-                            <p className="text-xs font-medium text-text-muted">Scheduled today</p>
-                            <p className="text-xl font-semibold text-text-primary font-mono tabular-nums mt-1">{dayBookings.length}</p>
+                            <p className="text-xs font-medium text-text-muted flex items-center gap-1">
+                              <Calendar className="w-3.5 h-3.5 text-accent" />
+                              <span>{currentTaxonomy.event_label || 'Appointments'} ({dayBookings.length})</span>
+                            </p>
+                            <p className="text-lg font-semibold text-text-primary font-mono tabular-nums mt-1">{currentCurrencySymbol}{totalRev} <span className="text-xs text-text-muted font-normal">exp.</span></p>
                           </div>
                           <div className="p-3 bg-surface border border-border rounded-md">
-                            <p className="text-xs font-medium text-text-muted">Expected revenue</p>
-                            <p className="text-xl font-semibold text-text-primary font-mono tabular-nums mt-1">{currentCurrencySymbol}{totalRev}</p>
+                            <p className="text-xs font-medium text-blue-700 flex items-center gap-1">
+                              <Phone className="w-3.5 h-3.5 text-blue-600" />
+                              <span>Follow-ups Today</span>
+                            </p>
+                            <p className="text-lg font-semibold text-text-primary font-mono tabular-nums mt-1">{dayFollowups.length} scheduled</p>
                           </div>
                           <div className="p-3 bg-surface border border-border rounded-md">
-                            <p className="text-xs font-medium text-status-success">Confirmed / Attended</p>
-                            <p className="text-xl font-semibold text-text-primary font-mono tabular-nums mt-1">{confirmed + attended}</p>
+                            <p className="text-xs font-medium text-amber-800 flex items-center gap-1">
+                              <CheckSquare className="w-3.5 h-3.5 text-amber-600" />
+                              <span>Tasks Due</span>
+                            </p>
+                            <p className="text-lg font-semibold text-text-primary font-mono tabular-nums mt-1">{pendingTasks} pending <span className="text-xs text-text-muted font-normal">({dayTasks.length} total)</span></p>
                           </div>
-                          <div className="p-3 bg-surface border border-border rounded-md">
-                            <p className="text-xs font-medium text-status-warning">No-shows</p>
-                            <p className="text-xl font-semibold text-text-primary font-mono tabular-nums mt-1">{noShow}</p>
+                          <div className="p-3 bg-surface border border-border rounded-md flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-medium text-text-muted">Quick Action</p>
+                              <p className="text-xs text-text-secondary mt-0.5">Schedule new item</p>
+                            </div>
+                            <div className="flex gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setShowAddTaskModal(true)}
+                                className="px-2 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-sm text-[11px] font-medium"
+                              >
+                                + Task
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setIsAddBookingOpen(true)}
+                                className="px-2.5 py-1 bg-accent hover:bg-accent-hover text-white rounded-sm text-[11px] font-medium"
+                              >
+                                + Booking
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -3283,14 +3485,44 @@ export default function DashboardPage() {
                           return isSameDay(bDate, currentDate) && bDate.getHours() === hour;
                         });
 
+                        const hourFollowups = (customers || []).filter((c) => {
+                          if (!c || !c.followup_date) return false;
+                          const fDate = new Date(c.followup_date + (c.followup_date.includes('T') ? '' : 'T00:00:00'));
+                          if (!isSameDay(fDate, currentDate)) return false;
+                          const fTimeStr = c.followup_time || '10:00 AM';
+                          const match = fTimeStr.match(/(\d+)(?::(\d+))?\s*(AM|PM)?/i);
+                          if (match) {
+                            let h = parseInt(match[1], 10);
+                            const isPM = match[3] && match[3].toUpperCase() === 'PM';
+                            if (isPM && h < 12) h += 12;
+                            if (!isPM && match[3] && h === 12) h = 0;
+                            return h === hour;
+                          }
+                          return hour === 10;
+                        });
+
+                        const hourTasks = (tasks || []).filter((t) => {
+                          if (!t || !t.due_date) return false;
+                          const tDate = new Date(t.due_date);
+                          return isSameDay(tDate, currentDate) && tDate.getHours() === hour;
+                        });
+
+                        const showBookings = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings';
+                        const showFollowups = calendarLayerFilter === 'all' || calendarLayerFilter === 'followups';
+                        const showTasks = calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks';
+
+                        const totalHourItems = (showBookings ? hourBookings.length : 0) +
+                                               (showFollowups ? hourFollowups.length : 0) +
+                                               (showTasks ? hourTasks.length : 0);
+
                         return (
                           <div key={hour} className="pt-2 flex items-start gap-4">
                             <div className="w-16 shrink-0 text-right font-mono text-xs text-text-muted pt-1">
                               {hour % 12 === 0 ? 12 : hour % 12} {hour >= 12 ? 'PM' : 'AM'}
                             </div>
 
-                            <div className="flex-1 space-y-1.5">
-                              {hourBookings.length === 0 ? (
+                            <div className="flex-1 space-y-2">
+                              {totalHourItems === 0 ? (
                                 <div className="h-6 flex items-center">
                                   <button
                                     type="button"
@@ -3300,72 +3532,98 @@ export default function DashboardPage() {
                                       setNewBookingForm((prev) => ({ ...prev, date: dStr, time: tStr }));
                                       setIsAddBookingOpen(true);
                                     }}
-                                    className="text-xs text-text-muted hover:text-text-primary flex items-center gap-1 font-medium transition-colors duration-150 cursor-pointer"
+                                    className="text-[11px] text-text-muted hover:text-text-primary transition-colors flex items-center gap-1 opacity-0 hover:opacity-100 cursor-pointer"
                                   >
                                     <Plus className="w-3 h-3 stroke-[1.5]" />
-                                    <span>Available slot &bull; Click to book</span>
+                                    <span>Add booking at {hour % 12 === 0 ? 12 : hour % 12} {hour >= 12 ? 'PM' : 'AM'}</span>
                                   </button>
                                 </div>
                               ) : (
-                                hourBookings.map((b) => (
-                                  <div
-                                    key={b.id}
-                                    onClick={() => {
-                                      setSelectedBookingDetail(b);
-                                      setIsBookingDetailModalOpen(true);
-                                    }}
-                                    className="p-3 bg-surface hover:bg-surface-subtle border border-border rounded-md transition-colors duration-150 cursor-pointer flex items-center justify-between gap-4"
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      <div className="w-8 h-8 rounded-sm bg-surface-subtle text-text-secondary border border-border flex items-center justify-center font-medium text-xs shrink-0">
-                                        {b.contact_name ? b.contact_name[0].toUpperCase() : 'C'}
-                                      </div>
-                                      <div>
-                                        <div className="flex items-center gap-2">
-                                          <p className="font-medium text-xs text-text-primary">
-                                            {b.contact_name || 'Client'}
-                                          </p>
-                                          <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-sm border ${
-                                            b.status === 'completed'
-                                              ? 'bg-status-success-bg text-status-success border-status-success-border'
-                                              : b.status === 'no_show'
-                                              ? 'bg-status-warning-bg text-status-warning border-status-warning-border'
-                                              : b.status === 'cancelled'
-                                              ? 'bg-status-error-bg text-status-error border-status-error-border'
-                                              : 'bg-surface-subtle text-text-secondary border-border'
-                                          }`}>
-                                            {b.status || 'confirmed'}
-                                          </span>
+                                <>
+                                  {/* Bookings */}
+                                  {showBookings && hourBookings.map((b) => (
+                                    <div
+                                      key={`hb-${b.id}`}
+                                      onClick={() => {
+                                        setSelectedBookingDetail(b);
+                                        setIsBookingDetailModalOpen(true);
+                                      }}
+                                      className="p-3 bg-surface hover:bg-surface-subtle border border-border rounded-md flex items-center justify-between cursor-pointer transition-colors duration-150"
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <div className={`w-2 h-2 rounded-full ${
+                                          b.status === 'completed' ? 'bg-emerald-500' :
+                                          b.status === 'no_show' ? 'bg-amber-500' :
+                                          b.status === 'cancelled' ? 'bg-rose-500' : 'bg-accent'
+                                        }`} />
+                                        <div>
+                                          <p className="text-xs font-semibold text-text-primary">{b.contact_name || 'Client'}</p>
+                                          <p className="text-[11px] text-text-secondary">{b.service} &bull; {b.contact_phone}</p>
                                         </div>
-                                        <p className="text-xs text-text-muted mt-0.5">
-                                          {b.service} &bull; <span className="font-mono">{b.contact_phone}</span>
-                                        </p>
                                       </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-3 shrink-0">
                                       <div className="text-right">
-                                        <p className="font-medium text-xs text-text-primary font-mono tabular-nums">
-                                          {currentCurrencySymbol}{b.price || 0}
-                                        </p>
-                                        <p className="text-xs text-text-muted font-mono">
-                                          {b.start_time ? new Date(b.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                                        </p>
+                                        <p className="text-xs font-mono font-medium text-text-primary">{currentCurrencySymbol}{b.price || 0}</p>
+                                        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-sm border ${
+                                          b.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                                          b.status === 'no_show' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                                          b.status === 'cancelled' ? 'bg-rose-50 text-rose-800 border-rose-200' :
+                                          'bg-blue-50 text-blue-800 border-blue-200'
+                                        }`}>
+                                          {b.status}
+                                        </span>
                                       </div>
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSelectedBookingDetail(b);
-                                          setIsBookingDetailModalOpen(true);
-                                        }}
-                                        className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-primary font-medium text-xs rounded-sm border border-border transition-colors duration-150 cursor-pointer"
-                                      >
-                                        Details
-                                      </button>
                                     </div>
-                                  </div>
-                                ))
+                                  ))}
+
+                                  {/* Follow-ups */}
+                                  {showFollowups && hourFollowups.map((cust) => (
+                                    <div
+                                      key={`hf-${cust.id}`}
+                                      onClick={() => openCustomerProfileByPhone(cust.phone, cust.name || undefined)}
+                                      className="p-3 bg-blue-50/70 hover:bg-blue-50 border border-blue-200 rounded-md flex items-center justify-between cursor-pointer transition-colors duration-150"
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <Phone className="w-4 h-4 text-blue-600" />
+                                        <div>
+                                          <p className="text-xs font-semibold text-blue-950">Follow-up: {cust.name || cust.phone}</p>
+                                          <p className="text-[11px] text-blue-800">{cust.health_concern || 'Follow-up Call'} &bull; Assigned: {cust.preferred_doctor || 'Staff'}</p>
+                                        </div>
+                                      </div>
+                                      <span className="text-[10px] font-medium bg-blue-100 text-blue-900 px-2 py-0.5 rounded-sm border border-blue-300">
+                                        {cust.followup_time || '10:00 AM'}
+                                      </span>
+                                    </div>
+                                  ))}
+
+                                  {/* Tasks */}
+                                  {showTasks && hourTasks.map((t) => (
+                                    <div
+                                      key={`ht-${t.id}`}
+                                      onClick={() => handleToggleTask(t.id)}
+                                      className={`p-3 border rounded-md flex items-center justify-between cursor-pointer transition-colors duration-150 ${
+                                        t.completed
+                                          ? 'bg-surface-subtle text-text-muted border-border line-through opacity-70'
+                                          : 'bg-amber-50/70 hover:bg-amber-50 border-amber-200 text-amber-950'
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <input
+                                          type="checkbox"
+                                          checked={t.completed}
+                                          onChange={() => handleToggleTask(t.id)}
+                                          className="rounded-xs text-accent cursor-pointer"
+                                        />
+                                        <div>
+                                          <p className="text-xs font-semibold">{t.title}</p>
+                                          {t.description && <p className="text-[11px] text-text-muted">{t.description}</p>}
+                                        </div>
+                                      </div>
+                                      <span className="text-[10px] font-mono text-amber-800 bg-amber-100 px-2 py-0.5 rounded-sm border border-amber-300">
+                                        {t.completed ? 'Completed' : 'Pending Task'}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </>
                               )}
                             </div>
                           </div>
@@ -3376,6 +3634,7 @@ export default function DashboardPage() {
                 )}
               </div>
             )}
+
 
             {/* ── VIEW 3: INBOX / CONVERSATIONS ───────────────────────────────── */}
             {activeNav === 'inbox' && (

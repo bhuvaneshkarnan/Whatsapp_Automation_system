@@ -406,8 +406,8 @@ class CoreWorker:
             try:
                 await self.db_pool.execute(
                     """
-                    INSERT INTO customers (tenant_id, phone, name, status, lead_probability, created_at, updated_at)
-                    VALUES ($1::uuid, $2, $3, 'new', 'warm', NOW(), NOW())
+                    INSERT INTO customers (tenant_id, phone, name, status, lead_probability, followup_date, followup_time, health_concern, preferred_doctor, created_at, updated_at)
+                    VALUES ($1::uuid, $2, $3, 'new', 'warm', NULL, NULL, NULL, NULL, NOW(), NOW())
                     ON CONFLICT (tenant_id, phone) DO UPDATE
                     SET updated_at = NOW(),
                         name = CASE 
@@ -1396,6 +1396,131 @@ class CoreWorker:
 
         except Exception as e:
             logger.error("execute_ai_booking_failed", error=str(e), tenant_id=tenant_id)
+
+
+    async def _analyze_and_update_lead(
+        self,
+        tenant_id: str,
+        phone: str,
+        conv_id: str,
+        message_text: str,
+        history: list,
+        booking_action: Optional[dict] = None,
+    ):
+        """Intelligently classify customer lead grade (hot/warm/cold), extract requirement/concern, and handle follow-up dates based on real conversation analysis."""
+        try:
+            full_text = " ".join([m.get("content", "") for m in history[-8:]] + [message_text]).lower()
+
+            # 1. Lead Probability & Status Classification
+            lead_prob = "warm"
+            status = "contacted"
+
+            # Hot indicators: ready to book, pricing query, urgent, slots requested, or booking made
+            hot_keywords = [
+                "book", "appointment", "schedule", "cost", "price", "fee", "rate", "timing", "available", 
+                "slot", "today", "tomorrow", "urgent", "emergency", "consult", "doctor", "fees", "how much",
+                "want to visit", "want to come", "reserve", "confirm", "when can i", "open now", "admission",
+                "enroll", "register", "buy", "purchase", "interested in booking", "can i get an appointment"
+            ]
+            # Cold indicators: stop, unsubscribe, wrong number, not interested, spam
+            cold_keywords = [
+                "stop", "unsubscribe", "wrong number", "not interested", "dont message", "don't message", 
+                "remove me", "spam", "cancel my number", "no thanks", "do not call", "not required"
+            ]
+
+            if booking_action or any(kw in full_text for kw in ["booked for you", "appointment is booked", "appointment is confirmed", "confirmed"]):
+                lead_prob = "hot"
+                status = "converted"
+            elif any(kw in full_text for kw in cold_keywords):
+                lead_prob = "cold"
+                status = "lost"
+            elif any(kw in full_text for kw in hot_keywords):
+                lead_prob = "hot"
+                status = "in-progress"
+            else:
+                lead_prob = "warm"
+                status = "contacted"
+
+            # 2. Extract Requirement / Health Concern / Inquiry
+            extracted_concern = None
+            concern_patterns = [
+                r"(?:have|having|suffering from|got|dealing with)\s+([a-zA-Z\s]{3,35})",
+                r"(?:interested in|looking for|inquiry about|need|want|regarding)\s+([a-zA-Z\s]{3,35})",
+                r"(?:treatment for|consultation for|problem with|course for|property in)\s+([a-zA-Z\s]{3,35})",
+            ]
+            for pat in concern_patterns:
+                m = re.search(pat, message_text, re.IGNORECASE)
+                if m:
+                    candidate = m.group(1).strip().title()
+                    # Filter out noise / common generic words
+                    if len(candidate.split()) <= 5 and not any(sw in candidate.lower() for sw in ["you", "your", "the", "this", "help", "please", "some", "more", "info", "details"]):
+                        extracted_concern = candidate
+                        break
+
+            # 3. Follow-up Date (ONLY if customer explicitly asked for future follow-up)
+            followup_date = None
+            import datetime
+            if "next week" in full_text:
+                followup_date = datetime.date.today() + datetime.timedelta(days=7)
+            elif "after 2 days" in full_text or "in 2 days" in full_text:
+                followup_date = datetime.date.today() + datetime.timedelta(days=2)
+            elif "after 3 days" in full_text or "in 3 days" in full_text:
+                followup_date = datetime.date.today() + datetime.timedelta(days=3)
+            elif "next month" in full_text:
+                followup_date = datetime.date.today() + datetime.timedelta(days=30)
+
+            # 4. Update customer record in database
+            updates = ["lead_probability = $1", "updated_at = NOW()", "last_messaged_at = NOW()"]
+            params = [lead_prob, tenant_id, phone]
+            idx = 4
+
+            if status:
+                updates.append(f"status = CASE WHEN customers.status = 'converted' THEN 'converted' ELSE ${idx} END")
+                params.insert(len(params) - 2, status)
+                idx += 1
+
+            if status == "converted":
+                updates.append("converted = true")
+
+            if extracted_concern:
+                updates.append(f"health_concern = CASE WHEN customers.health_concern IS NULL OR customers.health_concern = 'General Consultation' THEN ${idx} ELSE customers.health_concern END")
+                params.insert(len(params) - 2, extracted_concern)
+                idx += 1
+
+            if followup_date:
+                updates.append(f"followup_date = COALESCE(customers.followup_date, ${idx}::date)")
+                params.insert(len(params) - 2, followup_date.isoformat())
+                idx += 1
+
+            query = f"""
+                UPDATE customers
+                SET {', '.join(updates)}
+                WHERE tenant_id = $2::uuid AND phone = $3
+            """
+            await self.db_pool.execute(query, *params)
+            logger.info("lead_analyzed_and_updated", phone=phone, lead_prob=lead_prob, status=status, concern=extracted_concern)
+        except Exception as e:
+            logger.warning("lead_analysis_failed", error=str(e), phone=phone)
+
+    async def _update_customer_extracted_info(self, tenant_id: str, phone: str, age: Optional[int], location: Optional[str]):
+        """Save extracted customer demographics (age, location) into customers table."""
+        try:
+            updates = ["updated_at = NOW()"]
+            params = [tenant_id, phone]
+            idx = 3
+            if age:
+                updates.append(f"age = COALESCE(customers.age, ${idx})")
+                params.append(age)
+                idx += 1
+            if location:
+                updates.append(f"location = COALESCE(customers.location, ${idx})")
+                params.append(location)
+                idx += 1
+            if len(updates) > 1:
+                query = f"UPDATE customers SET {', '.join(updates)} WHERE tenant_id = $1::uuid AND phone = $2"
+                await self.db_pool.execute(query, *params)
+        except Exception as e:
+            logger.warning("customer_extracted_info_update_failed", error=str(e))
 
     async def _execute_ai_cancellation(
         self,
