@@ -1048,7 +1048,7 @@ export default function DashboardPage() {
     selectedConvRef.current = selectedConv;
   }, [selectedConv]);
 
-  // Real-time optimized live polling with mutex locking & tab-visibility check (every 4s)
+  // Real-time live polling engine: fast 1.2s live sync for Inbox, gentle 5s sync for background tabs
   const isPollingRef = useRef(false);
   useEffect(() => {
     let isMounted = true;
@@ -1059,14 +1059,15 @@ export default function DashboardPage() {
 
       isPollingRef.current = true;
       try {
-        // 1. Fetch active conversation messages only if currently on inbox tab
         const activeId = selectedConvRef.current?.id;
+
+        // 1. Live Chat: Real-time message synchronization (every 1.2s when on inbox tab)
         if (activeId && activeNav === 'inbox') {
           try {
             const msgs = await crm.getMessages(activeId);
             if (isMounted && Array.isArray(msgs) && selectedConvRef.current?.id === activeId) {
               setMessages((prev) => {
-                if (
+                const isDiff =
                   msgs.length !== prev.length ||
                   msgs.some(
                     (m, idx) =>
@@ -1074,8 +1075,8 @@ export default function DashboardPage() {
                       prev[idx].id !== m.id ||
                       prev[idx].status !== m.status ||
                       prev[idx].body !== m.body
-                  )
-                ) {
+                  );
+                if (isDiff) {
                   setTimeout(() => {
                     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
                   }, 50);
@@ -1089,21 +1090,22 @@ export default function DashboardPage() {
           }
         }
 
-        // 2. Fetch conversations list silently
+        // 2. Real-time conversations list & unread indicators
         try {
           const convs = await crm.getConversations();
           if (isMounted && Array.isArray(convs)) {
             setConversations((prev) => {
-              if (
+              const isDiff =
                 convs.length !== prev.length ||
                 convs.some(
                   (c, idx) =>
                     !prev[idx] ||
                     prev[idx].id !== c.id ||
                     prev[idx].unread_count !== c.unread_count ||
-                    prev[idx].last_message_at !== c.last_message_at
-                )
-              ) {
+                    prev[idx].last_message_at !== c.last_message_at ||
+                    prev[idx].last_message !== c.last_message
+                );
+              if (isDiff) {
                 // Silently refresh customers if a new chat arrived
                 if (activeNav === 'customers' || activeNav === 'followup') {
                   crm.getCustomers().then(fresh => {
@@ -1125,11 +1127,22 @@ export default function DashboardPage() {
       }
     };
 
-    // Run lightweight poll every 4000ms
-    const interval = setInterval(poll, 4000);
+    // Fast 1200ms polling for live Inbox, 5000ms for other sections
+    const pollIntervalMs = activeNav === 'inbox' ? 1200 : 5000;
+    const interval = setInterval(poll, pollIntervalMs);
+
+    // Instant poll on tab focus / visibility restore
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        poll();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       isMounted = false;
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [activeNav]);
 
