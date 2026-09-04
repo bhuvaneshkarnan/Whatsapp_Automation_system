@@ -8,7 +8,6 @@ import {
   Lock,
   Mail,
   ArrowRight,
-  ShieldCheck,
   AlertCircle,
   Loader2,
   CreditCard,
@@ -30,6 +29,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [paymentRequired, setPaymentRequired] = useState<PaymentRequiredDetails | null>(null);
@@ -39,7 +39,7 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      const res = await auth.login(email, password);
+      const res = await auth.login(email, password, rememberMe);
       localStorage.setItem('auth_token', res.access_token);
       localStorage.setItem('tenant_id', res.tenant_id);
 
@@ -63,11 +63,6 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  function fillDemo() {
-    setEmail('admin@demo.com');
-    setPassword('admin123456');
   }
 
   if (paymentRequired) {
@@ -201,6 +196,18 @@ export default function LoginPage() {
               </div>
             </div>
 
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded border-border text-accent focus:ring-accent accent-accent cursor-pointer"
+                />
+                <span className="text-xs text-text-secondary">Remember me for 30 days</span>
+              </label>
+            </div>
+
             {error && (
               <div className="p-3 bg-status-error-bg border border-status-error-border text-status-error text-xs rounded-sm flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-status-error shrink-0 mt-0.5 stroke-[1.5]" />
@@ -226,18 +233,6 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-
-          {/* Quick Demo Helper */}
-          <div className="pt-3 border-t border-border text-center">
-            <button
-              type="button"
-              onClick={fillDemo}
-              className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer font-mono"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 stroke-[1.5]" />
-              <span>Fill demo credentials</span>
-            </button>
-          </div>
         </div>
 
         {/* Footer */}

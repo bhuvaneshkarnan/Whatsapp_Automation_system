@@ -46,12 +46,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ── Auth (/api/v1/auth) ───────────────────────────────────────────────────────
 export const auth = {
-  login: async (email: string, password: string) => {
+  login: async (email: string, password: string, rememberMe: boolean = false) => {
     // OAuth2 form-encoded login
+    const body = new URLSearchParams({ 
+      username: email, 
+      password,
+      remember_me: rememberMe.toString()
+    });
     const res = await fetch(`${BASE}/api/v1/auth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ username: email, password }),
+      body,
     });
     if (!res.ok) {
       let errData: any = null;

