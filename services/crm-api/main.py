@@ -5335,6 +5335,7 @@ async def _dispatch_single_marketing_wa(
         return sent_ok
 
 
+@app.get("/campaigns")
 @app.get("/marketing/campaigns")
 @app.get("/api/v1/marketing/campaigns")
 async def list_marketing_campaigns(tenant_id: str = Depends(get_tenant_id)):
@@ -5372,6 +5373,7 @@ async def list_marketing_campaigns(tenant_id: str = Depends(get_tenant_id)):
     ]
 
 
+@app.post("/broadcast")
 @app.post("/marketing/broadcast")
 @app.post("/api/v1/marketing/broadcast")
 async def execute_marketing_broadcast(
@@ -5444,6 +5446,7 @@ async def execute_marketing_broadcast(
     }
 
 
+@app.delete("/campaigns/{campaign_id}")
 @app.delete("/marketing/campaigns/{campaign_id}")
 @app.delete("/api/v1/marketing/campaigns/{campaign_id}")
 async def delete_marketing_campaign(campaign_id: str, tenant_id: str = Depends(get_tenant_id)):
@@ -5456,6 +5459,7 @@ async def delete_marketing_campaign(campaign_id: str, tenant_id: str = Depends(g
     return {"status": "ok", "deleted_id": campaign_id}
 
 
+@app.get("/triggers")
 @app.get("/marketing/triggers")
 @app.get("/api/v1/marketing/triggers")
 async def list_marketing_triggers(tenant_id: str = Depends(get_tenant_id)):
@@ -5513,6 +5517,7 @@ async def list_marketing_triggers(tenant_id: str = Depends(get_tenant_id)):
     ]
 
 
+@app.post("/triggers")
 @app.post("/marketing/triggers")
 @app.post("/api/v1/marketing/triggers")
 async def create_marketing_trigger(
@@ -5535,6 +5540,7 @@ async def create_marketing_trigger(
     return {"status": "ok", "id": trigger_id, "name": payload.name}
 
 
+@app.patch("/triggers/{trigger_id}/toggle")
 @app.patch("/marketing/triggers/{trigger_id}/toggle")
 @app.patch("/api/v1/marketing/triggers/{trigger_id}/toggle")
 async def toggle_marketing_trigger(
@@ -5557,6 +5563,7 @@ async def toggle_marketing_trigger(
     return {"status": "ok", "id": trigger_id, "is_active": new_active}
 
 
+@app.post("/triggers/{trigger_id}/test")
 @app.post("/marketing/triggers/{trigger_id}/test")
 @app.post("/api/v1/marketing/triggers/{trigger_id}/test")
 async def test_marketing_trigger(
@@ -5611,6 +5618,7 @@ async def test_marketing_trigger(
     }
 
 
+@app.get("/analytics")
 @app.get("/marketing/analytics")
 @app.get("/api/v1/marketing/analytics")
 async def get_marketing_analytics(tenant_id: str = Depends(get_tenant_id)):
@@ -5679,6 +5687,273 @@ async def get_marketing_analytics(tenant_id: str = Depends(get_tenant_id)):
             for r in rows
         ]
     }
+
+
+# ── Message Template Management (Utility & Marketing) ───────────────────────────
+
+TRANSACTIONAL_TEMPLATES = {
+    "booking_confirmationn",
+    "admin_notification",
+    "admin_human_request",
+    "cancellation_confirmation",
+    "admin_cancellation_notice",
+    "booking_reschedule_confirmation",
+    "admin_reschedule_notice",
+    "post_service_review",
+    "appointment_ramainder",
+    "appointment_reminder",
+    "admin_daily_digest",
+}
+
+class CreateTemplatePayload(BaseModel):
+    name: str
+    label: Optional[str] = None
+    category: str = "UTILITY"
+    language: str = "en_US"
+    body: str
+    variables_count: Optional[int] = 0
+
+@app.get("/templates")
+@app.get("/marketing/templates")
+@app.get("/api/v1/marketing/templates")
+async def list_marketing_templates(tenant_id: str = Depends(get_tenant_id)):
+    """List all marketing and utility message templates, strictly excluding internal transactional confirmation templates."""
+    async with db_pool.acquire() as conn:
+        cred_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+            tenant_id
+        )
+        t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+
+    w_data = {}
+    if cred_row and cred_row["credential_data"]:
+        d = cred_row["credential_data"]
+        if isinstance(d, str):
+            try: d = json.loads(d)
+            except: d = {}
+        w_data = dict(d)
+
+    t_settings = {}
+    if t_row and t_row["settings"]:
+        s = t_row["settings"]
+        if isinstance(s, str):
+            try: s = json.loads(s)
+            except: s = {}
+        t_settings = dict(s)
+
+    custom_tpls = t_settings.get("custom_message_templates", [])
+
+    meta_waba_id = w_data.get("waba_id")
+    meta_token = w_data.get("access_token")
+
+    templates_list = []
+    seen_names = set()
+
+    if meta_waba_id and meta_token:
+        try:
+            async with httpx.AsyncClient(timeout=6.0) as client:
+                res = await client.get(
+                    f"https://graph.facebook.com/v20.0/{meta_waba_id}/message_templates",
+                    headers={"Authorization": f"Bearer {meta_token}"}
+                )
+                if res.status_code == 200:
+                    meta_data = res.json().get("data", [])
+                    for m in meta_data:
+                        t_name = m.get("name", "")
+                        if t_name.lower() in TRANSACTIONAL_TEMPLATES:
+                            continue
+                        if any(sys_kw in t_name.lower() for sys_kw in ["confirmation", "reschedule_alert", "admin_notice", "admin_alert", "daily_digest"]):
+                            continue
+                        
+                        body_comp = next((c for c in m.get("components", []) if c.get("type") == "BODY"), {})
+                        body_text = body_comp.get("text", "")
+                        var_matches = re.findall(r'\{\{(\d+)\}\}', body_text)
+                        var_count = len(set(var_matches)) if var_matches else 0
+
+                        seen_names.add(t_name)
+                        templates_list.append({
+                            "id": m.get("id") or t_name,
+                            "name": t_name,
+                            "label": f"{t_name} ({m.get('category', 'UTILITY')})",
+                            "category": m.get("category", "UTILITY"),
+                            "status": m.get("status", "APPROVED"),
+                            "language": m.get("language", "en_US"),
+                            "body": body_text,
+                            "variables_count": var_count
+                        })
+        except Exception as e:
+            logger.warning("meta_template_fetch_failed", error=str(e))
+
+    for ct in custom_tpls:
+        t_name = ct.get("name")
+        if t_name and t_name not in seen_names and t_name.lower() not in TRANSACTIONAL_TEMPLATES:
+            seen_names.add(t_name)
+            templates_list.append(ct)
+
+    if not templates_list:
+        templates_list = [
+            {
+                "id": "utility_general_update",
+                "name": "utility_general_update",
+                "label": "General Update / Announcement (UTILITY)",
+                "category": "UTILITY",
+                "status": "APPROVED",
+                "language": "en_US",
+                "body": "Hello {{1}}, we have an important update regarding your services with {{2}}. {{3}}",
+                "variables_count": 3
+            }
+        ]
+
+    return templates_list
+
+@app.post("/templates")
+@app.post("/marketing/templates")
+@app.post("/api/v1/marketing/templates")
+async def create_marketing_template(payload: CreateTemplatePayload, tenant_id: str = Depends(get_tenant_id)):
+    """Create a new message template (UTILITY or MARKETING) directly from CRM, submitting to Meta if configured."""
+    clean_name = re.sub(r'[^a-z0-9_]', '_', payload.name.lower().strip()).strip('_')
+    if not clean_name:
+        raise HTTPException(400, "Template name must be alphanumeric lowercase with underscores.")
+
+    async with db_pool.acquire() as conn:
+        cred_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+            tenant_id
+        )
+        t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+
+    w_data = {}
+    if cred_row and cred_row["credential_data"]:
+        d = cred_row["credential_data"]
+        if isinstance(d, str):
+            try: d = json.loads(d)
+            except: d = {}
+        w_data = dict(d)
+
+    meta_waba_id = w_data.get("waba_id")
+    meta_token = w_data.get("access_token")
+
+    status = "APPROVED"
+    var_matches = re.findall(r'\{\{(\d+)\}\}', payload.body)
+    var_count = len(set(var_matches)) if var_matches else payload.variables_count or 0
+
+    if meta_waba_id and meta_token:
+        try:
+            meta_body = {
+                "name": clean_name,
+                "category": payload.category.upper(),
+                "language": payload.language,
+                "components": [
+                    {
+                        "type": "BODY",
+                        "text": payload.body
+                    }
+                ]
+            }
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                m_res = await client.post(
+                    f"https://graph.facebook.com/v20.0/{meta_waba_id}/message_templates",
+                    headers={"Authorization": f"Bearer {meta_token}", "Content-Type": "application/json"},
+                    json=meta_body
+                )
+                if m_res.status_code in (200, 201):
+                    res_j = m_res.json()
+                    status = res_j.get("status", "PENDING")
+                else:
+                    logger.warning("meta_template_create_api_error", err=m_res.text)
+                    status = "PENDING"
+        except Exception as e:
+            logger.warning("meta_template_post_failed", error=str(e))
+            status = "PENDING"
+
+    t_settings = {}
+    if t_row and t_row["settings"]:
+        s = t_row["settings"]
+        if isinstance(s, str):
+            try: s = json.loads(s)
+            except: s = {}
+        t_settings = dict(s)
+
+    custom_tpls = t_settings.get("custom_message_templates", [])
+    custom_tpls = [t for t in custom_tpls if t.get("name") != clean_name]
+    new_entry = {
+        "id": clean_name,
+        "name": clean_name,
+        "label": payload.label or f"{clean_name} ({payload.category.upper()})",
+        "category": payload.category.upper(),
+        "status": status,
+        "language": payload.language,
+        "body": payload.body,
+        "variables_count": var_count
+    }
+    custom_tpls.append(new_entry)
+    t_settings["custom_message_templates"] = custom_tpls
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid",
+            json.dumps(t_settings), tenant_id
+        )
+
+    return new_entry
+
+@app.delete("/templates/{template_name}")
+@app.delete("/marketing/templates/{template_name}")
+@app.delete("/api/v1/marketing/templates/{template_name}")
+async def delete_marketing_template(template_name: str, tenant_id: str = Depends(get_tenant_id)):
+    """Delete a custom marketing template from tenant settings and Meta Graph API if active."""
+    clean_name = template_name.strip()
+    if clean_name.lower() in TRANSACTIONAL_TEMPLATES:
+        raise HTTPException(400, "Cannot delete transactional system templates.")
+
+    async with db_pool.acquire() as conn:
+        cred_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+            tenant_id
+        )
+        t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+
+    w_data = {}
+    if cred_row and cred_row["credential_data"]:
+        d = cred_row["credential_data"]
+        if isinstance(d, str):
+            try: d = json.loads(d)
+            except: d = {}
+        w_data = dict(d)
+
+    meta_waba_id = w_data.get("waba_id")
+    meta_token = w_data.get("access_token")
+
+    if meta_waba_id and meta_token:
+        try:
+            async with httpx.AsyncClient(timeout=6.0) as client:
+                await client.delete(
+                    f"https://graph.facebook.com/v20.0/{meta_waba_id}/message_templates",
+                    headers={"Authorization": f"Bearer {meta_token}"},
+                    params={"name": clean_name}
+                )
+        except Exception as e:
+            logger.warning("meta_template_delete_failed", error=str(e))
+
+    t_settings = {}
+    if t_row and t_row["settings"]:
+        s = t_row["settings"]
+        if isinstance(s, str):
+            try: s = json.loads(s)
+            except: s = {}
+        t_settings = dict(s)
+
+    custom_tpls = t_settings.get("custom_message_templates", [])
+    custom_tpls = [t for t in custom_tpls if t.get("name") != clean_name]
+    t_settings["custom_message_templates"] = custom_tpls
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid",
+            json.dumps(t_settings), tenant_id
+        )
+
+    return {"status": "success", "deleted": clean_name}
 
 
 # ── Web Push Notifications & Notification Center ───────────────────────────────

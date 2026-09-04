@@ -115,6 +115,7 @@ import {
   Lightbulb,
   BarChart2,
   Save,
+  Settings2,
 } from 'lucide-react';
 
 const COUNTRY_CODES = [
@@ -923,26 +924,55 @@ export default function DashboardPage() {
   const [analyticsData, setAnalyticsData] = useState<{ summary: MarketingAnalyticsSummary; campaigns: BroadcastCampaign[] } | null>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
 
-  // Approved Templates List (Pre-configured + Custom Added)
+  // Approved Templates List (Clean Utility & Marketing Templates)
+  const [marketingTemplates, setMarketingTemplates] = useState<Array<{
+    id: string;
+    name: string;
+    label: string;
+    category: string;
+    status: string;
+    language?: string;
+    body?: string;
+    variables_count: number;
+  }>>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [showTemplateManagerModal, setShowTemplateManagerModal] = useState(false);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [templateManagerError, setTemplateManagerError] = useState<string | null>(null);
+  const [templateManagerSuccess, setTemplateManagerSuccess] = useState<string | null>(null);
+
   const [customTemplates, setCustomTemplates] = useState<{ id: string; name: string; label: string; variables_count: number }[]>(() => {
     if (typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('whatsapp_crm_custom_templates');
-        if (saved) return JSON.parse(saved);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          const cleaned = parsed.filter((t: any) => !['booking_confirmationn', 'booking_reschedule_confirmation', 'admin_notification', 'cancellation_confirmation', 'admin_cancellation_notice', 'admin_reschedule_notice', 'appointment_ramainder', 'post_service_review', 'admin_daily_digest'].includes(t.name));
+          if (cleaned.length > 0) return cleaned;
+        }
       } catch {}
     }
     return [
-      { id: 'utility_general_update', name: 'utility_general_update', label: '1. Utility / Promotional Update (utility_general_update)', variables_count: 3 },
-      { id: 'booking_confirmationn', name: 'booking_confirmationn', label: '2. Appointment Confirmation (booking_confirmationn)', variables_count: 4 },
-      { id: 'booking_reschedule_confirmation', name: 'booking_reschedule_confirmation', label: '3. Reschedule Confirmation (booking_reschedule_confirmation)', variables_count: 4 },
-      { id: 'reschedule_nudge', name: 'reschedule_nudge', label: '4. Re-engagement / Recall Nudge (reschedule_nudge)', variables_count: 2 },
-      { id: 'client_followup_checkin', name: 'client_followup_checkin', label: '5. Client Follow-up Check-in (client_followup_checkin)', variables_count: 3 },
-      { id: 'review_request', name: 'review_request', label: '6. Customer Feedback & Review Request (review_request)', variables_count: 3 },
+      { id: 'utility_general_update', name: 'utility_general_update', label: 'General Utility Update (utility_general_update)', variables_count: 3 },
     ];
   });
 
   const [newTemplateModal, setNewTemplateModal] = useState(false);
-  const [newTemplateForm, setNewTemplateForm] = useState({ name: '', label: '', variables_count: 2 });
+  const [newTemplateForm, setNewTemplateForm] = useState<{
+    name: string;
+    label: string;
+    category: 'UTILITY' | 'MARKETING';
+    language: string;
+    body: string;
+    variables_count: number;
+  }>({
+    name: '',
+    label: '',
+    category: 'UTILITY',
+    language: 'en_US',
+    body: '',
+    variables_count: 2,
+  });
 
   // 3-Way Audience Selection State
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
@@ -1324,9 +1354,17 @@ export default function DashboardPage() {
     staff_label: settingsForm.taxonomy?.staff_label || (settingsForm.industry === 'education' ? 'Tutor / Counselor' : 'Preferred Doctor / Staff'),
     client_label: settingsForm.taxonomy?.client_label || (settingsForm.industry === 'education' ? 'Student / Parent' : 'Customer'),
     client_plural: settingsForm.taxonomy?.client_plural || (settingsForm.industry === 'education' ? 'Students' : settingsForm.industry === 'legal' ? 'Clients' : settingsForm.industry === 'realestate' ? 'Buyers' : settingsForm.industry === 'fitness' ? 'Members' : 'Customers'),
-    requirement_label: settingsForm.taxonomy?.requirement_label || (settingsForm.industry === 'education' ? 'Target Course & Grade' : 'Health Concern / Treatment'),
+    requirement_label: settingsForm.taxonomy?.requirement_label || (settingsForm.industry === 'education' ? 'Target Course & Grade' : 'Health Concern / Symptoms'),
     event_label: settingsForm.taxonomy?.event_label || (settingsForm.industry === 'education' ? 'Demo Class / Counseling' : 'Appointment'),
     booking_cta: settingsForm.taxonomy?.booking_cta || (settingsForm.industry === 'education' ? '+ Book Demo Class' : '+ New Appointment'),
+    phone_label: settingsForm.taxonomy?.phone_label || 'Phone',
+    age_location_label: settingsForm.taxonomy?.age_location_label || 'Age & Location',
+    status_label: settingsForm.taxonomy?.status_label || 'Status',
+    lead_label: settingsForm.taxonomy?.lead_label || 'Lead',
+    followup_label: settingsForm.taxonomy?.followup_label || 'Follow-up Due',
+    created_label: settingsForm.taxonomy?.created_label || 'Added',
+    notes_label: settingsForm.taxonomy?.notes_label || 'Latest Note',
+    actions_label: settingsForm.taxonomy?.actions_label || 'Action',
   };
 
   const filteredTasks = tasks.filter((task) => {
@@ -1466,6 +1504,39 @@ export default function DashboardPage() {
     saveStickyNotes(updated);
   };
 
+  const loadMarketingTemplates = async () => {
+    setLoadingTemplates(true);
+    try {
+      const list = await marketing.getTemplates();
+      if (Array.isArray(list) && list.length > 0) {
+        setMarketingTemplates(list);
+        setCustomTemplates(list.map(t => ({
+          id: t.id || t.name,
+          name: t.name,
+          label: t.label || `${t.name} (${t.category || 'UTILITY'})`,
+          variables_count: t.variables_count || 0
+        })));
+      } else {
+        const fallback = [
+          {
+            id: 'utility_general_update',
+            name: 'utility_general_update',
+            label: 'General Utility Update (utility_general_update)',
+            category: 'UTILITY',
+            status: 'APPROVED',
+            variables_count: 3
+          }
+        ];
+        setMarketingTemplates(fallback);
+        setCustomTemplates(fallback.map(t => ({ id: t.id, name: t.name, label: t.label, variables_count: t.variables_count })));
+      }
+    } catch (err) {
+      console.warn('Failed to load marketing templates:', err);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
   // Load section data based on active tab
   useEffect(() => {
     if (activeNav === 'bookings') {
@@ -1481,6 +1552,7 @@ export default function DashboardPage() {
     } else if (activeNav === 'settings') {
       loadSettings();
     } else if (activeNav === 'marketing') {
+      loadMarketingTemplates();
       // Load campaigns from backend
       setLoadingCampaigns(true);
       marketing.getCampaigns()
@@ -2242,15 +2314,51 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleSaveSettings(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSaveSettings(e?: React.FormEvent) {
+    if (e) e.preventDefault();
     setSettingsSaving(true);
     setSettingsError('');
     setSettingsSaved(false);
     try {
-      const updated = await crm.updateSettings(settingsForm);
+      const payload: Partial<TenantSettingsResponse> = {
+        name: settingsForm.name,
+        logo_url: settingsForm.logo_url,
+        admin_whatsapp_number: settingsForm.admin_whatsapp_number,
+        notification_email: settingsForm.notification_email,
+        timezone: settingsForm.timezone,
+        country_code: settingsForm.country_code,
+        currency: settingsForm.currency,
+        currency_symbol: settingsForm.currency_symbol,
+        full_location_text: settingsForm.full_location_text,
+        industry: settingsForm.industry,
+        taxonomy: {
+          ...(settingsForm.taxonomy || currentTaxonomy),
+        },
+        ai_prompt: settingsForm.ai_prompt,
+        ai_model: settingsForm.ai_model,
+        primary_model_provider: settingsForm.primary_model_provider,
+        assistant_name: settingsForm.assistant_name,
+        bot_goal: settingsForm.bot_goal,
+        services_text: settingsForm.services_text,
+        response_style: settingsForm.response_style,
+        methodology: settingsForm.methodology,
+        strict_rules: settingsForm.strict_rules,
+        objection_handling: settingsForm.objection_handling,
+        google_review_link: settingsForm.google_review_link,
+      };
+      if (settingsForm.meta_phone_id) payload.meta_phone_id = settingsForm.meta_phone_id;
+      if (settingsForm.meta_waba_id) payload.meta_waba_id = settingsForm.meta_waba_id;
+      if (settingsForm.meta_access_token) payload.meta_access_token = settingsForm.meta_access_token;
+      if (settingsForm.meta_app_secret) payload.meta_app_secret = settingsForm.meta_app_secret;
+      if (settingsForm.verify_token) payload.verify_token = settingsForm.verify_token;
+      if (settingsForm.gemini_api_key) payload.gemini_api_key = settingsForm.gemini_api_key;
+      if (settingsForm.groq_api_key) payload.groq_api_key = settingsForm.groq_api_key;
+      if (settingsForm.opencode_api_key) payload.opencode_api_key = settingsForm.opencode_api_key;
+      if (settingsForm.opencode_base_url) payload.opencode_base_url = settingsForm.opencode_base_url;
+
+      const updated = await crm.updateSettings(payload);
       if (updated && updated.name !== undefined) {
-        setSettingsForm(updated);
+        setSettingsForm((prev) => ({ ...prev, ...updated }));
         if (typeof window !== 'undefined') {
           const slug = updated.slug || settingsForm.slug || localStorage.getItem('tenant_slug') || 'boldlabs';
           localStorage.setItem('tenant_slug', slug);
@@ -2264,6 +2372,7 @@ export default function DashboardPage() {
       setSettingsSaved(true);
       setTimeout(() => setSettingsSaved(false), 4000);
     } catch (err: unknown) {
+      console.error('Settings save error:', err);
       setSettingsError(err instanceof Error ? err.message : 'Failed to save settings.');
     } finally {
       setSettingsSaving(false);
@@ -2581,6 +2690,60 @@ export default function DashboardPage() {
     e.target.value = '';
   }
 
+  async function handleCreateTemplate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newTemplateForm.name.trim() || !newTemplateForm.body.trim()) {
+      setTemplateManagerError('Please enter a template name and message body.');
+      return;
+    }
+    setCreatingTemplate(true);
+    setTemplateManagerError(null);
+    setTemplateManagerSuccess(null);
+    try {
+      const cleanName = newTemplateForm.name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^_+|_+$/g, '');
+      const created = await marketing.createTemplate({
+        name: cleanName,
+        label: newTemplateForm.label.trim() || `${cleanName} (${newTemplateForm.category})`,
+        category: newTemplateForm.category,
+        language: newTemplateForm.language || 'en_US',
+        body: newTemplateForm.body,
+        variables_count: newTemplateForm.variables_count,
+      });
+
+      setTemplateManagerSuccess(`Template "${created.name}" created successfully with status ${created.status}!`);
+      setNewTemplateForm({
+        name: '',
+        label: '',
+        category: 'UTILITY',
+        language: 'en_US',
+        body: '',
+        variables_count: 2,
+      });
+      await loadMarketingTemplates();
+      setCampaignForm((prev) => ({ ...prev, template_name: created.name }));
+    } catch (err: any) {
+      setTemplateManagerError(err.message || 'Failed to create template.');
+    } finally {
+      setCreatingTemplate(false);
+    }
+  }
+
+  async function handleDeleteTemplate(templateName: string) {
+    if (!confirm(`Are you sure you want to delete template "${templateName}"? This action cannot be undone.`)) return;
+    setTemplateManagerError(null);
+    setTemplateManagerSuccess(null);
+    try {
+      await marketing.deleteTemplate(templateName);
+      setTemplateManagerSuccess(`Template "${templateName}" deleted.`);
+      await loadMarketingTemplates();
+      if (campaignForm.template_name === templateName) {
+        setCampaignForm((prev) => ({ ...prev, template_name: 'utility_general_update' }));
+      }
+    } catch (err: any) {
+      setTemplateManagerError(err.message || 'Failed to delete template.');
+    }
+  }
+
   function handleAddCustomTemplate(e: React.FormEvent) {
     e.preventDefault();
     if (!newTemplateForm.name.trim()) return;
@@ -2600,7 +2763,7 @@ export default function DashboardPage() {
     });
     setCampaignForm((prev) => ({ ...prev, template_name: cleanName }));
     setNewTemplateModal(false);
-    setNewTemplateForm({ name: '', label: '', variables_count: 2 });
+    setNewTemplateForm({ name: '', label: '', category: 'UTILITY', language: 'en_US', body: '', variables_count: 2 });
     setActionNotice(`Approved template "${cleanName}" saved and selected!`);
     setTimeout(() => setActionNotice(null), 4000);
   }
@@ -3881,42 +4044,94 @@ export default function DashboardPage() {
             {activeNav === 'calendar' && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-3">
                 {/* Calendar Top Controls & Unified Filter Layer */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
-                  {/* Left: Date Navigation & Title */}
-                  <div className="flex items-center gap-3">
-                    <h3 className="font-semibold text-sm text-text-primary flex items-center gap-1.5">
-                      <CalendarDays className="w-4 h-4 text-accent stroke-[1.5]" />
-                      <span>{calendarTitle}</span>
-                    </h3>
-                    <div className="flex items-center gap-0.5 bg-surface-subtle p-0.5 rounded-sm border border-border">
+                <div className="flex flex-col gap-2 pt-1 pb-0.5">
+                  {/* Row 1: Date Navigation on Left, View Switcher & Action Buttons on Right */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    {/* Left: Date Navigation & Title */}
+                    <div className="flex items-center gap-2.5">
+                      <h3 className="font-semibold text-sm text-text-primary flex items-center gap-1.5 whitespace-nowrap">
+                        <CalendarDays className="w-4 h-4 text-accent stroke-[1.5]" />
+                        <span>{calendarTitle}</span>
+                      </h3>
+                      <div className="flex items-center gap-0.5 bg-surface-subtle p-0.5 rounded-sm border border-border">
+                        <button
+                          type="button"
+                          onClick={handlePrevDate}
+                          className="p-1 text-text-secondary hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer"
+                          title="Previous"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5 stroke-[1.5]" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleToday}
+                          className="px-2 py-0.5 text-xs font-medium text-text-body hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer"
+                        >
+                          Today
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleNextDate}
+                          className="p-1 text-text-secondary hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer"
+                          title="Next"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5 stroke-[1.5]" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Right: View Switcher (Day/Week/Month) & Actions */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <div className="flex gap-0.5 bg-surface-subtle p-0.5 rounded-sm border border-border">
+                        {(['day', 'week', 'month'] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setCalendarViewMode(mode)}
+                            className={`px-2 py-0.5 text-xs rounded-sm capitalize transition-colors duration-150 cursor-pointer ${
+                              calendarViewMode === mode
+                                ? 'bg-surface text-text-primary font-semibold border border-border shadow-subtle'
+                                : 'text-text-secondary hover:text-text-primary font-medium'
+                            }`}
+                          >
+                            {mode}
+                          </button>
+                        ))}
+                      </div>
+
                       <button
                         type="button"
-                        onClick={handlePrevDate}
-                        className="p-1 text-text-secondary hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer"
-                        title="Previous"
+                        onClick={() => navigateTo('bookings')}
+                        className="px-2 py-1 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1 cursor-pointer font-medium shadow-2xs whitespace-nowrap"
+                        title="Switch to Bookings Table list view"
                       >
-                        <ChevronLeft className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <List className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span>Table</span>
                       </button>
+
                       <button
                         type="button"
-                        onClick={handleToday}
-                        className="px-2 py-0.5 text-xs font-medium text-text-body hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer"
+                        onClick={() => setShowAddTaskModal(true)}
+                        className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                        title="Create a new task"
                       >
-                        Today
+                        <CheckSquare className="w-3.5 h-3.5 stroke-[1.5] text-amber-600" />
+                        <span>+ Task</span>
                       </button>
+
                       <button
                         type="button"
-                        onClick={handleNextDate}
-                        className="p-1 text-text-secondary hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer"
-                        title="Next"
+                        onClick={() => setIsAddBookingOpen(true)}
+                        className="px-2.5 py-1 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer shadow-xs whitespace-nowrap"
                       >
-                        <ChevronRight className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span>{currentTaxonomy.booking_cta || '+ Appointment'}</span>
                       </button>
                     </div>
                   </div>
 
-                  {/* Middle: Unified Layer / Filter Selector (All, Appointments, Follow-ups, Tasks) */}
-                  <div className="flex overflow-x-auto gap-1 bg-surface-subtle border border-border rounded-sm p-0.5 max-w-full shrink-0">
+                  {/* Row 2: Unified Layer / Filter Selector Pills (All, Appointments, Follow-ups, Tasks) */}
+                  <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5 w-fit">
                     {[
                       { key: 'all', label: 'All Schedule', icon: LayoutGrid, count: (bookings?.length || 0) + (customers?.filter(c => c.followup_date).length || 0) + (tasks?.filter(t => !t.completed).length || 0) },
                       { key: 'bookings', label: currentTaxonomy.event_label || 'Appointments', icon: Calendar, count: bookings?.length || 0 },
@@ -3930,67 +4145,18 @@ export default function DashboardPage() {
                           key={tab.key}
                           type="button"
                           onClick={() => setCalendarLayerFilter(tab.key as any)}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-sm transition-colors cursor-pointer ${
+                          className={`flex items-center gap-1.5 px-2 py-0.5 text-[11px] rounded-sm transition-colors cursor-pointer whitespace-nowrap ${
                             isActive
                               ? 'bg-surface text-text-primary font-semibold border border-border shadow-xs'
                               : 'text-text-secondary hover:text-text-primary'
                           }`}
                         >
-                          <IconComp className="w-3.5 h-3.5 stroke-[1.5]" />
+                          <IconComp className="w-3 h-3 stroke-[1.5]" />
                           <span>{tab.label}</span>
                           <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{tab.count}</span>
                         </button>
                       );
                     })}
-                  </div>
-
-                  {/* Right: View Switcher (Day/Week/Month) & Actions */}
-                  <div className="flex items-center gap-2">
-                    <div className="flex gap-0.5 bg-surface-subtle p-0.5 rounded-sm border border-border">
-                      {(['day', 'week', 'month'] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => setCalendarViewMode(mode)}
-                          className={`px-2.5 py-1 text-xs rounded-sm capitalize transition-colors duration-150 cursor-pointer ${
-                            calendarViewMode === mode
-                              ? 'bg-surface text-text-primary font-semibold border border-border shadow-subtle'
-                              : 'text-text-secondary hover:text-text-primary font-medium'
-                          }`}
-                        >
-                          {mode}
-                        </button>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => navigateTo('bookings')}
-                      className="px-2.5 py-1 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer font-medium shadow-xs"
-                      title="Switch to Bookings Table list view"
-                    >
-                      <List className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span className="hidden sm:inline">Table View</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowAddTaskModal(true)}
-                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer"
-                      title="Create a new task"
-                    >
-                      <CheckSquare className="w-3.5 h-3.5 stroke-[1.5] text-amber-600" />
-                      <span>+ Task</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsAddBookingOpen(true)}
-                      className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs"
-                    >
-                      <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>{currentTaxonomy.booking_cta || '+ New Appointment'}</span>
-                    </button>
                   </div>
                 </div>
 
@@ -4378,7 +4544,7 @@ export default function DashboardPage() {
                                               type="button"
                                               onClick={(e) => {
                                                 e.stopPropagation();
-                                                openChatForContact(b.contact_phone);
+                                                openChatForContact(b.contact_phone || '');
                                               }}
                                               className="p-0.5 hover:opacity-100 opacity-80 transition-opacity cursor-pointer shrink-0"
                                               title="WhatsApp Chat"
@@ -4487,32 +4653,32 @@ export default function DashboardPage() {
                       const currentDateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
 
                       return (
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                          <div className="p-3 bg-surface border border-border rounded-md">
-                            <p className="text-xs font-medium text-text-muted flex items-center gap-1">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                          <div className="p-2.5 bg-surface border border-border rounded-md">
+                            <p className="text-[11px] font-medium text-text-muted flex items-center gap-1">
                               <Calendar className="w-3.5 h-3.5 text-accent" />
                               <span>{currentTaxonomy.event_label || 'Appointments'} ({dayBookings.length})</span>
                             </p>
-                            <p className="text-lg font-semibold text-text-primary font-mono tabular-nums mt-1">{currentCurrencySymbol}{totalRev} <span className="text-xs text-text-muted font-normal">exp.</span></p>
+                            <p className="text-base font-semibold text-text-primary font-mono tabular-nums mt-0.5">{currentCurrencySymbol}{totalRev} <span className="text-[10px] text-text-muted font-normal">exp.</span></p>
                           </div>
-                          <div className="p-3 bg-surface border border-border rounded-md">
-                            <p className="text-xs font-medium text-blue-700 flex items-center gap-1">
+                          <div className="p-2.5 bg-surface border border-border rounded-md">
+                            <p className="text-[11px] font-medium text-blue-700 flex items-center gap-1">
                               <Phone className="w-3.5 h-3.5 text-blue-600" />
                               <span>Follow-ups Today</span>
                             </p>
-                            <p className="text-lg font-semibold text-text-primary font-mono tabular-nums mt-1">{dayFollowups.length} scheduled</p>
+                            <p className="text-base font-semibold text-text-primary font-mono tabular-nums mt-0.5">{dayFollowups.length} scheduled</p>
                           </div>
-                          <div className="p-3 bg-surface border border-border rounded-md">
-                            <p className="text-xs font-medium text-amber-800 flex items-center gap-1">
+                          <div className="p-2.5 bg-surface border border-border rounded-md">
+                            <p className="text-[11px] font-medium text-amber-800 flex items-center gap-1">
                               <CheckSquare className="w-3.5 h-3.5 text-amber-600" />
                               <span>Tasks Due</span>
                             </p>
-                            <p className="text-lg font-semibold text-text-primary font-mono tabular-nums mt-1">{pendingTasks} pending <span className="text-xs text-text-muted font-normal">({dayTasks.length} total)</span></p>
+                            <p className="text-base font-semibold text-text-primary font-mono tabular-nums mt-0.5">{pendingTasks} pending <span className="text-[10px] text-text-muted font-normal">({dayTasks.length})</span></p>
                           </div>
-                          <div className="p-3 bg-surface border border-border rounded-md flex items-center justify-between">
+                          <div className="p-2.5 bg-surface border border-border rounded-md flex items-center justify-between">
                             <div>
-                              <p className="text-xs font-medium text-text-muted">Quick Action</p>
-                              <p className="text-xs text-text-secondary mt-0.5">Schedule on this day</p>
+                              <p className="text-[11px] font-medium text-text-muted">Quick Action</p>
+                              <p className="text-[10px] text-text-secondary mt-0.5">Schedule for today</p>
                             </div>
                             <div className="flex gap-1.5">
                               <button
@@ -4521,7 +4687,7 @@ export default function DashboardPage() {
                                   setAddTaskDueDate(currentDateStr);
                                   setShowAddTaskModal(true);
                                 }}
-                                className="px-2 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-sm text-[11px] font-medium cursor-pointer transition-colors"
+                                className="px-2 py-0.5 bg-surface-subtle hover:bg-surface border border-border rounded-sm text-[11px] font-medium cursor-pointer transition-colors"
                               >
                                 + Task
                               </button>
@@ -4531,7 +4697,7 @@ export default function DashboardPage() {
                                   setNewBookingForm((prev) => ({ ...prev, date: currentDateStr, time: '10:00' }));
                                   setIsAddBookingOpen(true);
                                 }}
-                                className="px-2.5 py-1 bg-accent hover:bg-accent-hover text-white rounded-sm text-[11px] font-medium cursor-pointer transition-colors"
+                                className="px-2 py-0.5 bg-accent hover:bg-accent-hover text-white rounded-sm text-[11px] font-medium cursor-pointer transition-colors"
                               >
                                 + Booking
                               </button>
@@ -4737,7 +4903,7 @@ export default function DashboardPage() {
                                             type="button"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              openChatForContact(b.contact_phone);
+                                              openChatForContact(b.contact_phone || '');
                                             }}
                                             className="p-1.5 bg-surface-subtle hover:bg-accent hover:text-white text-text-secondary rounded border border-border transition-colors cursor-pointer"
                                             title="WhatsApp Chat"
@@ -5472,24 +5638,23 @@ export default function DashboardPage() {
                               <th className="p-2.5 pl-4">{currentTaxonomy.client_label || 'Customer'}</th>
                               <th className="p-2.5">{currentTaxonomy.staff_label || 'Staff'}</th>
                               <th className="p-2.5">{currentTaxonomy.requirement_label || 'Requirement'}</th>
-                              <th className="p-2.5">Status</th>
-                              <th className="p-2.5">Lead</th>
-                              <th className="p-2.5 text-center">Converted</th>
-                              <th className="p-2.5">Follow-up Due</th>
-                              <th className="p-2.5">Latest Note</th>
-                              <th className="p-2.5 text-right pr-4">Action</th>
+                              <th className="p-2.5">{currentTaxonomy.status_label || 'Status'}</th>
+                              <th className="p-2.5">{currentTaxonomy.lead_label || 'Lead'}</th>
+                              <th className="p-2.5">{currentTaxonomy.followup_label || 'Follow-up Due'}</th>
+                              <th className="p-2.5">{currentTaxonomy.notes_label || 'Latest Note'}</th>
+                              <th className="p-2.5 text-right pr-4">{currentTaxonomy.actions_label || 'Action'}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
                             {loadingCustomers ? (
                               <tr>
-                                <td colSpan={9} className="p-8 text-center text-text-muted">
+                                <td colSpan={8} className="p-8 text-center text-text-muted">
                                   Loading {(currentTaxonomy.client_plural || 'customers').toLowerCase()}...
                                 </td>
                               </tr>
                             ) : customers.length === 0 ? (
                               <tr>
-                                <td colSpan={9} className="p-8 text-center text-text-muted">
+                                <td colSpan={8} className="p-8 text-center text-text-muted">
                                   No {(currentTaxonomy.client_plural || 'customers').toLowerCase()} match the selected filters.
                                 </td>
                               </tr>
@@ -5548,7 +5713,7 @@ export default function DashboardPage() {
                                     <td className="p-2.5" onClick={(e) => e.stopPropagation()}>
                                       <select
                                         value={cust.status}
-                                        onChange={(e) => handleUpdateCustomer(cust.id, { status: e.target.value as any })}
+                                        onChange={(e) => handleUpdateCustomer(cust.id, { status: e.target.value as any, converted: e.target.value === 'converted' })}
                                         className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border focus:outline-none cursor-pointer ${
                                           cust.status === 'converted'
                                             ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
@@ -5586,20 +5751,6 @@ export default function DashboardPage() {
                                         <option value="warm">Warm</option>
                                         <option value="cold">Cold</option>
                                       </select>
-                                    </td>
-
-                                    {/* Converted Toggle */}
-                                    <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
-                                      <button
-                                        onClick={() => handleUpdateCustomer(cust.id, { converted: !cust.converted })}
-                                        className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border transition-colors cursor-pointer ${
-                                          cust.converted
-                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
-                                            : 'bg-surface text-text-muted border-border hover:text-text-primary'
-                                        }`}
-                                      >
-                                        {cust.converted ? 'Converted' : 'Pending'}
-                                      </button>
                                     </td>
 
                                     {/* Follow-up Due Badge */}
@@ -6224,28 +6375,27 @@ export default function DashboardPage() {
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                             <tr>
                               <th className="p-2.5 pl-4">{currentTaxonomy.client_label || 'Customer'}</th>
-                              <th className="p-2.5">Phone</th>
-                              <th className="p-2.5">Age & Location</th>
+                              <th className="p-2.5">{currentTaxonomy.phone_label || 'Phone'}</th>
+                              <th className="p-2.5">{currentTaxonomy.age_location_label || 'Age & Location'}</th>
                               <th className="p-2.5">{currentTaxonomy.requirement_label || 'Requirement / Concern'}</th>
                               <th className="p-2.5">{currentTaxonomy.staff_label || 'Staff'}</th>
-                              <th className="p-2.5">Status</th>
-                              <th className="p-2.5">Lead</th>
-                              <th className="p-2.5 text-center">Converted</th>
-                              <th className="p-2.5">Follow-up</th>
-                              <th className="p-2.5">Added</th>
-                              <th className="p-2.5 text-right pr-4">Action</th>
+                              <th className="p-2.5">{currentTaxonomy.status_label || 'Status'}</th>
+                              <th className="p-2.5">{currentTaxonomy.lead_label || 'Lead'}</th>
+                              <th className="p-2.5">{currentTaxonomy.followup_label || 'Follow-up'}</th>
+                              <th className="p-2.5">{currentTaxonomy.created_label || 'Added'}</th>
+                              <th className="p-2.5 text-right pr-4">{currentTaxonomy.actions_label || 'Action'}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
                             {loadingCustomers ? (
                               <tr>
-                                <td colSpan={11} className="p-8 text-center text-text-muted">
+                                <td colSpan={10} className="p-8 text-center text-text-muted">
                                   Loading database records...
                                 </td>
                               </tr>
                             ) : customers.length === 0 ? (
                               <tr>
-                                <td colSpan={11} className="p-8 text-center text-text-muted">
+                                <td colSpan={10} className="p-8 text-center text-text-muted">
                                   No customer records found matching your filters.
                                 </td>
                               </tr>
@@ -6305,11 +6455,6 @@ export default function DashboardPage() {
                                           : 'bg-blue-50 text-blue-800 border-blue-200'
                                       }`}>
                                         {cust.lead_probability}
-                                      </span>
-                                    </td>
-                                    <td className="p-2.5 text-center">
-                                      <span className={`text-[10px] font-semibold ${cust.converted ? 'text-emerald-700' : 'text-text-muted'}`}>
-                                        {cust.converted ? 'Yes' : 'No'}
                                       </span>
                                     </td>
                                     <td className="p-2.5 font-mono text-[10px] text-text-secondary whitespace-nowrap">
@@ -7434,24 +7579,34 @@ export default function DashboardPage() {
                             {campaignForm.message_mode === 'template' ? (
                               <div className="space-y-3 bg-surface-subtle/50 p-3.5 rounded-sm border border-border">
                                 <div className="flex items-center justify-between">
-                                  <label className="text-[11px] font-medium text-text-secondary">Approved WhatsApp Template</label>
-                                  <button
-                                    type="button"
-                                    onClick={() => setNewTemplateModal(true)}
-                                    className="text-[11px] text-accent hover:underline font-medium flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Plus className="w-3 h-3" />
-                                    <span>Add Template</span>
-                                  </button>
+                                  <label className="text-[11px] font-medium text-text-secondary">Approved WhatsApp Broadcast Template</label>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowTemplateManagerModal(true)}
+                                      className="text-[11px] text-accent hover:underline font-medium flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Settings2 className="w-3 h-3" />
+                                      <span>Manage / Create Templates</span>
+                                    </button>
+                                  </div>
                                 </div>
                                 <select
                                   value={campaignForm.template_name}
                                   onChange={(e) => setCampaignForm({ ...campaignForm, template_name: e.target.value })}
-                                  className="w-full px-3 py-2 bg-surface border border-border rounded-sm text-xs text-text-primary"
+                                  className="w-full px-3 py-2 bg-surface border border-border rounded-sm text-xs text-text-primary font-medium"
                                 >
-                                  {customTemplates.map((tpl) => (
-                                    <option key={tpl.id} value={tpl.name}>{tpl.label}</option>
-                                  ))}
+                                  {marketingTemplates.length > 0 ? (
+                                    marketingTemplates.map((tpl) => (
+                                      <option key={tpl.id} value={tpl.name}>
+                                        [{tpl.category || 'UTILITY'}] {tpl.label || tpl.name} ({tpl.status || 'APPROVED'})
+                                      </option>
+                                    ))
+                                  ) : (
+                                    customTemplates.map((tpl) => (
+                                      <option key={tpl.id} value={tpl.name}>{tpl.label}</option>
+                                    ))
+                                  )}
                                 </select>
                                 <div className="space-y-1.5">
                                   <span className="text-[11px] font-medium text-text-muted">Template Dynamic Variables</span>
@@ -8148,6 +8303,28 @@ export default function DashboardPage() {
                           </p>
                         </div>
                       </div>
+
+                      <div className="pt-3 border-t border-border flex items-center justify-between">
+                        <p className="text-[11px] text-text-muted">Changes take effect immediately for all automated WhatsApp and email alerts.</p>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveSettings()}
+                          disabled={settingsSaving}
+                          className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          {settingsSaving ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
+                              <span>Saving alerts...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-3.5 h-3.5 stroke-[1.5]" />
+                              <span>Save Alert Channels</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -8262,90 +8439,158 @@ export default function DashboardPage() {
                         </select>
                       </div>
 
-                      {/* 4 Customizable Label Fields */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                      {/* Full CRM Custom Fields & Terminology */}
+                      <div className="space-y-4 pt-1">
                         <div>
-                          <label className="block text-[11px] font-medium text-text-muted mb-1">
-                            Staff / Specialist Label
-                          </label>
-                          <input
-                            type="text"
-                            value={settingsForm.taxonomy?.staff_label ?? currentTaxonomy.staff_label}
-                            onChange={(e) =>
-                              setSettingsForm({
-                                ...settingsForm,
-                                taxonomy: {
-                                  ...(settingsForm.taxonomy || currentTaxonomy),
-                                  staff_label: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder="e.g. Tutor / Counselor"
-                            className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                          />
+                          <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider mb-2">1. Core Business Entities & Actions</h5>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Customer / Client (Singular)</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.client_label ?? currentTaxonomy.client_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), client_label: e.target.value } })}
+                                placeholder="e.g. Patient / Student / Buyer"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Customers / Clients (Plural)</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.client_plural ?? currentTaxonomy.client_plural}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), client_plural: e.target.value } })}
+                                placeholder="e.g. Patients / Students / Buyers"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Staff / Specialist Label</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.staff_label ?? currentTaxonomy.staff_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), staff_label: e.target.value } })}
+                                placeholder="e.g. Doctor / Tutor / Specialist"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Requirement / Concern / Inquiry</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.requirement_label ?? currentTaxonomy.requirement_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), requirement_label: e.target.value } })}
+                                placeholder="e.g. Health Concern / Target Course"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Booking / Event Singular</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.event_label ?? currentTaxonomy.event_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), event_label: e.target.value } })}
+                                placeholder="e.g. Appointment / Demo Class"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Booking Button CTA Label</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.booking_cta ?? currentTaxonomy.booking_cta}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_cta: e.target.value } })}
+                                placeholder="e.g. + New Appointment / + Book Demo"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                          </div>
                         </div>
 
-                        <div>
-                          <label className="block text-[11px] font-medium text-text-muted mb-1">
-                            Customer / Client Label
-                          </label>
-                          <input
-                            type="text"
-                            value={settingsForm.taxonomy?.client_label ?? currentTaxonomy.client_label}
-                            onChange={(e) =>
-                              setSettingsForm({
-                                ...settingsForm,
-                                taxonomy: {
-                                  ...(settingsForm.taxonomy || currentTaxonomy),
-                                  client_label: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder="e.g. Student / Parent"
-                            className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[11px] font-medium text-text-muted mb-1">
-                            Requirement / Notes Label
-                          </label>
-                          <input
-                            type="text"
-                            value={settingsForm.taxonomy?.requirement_label ?? currentTaxonomy.requirement_label}
-                            onChange={(e) =>
-                              setSettingsForm({
-                                ...settingsForm,
-                                taxonomy: {
-                                  ...(settingsForm.taxonomy || currentTaxonomy),
-                                  requirement_label: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder="e.g. Target Course & Grade"
-                            className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[11px] font-medium text-text-muted mb-1">
-                            Event / Booking Label
-                          </label>
-                          <input
-                            type="text"
-                            value={settingsForm.taxonomy?.event_label ?? currentTaxonomy.event_label}
-                            onChange={(e) =>
-                              setSettingsForm({
-                                ...settingsForm,
-                                taxonomy: {
-                                  ...(settingsForm.taxonomy || currentTaxonomy),
-                                  event_label: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder="e.g. Demo Class / Counseling"
-                            className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                          />
+                        <div className="pt-2 border-t border-border">
+                          <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider mb-2">2. Customer Table Columns & Field Headers (Fully Customizable)</h5>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Phone Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.phone_label ?? currentTaxonomy.phone_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), phone_label: e.target.value } })}
+                                placeholder="Phone"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Age & Location Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.age_location_label ?? currentTaxonomy.age_location_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), age_location_label: e.target.value } })}
+                                placeholder="Age & Location"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Status / Pipeline Stage</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.status_label ?? currentTaxonomy.status_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), status_label: e.target.value } })}
+                                placeholder="Status"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Lead Priority Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.lead_label ?? currentTaxonomy.lead_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), lead_label: e.target.value } })}
+                                placeholder="Lead"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Follow-up Due Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.followup_label ?? currentTaxonomy.followup_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), followup_label: e.target.value } })}
+                                placeholder="Follow-up Due"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Added / Joined Date Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.created_label ?? currentTaxonomy.created_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), created_label: e.target.value } })}
+                                placeholder="Added"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Latest Note Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.notes_label ?? currentTaxonomy.notes_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), notes_label: e.target.value } })}
+                                placeholder="Latest Note"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Action Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.actions_label ?? currentTaxonomy.actions_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), actions_label: e.target.value } })}
+                                placeholder="Action"
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                          </div>
                         </div>
                       </div>
 
@@ -8393,6 +8638,27 @@ export default function DashboardPage() {
                           >
                             <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
                             <span>Manage Presets</span>
+                          </button>
+                        </div>
+                        <div className="pt-3 border-t border-border flex items-center justify-between">
+                          <p className="text-[11px] text-text-muted">All tables, forms, drawers, and exports instantly update with your custom terminology.</p>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveSettings()}
+                            disabled={settingsSaving}
+                            className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                          >
+                            {settingsSaving ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
+                                <span>Saving labels...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check className="w-3.5 h-3.5 stroke-[1.5]" />
+                                <span>Save CRM Terminology</span>
+                              </>
+                            )}
                           </button>
                         </div>
                       </div>
@@ -9361,78 +9627,239 @@ export default function DashboardPage() {
         )}
 
         {/* ── MODAL 4: ADD APPROVED WHATSAPP TEMPLATE NAME ───── */}
-        {newTemplateModal && (
-          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-surface rounded-md border border-border w-full max-w-md overflow-hidden shadow-subtle p-6 space-y-4">
+        {/* ── MODAL 4: WHATSAPP MESSAGE TEMPLATE MANAGER ───── */}
+        {(showTemplateManagerModal || newTemplateModal) && (
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-surface rounded-md border border-border w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl p-6 space-y-5">
               <div className="flex items-center justify-between border-b border-border pb-3">
                 <div className="flex items-center gap-2">
                   <Megaphone className="w-5 h-5 text-accent stroke-[1.5]" />
                   <div>
-                    <h3 className="font-semibold text-sm text-text-primary">Add Approved Template</h3>
-                    <p className="text-xs text-text-muted">Register an approved Meta WhatsApp template</p>
+                    <h3 className="font-semibold text-sm text-text-primary">Message Template Manager</h3>
+                    <p className="text-xs text-text-muted">Create, inspect, and delete WhatsApp broadcast message templates (UTILITY & MARKETING)</p>
                   </div>
                 </div>
-                <button onClick={() => setNewTemplateModal(false)} className="text-text-muted hover:text-text-primary cursor-pointer">
+                <button
+                  onClick={() => {
+                    setShowTemplateManagerModal(false);
+                    setNewTemplateModal(false);
+                    setTemplateManagerError(null);
+                    setTemplateManagerSuccess(null);
+                  }}
+                  className="text-text-muted hover:text-text-primary cursor-pointer p-1"
+                >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <form onSubmit={handleAddCustomTemplate} className="space-y-3.5 text-xs">
-                <div className="space-y-1">
-                  <label className="font-medium text-text-primary">Exact Template Name in Meta *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. festive_offer_2026 or launch_discount_v1"
-                    value={newTemplateForm.name}
-                    onChange={(e) => setNewTemplateForm({ ...newTemplateForm, name: e.target.value })}
-                    className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent"
-                  />
-                  <p className="text-[10px] text-text-muted">Must match the exact template name approved in your Meta WhatsApp Business Manager.</p>
+              {/* Feedback banners */}
+              {templateManagerSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-sm font-medium flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{templateManagerSuccess}</span>
+                </div>
+              )}
+              {templateManagerError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-md font-medium flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{templateManagerError}</span>
+                </div>
+              )}
+
+              {/* SECTION 1: ACTIVE TEMPLATES LIST */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-semibold text-xs text-text-primary uppercase tracking-wider">
+                    Active Templates ({marketingTemplates.length > 0 ? marketingTemplates.length : customTemplates.length})
+                  </h4>
+                  <span className="text-[10px] text-text-muted">Transactional confirmations are safely excluded</span>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="font-medium text-text-primary">Display Label / Description</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 5. Festive 30% Off Promotion"
-                    value={newTemplateForm.label}
-                    onChange={(e) => setNewTemplateForm({ ...newTemplateForm, label: e.target.value })}
-                    className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent"
-                  />
+                <div className="border border-border rounded-sm overflow-hidden bg-surface-subtle/30">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-surface-subtle border-b border-border text-[11px] font-semibold text-text-secondary">
+                      <tr>
+                        <th className="p-2.5">Template Name</th>
+                        <th className="p-2.5">Type / Category</th>
+                        <th className="p-2.5">Approval Status</th>
+                        <th className="p-2.5">Variables</th>
+                        <th className="p-2.5 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {(marketingTemplates.length > 0 ? marketingTemplates : customTemplates).map((tpl: any) => (
+                        <tr key={tpl.id || tpl.name} className="hover:bg-surface-subtle/60 transition-colors">
+                          <td className="p-2.5 font-mono text-[11px] font-medium text-text-primary">
+                            <div>{tpl.name}</div>
+                            {tpl.label && tpl.label !== tpl.name && (
+                              <div className="text-[10px] font-sans text-text-muted truncate max-w-[200px]">{tpl.label}</div>
+                            )}
+                          </td>
+                          <td className="p-2.5">
+                            <span className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold border ${
+                              tpl.category === 'MARKETING'
+                                ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                : 'bg-blue-50 text-blue-700 border-blue-200'
+                            }`}>
+                              {tpl.category || 'UTILITY'}
+                            </span>
+                          </td>
+                          <td className="p-2.5">
+                            <span className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold border ${
+                              tpl.status === 'APPROVED'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : tpl.status === 'REJECTED'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                            }`}>
+                              {tpl.status || 'APPROVED'}
+                            </span>
+                          </td>
+                          <td className="p-2.5 text-text-secondary text-[11px] font-mono">
+                            {tpl.variables_count || 0} var{tpl.variables_count !== 1 ? 's' : ''}
+                          </td>
+                          <td className="p-2.5 text-right">
+                            {tpl.name === 'utility_general_update' ? (
+                              <span className="text-[10px] text-text-muted italic">System Default</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTemplate(tpl.name)}
+                                className="p-1 text-text-muted hover:text-status-error hover:bg-surface-subtle rounded-sm transition-colors cursor-pointer"
+                                title="Delete Template"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* SECTION 2: CREATE NEW TEMPLATE FORM */}
+              <div className="space-y-3 pt-3 border-t border-border">
+                <div>
+                  <h4 className="font-semibold text-xs text-text-primary uppercase tracking-wider">
+                    Create New Message Template
+                  </h4>
+                  <p className="text-xs text-text-muted">Directly create and submit message templates (UTILITY or MARKETING) to Meta Cloud API.</p>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="font-medium text-text-primary">Number of Body Variables ({'{{1}}'}, {'{{2}}'}, etc.)</label>
-                  <select
-                    value={newTemplateForm.variables_count}
-                    onChange={(e) => setNewTemplateForm({ ...newTemplateForm, variables_count: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary"
-                  >
-                    <option value={1}>1 Variable (e.g. {'{{1}}'} Customer Name)</option>
-                    <option value={2}>2 Variables (e.g. {'{{1}}'} Name, {'{{2}}'} Offer)</option>
-                    <option value={3}>3 Variables (e.g. {'{{1}}'} Name, {'{{2}}'} Business, {'{{3}}'} Code)</option>
-                    <option value={4}>4 Variables</option>
-                  </select>
-                </div>
+                <form onSubmit={handleCreateTemplate} className="space-y-3.5 text-xs bg-surface-subtle/50 p-4 rounded-sm border border-border">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="font-medium text-text-primary">Template Name in Meta *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. spring_admission_alert or special_sale_v1"
+                        value={newTemplateForm.name}
+                        onChange={(e) => setNewTemplateForm({ ...newTemplateForm, name: e.target.value })}
+                        className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono text-text-primary focus:outline-none focus:border-accent"
+                      />
+                      <p className="text-[10px] text-text-muted">Lowercase letters, numbers, and underscores only.</p>
+                    </div>
 
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
-                  <button
-                    type="button"
-                    onClick={() => setNewTemplateModal(false)}
-                    className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors duration-150 cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-1.5 bg-accent hover:bg-accent/90 text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Save & Select Template</span>
-                  </button>
-                </div>
-              </form>
+                    <div className="space-y-1">
+                      <label className="font-medium text-text-primary">Template Type / Category *</label>
+                      <select
+                        value={newTemplateForm.category}
+                        onChange={(e) => setNewTemplateForm({ ...newTemplateForm, category: e.target.value as any })}
+                        className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary font-medium"
+                      >
+                        <option value="UTILITY">UTILITY (Updates, notifications, account/billing)</option>
+                        <option value="MARKETING">MARKETING (Promotions, special offers, announcements)</option>
+                      </select>
+                      <p className="text-[10px] text-text-muted">UTILITY messages have highest delivery rate & lowest friction.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="font-medium text-text-primary">Display Label / Title</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Weekend Flash Offer (20% Off)"
+                        value={newTemplateForm.label}
+                        onChange={(e) => setNewTemplateForm({ ...newTemplateForm, label: e.target.value })}
+                        className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="font-medium text-text-primary">Language Code</label>
+                      <select
+                        value={newTemplateForm.language}
+                        onChange={(e) => setNewTemplateForm({ ...newTemplateForm, language: e.target.value })}
+                        className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary"
+                      >
+                        <option value="en_US">English (US) - en_US</option>
+                        <option value="en">English - en</option>
+                        <option value="en_GB">English (UK) - en_GB</option>
+                        <option value="hi">Hindi - hi</option>
+                        <option value="ta">Tamil - ta</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="font-medium text-text-primary">Message Body Content *</label>
+                      <span className="text-[10px] font-mono text-text-muted">
+                        Dynamic tags detected: {Array.from(new Set(newTemplateForm.body.match(/\{\{(\d+)\}\}/g) || [])).length}
+                      </span>
+                    </div>
+                    <textarea
+                      rows={3}
+                      required
+                      placeholder="Hello {{1}}, we have an important announcement regarding {{2}}. Contact {{3}} to learn more!"
+                      value={newTemplateForm.body}
+                      onChange={(e) => {
+                        const bodyVal = e.target.value;
+                        const detected = Array.from(new Set(bodyVal.match(/\{\{(\d+)\}\}/g) || [])).length;
+                        setNewTemplateForm({ ...newTemplateForm, body: bodyVal, variables_count: detected || 1 });
+                      }}
+                      className="w-full p-2.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent font-sans"
+                    />
+                    <p className="text-[10px] text-text-muted">
+                      Use <code className="bg-surface px-1 py-0.5 rounded border border-border font-mono">{'{{1}}'}</code>, <code className="bg-surface px-1 py-0.5 rounded border border-border font-mono">{'{{2}}'}</code> to inject contact name, discount code, or business details automatically.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowTemplateManagerModal(false);
+                        setNewTemplateModal(false);
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors cursor-pointer"
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={creatingTemplate}
+                      className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {creatingTemplate ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Submitting to Meta...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Create & Register Template</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           </div>
         )}

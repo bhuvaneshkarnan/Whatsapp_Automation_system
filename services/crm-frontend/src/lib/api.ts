@@ -632,6 +632,13 @@ export interface TenantSettingsResponse {
     booking_cta?: string;
     revenue_label?: string;
     notes_label?: string;
+    phone_label?: string;
+    age_location_label?: string;
+    status_label?: string;
+    lead_label?: string;
+    followup_label?: string;
+    created_label?: string;
+    actions_label?: string;
     requirement_presets?: string[];
     doctor_presets?: string[];
     staff_presets?: string[];
@@ -949,6 +956,45 @@ export const marketing = {
   getAnalytics: () =>
     request<{ summary: MarketingAnalyticsSummary; campaigns: BroadcastCampaign[] }>(
       '/api/v1/marketing/analytics'
+    ),
+
+  getTemplates: () =>
+    request<Array<{
+      id: string;
+      name: string;
+      label: string;
+      category: string;
+      status: string;
+      language?: string;
+      body?: string;
+      variables_count: number;
+    }>>('/api/v1/marketing/templates'),
+
+  createTemplate: (data: {
+    name: string;
+    label?: string;
+    category?: 'UTILITY' | 'MARKETING';
+    language?: string;
+    body: string;
+    variables_count?: number;
+  }) =>
+    request<{
+      id: string;
+      name: string;
+      label: string;
+      category: string;
+      status: string;
+      body: string;
+      variables_count: number;
+    }>('/api/v1/marketing/templates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  deleteTemplate: (templateName: string) =>
+    request<{ status: string; deleted: string }>(
+      `/api/v1/marketing/templates/${encodeURIComponent(templateName)}`,
+      { method: 'DELETE' }
     ),
 };
 

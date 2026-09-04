@@ -42,6 +42,15 @@ try:
     auth_app = auth_mod.app
     booking_app = booking_mod.app
     calendar_app = calendar_mod.app
+
+    for sub in (crm_app, auth_app, booking_app, calendar_app):
+        sub.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 except ImportError as e:
     logger.error("failed_to_import_sub_apps", error=str(e))
     raise
@@ -57,6 +66,7 @@ app.add_middleware(
 )
 
 app.mount("/api/v1/crm", crm_app)
+app.mount("/api/v1/marketing", crm_app)
 app.mount("/api/v1/auth", auth_app)
 app.mount("/api/v1/bookings", booking_app)
 app.mount("/api/v1/calendar", calendar_app)

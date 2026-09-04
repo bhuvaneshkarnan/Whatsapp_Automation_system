@@ -840,8 +840,21 @@ class CoreWorker:
             "- Check the 'ALREADY BOOKED & OCCUPIED TIMESLOTS' list above before agreeing to any time.\n"
             "- If a customer asks for a slot that is already booked (e.g. 1:00 AM, 9:00 AM, etc.), NEVER agree to that time. Politely let them know:\n"
             "  'That slot is already booked. Would [suggest alternate time or day] work for you instead?'\n\n"
-            "4. INQUIRY ABOUT EXISTING APPOINTMENT ('When is my appointment?', 'Do I have a booking?', 'What time is my call?'):\n"
-            "- Check 'Known Bookings for THIS Customer' in the CUSTOMER PROFILE above.\n"
+            "4. INQUIRY ABOUT EXISTING APPOINTMENT ('When is my appointment?', 'What time is my call?', 'Do I have a booking?', 'Check my appointment', 'My appointment status'):\n"
+            "- CRITICAL GLOBAL DIRECTIVE: THIS IS AN INFORMATIONAL STATUS INQUIRY ONLY.\n"
+            "- The customer is ONLY asking what time or date their existing appointment is. THEY ARE NOT ASKING TO BOOK OR RESCHEDULE!\n"
+            "- STRICT PROHIBITIONS:\n"
+            "  * NEVER create a new booking on an inquiry.\n"
+            "  * NEVER reschedule, alter, or move their existing booking.\n"
+            "  * NEVER output [ACTION:CREATE_BOOKING: ...] or [ACTION:RESCHEDULE_BOOKING: ...] under ANY circumstances.\n"
+            "  * NEVER say 'Your demo is now set for...', 'has been rescheduled to...', or 'is booked for...' as if you just executed an action.\n"
+            "- EXACT REQUIRED BEHAVIOR:\n"
+            "  * Look directly at 'Known Bookings for THIS Customer' in the CUSTOMER PROFILE above.\n"
+            "  * If they have an existing confirmed/upcoming booking:\n"
+            "    State clearly in 1 friendly, natural sentence when their appointment is already scheduled:\n"
+            "    Example: 'Your Free Discovery Demo is scheduled for today, 05 Sep 2026 at 08:00 AM! Let me know if you need to make any changes or have any questions.'\n"
+            "  * If they have NO active bookings listed:\n"
+            "    State clearly in 1 short sentence: 'You don't have an active appointment scheduled right now. Would you like to book one?'\n\n"
             "5. MANDATORY ACTION TAG ON BOOKING CONFIRMATION:\n"
             "- Once the customer has provided or confirmed their Date, Time, Name, and Email (e.g. user says 'Yes', 'Confirm', 'Today 7pm', etc.):\n"
             "  You MUST append the booking action tag on a new line at the very end of your reply:\n"
@@ -948,6 +961,16 @@ class CoreWorker:
             cancel_action = True
             logger.info("inbound_cancellation_intent_detected", customer_msg=message_text)
 
+        # Inbound Appointment Inquiry Detection (Lookup Only - NEVER rebook or reschedule)
+        inbound_appointment_inquiry = any(p in inbound_lower for p in [
+            "when is my appointment", "when is my booking", "what time is my appointment",
+            "what time is my booking", "what time is my call", "what time is my demo",
+            "do i have an appointment", "do i have a booking", "check my appointment",
+            "check my booking", "my appointment time", "my appointment date",
+            "when is my demo", "appointment status", "booking status", "when is my meeting",
+            "when is appointment", "what time is appointment"
+        ])
+
         # Inbound Human Takeover Request Intent
         human_request_intent = any(w in inbound_lower for w in ["human agent", "talk to human", "speak to human", "talk to agent", "talk to staff", "speak to real person", "real person", "customer care executive", "connect to agent", "human support", "speak with someone"])
         if human_request_intent:
@@ -1004,6 +1027,46 @@ class CoreWorker:
                     logger.warning("booking_action_json_parse_failed", error=str(e))
                 # Strip action tag from message sent to WhatsApp customer
                 response_text = re.sub(r'\[ACTION:CREATE_BOOKING:\s*\{.*?\}\]', '', response_text, flags=re.DOTALL).strip()
+
+            # 4. Inbound Appointment Inquiry Protection
+            if inbound_appointment_inquiry:
+                if booking_action or reschedule_action:
+                    logger.info("suppressed_accidental_action_on_inquiry",
+                                had_booking=bool(booking_action),
+                                had_reschedule=bool(reschedule_action),
+                                customer_msg=message_text)
+                    booking_action = None
+                    reschedule_action = None
+                    cancel_action = False
+
+                # Sanitize response if LLM hallucinated rebooking confirmation phrasing
+                accident_phrases = ["is now set for", "has been rescheduled to", "is rescheduled to", "have rescheduled", "is now booked for"]
+                if any(ph in (response_text or "").lower() for ph in accident_phrases):
+                    try:
+                        active_b = await self.db_pool.fetchrow(
+                            """SELECT service_name, booking_date, booking_time FROM bookings
+                               WHERE tenant_id = $1::uuid AND (customer_phone = $2 OR RIGHT(REGEXP_REPLACE(customer_phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10))
+                               AND status IN ('confirmed', 'pending') ORDER BY booking_date DESC, booking_time DESC LIMIT 1""",
+                            tenant_id, contact_phone
+                        )
+                        if active_b:
+                            svc = active_b["service_name"] or "Consultation"
+                            b_dt = active_b["booking_date"].strftime("%d %b %Y") if hasattr(active_b["booking_date"], "strftime") else str(active_b["booking_date"])
+                            b_tm = str(active_b["booking_time"] or "")
+                            try:
+                                t_parts = b_tm.split(":")
+                                hour = int(t_parts[0])
+                                minute = t_parts[1][:2]
+                                am_pm = "AM" if hour < 12 else "PM"
+                                display_hour = 12 if hour in (0, 12) else hour % 12
+                                b_tm = f"{display_hour:02d}:{minute} {am_pm}"
+                            except Exception:
+                                pass
+                            response_text = f"Your {svc} appointment is scheduled for {b_dt} at {b_tm}! Let me know if you need to reschedule or have any questions."
+                        else:
+                            response_text = "You don't have an active appointment scheduled right now. Would you like to book one?"
+                    except Exception as ex:
+                        logger.warning("failed_to_lookup_booking_for_sanitization", error=str(ex))
 
             if not response_text:
                 if booking_action:
