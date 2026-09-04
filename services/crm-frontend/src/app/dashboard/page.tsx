@@ -391,12 +391,58 @@ export default function DashboardPage() {
   const router = useRouter();
   
   // Navigation: overview | inbox | bookings | calendar | customers | followup | marketing | settings
-  const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'followup' | 'marketing' | 'settings'>('overview');
+  const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'followup' | 'marketing' | 'settings'>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const hash = window.location.hash.replace('#', '');
+        const validTabs = ['overview', 'inbox', 'bookings', 'calendar', 'customers', 'followup', 'marketing', 'settings'];
+        if (hash && validTabs.includes(hash)) {
+          return hash as any;
+        }
+        const saved = localStorage.getItem('whatsapp_crm_active_nav');
+        if (saved && validTabs.includes(saved)) {
+          return saved as any;
+        }
+      } catch {}
+    }
+    return 'overview';
+  });
   const [sidebarFilter, setSidebarFilter] = useState<'all' | 'recent' | 'favorites' | 'active'>('all');
   const [settingsTab, setSettingsTab] = useState<'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'account'>('ai');
 
   // Customer Follow-up & Task Calendar State
-  const [followupView, setFollowupView] = useState<'list' | 'database' | 'tasks' | 'notes'>('list');
+  const [followupView, setFollowupView] = useState<'list' | 'database' | 'tasks' | 'notes'>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('whatsapp_crm_followup_view');
+        if (saved && ['list', 'database', 'tasks', 'notes'].includes(saved)) {
+          return saved as any;
+        }
+      } catch {}
+    }
+    return 'list';
+  });
+
+  // Synchronize active navigation tab and sub-views to localStorage & URL hash so page refreshes stay on same tab
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('whatsapp_crm_active_nav', activeNav);
+        if (window.location.hash !== `#${activeNav}`) {
+          window.history.replaceState(null, '', `${window.location.pathname}#${activeNav}`);
+        }
+      } catch {}
+    }
+  }, [activeNav]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('whatsapp_crm_followup_view', followupView);
+      } catch {}
+    }
+  }, [followupView]);
+
   // Add Customer Modal State
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
   const [addingCustomer, setAddingCustomer] = useState(false);
@@ -914,7 +960,7 @@ export default function DashboardPage() {
     if (typeof window !== 'undefined') {
       const storedSlug = localStorage.getItem('tenant_slug') || 'boldlabs';
       if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
-        window.history.replaceState(null, '', `/${storedSlug}`);
+        window.history.replaceState(null, '', `/${storedSlug}${window.location.hash || ''}`);
       }
     }
     crm.getMe()
@@ -1650,7 +1696,7 @@ export default function DashboardPage() {
         const slug = data?.slug || localStorage.getItem('tenant_slug') || 'boldlabs';
         localStorage.setItem('tenant_slug', slug);
         if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
-          window.history.replaceState(null, '', `/${slug}`);
+          window.history.replaceState(null, '', `/${slug}${window.location.hash || ''}`);
         }
       }
     } catch (err: unknown) {
@@ -1673,7 +1719,7 @@ export default function DashboardPage() {
           const slug = updated.slug || settingsForm.slug || localStorage.getItem('tenant_slug') || 'boldlabs';
           localStorage.setItem('tenant_slug', slug);
           if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
-            window.history.replaceState(null, '', `/${slug}`);
+            window.history.replaceState(null, '', `/${slug}${window.location.hash || ''}`);
           }
         }
       } else {
@@ -1871,6 +1917,12 @@ export default function DashboardPage() {
 
   function navigateTo(tab: 'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'followup' | 'marketing' | 'settings') {
     setActiveNav(tab);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('whatsapp_crm_active_nav', tab);
+        window.history.replaceState(null, '', `${window.location.pathname}#${tab}`);
+      } catch {}
+    }
     setIsBookingDetailModalOpen(false);
     setSelectedBookingDetail(null);
     setIsAddBookingOpen(false);

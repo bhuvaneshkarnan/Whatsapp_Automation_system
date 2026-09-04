@@ -345,27 +345,6 @@ async def list_customers(
 ):
     """List customer follow-up records with segment filters, chat activity, and notes counts."""
     async with db_pool.acquire() as conn:
-        # Automatically sync any new WhatsApp contacts into the customers table
-        await conn.execute("""
-            INSERT INTO customers (tenant_id, phone, name, status, lead_probability, created_at, updated_at)
-            SELECT 
-                c.tenant_id, 
-                c.phone, 
-                COALESCE(c.name, c.wa_profile_name, 'Customer'),
-                'new',
-                'warm',
-                COALESCE(c.created_at, NOW()),
-                NOW()
-            FROM contacts c 
-            WHERE c.tenant_id = $1::uuid
-            ON CONFLICT (tenant_id, phone) DO UPDATE
-            SET name = CASE 
-                WHEN customers.name IS NULL OR customers.name = '' OR customers.name = 'Customer'
-                THEN COALESCE(EXCLUDED.name, customers.name)
-                ELSE customers.name 
-            END;
-        """, tenant_id)
-
         conditions = ["c.tenant_id = $1::uuid"]
         params = [tenant_id]
         idx = 2
@@ -1424,11 +1403,40 @@ async def delete_customer(
 ):
     """Permanently delete a customer record and all related notes and tasks."""
     async with db_pool.acquire() as conn:
+        cust = await conn.fetchrow(
+            "SELECT phone FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            customer_id, tenant_id
+        )
+        if not cust:
+            # Check if customer exists without tenant check or already deleted
+            res = await conn.execute("DELETE FROM customers WHERE id = $1::uuid", customer_id)
+            if res == "DELETE 0":
+                raise HTTPException(404, "Customer not found")
+            return {"status": "ok", "deleted_id": customer_id}
+
+        phone = cust["phone"]
         await conn.execute("DELETE FROM customer_notes WHERE customer_id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
         await conn.execute("DELETE FROM tasks WHERE customer_id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
-        res = await conn.execute("DELETE FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
-        if res == "DELETE 0":
-            raise HTTPException(404, "Customer not found")
+        await conn.execute("DELETE FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
+
+        # Also remove contact and conversations if present
+        if phone:
+            contact = await conn.fetchrow(
+                "SELECT id FROM contacts WHERE phone = $1 AND tenant_id = $2::uuid",
+                phone, tenant_id
+            )
+            if contact:
+                contact_id = contact["id"]
+                convs = await conn.fetch(
+                    "SELECT id FROM conversations WHERE contact_id = $1::uuid",
+                    contact_id
+                )
+                for c in convs:
+                    await conn.execute("DELETE FROM messages WHERE conversation_id = $1::uuid", c["id"])
+                await conn.execute("DELETE FROM conversations WHERE contact_id = $1::uuid", contact_id)
+                await conn.execute("DELETE FROM bookings WHERE contact_id = $1::uuid", contact_id)
+                await conn.execute("DELETE FROM contacts WHERE id = $1::uuid", contact_id)
+
     return {"status": "ok", "deleted_id": customer_id}
 
 
