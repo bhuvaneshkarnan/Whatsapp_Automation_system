@@ -7,9 +7,11 @@ import asyncio
 try:
     import structlog
     import asyncpg
+    import pywebpush
 except ImportError:
     print("Missing dependencies, installing now...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "structlog", "asyncpg", "httpx", "passlib", "python-jose", "google-api-python-client"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "structlog", "asyncpg", "httpx", "passlib", "python-jose", "google-api-python-client", "pywebpush"])
+
 
 sys.path.append("/app")
 sys.path.append("/app/crm_api")

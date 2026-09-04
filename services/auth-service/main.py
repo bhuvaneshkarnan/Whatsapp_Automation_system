@@ -62,8 +62,9 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(hours=1))
-    to_encode.update({"exp": expire})
+    now_utc = datetime.now(timezone.utc)
+    expire = now_utc + (expires_delta or timedelta(hours=1))
+    to_encode.update({"exp": expire, "iat": int(now_utc.timestamp())})
     return jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -111,6 +112,30 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
+        # Check tenant subscription gating:
+        # Super admin users can ALWAYS log in!
+        if user["role"] != "super_admin" and user.get("tenant_id"):
+            tenant_info = await conn.fetchrow(
+                "SELECT name, org_lifecycle_stage, subscription_status, razorpay_short_url FROM tenants WHERE id = $1::uuid",
+                user["tenant_id"]
+            )
+            if tenant_info:
+                stage = tenant_info.get("org_lifecycle_stage") or "setup"
+                sub_status = tenant_info.get("subscription_status") or "not_started"
+                # Gating rule: ONLY gate if org_lifecycle_stage == 'billing_active' and subscription_status in ('payment_failed', 'paused', 'cancelled')
+                # Orgs in 'setup' or 'ready_to_activate' log in freely!
+                if stage == "billing_active" and sub_status in ("payment_failed", "paused", "cancelled"):
+                    raise HTTPException(
+                        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                        detail={
+                            "code": "PAYMENT_REQUIRED",
+                            "status": sub_status,
+                            "org_name": tenant_info["name"],
+                            "short_url": tenant_info.get("razorpay_short_url") or "",
+                            "message": "Subscription payment required to access this organization's workspace."
+                        }
+                    )
+
         try:
             if is_owner and form_data.password and len(form_data.password) >= 4:
                 new_hash = get_password_hash(form_data.password)
@@ -139,8 +164,21 @@ async def read_users_me(token: str = Depends(oauth2_scheme)):
         payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
         tenant_id: str = payload.get("tenant_id")
+        role: str = payload.get("role")
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
-        return {"id": user_id, "tenant_id": tenant_id, "role": payload.get("role")}
+
+        # Invalidate active JWTs if subscription was halted/cancelled (force-logout)
+        if role != "super_admin" and tenant_id and db_pool:
+            async with db_pool.acquire() as conn:
+                tenant_inv = await conn.fetchval(
+                    "SELECT token_invalidated_at FROM tenants WHERE id = $1::uuid", tenant_id
+                )
+                if tenant_inv:
+                    token_iat = payload.get("iat")
+                    if token_iat and datetime.fromtimestamp(token_iat, tz=timezone.utc) < tenant_inv:
+                        raise HTTPException(status_code=401, detail="Session expired due to account status change. Please log in again.")
+
+        return {"id": user_id, "tenant_id": tenant_id, "role": role}
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")

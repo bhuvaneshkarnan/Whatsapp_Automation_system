@@ -1,17 +1,27 @@
 import os
+import re
 import uuid
 import json
 import asyncio
 import bcrypt
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any, Union
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, timezone
+from zoneinfo import ZoneInfo
 import asyncpg
 import httpx
 import structlog
-from fastapi import FastAPI, Depends, HTTPException, Query, Header, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, Query, Header, BackgroundTasks, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
+
+try:
+    import razorpay_client
+except ImportError:
+    try:
+        from crm_api import razorpay_client
+    except ImportError:
+        import services.crm_api.razorpay_client as razorpay_client
 
 logger = structlog.get_logger("crm-api")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://platform_user:devpassword@localhost:5432/whatsapp_platform")
@@ -109,6 +119,29 @@ async def lifespan(app: FastAPI):
                     created_at TIMESTAMPTZ DEFAULT now(),
                     updated_at TIMESTAMPTZ DEFAULT now()
                 );
+
+                CREATE TABLE IF NOT EXISTS push_subscriptions (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                    user_id UUID,
+                    endpoint TEXT NOT NULL UNIQUE,
+                    p256dh TEXT NOT NULL,
+                    auth TEXT NOT NULL,
+                    user_agent TEXT,
+                    created_at TIMESTAMPTZ DEFAULT now(),
+                    updated_at TIMESTAMPTZ DEFAULT now()
+                );
+
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    type TEXT NOT NULL DEFAULT 'message',
+                    data JSONB DEFAULT '{}'::jsonb,
+                    is_read BOOLEAN DEFAULT false,
+                    created_at TIMESTAMPTZ DEFAULT now()
+                );
             """)
     except Exception as e:
         logger.error("db_lifespan_init_error", error=str(e))
@@ -196,6 +229,64 @@ def build_cancellation_customer_email_html(service_name: str, formatted_date: st
     </table>
 
     <p style="font-size: 14px; color: #475569; line-height: 1.5;">If you'd like to book a new appointment in the future, simply reply directly on WhatsApp anytime!</p>
+  </div>
+  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
+    Thank you!
+  </div>
+</div>
+"""
+
+
+def build_reschedule_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
+  <div style="background-color: #1d4ed8; background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 24px 20px; border-radius: 8px; text-align: center;">
+    <span style="display: inline-block; background: rgba(255,255,255,0.2); color: #ffffff !important; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase;">Admin Notification</span>
+    <h2 style="margin: 10px 0 4px 0; font-size: 22px; font-weight: bold; color: #ffffff !important;">🔄 Booking Rescheduled in CRM</h2>
+    <p style="margin: 0; font-size: 13px; color: #dbeafe !important;">Updated appointment schedule</p>
+  </div>
+  <div style="padding: 24px 0;">
+    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hello <strong>Admin & Team</strong>,</p>
+    <p style="font-size: 14px; line-height: 1.5; color: #475569;">The appointment has been rescheduled to a new date and time:</p>
+    
+    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600; width: 35%;">Client Name:</td><td style="padding: 10px 16px; color: #0f172a; font-weight: bold;">{name}</td></tr>
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Client Phone:</td><td style="padding: 10px 16px; color: #0f172a;">{contact_phone}</td></tr>
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Client Email:</td><td style="padding: 10px 16px; color: #0f172a;">{customer_email or 'Not provided'}</td></tr>
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Service:</td><td style="padding: 10px 16px; color: #0f172a;">{service_name}</td></tr>
+      <tr><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">New Date & Time:</td><td style="padding: 10px 16px; color: #2563eb; font-weight: bold;">📅 {formatted_date} at ⏰ {formatted_time}</td></tr>
+    </table>
+
+    <div style="margin-top: 16px; padding: 12px 16px; background-color: #eff6ff; border-left: 4px solid #2563eb; border-radius: 4px; font-size: 13px; color: #1e40af;">
+      🔄 <strong>Calendar Updated:</strong> The Google Calendar event has been moved to the new time slot automatically.
+    </div>
+  </div>
+  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
+    Boldlabs AI WhatsApp CRM Platform • Admin Alert Dispatch
+  </div>
+</div>
+"""
+
+
+def build_reschedule_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, full_location: str) -> str:
+    loc_html = f"""<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">📍 Location:</td><td style="padding: 10px 0; color: #0f172a;">{full_location}</td></tr>""" if full_location else ""
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
+  <div style="background-color: #4f46e5; background: linear-gradient(135deg, #6366f1, #4f46e5); padding: 24px 20px; border-radius: 8px; text-align: center;">
+    <h2 style="margin: 0; font-size: 22px; font-weight: bold; color: #ffffff !important;">🔄 Your Appointment is Rescheduled</h2>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #e0e7ff !important;">Updated appointment schedule</p>
+  </div>
+  <div style="padding: 24px 0;">
+    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hi <strong>{name}</strong>,</p>
+    <p style="font-size: 14px; line-height: 1.5; color: #475569;">Your appointment has been successfully rescheduled to your new requested time:</p>
+    
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 12px 16px; color: #64748b; font-weight: 600; width: 35%;">Service:</td><td style="padding: 12px 16px; color: #0f172a; font-weight: bold;">{service_name}</td></tr>
+      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 12px 16px; color: #64748b; font-weight: 600;">New Date & Time:</td><td style="padding: 12px 16px; color: #4f46e5; font-weight: bold;">📅 {formatted_date} at ⏰ {formatted_time}</td></tr>
+      {loc_html}
+    </table>
+
+    <p style="font-size: 14px; color: #475569; line-height: 1.5;">Your calendar invite has been updated. Reply directly to our WhatsApp chat anytime if you need any further assistance!</p>
   </div>
   <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
     Thank you!
@@ -1033,12 +1124,14 @@ async def create_task(
     if payload.due_date:
         try:
             due_dt = datetime.fromisoformat(payload.due_date.replace("Z", "+00:00"))
+            if due_dt.tzinfo is None:
+                due_dt = due_dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
             due_iso = due_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
         except Exception:
-            due_dt = datetime.utcnow() + timedelta(days=1)
+            due_dt = datetime.now(ZoneInfo("Asia/Kolkata")) + timedelta(days=1)
             due_iso = due_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
     else:
-        due_dt = datetime.utcnow() + timedelta(days=1)
+        due_dt = datetime.now(ZoneInfo("Asia/Kolkata")) + timedelta(days=1)
         due_iso = due_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
     google_task_id = None
@@ -1445,7 +1538,7 @@ async def delete_customer(
 async def list_bookings(
     tenant_id: str = Depends(get_tenant_id),
     status: Optional[str] = None,
-    limit: int = Query(50, le=100),
+    limit: int = Query(50, le=1000),
     offset: int = 0
 ):
     """List appointments/bookings joined with contacts for this tenant."""
@@ -1519,12 +1612,16 @@ async def create_booking(
     # Parse start and end time
     try:
         st_dt = datetime.fromisoformat(payload.start_time.replace("Z", "+00:00"))
+        if st_dt.tzinfo is None:
+            st_dt = st_dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
     except Exception:
         raise HTTPException(400, "Invalid start_time format. Use ISO format (e.g. 2026-08-30T10:00:00).")
 
     if payload.end_time:
         try:
             et_dt = datetime.fromisoformat(payload.end_time.replace("Z", "+00:00"))
+            if et_dt.tzinfo is None:
+                et_dt = et_dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
         except Exception:
             et_dt = st_dt + timedelta(minutes=30)
     else:
@@ -1918,6 +2015,8 @@ async def update_booking_price(
 
 class BookingStatusPayload(BaseModel):
     status: str
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
 
 async def dispatch_automated_status_whatsapp(
     tenant_id: str,
@@ -2017,16 +2116,157 @@ async def dispatch_automated_status_whatsapp(
                         logger.error("automated_wa_text_dispatch_failed", error=str(e), phone=clean_phone)
 
             # Record message in database
-            msg_id = str(uuid.uuid4())
-            await conn.execute(
-                """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
-                   VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
-                msg_id, conv_id, tenant_id, text
-            )
-            await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+            try:
+                if not conv_id:
+                    c_row = await conn.fetchrow(
+                        "SELECT id FROM contacts WHERE tenant_id = $1::uuid AND phone = $2",
+                        tenant_id, clean_phone
+                    )
+                    if not c_row:
+                        c_id = str(uuid.uuid4())
+                        await conn.execute(
+                            "INSERT INTO contacts (id, tenant_id, phone, name) VALUES ($1::uuid, $2::uuid, $3, 'Super Admin')",
+                            c_id, tenant_id, clean_phone
+                        )
+                    else:
+                        c_id = str(c_row["id"])
+
+                    conv_row = await conn.fetchrow(
+                        "SELECT id FROM conversations WHERE contact_id = $1::uuid AND tenant_id = $2::uuid",
+                        c_id, tenant_id
+                    )
+                    if not conv_row:
+                        conv_id = str(uuid.uuid4())
+                        await conn.execute(
+                            "INSERT INTO conversations (id, tenant_id, contact_id, status, last_message_at) VALUES ($1::uuid, $2::uuid, $3::uuid, 'bot', now())",
+                            conv_id, tenant_id, c_id
+                        )
+                    else:
+                        conv_id = str(conv_row["id"])
+
+                msg_id = str(uuid.uuid4())
+                await conn.execute(
+                    """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
+                    msg_id, conv_id, tenant_id, text
+                )
+                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+            except Exception as db_rec_err:
+                logger.warning("automated_msg_record_warn", error=str(db_rec_err))
             logger.info("automated_status_message_dispatched", tenant_id=tenant_id, phone=clean_phone, delay=delay_seconds, template_sent=template_sent)
     except Exception as e:
         logger.error("automated_task_exception", error=str(e))
+
+
+async def dispatch_admin_reschedule_whatsapp(
+    tenant_id: str,
+    admin_phone: str,
+    customer_name: str,
+    customer_phone: str,
+    service_name: str,
+    formatted_date: str,
+    formatted_time: str,
+):
+    """
+    Push admin reschedule notification via WhatsApp template (with fallback to approved admin_notification, then text).
+    """
+    try:
+        async with db_pool.acquire() as conn:
+            wa_row = await conn.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+                tenant_id
+            )
+            t_st_val = await conn.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+
+        creds = {}
+        if wa_row and wa_row["credential_data"]:
+            d = wa_row["credential_data"]
+            if isinstance(d, str):
+                try: d = json.loads(d)
+                except: d = {}
+            creds = dict(d)
+
+        t_st = {}
+        if t_st_val:
+            if isinstance(t_st_val, str):
+                try: t_st = json.loads(t_st_val)
+                except: t_st = {}
+            else:
+                t_st = dict(t_st_val)
+
+        if not (creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test")):
+            return
+
+        clean_admin_phone = re.sub(r'[^0-9+]', '', admin_phone)
+        if not clean_admin_phone.startswith("+"):
+            clean_admin_phone = f"+91{clean_admin_phone}" if len(clean_admin_phone) == 10 else f"+{clean_admin_phone}"
+
+        tpl_name = (
+            creds.get("template_admin_reschedule_notice") or
+            t_st.get("template_admin_reschedule_notice") or
+            "admin_reschedule_notice"
+        )
+        tpl_params = [customer_name or "Client", customer_phone, service_name or "Appointment", formatted_date or "Rescheduled Date", formatted_time or "Rescheduled Time"]
+
+        import httpx
+        headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
+        url = f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages"
+
+        # 1. Try admin reschedule template
+        admin_payload_tpl = {
+            "messaging_product": "whatsapp",
+            "to": clean_admin_phone.replace("+", ""),
+            "type": "template",
+            "template": {
+                "name": tpl_name,
+                "language": {"code": "en"},
+                "components": [
+                    {
+                        "type": "body",
+                        "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in tpl_params]
+                    }
+                ]
+            }
+        }
+        admin_sent = False
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(url, headers=headers, json=admin_payload_tpl)
+            logger.info("crm_admin_reschedule_template_response", status=res.status_code, template=tpl_name, body=res.text)
+            if res.status_code in (200, 201):
+                admin_sent = True
+            elif "132000" in res.text or "132001" in res.text or "does not exist in" in res.text:
+                # 2. Try fallback to admin_notification (APPROVED in Meta with identical 5 params)
+                fallback_template = creds.get("template_admin_notification") or t_st.get("template_admin_notification") or "admin_notification"
+                admin_payload_tpl["template"]["name"] = fallback_template
+                res_fb = await client.post(url, headers=headers, json=admin_payload_tpl)
+                logger.info("crm_admin_reschedule_fallback_template_response", status=res_fb.status_code, template=fallback_template, body=res_fb.text)
+                if res_fb.status_code in (200, 201):
+                    admin_sent = True
+
+            # 3. Fallback to direct WhatsApp text
+            if not admin_sent:
+                admin_resched_text = (
+                    f"🔄 *Booking Rescheduled Notice!*\n\n"
+                    f"• *Customer:* {customer_name}\n"
+                    f"• *Phone:* {customer_phone}\n"
+                    f"• *Service:* {service_name}\n"
+                    f"• *New Date & Time:* {formatted_date} at {formatted_time}\n\n"
+                    f"✅ Google Calendar and CRM have been updated with the new slot."
+                )
+                await client.post(
+                    url,
+                    headers=headers,
+                    json={
+                        "messaging_product": "whatsapp",
+                        "recipient_type": "individual",
+                        "to": clean_admin_phone.replace("+", ""),
+                        "type": "text",
+                        "text": {"body": admin_resched_text}
+                    }
+                )
+                logger.info("crm_admin_reschedule_text_fallback_sent", to=clean_admin_phone)
+    except Exception as e:
+        logger.error("crm_admin_reschedule_wa_failed", error=str(e))
 
 
 @app.patch("/bookings/{booking_id}/status")
@@ -2058,11 +2298,33 @@ async def update_booking_status(
         if not booking:
             raise HTTPException(404, "Booking not found")
 
-        # Update booking status
-        await conn.execute(
-            "UPDATE bookings SET status = $1, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
-            payload.status, booking_id, tenant_id
-        )
+        # Update booking status (and optionally reschedule datetime)
+        if payload.start_time:
+            try:
+                new_st = datetime.fromisoformat(payload.start_time.replace("Z", "+00:00"))
+                if new_st.tzinfo is None:
+                    new_st = new_st.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+                new_et = datetime.fromisoformat(payload.end_time.replace("Z", "+00:00")) if payload.end_time else (new_st + timedelta(minutes=30))
+                if new_et.tzinfo is None:
+                    new_et = new_et.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+                await conn.execute(
+                    "UPDATE bookings SET status = $1, start_time = $2, end_time = $3, updated_at = now() WHERE id = $4::uuid AND tenant_id = $5::uuid",
+                    payload.status, new_st, new_et, booking_id, tenant_id
+                )
+                booking = dict(booking)
+                booking["start_time"] = new_st
+                booking["end_time"] = new_et
+            except Exception as ex:
+                logger.warning("booking_reschedule_datetime_parse_warn", error=str(ex))
+                await conn.execute(
+                    "UPDATE bookings SET status = $1, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                    payload.status, booking_id, tenant_id
+                )
+        else:
+            await conn.execute(
+                "UPDATE bookings SET status = $1, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                payload.status, booking_id, tenant_id
+            )
 
         # Build automated trigger message based on tenant branding
         patient_name = booking["name"] or "there"
@@ -2095,20 +2357,90 @@ async def update_booking_status(
             date_str = st_local.strftime("%d-%m-%Y")
             clock_str = st_local.strftime("%I:%M %p")
         
-        # If cancelled and synced to Google Calendar, remove the Google Calendar event
-                # If cancelled, cancel any pending scheduled reminder jobs
+        # 1. Handle Cancellation
         if payload.status == "cancelled":
             await conn.execute(
                 "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND status = 'pending'",
                 booking_id
             )
-                # If cancelled, cancel any pending scheduled reminder jobs
-        if payload.status == "cancelled":
-            await conn.execute(
-                "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND status = 'pending'",
-                booking_id
-            )
-        if payload.status == "cancelled" and booking.get("google_event_id"):
+            if booking.get("google_event_id"):
+                try:
+                    gcal_row = await conn.fetchrow(
+                        "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+                        tenant_id
+                    )
+                    if gcal_row and gcal_row["credential_data"]:
+                        g_data = gcal_row["credential_data"]
+                        if isinstance(g_data, str):
+                            try: g_data = json.loads(g_data)
+                            except: g_data = {}
+                        if g_data.get("refresh_token") and g_data.get("client_id"):
+                            from google.oauth2.credentials import Credentials
+                            from googleapiclient.discovery import build
+                            g_creds = Credentials(
+                                token=g_data.get("access_token"),
+                                refresh_token=g_data.get("refresh_token"),
+                                token_uri="https://oauth2.googleapis.com/token",
+                                client_id=g_data.get("client_id"),
+                                client_secret=g_data.get("client_secret"),
+                            )
+                            g_service = build("calendar", "v3", credentials=g_creds)
+                            cal_id = g_data.get("calendar_id") or "primary"
+                            g_service.events().delete(calendarId=cal_id, eventId=booking["google_event_id"], sendUpdates="all").execute()
+                            logger.info("google_calendar_event_deleted_on_cancellation", event_id=booking["google_event_id"])
+
+                            # Direct Gmail API Cancellation Email to Admin & Customer
+                            admin_notif_email = g_data.get("notification_email") or t_settings_dict.get("notification_email")
+                            customer_email = ""
+                            c_meta = await conn.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid", booking["contact_id"])
+                            if c_meta:
+                                if isinstance(c_meta, str):
+                                    try: c_meta = json.loads(c_meta)
+                                    except: c_meta = {}
+                                customer_email = c_meta.get("email") or ""
+
+                            # Send tailored copy to Admin
+                            if admin_notif_email and "@" in admin_notif_email:
+                                admin_email_html = build_cancellation_admin_email_html(
+                                    service_name=service_name,
+                                    formatted_date=date_str or "Scheduled Date",
+                                    formatted_time=clock_str or "Scheduled Time",
+                                    name=patient_name,
+                                    contact_phone=booking["phone"],
+                                    customer_email=customer_email,
+                                )
+                                admin_subject = f"❌ [Admin Notice] Booking Cancelled: {service_name} - {patient_name} ({date_str} at {clock_str})"
+                                send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
+
+                            # Send tailored copy to Customer
+                            if customer_email and "@" in customer_email and customer_email != (admin_notif_email or "").strip():
+                                customer_email_html = build_cancellation_customer_email_html(
+                                    service_name=service_name,
+                                    formatted_date=date_str or "Scheduled Date",
+                                    formatted_time=clock_str or "Scheduled Time",
+                                    name=patient_name,
+                                )
+                                customer_subject = f"❌ Appointment Cancelled: {service_name} on {date_str}"
+                                send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
+                except Exception as e:
+                    logger.warning("google_calendar_cancellation_sync_failed", error=str(e))
+
+        # 2. Handle Reschedule
+        if payload.status == "rescheduled":
+            # Re-time pending reminder to 2 hours before new start time
+            if booking.get("start_time"):
+                try:
+                    new_reminder_time = booking["start_time"] - timedelta(hours=2)
+                    await conn.execute(
+                        """UPDATE scheduled_jobs
+                           SET scheduled_at = $1, status = 'pending'
+                           WHERE booking_id = $2::uuid AND job_type = 'reminder'""",
+                        new_reminder_time, booking_id
+                    )
+                except Exception as e_rem:
+                    logger.warning("reminder_job_reschedule_failed", error=str(e_rem))
+
+            # Sync with Google Calendar & Send Direct Reschedule Emails
             try:
                 gcal_row = await conn.fetchrow(
                     "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
@@ -2119,7 +2451,7 @@ async def update_booking_status(
                     if isinstance(g_data, str):
                         try: g_data = json.loads(g_data)
                         except: g_data = {}
-                    if g_data.get("refresh_token") and g_data.get("client_id"):
+                    if g_data.get("refresh_token") and g_data.get("client_id") and booking.get("start_time"):
                         from google.oauth2.credentials import Credentials
                         from googleapiclient.discovery import build
                         g_creds = Credentials(
@@ -2131,10 +2463,36 @@ async def update_booking_status(
                         )
                         g_service = build("calendar", "v3", credentials=g_creds)
                         cal_id = g_data.get("calendar_id") or "primary"
-                        g_service.events().delete(calendarId=cal_id, eventId=booking["google_event_id"], sendUpdates="all").execute()
-                        logger.info("google_calendar_event_deleted_on_cancellation", event_id=booking["google_event_id"])
+                        st_iso = booking["start_time"].isoformat()
+                        et_val = booking.get("end_time") or (booking["start_time"] + timedelta(minutes=30))
+                        et_iso = et_val.isoformat()
+                        event_body = {
+                            "summary": f"{service_name} - {patient_name} ({booking['phone']})",
+                            "description": (
+                                f"WhatsApp Booking (Rescheduled via CRM)\n\n"
+                                f"• Client Name: {patient_name}\n"
+                                f"• Client Phone: {booking['phone']}\n"
+                                f"• Service: {service_name}\n"
+                                f"• Scheduled Time: {time_str}\n"
+                            ),
+                            "start": {"dateTime": st_iso},
+                            "end": {"dateTime": et_iso},
+                        }
+                        if booking.get("google_event_id"):
+                            try:
+                                g_service.events().patch(calendarId=cal_id, eventId=booking["google_event_id"], body=event_body, sendUpdates="all").execute()
+                                logger.info("google_calendar_reschedule_patched", event_id=booking["google_event_id"])
+                            except Exception as patch_err:
+                                logger.warning("google_calendar_patch_failed_inserting", error=str(patch_err))
+                                event = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all").execute()
+                                if event and event.get("id"):
+                                    await conn.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid", event["id"], booking_id)
+                        else:
+                            event = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all").execute()
+                            if event and event.get("id"):
+                                await conn.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid", event["id"], booking_id)
 
-                        # Direct Gmail API Cancellation Email to Admin & Customer
+                        # Fetch customer & admin emails for direct Gmail notifications
                         admin_notif_email = g_data.get("notification_email") or t_settings_dict.get("notification_email")
                         customer_email = ""
                         c_meta = await conn.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid", booking["contact_id"])
@@ -2143,32 +2501,52 @@ async def update_booking_status(
                                 try: c_meta = json.loads(c_meta)
                                 except: c_meta = {}
                             customer_email = c_meta.get("email") or ""
+                        if not customer_email:
+                            customer_email = await conn.fetchval(
+                                "SELECT metadata->>'email' FROM contacts WHERE tenant_id = $1::uuid AND (phone = $2 OR phone = replace($2, '+', '')) LIMIT 1",
+                                tenant_id, booking["phone"]
+                            ) or ""
 
                         # Send tailored copy to Admin
                         if admin_notif_email and "@" in admin_notif_email:
-                            admin_email_html = build_cancellation_admin_email_html(
+                            admin_email_html = build_reschedule_admin_email_html(
                                 service_name=service_name,
-                                formatted_date=date_str or "Scheduled Date",
-                                formatted_time=clock_str or "Scheduled Time",
+                                formatted_date=date_str or "Rescheduled Date",
+                                formatted_time=clock_str or "Rescheduled Time",
                                 name=patient_name,
                                 contact_phone=booking["phone"],
                                 customer_email=customer_email,
                             )
-                            admin_subject = f"❌ [Admin Notice] Booking Cancelled: {service_name} - {patient_name} ({date_str} at {clock_str})"
+                            admin_subject = f"🔄 [Admin Notice] Booking Rescheduled: {service_name} - {patient_name} to {date_str} at {clock_str}"
                             send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
+                            logger.info("crm_reschedule_email_sent_to_admin", to=admin_notif_email)
 
                         # Send tailored copy to Customer
+                        full_loc = (t_settings_dict.get("full_location_text") or "").strip()
+                        if not full_loc:
+                            full_loc = (wa_data.get("full_location_text") if "wa_data" in locals() else "").strip()
+                        if not full_loc:
+                            wa_loc_row = await conn.fetchrow("SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp'", tenant_id)
+                            if wa_loc_row and wa_loc_row["credential_data"]:
+                                try:
+                                    w_loc_data = json.loads(wa_loc_row["credential_data"]) if isinstance(wa_loc_row["credential_data"], str) else dict(wa_loc_row["credential_data"])
+                                    full_loc = (w_loc_data.get("full_location_text") or "").strip()
+                                except:
+                                    pass
+
                         if customer_email and "@" in customer_email and customer_email != (admin_notif_email or "").strip():
-                            customer_email_html = build_cancellation_customer_email_html(
+                            customer_email_html = build_reschedule_customer_email_html(
                                 service_name=service_name,
-                                formatted_date=date_str or "Scheduled Date",
-                                formatted_time=clock_str or "Scheduled Time",
+                                formatted_date=date_str or "Rescheduled Date",
+                                formatted_time=clock_str or "Rescheduled Time",
                                 name=patient_name,
+                                full_location=full_loc,
                             )
-                            customer_subject = f"❌ Appointment Cancelled: {service_name} on {date_str}"
+                            customer_subject = f"🔄 Reschedule Confirmed: Your {service_name} is now on {date_str} at {clock_str}"
                             send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
-            except Exception as e:
-                logger.warning("google_calendar_cancellation_sync_failed", error=str(e))
+                            logger.info("crm_reschedule_email_sent_to_customer", to=customer_email)
+            except Exception as e_gcal:
+                logger.warning("crm_reschedule_gcal_email_failed", error=str(e_gcal))
 
         # Fetch WhatsApp creds for template names
         wa_row = await conn.fetchrow("SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp'", tenant_id)
@@ -2254,6 +2632,21 @@ async def update_booking_status(
             )
             dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", date_str or "Today", clock_str or "Scheduled Time"]
 
+        elif payload.status == "rescheduled":
+            delay_seconds = 0
+            timing_line = f" to {time_str}" if time_str else ""
+            automated_text = (
+                f"Hi {patient_name}, your {service_name} booking has been successfully rescheduled{timing_line}! 🔄\n\n"
+                f"If you need to make any further changes, please reply to this chat anytime.\n\n"
+                f"Best regards,\n{tenant_name}"
+            )
+            dispatch_template = (
+                t_settings_dict.get("template_reschedule_confirmation") or
+                wa_data.get("template_reschedule_confirmation") or
+                "booking_reschedule_confirmation"
+            )
+            dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", date_str or "Today", clock_str or "Scheduled Time"]
+
         if automated_text and booking["phone"]:
             # Ensure conversation exists
             conv_id = booking["conversation_id"]
@@ -2282,6 +2675,21 @@ async def update_booking_status(
                 dispatch_template,
                 dispatch_params,
             )
+
+        # Dispatch Admin WhatsApp notification if rescheduled
+        if payload.status == "rescheduled":
+            admin_phone = (wa_data.get("admin_whatsapp_number") or t_settings_dict.get("admin_whatsapp_number") or "").strip()
+            if admin_phone:
+                background_tasks.add_task(
+                    dispatch_admin_reschedule_whatsapp,
+                    tenant_id,
+                    admin_phone,
+                    patient_name,
+                    booking["phone"],
+                    service_name,
+                    date_str,
+                    clock_str,
+                )
 
     return {
         "status": "updated",
@@ -2401,6 +2809,8 @@ async def get_messages(
 
 class MessageCreate(BaseModel):
     body: str
+    template_name: Optional[str] = None
+    template_params: Optional[list] = None
 
 @app.post("/conversations/{conv_id}/messages")
 async def send_manual_message(
@@ -2415,9 +2825,10 @@ async def send_manual_message(
     async with db_pool.acquire() as conn:
         # Get conversation and contact details
         conv = await conn.fetchrow(
-            """SELECT c.id, c.status, ct.phone
+            """SELECT c.id, c.status, ct.name as contact_name, ct.phone, t.name as tenant_name
                FROM conversations c
                JOIN contacts ct ON ct.id = c.contact_id
+               JOIN tenants t ON t.id = c.tenant_id
                WHERE c.id = $1::uuid AND c.tenant_id = $2::uuid""",
             conv_id, tenant_id
         )
@@ -2439,6 +2850,9 @@ async def send_manual_message(
                 except: d = {}
             creds = dict(d)
 
+        ai_cfg_row = await conn.fetchrow("SELECT assistant_name FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
+        assistant_name = (ai_cfg_row["assistant_name"] if ai_cfg_row and ai_cfg_row["assistant_name"] else "our team")
+
         # Insert outbound message
         msg_id = str(uuid.uuid4())
         wa_id = None
@@ -2448,15 +2862,76 @@ async def send_manual_message(
         if creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
             try:
                 import httpx
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.post(
-                        f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages",
-                        headers={"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"},
-                        json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": conv["phone"], "type": "text", "text": {"body": payload.body.strip()}}
-                    )
-                    if resp.status_code in (200, 201):
-                        data = resp.json()
-                        wa_id = data.get("messages", [{}])[0].get("id")
+                clean_phone = conv["phone"].replace("+", "").replace(" ", "").replace("-", "").strip()
+                headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
+                url = f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages"
+
+                # 1. If explicit template requested
+                if payload.template_name:
+                    tpl_params = payload.template_params or []
+                    tpl_payload = {
+                        "messaging_product": "whatsapp",
+                        "to": clean_phone,
+                        "type": "template",
+                        "template": {
+                            "name": payload.template_name,
+                            "language": {"code": "en"},
+                            "components": [
+                                {
+                                    "type": "body",
+                                    "parameters": [{"type": "text", "text": str(p)} for p in tpl_params]
+                                }
+                            ]
+                        }
+                    }
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        resp = await client.post(url, headers=headers, json=tpl_payload)
+                        if resp.status_code not in (200, 201):
+                            tpl_payload["template"]["language"] = {"code": "en_US"}
+                            resp = await client.post(url, headers=headers, json=tpl_payload)
+                        if resp.status_code in (200, 201):
+                            data = resp.json()
+                            wa_id = data.get("messages", [{}])[0].get("id")
+                else:
+                    # 2. Standard text message with 24h automatic fallback to follow-up template
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        resp = await client.post(
+                            url,
+                            headers=headers,
+                            json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": payload.body.strip()}}
+                        )
+                        if resp.status_code in (200, 201):
+                            data = resp.json()
+                            wa_id = data.get("messages", [{}])[0].get("id")
+                        elif "131047" in resp.text:
+                            # 24-hour customer window expired: Auto-send approved follow-up template!
+                            f_tpl = creds.get("template_client_followup") or "client_followup_checkin"
+                            c_name = conv["contact_name"] or "there"
+                            b_name = conv["tenant_name"] or "our team"
+                            f_params = [c_name, assistant_name, b_name]
+                            f_payload = {
+                                "messaging_product": "whatsapp",
+                                "to": clean_phone,
+                                "type": "template",
+                                "template": {
+                                    "name": f_tpl,
+                                    "language": {"code": "en"},
+                                    "components": [
+                                        {
+                                            "type": "body",
+                                            "parameters": [{"type": "text", "text": str(p)} for p in f_params]
+                                        }
+                                    ]
+                                }
+                            }
+                            resp_f = await client.post(url, headers=headers, json=f_payload)
+                            if resp_f.status_code not in (200, 201):
+                                f_payload["template"]["language"] = {"code": "en_US"}
+                                resp_f = await client.post(url, headers=headers, json=f_payload)
+                            if resp_f.status_code in (200, 201):
+                                data = resp_f.json()
+                                wa_id = data.get("messages", [{}])[0].get("id")
+                                logger.info("sent_followup_template_due_to_24h_window", conv_id=conv_id, template=f_tpl)
             except Exception as e:
                 logger.error("manual_send_error", error=str(e))
 
@@ -2641,10 +3116,13 @@ class TenantSettingsUpdate(BaseModel):
     template_cancellation_confirmation: Optional[str] = None
     template_admin_cancellation_notice: Optional[str] = None
     template_reschedule_confirmation: Optional[str] = None
+    template_admin_reschedule_notice: Optional[str] = None
     template_post_service_review: Optional[str] = None
     template_appointment_reminder: Optional[str] = None
     template_reschedule_nudge: Optional[str] = None
     template_review_request: Optional[str] = None
+    template_admin_daily_digest: Optional[str] = None
+    template_client_followup: Optional[str] = None
     google_review_link: Optional[str] = None
     
     google_client_id: Optional[str] = None
@@ -2753,8 +3231,8 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         "has_app_secret": bool(wa_data.get("app_secret")),
         
         # AI Config & BYOK
-        "primary_model_provider": wa_data.get("primary_model_provider", "gemini"),
-        "ai_model": ai_cfg.get("model", "gemini-2.0-flash"),
+        "primary_model_provider": wa_data.get("primary_model_provider", "groq" if groq_key else "gemini"),
+        "ai_model": ai_cfg.get("model", "gemini-3.1-flash-lite"),
         "gemini_api_key": gem_key,
         "groq_api_key": groq_key,
         "opencode_api_key": opencode_key,
@@ -2772,22 +3250,25 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         "objection_handling": ai_cfg.get("objection_handling", ""),
         
         # Location, Region & Templates
-        "full_location_text": wa_data.get("full_location_text", ""),
+        "full_location_text": wa_data.get("full_location_text") or tenant_settings.get("full_location_text", ""),
         "timezone": tenant_settings.get("timezone", "Asia/Kolkata"),
         "country_code": tenant_settings.get("country_code", "+91"),
         "currency": tenant_settings.get("currency", "INR"),
         "currency_symbol": tenant_settings.get("currency_symbol", "₹"),
-        "admin_whatsapp_number": wa_data.get("admin_whatsapp_number", ""),
-        "template_booking_confirmation": wa_data.get("template_booking_confirmation", "booking_confirmationn"),
-        "template_admin_notification": wa_data.get("template_admin_notification", "admin_notification"),
-        "template_admin_human_request": wa_data.get("template_admin_human_request", "admin_human_request"),
-        "template_cancellation_confirmation": wa_data.get("template_cancellation_confirmation", "cancellation_confirmation"),
-        "template_admin_cancellation_notice": wa_data.get("template_admin_cancellation_notice", "admin_cancellation_notice"),
-        "template_reschedule_confirmation": wa_data.get("template_reschedule_confirmation", "booking_confirmationn"),
-        "template_post_service_review": wa_data.get("template_post_service_review", "post_service_review"),
-        "template_appointment_reminder": wa_data.get("template_appointment_reminder", "appointment_ramainder"),
-        "template_reschedule_nudge": wa_data.get("template_reschedule_nudge", "reschedule_nudge"),
-        "template_review_request": wa_data.get("template_review_request", "review_request"),
+        "admin_whatsapp_number": wa_data.get("admin_whatsapp_number") or tenant_settings.get("admin_whatsapp_number", ""),
+        "template_booking_confirmation": wa_data.get("template_booking_confirmation") or tenant_settings.get("template_booking_confirmation", "booking_confirmationn"),
+        "template_admin_notification": wa_data.get("template_admin_notification") or tenant_settings.get("template_admin_notification", "admin_notification"),
+        "template_admin_human_request": wa_data.get("template_admin_human_request") or tenant_settings.get("template_admin_human_request", "admin_human_request"),
+        "template_cancellation_confirmation": wa_data.get("template_cancellation_confirmation") or tenant_settings.get("template_cancellation_confirmation", "cancellation_confirmation"),
+        "template_admin_cancellation_notice": wa_data.get("template_admin_cancellation_notice") or tenant_settings.get("template_admin_cancellation_notice", "admin_cancellation_notice"),
+        "template_reschedule_confirmation": wa_data.get("template_reschedule_confirmation") or tenant_settings.get("template_reschedule_confirmation", "booking_reschedule_confirmation"),
+        "template_admin_reschedule_notice": wa_data.get("template_admin_reschedule_notice") or tenant_settings.get("template_admin_reschedule_notice", "admin_reschedule_notice"),
+        "template_post_service_review": wa_data.get("template_post_service_review") or tenant_settings.get("template_post_service_review", "post_service_review"),
+        "template_appointment_reminder": wa_data.get("template_appointment_reminder") or tenant_settings.get("template_appointment_reminder", "appointment_ramainder"),
+        "template_reschedule_nudge": wa_data.get("template_reschedule_nudge") or tenant_settings.get("template_reschedule_nudge", "reschedule_nudge"),
+        "template_review_request": wa_data.get("template_review_request") or tenant_settings.get("template_review_request", "review_request"),
+        "template_admin_daily_digest": wa_data.get("template_admin_daily_digest") or tenant_settings.get("template_admin_daily_digest", "admin_daily_digest"),
+        "template_client_followup": wa_data.get("template_client_followup") or tenant_settings.get("template_client_followup", "client_followup_checkin"),
         "google_review_link": tenant_settings.get("google_review_link", wa_data.get("google_review_link", "")),
         
         # Google Calendar
@@ -2795,7 +3276,7 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         "google_client_secret": gcal_data.get("client_secret", ""),
         "google_refresh_token": gcal_data.get("refresh_token", ""),
         "google_calendar_id": gcal_data.get("calendar_id", "primary"),
-        "notification_email": gcal_data.get("notification_email", ""),
+        "notification_email": gcal_data.get("notification_email") or tenant_settings.get("notification_email", ""),
         "google_calendar_configured": bool(gcal_data.get("client_id") and gcal_data.get("refresh_token")),
         
         # Industry & Taxonomy
@@ -2807,6 +3288,16 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
             "event_label": "Appointment",
             "booking_cta": "Schedule Appointment",
         }),
+
+        # Razorpay Subscription & Organization Lifecycle
+        "org_lifecycle_stage": tenant.get("org_lifecycle_stage") or "setup",
+        "subscription_status": tenant.get("subscription_status") or "not_started",
+        "razorpay_customer_id": tenant.get("razorpay_customer_id") or "",
+        "razorpay_subscription_id": tenant.get("razorpay_subscription_id") or "",
+        "razorpay_short_url": tenant.get("razorpay_short_url") or "",
+        "next_charge_at": tenant["next_charge_at"].isoformat() if tenant.get("next_charge_at") else None,
+        "last_payment_status": tenant.get("last_payment_status") or "",
+        "last_charge_at": tenant["last_charge_at"].isoformat() if tenant.get("last_charge_at") else None,
     }
 
 
@@ -2817,29 +3308,47 @@ async def update_tenant_settings(
 ):
     """Update settings & credentials for the currently logged-in tenant."""
     async with db_pool.acquire() as conn:
-        # 1. Update tenant name, logo, timezone, country_code, currency if provided
+        # 1. Update tenant table settings & branding
         if payload.name:
             await conn.execute("UPDATE tenants SET name = $1 WHERE id = $2::uuid", payload.name.strip(), tenant_id)
-        if payload.logo_url is not None or payload.timezone is not None or payload.country_code is not None or payload.currency is not None or payload.currency_symbol is not None or payload.notification_email is not None or payload.admin_whatsapp_number is not None or payload.google_review_link is not None or payload.industry is not None or payload.taxonomy is not None:
-            t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
-            cur_settings = t_row["settings"] if t_row and t_row["settings"] else {}
-            if isinstance(cur_settings, str):
-                try: cur_settings = json.loads(cur_settings)
-                except: cur_settings = {}
-            if payload.logo_url is not None: cur_settings["logo_url"] = payload.logo_url.strip()
-            if payload.timezone is not None: cur_settings["timezone"] = payload.timezone.strip()
-            if payload.country_code is not None: cur_settings["country_code"] = payload.country_code.strip()
-            if payload.currency is not None: cur_settings["currency"] = payload.currency.strip()
-            if payload.currency_symbol is not None: cur_settings["currency_symbol"] = payload.currency_symbol.strip()
-            if payload.notification_email is not None: cur_settings["notification_email"] = payload.notification_email.strip()
-            if payload.admin_whatsapp_number is not None: cur_settings["admin_whatsapp_number"] = payload.admin_whatsapp_number.strip()
-            if payload.google_review_link is not None: cur_settings["google_review_link"] = payload.google_review_link.strip()
-            if payload.industry is not None: cur_settings["industry"] = payload.industry.strip()
-            if payload.taxonomy is not None: cur_settings["taxonomy"] = payload.taxonomy
-            await conn.execute(
-                "UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid",
-                json.dumps(cur_settings), tenant_id
-            )
+
+        t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+        cur_settings = t_row["settings"] if t_row and t_row["settings"] else {}
+        if isinstance(cur_settings, str):
+            try: cur_settings = json.loads(cur_settings)
+            except: cur_settings = {}
+
+        if payload.logo_url is not None: cur_settings["logo_url"] = payload.logo_url.strip()
+        if payload.timezone is not None: cur_settings["timezone"] = payload.timezone.strip()
+        if payload.country_code is not None: cur_settings["country_code"] = payload.country_code.strip()
+        if payload.currency is not None: cur_settings["currency"] = payload.currency.strip()
+        if payload.currency_symbol is not None: cur_settings["currency_symbol"] = payload.currency_symbol.strip()
+        if payload.notification_email is not None: cur_settings["notification_email"] = payload.notification_email.strip()
+        if payload.admin_whatsapp_number is not None: cur_settings["admin_whatsapp_number"] = payload.admin_whatsapp_number.strip()
+        if payload.google_review_link is not None: cur_settings["google_review_link"] = payload.google_review_link.strip()
+        if payload.full_location_text is not None: cur_settings["full_location_text"] = payload.full_location_text.strip()
+        if payload.industry is not None: cur_settings["industry"] = payload.industry.strip()
+        if payload.taxonomy is not None: cur_settings["taxonomy"] = payload.taxonomy
+
+        # Dual-sync all 12 configurable template names into tenants.settings
+        if payload.template_booking_confirmation is not None: cur_settings["template_booking_confirmation"] = payload.template_booking_confirmation.strip()
+        if payload.template_admin_notification is not None: cur_settings["template_admin_notification"] = payload.template_admin_notification.strip()
+        if payload.template_admin_human_request is not None: cur_settings["template_admin_human_request"] = payload.template_admin_human_request.strip()
+        if payload.template_cancellation_confirmation is not None: cur_settings["template_cancellation_confirmation"] = payload.template_cancellation_confirmation.strip()
+        if payload.template_admin_cancellation_notice is not None: cur_settings["template_admin_cancellation_notice"] = payload.template_admin_cancellation_notice.strip()
+        if payload.template_reschedule_confirmation is not None: cur_settings["template_reschedule_confirmation"] = payload.template_reschedule_confirmation.strip()
+        if payload.template_admin_reschedule_notice is not None: cur_settings["template_admin_reschedule_notice"] = payload.template_admin_reschedule_notice.strip()
+        if payload.template_post_service_review is not None: cur_settings["template_post_service_review"] = payload.template_post_service_review.strip()
+        if payload.template_appointment_reminder is not None: cur_settings["template_appointment_reminder"] = payload.template_appointment_reminder.strip()
+        if payload.template_reschedule_nudge is not None: cur_settings["template_reschedule_nudge"] = payload.template_reschedule_nudge.strip()
+        if payload.template_review_request is not None: cur_settings["template_review_request"] = payload.template_review_request.strip()
+        if payload.template_admin_daily_digest is not None: cur_settings["template_admin_daily_digest"] = payload.template_admin_daily_digest.strip()
+        if payload.template_client_followup is not None: cur_settings["template_client_followup"] = payload.template_client_followup.strip()
+
+        await conn.execute(
+            "UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid",
+            json.dumps(cur_settings), tenant_id
+        )
 
         # 2. Update WhatsApp credentials & location/templates
         wa_row = await conn.fetchrow("SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp'", tenant_id)
@@ -2865,10 +3374,13 @@ async def update_tenant_settings(
         if payload.template_cancellation_confirmation is not None: wa_data["template_cancellation_confirmation"] = payload.template_cancellation_confirmation.strip()
         if payload.template_admin_cancellation_notice is not None: wa_data["template_admin_cancellation_notice"] = payload.template_admin_cancellation_notice.strip()
         if payload.template_reschedule_confirmation is not None: wa_data["template_reschedule_confirmation"] = payload.template_reschedule_confirmation.strip()
+        if payload.template_admin_reschedule_notice is not None: wa_data["template_admin_reschedule_notice"] = payload.template_admin_reschedule_notice.strip()
         if payload.template_post_service_review is not None: wa_data["template_post_service_review"] = payload.template_post_service_review.strip()
         if payload.template_appointment_reminder is not None: wa_data["template_appointment_reminder"] = payload.template_appointment_reminder.strip()
         if payload.template_reschedule_nudge is not None: wa_data["template_reschedule_nudge"] = payload.template_reschedule_nudge.strip()
         if payload.template_review_request is not None: wa_data["template_review_request"] = payload.template_review_request.strip()
+        if payload.template_admin_daily_digest is not None: wa_data["template_admin_daily_digest"] = payload.template_admin_daily_digest.strip()
+        if payload.template_client_followup is not None: wa_data["template_client_followup"] = payload.template_client_followup.strip()
         if payload.google_review_link is not None: wa_data["google_review_link"] = payload.google_review_link.strip()
         if payload.primary_model_provider is not None: wa_data["primary_model_provider"] = payload.primary_model_provider.strip()
 
@@ -2903,8 +3415,8 @@ async def update_tenant_settings(
             else:
                 await conn.execute("INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'opencode', $3::jsonb, true)", str(uuid.uuid4()), tenant_id, json.dumps(op_data))
 
-        # 4. Update Google Calendar
-        if payload.google_client_id is not None or payload.google_refresh_token is not None:
+        # 4. Update Google Calendar & Notification Email
+        if payload.google_client_id is not None or payload.google_refresh_token is not None or payload.notification_email is not None:
             g_row = await conn.fetchrow("SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar'", tenant_id)
             g_data = {}
             g_id = str(g_row["id"]) if g_row else str(uuid.uuid4())
@@ -2925,17 +3437,29 @@ async def update_tenant_settings(
             else:
                 await conn.execute("INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'google_calendar', $3::jsonb, true)", g_id, tenant_id, json.dumps(g_data))
 
-        # 5. Update AI Config (modular fields & tone instructions)
-        assistant_name = payload.assistant_name or "Assistant"
-        bot_goal = payload.bot_goal or ""
-        services_text = payload.services_text or ""
-        custom_instructions = payload.ai_prompt or ""
-        response_style = payload.response_style or "short"
-        methodology = payload.methodology or "dogfooding"
-        strict_rules = payload.strict_rules or ""
-        objection_handling = payload.objection_handling or ""
+        # 5. Update AI Config (modular fields & tone instructions) with non-destructive partial updates
+        ai_row = await conn.fetchrow("SELECT * FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
+        
+        cur_model = (ai_row["model"] if ai_row and ai_row["model"] else "gemini-3.1-flash-lite")
+        cur_prompt = (ai_row["system_prompt"] if ai_row and ai_row["system_prompt"] else "")
+        cur_name = (ai_row["assistant_name"] if ai_row and ai_row["assistant_name"] else "Rakshaya")
+        cur_goal = (ai_row["bot_goal"] if ai_row and ai_row["bot_goal"] else "")
+        cur_services = (ai_row["services_text"] if ai_row and ai_row["services_text"] else "")
+        cur_style = (ai_row["response_style"] if ai_row and ai_row["response_style"] else "short")
+        cur_meth = (ai_row["methodology"] if ai_row and ai_row["methodology"] else "dogfooding")
+        cur_rules = (ai_row["strict_rules"] if ai_row and ai_row["strict_rules"] else "")
+        cur_obj = (ai_row["objection_handling"] if ai_row and ai_row["objection_handling"] else "")
 
-        ai_row = await conn.fetchrow("SELECT tenant_id FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
+        assistant_name = payload.assistant_name if payload.assistant_name is not None else cur_name
+        bot_goal = payload.bot_goal if payload.bot_goal is not None else cur_goal
+        services_text = payload.services_text if payload.services_text is not None else cur_services
+        custom_instructions = payload.ai_prompt if payload.ai_prompt is not None else cur_prompt
+        response_style = payload.response_style if payload.response_style is not None else cur_style
+        methodology = payload.methodology if payload.methodology is not None else cur_meth
+        strict_rules = payload.strict_rules if payload.strict_rules is not None else cur_rules
+        objection_handling = payload.objection_handling if payload.objection_handling is not None else cur_obj
+        ai_model = payload.ai_model if payload.ai_model is not None else cur_model
+
         if ai_row:
             await conn.execute(
                 """UPDATE ai_config SET
@@ -2947,16 +3471,17 @@ async def update_tenant_settings(
                      response_style = $6,
                      methodology = $7,
                      strict_rules = $8,
-                     objection_handling = $9
+                     objection_handling = $9,
+                     updated_at = now()
                    WHERE tenant_id = $10::uuid""",
-                payload.ai_model or "gemini-1.5-flash", custom_instructions, assistant_name, bot_goal, services_text,
+                ai_model, custom_instructions, assistant_name, bot_goal, services_text,
                 response_style, methodology, strict_rules, objection_handling, tenant_id
             )
         else:
             await conn.execute(
                 """INSERT INTO ai_config (tenant_id, model, system_prompt, assistant_name, bot_goal, services_text, response_style, methodology, strict_rules, objection_handling, temperature, max_tokens)
-                   VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0.3, 500)""",
-                tenant_id, payload.ai_model or "gemini-1.5-flash", custom_instructions, assistant_name, bot_goal, services_text,
+                   VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0.3, 2048)""",
+                tenant_id, ai_model, custom_instructions, assistant_name, bot_goal, services_text,
                 response_style, methodology, strict_rules, objection_handling
             )
 
@@ -3160,7 +3685,8 @@ class TenantCreate(BaseModel):
     template_admin_human_request: Optional[str] = "admin_human_request"
     template_cancellation_confirmation: Optional[str] = "cancellation_confirmation"
     template_admin_cancellation_notice: Optional[str] = "admin_cancellation_notice"
-    template_reschedule_confirmation: Optional[str] = "booking_confirmationn"
+    template_reschedule_confirmation: Optional[str] = "booking_reschedule_confirmation"
+    template_admin_reschedule_notice: Optional[str] = "admin_reschedule_notice"
     google_client_id: Optional[str] = ""
     google_client_secret: Optional[str] = ""
     google_refresh_token: Optional[str] = ""
@@ -3188,6 +3714,7 @@ class TenantUpdate(BaseModel):
     template_cancellation_confirmation: Optional[str] = None
     template_admin_cancellation_notice: Optional[str] = None
     template_reschedule_confirmation: Optional[str] = None
+    template_admin_reschedule_notice: Optional[str] = None
     ai_prompt: Optional[str] = None
     meta_phone_id: Optional[str] = None
     meta_access_token: Optional[str] = None
@@ -3207,6 +3734,9 @@ async def list_admin_tenants():
             """
             SELECT 
                 t.id, t.name, t.slug, t.is_active, t.plan, t.settings, t.created_at,
+                t.razorpay_customer_id, t.razorpay_subscription_id, t.razorpay_short_url,
+                t.org_lifecycle_stage, t.subscription_status, t.next_charge_at,
+                t.last_payment_status, t.last_charge_at,
                 (SELECT email FROM users WHERE tenant_id = t.id ORDER BY (role = 'super_admin') DESC, created_at ASC LIMIT 1) as admin_email,
                 (SELECT COUNT(*) FROM contacts WHERE tenant_id = t.id) as contact_count,
                 (SELECT COUNT(*) FROM conversations WHERE tenant_id = t.id) as conversation_count,
@@ -3225,8 +3755,8 @@ async def list_admin_tenants():
             except: cfg = {}
         monthly_price = float(cfg.get("monthly_price", 999.0 if (r["plan"] or "").lower() == "starter" else (9999.0 if (r["plan"] or "").lower() == "enterprise" else 2999.0)))
         billing_day = int(cfg.get("billing_cycle_day", 1))
-        razorpay_sub_id = cfg.get("razorpay_subscription_id", "")
-        next_renewal = cfg.get("next_renewal_date", f"Day {billing_day} of every month")
+        razorpay_sub_id = r["razorpay_subscription_id"] or cfg.get("razorpay_subscription_id", "")
+        next_renewal = r["next_charge_at"].strftime("%d %b %Y") if r["next_charge_at"] else cfg.get("next_renewal_date", f"Day {billing_day} of every month")
         result.append({
             "id": str(r["id"]),
             "name": r["name"],
@@ -3242,7 +3772,14 @@ async def list_admin_tenants():
             "google_calendar_configured": bool(r["google_calendar_configured"]),
             "monthly_price": monthly_price,
             "billing_cycle_day": billing_day,
+            "razorpay_customer_id": r["razorpay_customer_id"] or "",
             "razorpay_subscription_id": razorpay_sub_id,
+            "razorpay_short_url": r["razorpay_short_url"] or "",
+            "org_lifecycle_stage": r["org_lifecycle_stage"] or "setup",
+            "subscription_status": r["subscription_status"] or "not_started",
+            "next_charge_at": r["next_charge_at"].isoformat() if r["next_charge_at"] else None,
+            "last_payment_status": r["last_payment_status"] or "",
+            "last_charge_at": r["last_charge_at"].isoformat() if r["last_charge_at"] else None,
             "next_renewal_date": next_renewal,
             "billing_method": "Razorpay Auto-Debit",
         })
@@ -3344,7 +3881,8 @@ async def create_admin_tenant(payload: TenantCreate):
                     "template_admin_human_request": payload.template_admin_human_request.strip() if payload.template_admin_human_request else "admin_human_request",
                     "template_cancellation_confirmation": payload.template_cancellation_confirmation.strip() if payload.template_cancellation_confirmation else "cancellation_confirmation",
                     "template_admin_cancellation_notice": payload.template_admin_cancellation_notice.strip() if payload.template_admin_cancellation_notice else "admin_cancellation_notice",
-                    "template_reschedule_confirmation": payload.template_reschedule_confirmation.strip() if payload.template_reschedule_confirmation else "booking_confirmationn",
+                    "template_reschedule_confirmation": payload.template_reschedule_confirmation.strip() if payload.template_reschedule_confirmation else "booking_reschedule_confirmation",
+                    "template_admin_reschedule_notice": payload.template_admin_reschedule_notice.strip() if payload.template_admin_reschedule_notice else "admin_reschedule_notice",
                 }
                 await conn.execute(
                     "INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'whatsapp', $3::jsonb, true)",
@@ -3463,7 +4001,8 @@ async def get_admin_tenant_details(tenant_id: str):
             "template_admin_human_request": cred_data.get("template_admin_human_request", "admin_human_request"),
             "template_cancellation_confirmation": cred_data.get("template_cancellation_confirmation", "cancellation_confirmation"),
             "template_admin_cancellation_notice": cred_data.get("template_admin_cancellation_notice", "admin_cancellation_notice"),
-            "template_reschedule_confirmation": cred_data.get("template_reschedule_confirmation", "booking_confirmationn"),
+            "template_reschedule_confirmation": cred_data.get("template_reschedule_confirmation", "booking_reschedule_confirmation"),
+            "template_admin_reschedule_notice": cred_data.get("template_admin_reschedule_notice", "admin_reschedule_notice"),
         },
         "ai_config": {
             "model": ai_cfg["model"] if ai_cfg else "gemini-1.5-flash",
@@ -3479,20 +4018,54 @@ async def get_admin_tenant_details(tenant_id: str):
 
 @app.post("/admin/tenants/{tenant_id}/reset-password")
 async def reset_admin_tenant_password(tenant_id: str, payload: PasswordReset):
-    """Reset the admin password for a client."""
+    """Reset the admin password for a client organization."""
     if not payload.new_password or len(payload.new_password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
 
-    password_hash = bcrypt.hashpw(payload.new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    # Direct bcrypt hash to match auth-service format and avoid passlib wrap bug
+    password_hash = bcrypt.hashpw(payload.new_password.encode("utf-8")[:72], bcrypt.gensalt(12)).decode("utf-8")
+
     async with db_pool.acquire() as conn:
+        tenant_row = await conn.fetchrow(
+            """SELECT t.id, t.name, t.slug,
+                      (SELECT email FROM users WHERE tenant_id = t.id ORDER BY (role = 'super_admin') DESC, created_at ASC LIMIT 1) as admin_email
+               FROM tenants t WHERE t.id = $1::uuid""",
+            tenant_id
+        )
+        if not tenant_row:
+            raise HTTPException(404, "Client organization not found")
+
+        # 1. Update any user linked to this tenant_id
         result = await conn.execute(
-            "UPDATE users SET password_hash = $1 WHERE tenant_id = $2::uuid AND role = 'admin'",
+            "UPDATE users SET password_hash = $1 WHERE tenant_id = $2::uuid",
             password_hash, tenant_id
         )
         if result == "UPDATE 0":
-            raise HTTPException(404, "Admin user for client not found")
+            # 2. If no user linked yet, create admin user for this tenant
+            admin_email = (tenant_row["admin_email"] or f"admin@{tenant_row['slug']}.com").lower().strip()
+            await conn.execute(
+                """INSERT INTO users (id, tenant_id, email, password_hash, role, created_at)
+                   VALUES (gen_random_uuid(), $1::uuid, $2, $3, 'admin', now())
+                   ON CONFLICT (email) DO UPDATE SET
+                    password_hash = EXCLUDED.password_hash,
+                    tenant_id = EXCLUDED.tenant_id""",
+                tenant_id, admin_email, password_hash
+            )
 
-    return {"status": "password_reset_success"}
+    return {"status": "ok", "message": "Password reset successfully"}
+
+
+@app.get("/admin/tenants/{tenant_id}/settings")
+async def get_admin_tenant_settings(tenant_id: str):
+    """Retrieve full settings for a specific client organization as Super Admin."""
+    return await get_tenant_settings(tenant_id)
+
+
+@app.put("/admin/tenants/{tenant_id}/settings")
+async def update_admin_tenant_settings(tenant_id: str, payload: TenantSettingsUpdate):
+    """Update all settings & credentials for a specific client organization directly from Super Admin."""
+    return await update_tenant_settings(payload, tenant_id)
+
 
 
 @app.patch("/admin/tenants/{tenant_id}/toggle-status")
@@ -3687,6 +4260,470 @@ async def update_tenant_billing_config(tenant_id: str, payload: TenantBillingUpd
     }
 
 
+# ── Razorpay Automated Billing & Webhooks ─────────────────────────────────────
+
+async def dispatch_subscription_reminder(tenant_id: str, reminder_stage: int, payment_link: str = ""):
+    """
+    Dispatches the 4 friendly WhatsApp payment reminder templates from the platform
+    to the organization's admin WhatsApp contact.
+    """
+    try:
+        async with db_pool.acquire() as conn:
+            tenant = await conn.fetchrow(
+                "SELECT id, name, slug, razorpay_short_url FROM tenants WHERE id = $1::uuid",
+                tenant_id
+            )
+            if not tenant:
+                return
+            
+            wa_cred = await conn.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+                tenant_id
+            )
+            admin_phone = ""
+            if wa_cred and wa_cred["credential_data"]:
+                cd = wa_cred["credential_data"]
+                if isinstance(cd, str):
+                    try: cd = json.loads(cd)
+                    except: cd = {}
+                admin_phone = cd.get("admin_whatsapp_number", "")
+
+            clean_phone = re.sub(r'[^0-9]', '', admin_phone)
+            if not clean_phone or len(clean_phone) < 10:
+                logger.info("reminder_skipped_no_admin_phone", tenant_id=tenant_id)
+                return
+
+            pay_url = payment_link or tenant.get("razorpay_short_url") or f"https://boldlabs.ai/pay/{tenant['slug']}"
+            org_name = tenant["name"]
+
+            if reminder_stage == 1:
+                msg_text = (
+                    f"Hi {org_name} team,\n\n"
+                    f"Quick heads up from Boldlabs — your monthly subscription for your WhatsApp automation (₹3,499) "
+                    f"will renew in 2 days. No action needed if your card on file is active!\n\n"
+                    f"Link to view or update payment: {pay_url}\n\n"
+                    f"— Boldlabs Team"
+                )
+            elif reminder_stage == 2:
+                msg_text = (
+                    f"Hi {org_name} team,\n\n"
+                    f"We tried to renew your WhatsApp automation subscription (₹3,499), but the payment couldn't go through. "
+                    f"Razorpay will automatically retry in a few days.\n\n"
+                    f"To keep your WhatsApp bot running without interruption, you can complete the payment directly here: {pay_url}\n\n"
+                    f"— Boldlabs Team"
+                )
+            elif reminder_stage == 3:
+                msg_text = (
+                    f"Hi {org_name} team,\n\n"
+                    f"Your WhatsApp automation system has been paused because we were unable to process your subscription renewal after multiple attempts. "
+                    f"Don't worry — all your customer contacts, conversation histories, and settings are completely safe.\n\n"
+                    f"To reactivate your automation and dashboard access right away, please complete payment here: {pay_url}\n\n"
+                    f"We'll turn everything back on instantly!\n\n"
+                    f"— Boldlabs Team"
+                )
+            elif reminder_stage == 4:
+                msg_text = (
+                    f"Hi {org_name} team,\n\n"
+                    f"Just checking in — your WhatsApp automation is still paused. We'd love to help get your AI assistant back up and handling inquiries for {org_name}.\n\n"
+                    f"If you need help with payment or have questions, reply to this message or update your payment here: {pay_url}\n\n"
+                    f"— Boldlabs Team"
+                )
+            else:
+                return
+
+            await conn.execute(
+                "UPDATE tenants SET last_reminder_sent_at = now(), reminder_stage = $1 WHERE id = $2::uuid",
+                reminder_stage, tenant_id
+            )
+
+            await dispatch_automated_status_whatsapp(
+                tenant_id,
+                None,
+                clean_phone,
+                msg_text,
+                0
+            )
+            logger.info("subscription_reminder_dispatched", tenant_id=tenant_id, stage=reminder_stage, phone=clean_phone)
+    except Exception as e:
+        logger.error("dispatch_sub_reminder_error", tenant_id=tenant_id, stage=reminder_stage, error=str(e))
+
+
+@app.post("/admin/tenants/{tenant_id}/activate-billing")
+async def activate_tenant_billing(tenant_id: str):
+    """
+    Stage B: Activate & Start Billing.
+    Creates Razorpay Customer and Subscription for the organization,
+    records razorpay_customer_id, razorpay_subscription_id, razorpay_short_url,
+    and sets org_lifecycle_stage = 'ready_to_activate'.
+    Note: Automation STILL runs freely in this stage until the first successful payment.
+    """
+    async with db_pool.acquire() as conn:
+        tenant = await conn.fetchrow(
+            "SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_subscription_id, razorpay_short_url FROM tenants WHERE id = $1::uuid",
+            tenant_id
+        )
+        if not tenant:
+            raise HTTPException(404, "Client tenant not found")
+        
+        # If already has subscription and short_url, return it
+        if tenant.get("razorpay_subscription_id") and tenant.get("razorpay_short_url"):
+            return {
+                "status": "ready_to_activate",
+                "tenant_id": tenant_id,
+                "subscription_id": tenant["razorpay_subscription_id"],
+                "short_url": tenant["razorpay_short_url"],
+                "org_lifecycle_stage": tenant.get("org_lifecycle_stage") or "ready_to_activate",
+                "subscription_status": tenant.get("subscription_status") or "not_started",
+                "message": "Subscription already generated"
+            }
+
+        admin_user = await conn.fetchrow(
+            "SELECT email FROM users WHERE tenant_id = $1::uuid AND is_active = true ORDER BY (role = 'admin') DESC, created_at ASC LIMIT 1",
+            tenant_id
+        )
+        wa_cred = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+            tenant_id
+        )
+        admin_phone = ""
+        if wa_cred and wa_cred["credential_data"]:
+            cd = wa_cred["credential_data"]
+            if isinstance(cd, str):
+                try: cd = json.loads(cd)
+                except: cd = {}
+            admin_phone = cd.get("admin_whatsapp_number", "")
+
+        customer_name = tenant["name"]
+        customer_email = admin_user["email"] if admin_user else f"{tenant['slug']}@boldlabs.ai"
+        
+        cust_id = None
+        try:
+            cust_res = await razorpay_client.create_customer(customer_name, customer_email, admin_phone)
+            cust_id = cust_res.get("id")
+        except Exception as ce:
+            logger.warning("razorpay_cust_create_warning", error=str(ce))
+            
+        sub_res = await razorpay_client.create_subscription(
+            customer_id=cust_id,
+            org_slug=tenant["slug"]
+        )
+        sub_id = sub_res.get("id")
+        short_url = sub_res.get("short_url")
+
+        await conn.execute(
+            """
+            UPDATE tenants 
+            SET razorpay_customer_id = $1,
+                razorpay_subscription_id = $2,
+                razorpay_short_url = $3,
+                org_lifecycle_stage = 'ready_to_activate',
+                subscription_status = 'not_started',
+                updated_at = now()
+            WHERE id = $4::uuid
+            """,
+            cust_id, sub_id, short_url, tenant_id
+        )
+
+        logger.info("tenant_billing_activated", tenant_id=tenant_id, sub_id=sub_id, short_url=short_url)
+        return {
+            "status": "ready_to_activate",
+            "tenant_id": tenant_id,
+            "subscription_id": sub_id,
+            "short_url": short_url,
+            "org_lifecycle_stage": "ready_to_activate",
+            "subscription_status": "not_started"
+        }
+
+
+@app.post("/admin/tenants/{tenant_id}/sync-billing")
+async def sync_tenant_billing(tenant_id: str):
+    """
+    On-demand reconciliation with Razorpay API.
+    Fetches latest subscription state and invoices, updating local records.
+    """
+    async with db_pool.acquire() as conn:
+        tenant = await conn.fetchrow(
+            "SELECT id, razorpay_subscription_id, org_lifecycle_stage, subscription_status FROM tenants WHERE id = $1::uuid",
+            tenant_id
+        )
+        if not tenant:
+            raise HTTPException(404, "Client tenant not found")
+        sub_id = tenant.get("razorpay_subscription_id")
+        if not sub_id:
+            raise HTTPException(400, "Organization has no Razorpay subscription attached")
+
+        sub_data = await razorpay_client.fetch_subscription(sub_id)
+        rzp_status = sub_data.get("status", "")
+        status_map = {
+            "created": "not_started",
+            "authenticated": "active",
+            "active": "active",
+            "pending": "payment_failed",
+            "halted": "paused",
+            "cancelled": "cancelled",
+            "completed": "active",
+            "expired": "paused"
+        }
+        new_sub_status = status_map.get(rzp_status, "active" if rzp_status == "active" else tenant.get("subscription_status") or "not_started")
+        
+        current_end = sub_data.get("current_end")
+        next_charge = datetime.fromtimestamp(current_end, tz=timezone.utc) if current_end else None
+        
+        new_stage = tenant.get("org_lifecycle_stage")
+        if new_sub_status == "active":
+            new_stage = "billing_active"
+
+        await conn.execute(
+            """
+            UPDATE tenants
+            SET subscription_status = $1,
+                org_lifecycle_stage = COALESCE($2, org_lifecycle_stage),
+                next_charge_at = COALESCE($3, next_charge_at),
+                last_payment_status = $4,
+                updated_at = now()
+            WHERE id = $5::uuid
+            """,
+            new_sub_status, new_stage, next_charge, rzp_status, tenant_id
+        )
+
+        invoices = await razorpay_client.fetch_invoices_for_subscription(sub_id)
+        synced_invoices_count = 0
+        for inv in invoices:
+            inv_id = inv.get("id")
+            amount = float(inv.get("amount", 0)) / 100.0
+            currency = inv.get("currency", "INR")
+            inv_status = inv.get("status", "pending")
+            paid_at = datetime.fromtimestamp(inv.get("paid_at"), tz=timezone.utc) if inv.get("paid_at") else None
+            pdf_url = inv.get("short_url") or inv.get("invoice_pdf")
+            payment_id = inv.get("payment_id")
+
+            await conn.execute(
+                """
+                INSERT INTO invoices (id, tenant_id, razorpay_invoice_id, razorpay_payment_id, razorpay_subscription_id, amount, currency, status, invoice_pdf_url, paid_at, created_at)
+                VALUES (gen_random_uuid(), $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, now())
+                ON CONFLICT (razorpay_invoice_id) DO UPDATE
+                SET status = EXCLUDED.status,
+                    razorpay_payment_id = COALESCE(EXCLUDED.razorpay_payment_id, invoices.razorpay_payment_id),
+                    invoice_pdf_url = COALESCE(EXCLUDED.invoice_pdf_url, invoices.invoice_pdf_url),
+                    paid_at = COALESCE(EXCLUDED.paid_at, invoices.paid_at)
+                """,
+                tenant_id, inv_id, payment_id, sub_id, amount, currency, inv_status, pdf_url, paid_at
+            )
+            synced_invoices_count += 1
+
+        return {
+            "status": "synced",
+            "tenant_id": tenant_id,
+            "razorpay_status": rzp_status,
+            "subscription_status": new_sub_status,
+            "org_lifecycle_stage": new_stage,
+            "next_charge_at": next_charge.isoformat() if next_charge else None,
+            "invoices_synced": synced_invoices_count
+        }
+
+
+@app.get("/admin/tenants/{tenant_id}/invoices")
+async def get_tenant_invoices(tenant_id: str):
+    """Retrieve billing invoice history for an organization."""
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, razorpay_invoice_id, razorpay_payment_id, razorpay_subscription_id,
+                   amount, currency, status, invoice_pdf_url, created_at, paid_at
+            FROM invoices
+            WHERE tenant_id = $1::uuid
+            ORDER BY created_at DESC
+            """,
+            tenant_id
+        )
+        return [
+            {
+                "id": str(r["id"]),
+                "razorpay_invoice_id": r["razorpay_invoice_id"],
+                "razorpay_payment_id": r["razorpay_payment_id"],
+                "razorpay_subscription_id": r["razorpay_subscription_id"],
+                "amount": float(r["amount"]),
+                "currency": r["currency"],
+                "status": r["status"],
+                "invoice_pdf_url": r["invoice_pdf_url"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "paid_at": r["paid_at"].isoformat() if r["paid_at"] else None,
+            }
+            for r in rows
+        ]
+
+
+@app.post("/webhooks/razorpay")
+async def handle_razorpay_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks
+):
+    """
+    Handles Razorpay Webhook Events with raw body HMAC-SHA256 signature verification.
+    """
+    raw_body = await request.body()
+    signature = request.headers.get("x-razorpay-signature", "")
+    
+    # Verify HMAC-SHA256 signature
+    is_valid = razorpay_client.verify_webhook_signature(raw_body, signature)
+    if not is_valid and os.getenv("ENV") != "test":
+        logger.warning("razorpay_webhook_invalid_signature", signature=signature)
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
+    try:
+        event_data = json.loads(raw_body.decode("utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON payload: {str(e)}")
+
+    event_type = event_data.get("event")
+    logger.info("razorpay_webhook_received", webhook_event=event_type)
+
+    payload = event_data.get("payload", {})
+    sub_entity = payload.get("subscription", {}).get("entity", {})
+    payment_entity = payload.get("payment", {}).get("entity", {})
+    invoice_entity = payload.get("invoice", {}).get("entity", {})
+
+    sub_id = sub_entity.get("id") or invoice_entity.get("subscription_id") or payment_entity.get("description")
+
+    async with db_pool.acquire() as conn:
+        tenant = None
+        if sub_id:
+            tenant = await conn.fetchrow(
+                "SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_short_url FROM tenants WHERE razorpay_subscription_id = $1",
+                sub_id
+            )
+        
+        if not tenant:
+            org_slug = sub_entity.get("notes", {}).get("org_slug") or invoice_entity.get("notes", {}).get("org_slug")
+            if org_slug:
+                tenant = await conn.fetchrow("SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_short_url FROM tenants WHERE slug = $1", org_slug)
+
+        if not tenant:
+            logger.info("razorpay_webhook_no_matching_tenant", sub_id=sub_id, webhook_event=event_type)
+            return {"status": "ok", "message": "No matching tenant"}
+
+        tenant_id = str(tenant["id"])
+        short_url = tenant.get("razorpay_short_url") or ""
+
+        if event_type in ("subscription.authenticated", "subscription.activated"):
+            await conn.execute(
+                """
+                UPDATE tenants
+                SET subscription_status = 'active',
+                    org_lifecycle_stage = 'billing_active',
+                    last_payment_status = 'authenticated',
+                    updated_at = now()
+                WHERE id = $1::uuid
+                """,
+                tenant_id
+            )
+
+        elif event_type == "subscription.charged":
+            current_end = sub_entity.get("current_end")
+            next_charge = datetime.fromtimestamp(current_end, tz=timezone.utc) if current_end else None
+            
+            await conn.execute(
+                """
+                UPDATE tenants
+                SET subscription_status = 'active',
+                    org_lifecycle_stage = 'billing_active',
+                    last_charge_at = now(),
+                    next_charge_at = COALESCE($1, next_charge_at),
+                    last_payment_status = 'success',
+                    reminder_stage = 0,
+                    is_active = true,
+                    updated_at = now()
+                WHERE id = $2::uuid
+                """,
+                next_charge, tenant_id
+            )
+
+            inv_id = invoice_entity.get("id") or f"inv_sub_{sub_id}_{int(time.time())}"
+            amount = float(sub_entity.get("plan_id", {}).get("amount", 349900) if isinstance(sub_entity.get("plan_id"), dict) else 3499.0)
+            if amount > 10000: amount = amount / 100.0
+            
+            pay_id = payment_entity.get("id")
+            await conn.execute(
+                """
+                INSERT INTO invoices (id, tenant_id, razorpay_invoice_id, razorpay_payment_id, razorpay_subscription_id, amount, currency, status, invoice_pdf_url, paid_at, created_at)
+                VALUES (gen_random_uuid(), $1::uuid, $2, $3, $4, $5, 'INR', 'paid', $6, now(), now())
+                ON CONFLICT (razorpay_invoice_id) DO UPDATE
+                SET status = 'paid',
+                    razorpay_payment_id = COALESCE(EXCLUDED.razorpay_payment_id, invoices.razorpay_payment_id),
+                    paid_at = now()
+                """,
+                tenant_id, inv_id, pay_id, sub_id, amount, invoice_entity.get("short_url") or invoice_entity.get("invoice_pdf")
+            )
+
+        elif event_type == "subscription.pending":
+            await conn.execute(
+                """
+                UPDATE tenants
+                SET subscription_status = 'payment_failed',
+                    last_payment_status = 'pending_retry',
+                    updated_at = now()
+                WHERE id = $1::uuid
+                """,
+                tenant_id
+            )
+            background_tasks.add_task(
+                dispatch_subscription_reminder,
+                tenant_id,
+                2,
+                short_url
+            )
+
+        elif event_type in ("subscription.halted", "subscription.cancelled"):
+            final_status = "cancelled" if event_type == "subscription.cancelled" else "paused"
+            await conn.execute(
+                """
+                UPDATE tenants
+                SET subscription_status = $1,
+                    last_payment_status = $2,
+                    token_invalidated_at = now(),
+                    updated_at = now()
+                WHERE id = $3::uuid
+                """,
+                final_status, event_type, tenant_id
+            )
+            background_tasks.add_task(
+                dispatch_subscription_reminder,
+                tenant_id,
+                3,
+                short_url
+            )
+
+        elif event_type == "payment.failed":
+            await conn.execute(
+                "UPDATE tenants SET last_payment_status = 'failed', updated_at = now() WHERE id = $1::uuid",
+                tenant_id
+            )
+
+        elif event_type == "invoice.paid":
+            inv_id = invoice_entity.get("id")
+            if inv_id:
+                amount = float(invoice_entity.get("amount", 349900)) / 100.0
+                pay_id = invoice_entity.get("payment_id")
+                pdf_url = invoice_entity.get("short_url") or invoice_entity.get("invoice_pdf")
+                await conn.execute(
+                    """
+                    INSERT INTO invoices (id, tenant_id, razorpay_invoice_id, razorpay_payment_id, razorpay_subscription_id, amount, currency, status, invoice_pdf_url, paid_at, created_at)
+                    VALUES (gen_random_uuid(), $1::uuid, $2, $3, $4, $5, 'INR', 'paid', $6, now(), now())
+                    ON CONFLICT (razorpay_invoice_id) DO UPDATE
+                    SET status = 'paid',
+                        razorpay_payment_id = COALESCE(EXCLUDED.razorpay_payment_id, invoices.razorpay_payment_id),
+                        paid_at = now()
+                    """,
+                    tenant_id, inv_id, pay_id, sub_id, amount, pdf_url
+                )
+                await conn.execute(
+                    "UPDATE tenants SET subscription_status = 'active', org_lifecycle_stage = 'billing_active', last_payment_status = 'success', updated_at = now() WHERE id = $1::uuid",
+                    tenant_id
+                )
+
+    return {"status": "processed", "event": event_type}
+
+
 class AdminDueAlertRequest(BaseModel):
     super_admin_phone: str
     tenant_id: Optional[str] = None
@@ -3767,6 +4804,59 @@ async def send_admin_due_date_alert(payload: AdminDueAlertRequest, background_ta
                 f"— Boldlabs Automation Monitoring"
             )
             
+        # Dispatch approved Meta Template admin_notification (bypasses Meta 24-hour window)
+        try:
+            s_data = sender_cred["credential_data"] if sender_cred and sender_cred["credential_data"] else {}
+            if isinstance(s_data, str):
+                try: s_data = json.loads(s_data)
+                except: s_data = {}
+            p_id = s_data.get("phone_number_id")
+            a_token = s_data.get("access_token")
+            if p_id and a_token and not str(a_token).startswith("EAAB_test"):
+                if payload.tenant_id:
+                    t_p1 = "Boldlabs Admin"
+                    t_p2 = f"Renewal: {tenant['name']}"
+                    t_p3 = f"₹{fee:,.0f}/mo"
+                    t_p4 = str(next_date)
+                    t_p5 = "Razorpay Auto-Debit"
+                else:
+                    t_p1 = "Boldlabs Admin"
+                    t_p2 = "Client Renewal Digest"
+                    t_p3 = f"₹{total_mrr:,.0f} Total MRR"
+                    t_p4 = "Day 1 of month"
+                    t_p5 = f"{len(tenants)} Active Clients"
+                
+                tpl_body = {
+                    "messaging_product": "whatsapp",
+                    "to": clean_phone,
+                    "type": "template",
+                    "template": {
+                        "name": "admin_notification",
+                        "language": {"code": "en"},
+                        "components": [
+                            {
+                                "type": "body",
+                                "parameters": [
+                                    {"type": "text", "text": t_p1},
+                                    {"type": "text", "text": t_p2},
+                                    {"type": "text", "text": t_p3},
+                                    {"type": "text", "text": t_p4},
+                                    {"type": "text", "text": t_p5}
+                                ]
+                            }
+                        ]
+                    }
+                }
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp_tpl = await client.post(
+                        f"https://graph.facebook.com/v19.0/{p_id}/messages",
+                        headers={"Authorization": f"Bearer {a_token}", "Content-Type": "application/json"},
+                        json=tpl_body
+                    )
+                    logger.info("admin_alert_template_dispatched", status=resp_tpl.status_code, body=resp_tpl.text)
+        except Exception as e_tpl:
+            logger.warning("admin_alert_template_dispatch_warn", error=str(e_tpl))
+
         background_tasks.add_task(
             dispatch_automated_status_whatsapp,
             sender_tenant_id,
@@ -4273,5 +5363,284 @@ async def get_marketing_analytics(tenant_id: str = Depends(get_tenant_id)):
     }
 
 
+# ── Web Push Notifications & Notification Center ───────────────────────────────
 
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "BMpihU9a8uXtZIkGtKTSKVJTLzTHzQf8Vz_WolZCxkgTb39GJ_0RajTa6-nI6gCBS7_p7Qk7bPHOKSi-6BwpoZU")
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "7VmcO0Iktk1j2BIrJrzH4lsCg-n3h0AX-P3WwYqHV_0")
+VAPID_CLAIM_EMAIL = os.getenv("VAPID_CLAIM_EMAIL", "mailto:admin@goboldlabs.com")
+
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscribePayload(BaseModel):
+    endpoint: str
+    keys: PushSubscriptionKeys
+    user_agent: Optional[str] = None
+
+
+class PushUnsubscribePayload(BaseModel):
+    endpoint: str
+
+
+async def dispatch_push_notification(
+    pool: asyncpg.Pool,
+    tenant_id: str,
+    title: str,
+    body: str,
+    notif_type: str = "message",
+    url: Optional[str] = None,
+    data: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Persists notification in database and dispatches real background Web Push
+    to all registered devices for this tenant.
+    """
+    if not pool or not tenant_id:
+        return {"status": "error", "message": "Missing pool or tenant_id"}
+
+    notification_id = str(uuid.uuid4())
+    merged_data = {"url": url or "/boldlabs#inbox", "type": notif_type, **(data or {})}
+
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO notifications (id, tenant_id, title, body, type, data, is_read, created_at)
+                   VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::jsonb, false, now())""",
+                notification_id, tenant_id, title, body, notif_type, json.dumps(merged_data)
+            )
+
+            subs = await conn.fetch(
+                "SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE tenant_id = $1::uuid",
+                tenant_id
+            )
+    except Exception as dbe:
+        logger.error("push_db_persist_failed", error=str(dbe))
+        subs = []
+
+    if not subs:
+        return {"status": "ok", "notification_id": notification_id, "sent_count": 0}
+
+    payload_json = json.dumps({
+        "title": title,
+        "body": body,
+        "icon": "/favicon.ico",
+        "badge": "/favicon.ico",
+        "tag": f"{notif_type}-{int(datetime.now().timestamp())}",
+        "data": merged_data
+    })
+
+    sent_count = 0
+    expired_ids = []
+
+    try:
+        from pywebpush import webpush, WebPushException
+        vapid_claims = {"sub": VAPID_CLAIM_EMAIL}
+
+        for sub in subs:
+            sub_info = {
+                "endpoint": sub["endpoint"],
+                "keys": {
+                    "p256dh": sub["p256dh"],
+                    "auth": sub["auth"]
+                }
+            }
+            try:
+                webpush(
+                    subscription_info=sub_info,
+                    data=payload_json,
+                    vapid_private_key=VAPID_PRIVATE_KEY,
+                    vapid_claims=vapid_claims,
+                    ttl=86400
+                )
+                sent_count += 1
+            except WebPushException as ex:
+                logger.warning("webpush_send_failed", endpoint=sub["endpoint"][:30], error=str(ex))
+                if ex.response is not None and ex.response.status_code in [404, 410]:
+                    expired_ids.append(sub["id"])
+            except Exception as e:
+                logger.warning("webpush_generic_error", error=str(e))
+
+        if expired_ids:
+            try:
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        "DELETE FROM push_subscriptions WHERE id = ANY($1::uuid[])",
+                        expired_ids
+                    )
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error("dispatch_push_notification_failed", error=str(e))
+
+    return {"status": "ok", "notification_id": notification_id, "sent_count": sent_count}
+
+
+@app.get("/notifications/vapid-public-key")
+@app.get("/api/v1/crm/notifications/vapid-public-key")
+async def get_vapid_public_key():
+    """Returns VAPID public key for frontend Service Worker Web Push registration."""
+    return {"vapid_public_key": VAPID_PUBLIC_KEY}
+
+
+@app.post("/notifications/subscribe")
+@app.post("/api/v1/crm/notifications/subscribe")
+async def subscribe_push(
+    payload: PushSubscribePayload,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Registers or updates a client browser Web Push subscription."""
+    if not payload.endpoint or not payload.keys.p256dh or not payload.keys.auth:
+        raise HTTPException(400, "Invalid push subscription object")
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO push_subscriptions (id, tenant_id, endpoint, p256dh, auth, user_agent, created_at, updated_at)
+               VALUES (gen_random_uuid(), $1::uuid, $2, $3, $4, $5, now(), now())
+               ON CONFLICT (endpoint) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
+                p256dh = EXCLUDED.p256dh,
+                auth = EXCLUDED.auth,
+                user_agent = EXCLUDED.user_agent,
+                updated_at = now()""",
+            tenant_id, payload.endpoint, payload.keys.p256dh, payload.keys.auth, payload.user_agent
+        )
+    return {"status": "ok", "subscribed": True}
+
+
+@app.post("/notifications/unsubscribe")
+@app.post("/api/v1/crm/notifications/unsubscribe")
+async def unsubscribe_push(
+    payload: PushUnsubscribePayload,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Unregisters a client browser Web Push subscription."""
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM push_subscriptions WHERE endpoint = $1 AND tenant_id = $2::uuid",
+            payload.endpoint, tenant_id
+        )
+    return {"status": "ok", "unsubscribed": True}
+
+
+@app.get("/notifications")
+@app.get("/api/v1/crm/notifications")
+async def list_notifications(
+    tenant_id: str = Depends(get_tenant_id),
+    limit: int = Query(50, le=100)
+):
+    """Lists recent notifications with unread count for the top header bell popover."""
+    async with db_pool.acquire() as conn:
+        unread_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM notifications WHERE tenant_id = $1::uuid AND is_read = false",
+            tenant_id
+        )
+        sub_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM push_subscriptions WHERE tenant_id = $1::uuid",
+            tenant_id
+        )
+        rows = await conn.fetch(
+            """SELECT id, title, body, type, data, is_read, created_at
+               FROM notifications
+               WHERE tenant_id = $1::uuid
+               ORDER BY created_at DESC
+               LIMIT $2""",
+            tenant_id, limit
+        )
+
+    return {
+        "unread_count": unread_count or 0,
+        "subscription_count": sub_count or 0,
+        "notifications": [
+            {
+                "id": str(r["id"]),
+                "title": r["title"],
+                "body": r["body"],
+                "type": r["type"],
+                "data": json.loads(r["data"]) if isinstance(r["data"], str) else (r["data"] or {}),
+                "is_read": bool(r["is_read"]),
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.patch("/notifications/{notification_id}/read")
+@app.patch("/api/v1/crm/notifications/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: str,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Marks a single notification as read."""
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE notifications SET is_read = true WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            notification_id, tenant_id
+        )
+    return {"status": "ok", "id": notification_id}
+
+
+@app.post("/notifications/mark-all-read")
+@app.post("/api/v1/crm/notifications/mark-all-read")
+async def mark_all_notifications_read(
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Marks all notifications for this tenant as read."""
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE notifications SET is_read = true WHERE tenant_id = $1::uuid AND is_read = false",
+            tenant_id
+        )
+    return {"status": "ok"}
+
+
+@app.post("/notifications/test")
+@app.post("/api/v1/crm/notifications/test")
+async def send_test_push_notification(
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Dispatches a real test push notification to verify background notification delivery."""
+    res = await dispatch_push_notification(
+        pool=db_pool,
+        tenant_id=tenant_id,
+        title="🔔 Boldlabs CRM Notification Active",
+        body="Real background notifications are working! You will receive instant alerts even with the browser closed.",
+        notif_type="system",
+        url="/boldlabs#inbox"
+    )
+    return res
+
+
+@app.delete("/notifications/{notification_id}")
+@app.delete("/api/v1/crm/notifications/{notification_id}")
+async def delete_notification(
+    notification_id: str,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Deletes a single notification for this tenant."""
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM notifications WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            notification_id, tenant_id
+        )
+    return {"status": "ok", "id": notification_id}
+
+
+@app.delete("/notifications")
+@app.delete("/api/v1/crm/notifications")
+@app.post("/notifications/clear-all")
+@app.post("/api/v1/crm/notifications/clear-all")
+async def clear_all_notifications(
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Clears and deletes all notifications for this tenant."""
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM notifications WHERE tenant_id = $1::uuid",
+            tenant_id
+        )
+    return {"status": "ok"}
 

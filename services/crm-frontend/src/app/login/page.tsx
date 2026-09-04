@@ -3,7 +3,28 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth, crm } from '@/lib/api';
-import { MessageSquare, Lock, Mail, ArrowRight, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
+import {
+  MessageSquare,
+  Lock,
+  Mail,
+  ArrowRight,
+  ShieldCheck,
+  AlertCircle,
+  Loader2,
+  CreditCard,
+  ExternalLink,
+  RefreshCw,
+  AlertTriangle,
+  ArrowLeft
+} from 'lucide-react';
+
+interface PaymentRequiredDetails {
+  code: string;
+  status: string;
+  org_name?: string;
+  short_url?: string;
+  message?: string;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,6 +32,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [paymentRequired, setPaymentRequired] = useState<PaymentRequiredDetails | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,8 +54,12 @@ export default function LoginPage() {
         localStorage.setItem('tenant_slug', defaultSlug);
         router.push(`/${defaultSlug}`);
       }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Invalid credentials. Please verify your email and password.');
+    } catch (err: any) {
+      if (err?.code === 'PAYMENT_REQUIRED' && err.paymentDetails) {
+        setPaymentRequired(err.paymentDetails);
+      } else {
+        setError(err instanceof Error ? err.message : 'Invalid credentials. Please verify your email and password.');
+      }
     } finally {
       setLoading(false);
     }
@@ -42,6 +68,80 @@ export default function LoginPage() {
   function fillDemo() {
     setEmail('admin@demo.com');
     setPassword('admin123456');
+  }
+
+  if (paymentRequired) {
+    const isPaused = paymentRequired.status === 'paused' || paymentRequired.status === 'cancelled';
+    return (
+      <div className="min-h-screen bg-canvas text-text-primary flex flex-col justify-center items-center px-4 font-sans">
+        <div className="w-full max-w-md">
+          {/* Header */}
+          <div className="text-center mb-6">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 mb-3">
+              <CreditCard className="w-6 h-6 stroke-[1.5]" />
+            </div>
+            <h1 className="text-xl font-bold text-text-primary">
+              Subscription Payment Required
+            </h1>
+            <p className="text-xs text-text-muted mt-1">
+              {paymentRequired.org_name ? `Organization: ${paymentRequired.org_name}` : 'WhatsApp CRM Platform'}
+            </p>
+          </div>
+
+          {/* Card */}
+          <div className="bg-surface border border-border rounded-lg p-6 space-y-4 shadow-sm">
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-md flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+              <div className="text-xs space-y-1">
+                <p className="font-semibold text-amber-600 dark:text-amber-400">
+                  {isPaused ? 'Workspace Access Paused' : 'Payment Retry Pending'}
+                </p>
+                <p className="text-text-secondary leading-relaxed">
+                  Your monthly subscription (₹3,499/mo) has an outstanding balance.
+                  Your customer contacts and settings remain safely preserved.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              {paymentRequired.short_url ? (
+                <a
+                  href={paymentRequired.short_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm rounded-md transition-colors duration-150 flex items-center justify-center gap-2 shadow-sm"
+                >
+                  <CreditCard className="w-4 h-4" />
+                  <span>Pay Now via Razorpay (₹3,499)</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              ) : (
+                <p className="text-xs text-center text-text-muted">
+                  Please contact platform support to generate a payment link.
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPaymentRequired(null);
+                  setError('');
+                }}
+                className="w-full py-2 px-4 bg-surface-subtle hover:bg-surface border border-border text-text-secondary font-medium text-xs rounded-md transition-colors duration-150 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Return to Login</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <p className="text-center text-xs text-text-muted mt-6">
+            Need assistance? Contact support at support@boldlabs.ai
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (

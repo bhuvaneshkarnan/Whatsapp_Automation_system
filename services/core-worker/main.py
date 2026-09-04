@@ -268,6 +268,105 @@ def build_reschedule_customer_email_html(service_name: str, formatted_date: str,
 </div>
 """
 
+# ── Web Push Notifications ─────────────────────────────────────────────────────
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "BMpihU9a8uXtZIkGtKTSKVJTLzTHzQf8Vz_WolZCxkgTb39GJ_0RajTa6-nI6gCBS7_p7Qk7bPHOKSi-6BwpoZU")
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "7VmcO0Iktk1j2BIrJrzH4lsCg-n3h0AX-P3WwYqHV_0")
+VAPID_CLAIM_EMAIL = os.getenv("VAPID_CLAIM_EMAIL", "mailto:admin@goboldlabs.com")
+
+
+async def dispatch_push_notification(
+    pool: Optional[asyncpg.Pool],
+    tenant_id: str,
+    title: str,
+    body: str,
+    notif_type: str = "message",
+    url: Optional[str] = None,
+    data: Optional[dict] = None
+) -> dict:
+    """
+    Persists notification in database and dispatches real background Web Push
+    to all registered devices for this tenant.
+    """
+    if not pool or not tenant_id:
+        return {"status": "error", "message": "Missing pool or tenant_id"}
+
+    notification_id = str(uuid.uuid4())
+    merged_data = {"url": url or "/boldlabs#inbox", "type": notif_type, **(data or {})}
+
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO notifications (id, tenant_id, title, body, type, data, is_read, created_at)
+                   VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::jsonb, false, now())""",
+                notification_id, tenant_id, title, body, notif_type, json.dumps(merged_data)
+            )
+
+            subs = await conn.fetch(
+                "SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE tenant_id = $1::uuid",
+                tenant_id
+            )
+    except Exception as dbe:
+        logger.error("push_db_persist_failed", error=str(dbe))
+        subs = []
+
+    if not subs:
+        return {"status": "ok", "notification_id": notification_id, "sent_count": 0}
+
+    payload_json = json.dumps({
+        "title": title,
+        "body": body,
+        "icon": "/favicon.ico",
+        "badge": "/favicon.ico",
+        "tag": f"{notif_type}-{int(time.time())}",
+        "data": merged_data
+    })
+
+    sent_count = 0
+    expired_ids = []
+
+    try:
+        from pywebpush import webpush, WebPushException
+        vapid_claims = {"sub": VAPID_CLAIM_EMAIL}
+
+        for sub in subs:
+            sub_info = {
+                "endpoint": sub["endpoint"],
+                "keys": {
+                    "p256dh": sub["p256dh"],
+                    "auth": sub["auth"]
+                }
+            }
+            try:
+                webpush(
+                    subscription_info=sub_info,
+                    data=payload_json,
+                    vapid_private_key=VAPID_PRIVATE_KEY,
+                    vapid_claims=vapid_claims,
+                    ttl=86400
+                )
+                sent_count += 1
+            except WebPushException as ex:
+                logger.warning("webpush_send_failed", endpoint=sub["endpoint"][:30], error=str(ex))
+                if ex.response is not None and ex.response.status_code in [404, 410]:
+                    expired_ids.append(sub["id"])
+            except Exception as e:
+                logger.warning("webpush_generic_error", error=str(e))
+
+        if expired_ids:
+            try:
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        "DELETE FROM push_subscriptions WHERE id = ANY($1::uuid[])",
+                        expired_ids
+                    )
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error("dispatch_push_notification_failed", error=str(e))
+
+    return {"status": "ok", "notification_id": notification_id, "sent_count": sent_count}
+
+
 # ── FastAPI app (for /health only — worker runs in background) ─────────────────
 app = FastAPI(title="Core Worker", version="1.0.0")
 
@@ -428,12 +527,17 @@ class CoreWorker:
 
             # ── 3. WhatsApp Read Receipts (2 Blue Ticks) ──────────────────────
             creds = await self._get_tenant_whatsapp_creds(tenant_id)
-            is_active = await self.db_pool.fetchval(
-                "SELECT is_active FROM tenants WHERE id = $1::uuid", tenant_id
+            tenant_info = await self.db_pool.fetchrow(
+                "SELECT is_active, org_lifecycle_stage, subscription_status FROM tenants WHERE id = $1::uuid", tenant_id
             )
+            is_active = tenant_info["is_active"] if tenant_info else True
+            stage = (tenant_info.get("org_lifecycle_stage") or "setup") if tenant_info else "setup"
+            sub_status = (tenant_info.get("subscription_status") or "not_started") if tenant_info else "not_started"
+            sub_delinquent = (stage == "billing_active" and sub_status != "active")
+
             # Only auto-mark as read (blue ticks) if AI is enabled and handling this chat.
-            # If in Human Mode or paused, keep as delivered (2 grey ticks) until staff opens chat in CRM.
-            if is_active is not False and conv_status != "human" and creds and creds.get("phone_number_id") and creds.get("access_token"):
+            # If in Human Mode or delinquent/paused, keep as delivered (2 grey ticks) until staff opens chat in CRM.
+            if not sub_delinquent and is_active is not False and conv_status != "human" and creds and creds.get("phone_number_id") and creds.get("access_token"):
                 asyncio.create_task(
                     mark_as_read(creds["phone_number_id"], creds["access_token"], wa_message_id)
                 )
@@ -477,11 +581,32 @@ class CoreWorker:
                 content_type=msg_type,
             )
 
-            # ── 6. Route to AI or skip (human mode or paused automation) ─────
-            is_active = await self.db_pool.fetchval(
-                "SELECT is_active FROM tenants WHERE id = $1::uuid", tenant_id
-            )
-            if is_active is False:
+            # ── 5b. Dispatch Real Background Web Push Notification ────────────
+            try:
+                sender_name = fields.get("contactName") or fields.get("from")
+                preview = body_text if body_text else (f"[{msg_type} message]" if msg_type else "New message")
+                if len(preview) > 120:
+                    preview = preview[:117] + "..."
+                asyncio.create_task(
+                    dispatch_push_notification(
+                        pool=self.db_pool,
+                        tenant_id=tenant_id,
+                        title=f"💬 {sender_name}",
+                        body=preview,
+                        notif_type="message",
+                        url="/boldlabs#inbox",
+                        data={"phone": fields.get("from"), "conversation_id": conv_id}
+                    )
+                )
+            except Exception as push_err:
+                logger.warning("inbound_push_notification_failed", error=str(push_err))
+
+            # ── 6. Route to AI or skip (human mode, paused automation, or subscription delinquent) ─────
+            # Strict Gating: Orgs in 'setup' or 'ready_to_activate' run freely!
+            # Only gate if org_lifecycle_stage == 'billing_active' AND subscription_status != 'active'
+            if sub_delinquent:
+                logger.warn("skipping_ai_subscription_not_active", conv_id=conv_id, tenant_id=tenant_id, stage=stage, sub_status=sub_status)
+            elif is_active is False:
                 logger.warn("skipping_ai_tenant_paused", conv_id=conv_id, tenant_id=tenant_id)
             elif conv_status == "human":
                 logger.info("skipping_ai_human_mode", conv_id=conv_id, tenant_id=tenant_id)
@@ -527,7 +652,7 @@ class CoreWorker:
         gemini_key = await self._get_gemini_key(tenant_id)
         groq_key = await self._get_groq_key(tenant_id)
         opencode_key, opencode_base = await self._get_opencode_creds(tenant_id)
-        primary_provider = ai_cfg.get("model_provider") or "gemini"
+        primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("groq" if groq_key else "gemini")
 
         # 1. Retrieve full conversation history (up to last 30 messages for deep context)
         rows = await self.db_pool.fetch(
@@ -765,6 +890,18 @@ class CoreWorker:
         if bot_goal.strip():
             prompt_blocks.append(f"### GOALS & OBJECTIVES:\n{bot_goal.strip()}")
 
+        if objection_handling.strip():
+            prompt_blocks.append(f"### OBJECTION HANDLING STRATEGY:\n{objection_handling.strip()}")
+
+        if strict_rules.strip():
+            prompt_blocks.append(f"### GLOBAL BOT STRICT RULES & NEGATIVE CONSTRAINTS:\n{strict_rules.strip()}")
+
+        if response_style.strip():
+            prompt_blocks.append(f"### CONVERSATION STYLE & TONE:\n{response_style.strip()}")
+
+        if methodology.strip():
+            prompt_blocks.append(f"### CONVERSATION METHODOLOGY:\n{methodology.strip()}")
+
         if full_location:
             prompt_blocks.append(f"### BUSINESS ADDRESS & LOCATION:\n{full_location}\n- Provide this exact address and directions whenever the customer asks where the business or clinic is located.")
 
@@ -789,11 +926,11 @@ class CoreWorker:
             groq_key=groq_key,
             opencode_key=opencode_key,
             opencode_base_url=opencode_base,
-            primary_provider=primary_provider or "gemini",
-            gemini_model="gemini-3.5-flash-lite",
-            max_tokens=2048,
+            primary_provider=primary_provider,
+            gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
+            max_tokens=350,
             temperature=0.3,
-            timeout_seconds=12.0,
+            timeout_seconds=3.5,
             tenant_id=tenant_id,
         )
 
@@ -865,62 +1002,6 @@ class CoreWorker:
                     logger.warning("booking_action_json_parse_failed", error=str(e))
                 # Strip action tag from message sent to WhatsApp customer
                 response_text = re.sub(r'\[ACTION:CREATE_BOOKING:\s*\{.*?\}\]', '', response_text, flags=re.DOTALL).strip()
-            elif not cancel_action and not reschedule_action and any(phrase in response_text.lower() for phrase in [
-                "booked for you", "have got that booked", "got that booked", "appointment is booked", 
-                "appointment is confirmed", "scheduled for you", "has been scheduled", "all set for", 
-                "you are all set", "you're all set", "all set", "booked for today", "booked for tomorrow", 
-                "confirmed for", "see you at", "looking forward to seeing you at", "reserved for you",
-                "got it, you are all set", "you're booked"
-            ]):
-                # Intelligent Fallback extractor: LLM confirmed the booking in text but forgot the JSON tag!
-                extracted_email = ""
-                extracted_name = customer_name or ""
-                for h in reversed(history):
-                    content = h.get("content", "")
-                    email_match = re.search(r'[\w.+-]+@[\w-]+\.[\w.-]+', content)
-                    if email_match and not extracted_email:
-                        extracted_email = email_match.group(0)
-                        lines = [l.strip() for l in content.split('\n') if l.strip()]
-                        for l in lines:
-                            if '@' not in l and len(l.split()) <= 4 and not re.search(r'\d', l):
-                                extracted_name = l
-                                break
-
-                # Extract time from message_text, response_text, or recent history
-                combined_texts = f"{message_text} {response_text}"
-                for h in reversed(history[-6:]):
-                    combined_texts += f" {h.get('content', '')}"
-
-                pm_match = re.search(r'(\d{1,2})(?::(\d{2}))?\s*(pm|am)', combined_texts, re.IGNORECASE)
-                time_str = "10:00"
-                if pm_match:
-                    h = int(pm_match.group(1))
-                    m = int(pm_match.group(2) or 0)
-                    is_pm = 'pm' in pm_match.group(3).lower()
-                    if is_pm and h < 12:
-                        h += 12
-                    elif not is_pm and h == 12:
-                        h = 0
-                    time_str = f"{h:02d}:{m:02d}"
-                else:
-                    time_match = re.search(r'\b([01]?\d|2[0-3]):([0-5]\d)\b', combined_texts)
-                    if time_match:
-                        time_str = f"{int(time_match.group(1)):02d}:{time_match.group(2)}"
-
-                today_iso = now.strftime("%Y-%m-%d")
-                date_str = today_iso
-                if "tomorrow" in combined_texts.lower():
-                    date_str = (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-
-                booking_action = {
-                    "service": "Consultation / Appointment",
-                    "date": date_str,
-                    "time": time_str,
-                    "name": extracted_name or "Valued Customer",
-                    "email": extracted_email,
-                    "notes": "Auto-extracted from WhatsApp conversation"
-                }
-                logger.info("fallback_booking_action_extracted", booking_action=booking_action)
 
             if not response_text:
                 if booking_action:
@@ -1032,28 +1113,29 @@ class CoreWorker:
     async def _update_customer_extracted_info(self, tenant_id: str, phone: str, age=None, location=None):
         """Auto-update customer age/location extracted from WhatsApp message by AI."""
         try:
-            async with asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=2) as pool:
-                async with pool.acquire() as conn:
-                    # Find customer by tenant+phone
-                    row = await conn.fetchrow(
-                        "SELECT id FROM customers WHERE tenant_id=$1 AND phone=$2 LIMIT 1",
-                        tenant_id, phone
-                    )
-                    if not row:
-                        logger.info("customer_info_extract_no_customer", phone=phone)
-                        return
-                    cust_id = row["id"]
-                    if age is not None:
-                        await conn.execute(
-                            "UPDATE customers SET age=$1 WHERE id=$2 AND tenant_id=$3",
-                            int(age), cust_id, tenant_id
-                        )
-                    if location:
-                        await conn.execute(
-                            "UPDATE customers SET location=$1 WHERE id=$2 AND tenant_id=$3",
-                            str(location), cust_id, tenant_id
-                        )
-                    logger.info("customer_info_auto_updated", phone=phone, age=age, location=location)
+            pool = self.db_pool
+            row = await pool.fetchrow(
+                """SELECT id FROM customers 
+                   WHERE tenant_id = $1::uuid 
+                     AND (phone = $2 OR phone = replace($2, '+', '') OR ('+' || phone) = $2)
+                   LIMIT 1""",
+                tenant_id, phone
+            )
+            if not row:
+                logger.info("customer_info_extract_no_customer", phone=phone)
+                return
+            cust_id = row["id"]
+            if age is not None:
+                await pool.execute(
+                    "UPDATE customers SET age = $1, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                    int(age), cust_id, tenant_id
+                )
+            if location:
+                await pool.execute(
+                    "UPDATE customers SET location = $1, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                    str(location), cust_id, tenant_id
+                )
+            logger.info("customer_info_auto_updated", phone=phone, age=age, location=location)
         except Exception as ex:
             logger.warning("customer_info_update_failed", error=str(ex))
 
@@ -1131,35 +1213,33 @@ class CoreWorker:
                     except Exception as e:
                         logger.warning("save_contact_name_failed", error=str(e))
 
-            # Double Booking Conflict Check:
+            # 1. Check if THIS contact already has an active booking at this time
+            if contact_id:
+                existing_for_contact = await self.db_pool.fetchrow(
+                    """SELECT id FROM bookings
+                       WHERE tenant_id = $1::uuid
+                         AND contact_id = $2::uuid
+                         AND status = 'confirmed'
+                         AND start_time < $4 AND end_time > $3""",
+                    tenant_id, contact_id, st_dt, et_dt
+                )
+                if existing_for_contact:
+                    logger.info("ai_booking_already_exists_for_contact", booking_id=str(existing_for_contact["id"]))
+                    return
+
+            # 2. Check if another client has an active booking at this time
             conflict_row = await self.db_pool.fetchrow(
                 """SELECT id, service, start_time, end_time
                    FROM bookings
                    WHERE tenant_id = $1::uuid
                      AND status = 'confirmed'
+                     AND (contact_id IS NULL OR contact_id != $4::uuid)
                      AND start_time < $3 AND end_time > $2""",
-                tenant_id, st_dt, et_dt
+                tenant_id, st_dt, et_dt, contact_id
             )
             if conflict_row:
-                logger.warning("ai_booking_conflict_detected", tenant_id=tenant_id, requested_start=str(st_dt), conflict_id=str(conflict_row["id"]))
-                conflict_msg = f"That slot on {st_dt.strftime('%d %b at %I:%M %p')} is already booked by another client. Could you please let me know another time or day that works for you?"
-                if creds and creds.get("phone_number_id") and creds.get("access_token"):
-                    try:
-                        await send_text(
-                            phone_number_id=creds["phone_number_id"],
-                            access_token=creds["access_token"],
-                            to=contact_phone,
-                            body=conflict_msg,
-                        )
-                        conf_msg_id = str(uuid.uuid4())
-                        await self.db_pool.execute(
-                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
-                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
-                            conf_msg_id, conv_id, tenant_id, conflict_msg
-                        )
-                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
-                    except Exception:
-                        pass
+                logger.warning("ai_booking_conflict_with_another_client", tenant_id=tenant_id, requested_start=str(st_dt), conflict_id=str(conflict_row["id"]))
+                # Do NOT send an out-of-band conflicting message to WhatsApp to prevent confusing double-replies
                 return
 
             # Insert booking record in DB
@@ -1171,9 +1251,31 @@ class CoreWorker:
             )
             logger.info("ai_booking_created", booking_id=booking_id, service=service_name, start_time=str(st_dt))
 
+            # Dispatch Real Web Push Notification for New Booking
+            try:
+                formatted_d = st_dt.strftime("%d %b")
+                formatted_t = st_dt.strftime("%I:%M %p")
+                asyncio.create_task(
+                    dispatch_push_notification(
+                        pool=self.db_pool,
+                        tenant_id=tenant_id,
+                        title=f"📅 New Booking: {name}",
+                        body=f"{service_name} on {formatted_d} at {formatted_t}",
+                        notif_type="booking",
+                        url="/boldlabs#bookings",
+                        data={"contact_phone": contact_phone, "booking_id": booking_id}
+                    )
+                )
+            except Exception as b_err:
+                logger.warning("booking_push_failed", error=str(b_err))
+
             # 1. Send Meta WhatsApp Template (booking_confirmationn)
             if creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-                template_name = creds.get("template_booking_confirmation") or "booking_confirmationn"
+                template_name = (
+                    creds.get("template_booking_confirmation") or
+                    (tenant_st_row.get("template_booking_confirmation") if tenant_st_row else None) or
+                    "booking_confirmationn"
+                )
                 formatted_date = st_dt.strftime("%d-%m-%Y")
                 formatted_time = st_dt.strftime("%I:%M %p")
 
@@ -1257,8 +1359,11 @@ class CoreWorker:
                         f"• *Email:* {customer_email or 'Not provided'}\n\n"
                         f"✅ Confirmed by WhatsApp AI Assistant & synced to Google Calendar."
                     )
-                    # Send Meta Template FIRST (immune to 24h customer window)
-                    admin_template = creds.get("template_admin_notification") or "admin_notification"
+                    admin_template = (
+                        creds.get("template_admin_notification") or
+                        (tenant_st_row.get("template_admin_notification") if tenant_st_row else None) or
+                        "admin_notification"
+                    )
                     admin_components = [
                         {
                             "type": "body",
@@ -1502,26 +1607,6 @@ class CoreWorker:
         except Exception as e:
             logger.warning("lead_analysis_failed", error=str(e), phone=phone)
 
-    async def _update_customer_extracted_info(self, tenant_id: str, phone: str, age: Optional[int], location: Optional[str]):
-        """Save extracted customer demographics (age, location) into customers table."""
-        try:
-            updates = ["updated_at = NOW()"]
-            params = [tenant_id, phone]
-            idx = 3
-            if age:
-                updates.append(f"age = COALESCE(customers.age, ${idx})")
-                params.append(age)
-                idx += 1
-            if location:
-                updates.append(f"location = COALESCE(customers.location, ${idx})")
-                params.append(location)
-                idx += 1
-            if len(updates) > 1:
-                query = f"UPDATE customers SET {', '.join(updates)} WHERE tenant_id = $1::uuid AND phone = $2"
-                await self.db_pool.execute(query, *params)
-        except Exception as e:
-            logger.warning("customer_extracted_info_update_failed", error=str(e))
-
     async def _execute_ai_cancellation(
         self,
         tenant_id: str,
@@ -1612,7 +1697,11 @@ class CoreWorker:
 
             # 3. Send Customer Cancellation Meta Template
             if creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-                template_name = creds.get("template_cancellation_confirmation") or "cancellation_confirmation"
+                template_name = (
+                    creds.get("template_cancellation_confirmation") or
+                    (tenant_st_row.get("template_cancellation_confirmation") if tenant_st_row else None) or
+                    "cancellation_confirmation"
+                )
                 components = [
                     {
                         "type": "body",
@@ -1656,7 +1745,11 @@ class CoreWorker:
                         f"❌ The booking has been marked cancelled in CRM and removed from Google Calendar."
                     )
                     # Send Meta Template FIRST (immune to 24h customer window)
-                    admin_cancel_template = creds.get("template_admin_cancellation_notice") or "admin_cancellation_notice"
+                    admin_cancel_template = (
+                        creds.get("template_admin_cancellation_notice") or
+                        (tenant_st_row.get("template_admin_cancellation_notice") if tenant_st_row else None) or
+                        "admin_cancellation_notice"
+                    )
                     admin_cancel_components = [
                         {
                             "type": "body",
@@ -1785,8 +1878,11 @@ class CoreWorker:
                     f"• *Phone:* {contact_phone}\n\n"
                     f"💬 The customer requested to speak with a human team member. AI automation has been paused for this chat. Please open your CRM dashboard to reply."
                 )
-                # Send Meta Template FIRST (immune to 24h customer window)
-                admin_template = creds.get("template_admin_human_request") or "admin_human_request"
+                admin_template = (
+                    creds.get("template_admin_human_request") or
+                    (tenant_st_row.get("template_admin_human_request") if tenant_st_row else None) or
+                    "admin_human_request"
+                )
                 components = [
                     {
                         "type": "body",
@@ -1944,14 +2040,24 @@ class CoreWorker:
                                 await self.db_pool.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid", event["id"], booking_id)
 
                         # 4. Direct Gmail API Reschedule Email to Admin & Customer
+                        full_location = (creds.get("full_location_text") or "").strip() if creds else ""
+                        if not full_location and tenant_st_row:
+                            full_location = (tenant_st_row.get("full_location_text") or tenant_st_row.get("location") or "").strip()
+
                         # Fetch customer email
-                        customer_email = ""
-                        c_meta = await self.db_pool.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid", contact_id)
-                        if c_meta:
-                            if isinstance(c_meta, str):
-                                try: c_meta = json.loads(c_meta)
-                                except: c_meta = {}
-                            customer_email = c_meta.get("email") or ""
+                        customer_email = (booking_data.get("email") or "").strip()
+                        if not customer_email:
+                            c_meta = await self.db_pool.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid", contact_id)
+                            if c_meta:
+                                if isinstance(c_meta, str):
+                                    try: c_meta = json.loads(c_meta)
+                                    except: c_meta = {}
+                                customer_email = c_meta.get("email") or ""
+                        if not customer_email:
+                            customer_email = await self.db_pool.fetchval(
+                                "SELECT metadata->>'email' FROM contacts WHERE tenant_id = $1::uuid AND (phone = $2 OR phone = replace($2, '+', '')) LIMIT 1",
+                                tenant_id, contact_phone
+                            ) or ""
 
                         admin_notif_email = g_data.get("notification_email")
                         if not admin_notif_email and tenant_st_row:
@@ -1969,6 +2075,7 @@ class CoreWorker:
                             )
                             admin_subject = f"🔄 [Admin Notice] Booking Rescheduled: {service_name} - {name} to {formatted_date} at {formatted_time}"
                             send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
+                            logger.info("reschedule_email_sent_to_admin", to=admin_notif_email)
 
                         # Send tailored copy to Customer
                         if customer_email and "@" in customer_email and customer_email != (admin_notif_email or "").strip():
@@ -1981,13 +2088,31 @@ class CoreWorker:
                             )
                             customer_subject = f"🔄 Reschedule Confirmed: Your {service_name} is now on {formatted_date} at {formatted_time}"
                             send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
+                            logger.info("reschedule_email_sent_to_customer", to=customer_email)
 
                     except Exception as e:
                         logger.warning("gcal_reschedule_sync_failed", error=str(e))
 
+            # Update pending scheduled reminders to 2 hours before the new start time
+            try:
+                reminder_time = st_dt - datetime.timedelta(hours=2)
+                if reminder_time > datetime.datetime.now(tz):
+                    await self.db_pool.execute(
+                        """UPDATE scheduled_jobs
+                           SET scheduled_at = $1, status = 'pending'
+                           WHERE booking_id = $2::uuid AND job_type = 'reminder'""",
+                        reminder_time, booking_id
+                    )
+            except Exception as e_rem:
+                logger.warning("reminder_job_reschedule_failed", error=str(e_rem))
+
             # Send Customer Reschedule Meta Template
             if creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-                template_name = creds.get("template_reschedule_confirmation") or "booking_confirmationn"
+                template_name = (
+                    creds.get("template_reschedule_confirmation") or
+                    (tenant_st_row.get("template_reschedule_confirmation") if tenant_st_row else None) or
+                    "booking_reschedule_confirmation"
+                )
                 components = [
                     {
                         "type": "body",
@@ -2010,7 +2135,21 @@ class CoreWorker:
                     )
                     logger.info("reschedule_template_sent_to_customer", template=template_name, to=contact_phone)
                 except Exception as e:
-                    logger.warning("reschedule_template_send_failed", error=str(e))
+                    logger.warning("reschedule_template_send_failed", error=str(e), template=template_name)
+                    try:
+                        customer_fallback_text = (
+                            f"Hello {name}, your {service_name} appointment has been rescheduled to {formatted_date} at {formatted_time}. "
+                            f"If you need to make any changes, just reply to this chat. We look forward to seeing you."
+                        )
+                        await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=contact_phone,
+                            body=customer_fallback_text,
+                        )
+                        logger.info("reschedule_fallback_text_sent_to_customer", to=contact_phone)
+                    except Exception as e2:
+                        logger.error("reschedule_fallback_text_failed", error=str(e2))
 
                 # Send Admin Reschedule Alert
                 admin_phone = (creds.get("admin_whatsapp_number") or "").strip()
@@ -2031,7 +2170,11 @@ class CoreWorker:
                         f"✅ Google Calendar and CRM have been updated with the new slot."
                     )
                     # Send Meta Template FIRST (immune to 24h customer window)
-                    admin_template = creds.get("template_admin_notification") or "admin_notification"
+                    admin_template = (
+                        creds.get("template_admin_reschedule_notice") or
+                        (tenant_st_row.get("template_admin_reschedule_notice") if tenant_st_row else None) or
+                        "admin_reschedule_notice"
+                    )
                     admin_components = [
                         {
                             "type": "body",
@@ -2055,17 +2198,31 @@ class CoreWorker:
                         )
                         logger.info("admin_reschedule_template_sent", template=admin_template, to=clean_admin_phone)
                     except Exception as e:
-                        logger.warning("admin_reschedule_template_failed_trying_text", error=str(e))
+                        logger.warning("admin_reschedule_template_failed_trying_fallback", error=str(e), template=admin_template)
+                        # Fallback to approved admin_notification template if specific reschedule template is pending in Meta
+                        fallback_template = creds.get("template_admin_notification") or "admin_notification"
                         try:
-                            await send_text(
+                            await send_template(
                                 phone_number_id=creds["phone_number_id"],
                                 access_token=creds["access_token"],
                                 to=clean_admin_phone,
-                                body=admin_resched_text,
+                                template_name=fallback_template,
+                                language_code="en",
+                                components=admin_components,
                             )
-                            logger.info("admin_reschedule_alert_text_sent", to=clean_admin_phone)
-                        except Exception as e2:
-                            logger.error("admin_reschedule_alert_failed", error=str(e2))
+                            logger.info("admin_reschedule_fallback_template_sent", template=fallback_template, to=clean_admin_phone)
+                        except Exception as e_fb:
+                            logger.warning("admin_reschedule_fallback_template_failed_trying_text", error=str(e_fb))
+                            try:
+                                await send_text(
+                                    phone_number_id=creds["phone_number_id"],
+                                    access_token=creds["access_token"],
+                                    to=clean_admin_phone,
+                                    body=admin_resched_text,
+                                )
+                                logger.info("admin_reschedule_alert_text_sent", to=clean_admin_phone)
+                            except Exception as e2:
+                                logger.error("admin_reschedule_alert_failed", error=str(e2))
         except Exception as e:
             logger.error("execute_ai_reschedule_failed", error=str(e), tenant_id=tenant_id)
 
@@ -2201,10 +2358,109 @@ class CoreWorker:
                 await self._process_appointment_reminders()
                 await self._process_daily_digest()
                 await self._process_scheduled_jobs()
+                await self._process_subscription_reminders()
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error("scheduled_job_error", error=str(e))
+
+    async def _process_subscription_reminders(self):
+        """
+        Polls for:
+        1. Upcoming subscription renewals (2 days before next_charge_at).
+        2. Gentle follow-up for orgs paused for 3+ days.
+        """
+        try:
+            now = datetime.datetime.now(timezone.utc)
+            two_days_later = now + datetime.timedelta(days=2)
+
+            # 1. Upcoming renewal in 2 days (Stage 1)
+            rows_renewal = await self.db_pool.fetch(
+                """
+                SELECT id, name, slug, razorpay_short_url, next_charge_at
+                FROM tenants
+                WHERE org_lifecycle_stage = 'billing_active'
+                  AND subscription_status = 'active'
+                  AND next_charge_at IS NOT NULL
+                  AND next_charge_at <= $1
+                  AND next_charge_at > $2
+                  AND (reminder_stage IS NULL OR reminder_stage = 0)
+                """,
+                two_days_later, now
+            )
+            for r in rows_renewal:
+                await self._dispatch_platform_subscription_reminder(str(r["id"]), 1, r.get("razorpay_short_url") or "")
+
+            # 2. Gentle follow-up for paused orgs (Stage 4)
+            three_days_ago = now - datetime.timedelta(days=3)
+            rows_paused = await self.db_pool.fetch(
+                """
+                SELECT id, name, slug, razorpay_short_url
+                FROM tenants
+                WHERE org_lifecycle_stage = 'billing_active'
+                  AND subscription_status = 'paused'
+                  AND (last_reminder_sent_at IS NULL OR last_reminder_sent_at <= $1)
+                  AND (reminder_stage IS NULL OR reminder_stage < 4)
+                """,
+                three_days_ago
+            )
+            for r in rows_paused:
+                await self._dispatch_platform_subscription_reminder(str(r["id"]), 4, r.get("razorpay_short_url") or "")
+        except Exception as e:
+            logger.error("subscription_reminders_check_error", error=str(e))
+
+    async def _dispatch_platform_subscription_reminder(self, tenant_id: str, reminder_stage: int, payment_link: str = ""):
+        """Dispatches WhatsApp reminder from platform to tenant admin."""
+        try:
+            tenant = await self.db_pool.fetchrow(
+                "SELECT id, name, slug, razorpay_short_url FROM tenants WHERE id = $1::uuid",
+                tenant_id
+            )
+            if not tenant:
+                return
+
+            creds = await self._get_tenant_whatsapp_creds(tenant_id)
+            admin_phone = creds.get("admin_whatsapp_number", "") if creds else ""
+            clean_phone = re.sub(r'[^0-9]', '', admin_phone)
+            if not clean_phone or len(clean_phone) < 10:
+                return
+
+            pay_url = payment_link or tenant.get("razorpay_short_url") or f"https://boldlabs.ai/pay/{tenant['slug']}"
+            org_name = tenant["name"]
+
+            if reminder_stage == 1:
+                msg_text = (
+                    f"Hi {org_name} team,\n\n"
+                    f"Quick heads up from Boldlabs — your monthly subscription for your WhatsApp automation (₹3,499) "
+                    f"will renew in 2 days. No action needed if your card on file is active!\n\n"
+                    f"Link to view or update payment: {pay_url}\n\n"
+                    f"— Boldlabs Team"
+                )
+            elif reminder_stage == 4:
+                msg_text = (
+                    f"Hi {org_name} team,\n\n"
+                    f"Just checking in — your WhatsApp automation is still paused. We'd love to help get your AI assistant back up and handling inquiries for {org_name}.\n\n"
+                    f"If you need help with payment or have questions, reply to this message or update your payment here: {pay_url}\n\n"
+                    f"— Boldlabs Team"
+                )
+            else:
+                return
+
+            await self.db_pool.execute(
+                "UPDATE tenants SET last_reminder_sent_at = now(), reminder_stage = $1 WHERE id = $2::uuid",
+                reminder_stage, tenant_id
+            )
+
+            if creds and creds.get("phone_number_id") and creds.get("access_token"):
+                await send_text(
+                    phone_number_id=creds["phone_number_id"],
+                    access_token=creds["access_token"],
+                    to=clean_phone,
+                    body=msg_text
+                )
+                logger.info("sub_reminder_dispatched_via_worker", tenant_id=tenant_id, stage=reminder_stage, phone=clean_phone)
+        except Exception as e:
+            logger.error("dispatch_platform_sub_reminder_failed", tenant_id=tenant_id, stage=reminder_stage, error=str(e))
 
     async def _process_daily_digest(self):
         """
@@ -2258,7 +2514,11 @@ class CoreWorker:
                                 if not clean_admin.startswith("+"):
                                     clean_admin = f"+91{clean_admin}" if len(clean_admin) == 10 else f"+{clean_admin}"
                                 
-                                digest_template = wdata.get("template_admin_daily_digest") or "admin_daily_digest"
+                                digest_template = (
+                                    wdata.get("template_admin_daily_digest") or
+                                    (settings.get("template_admin_daily_digest") if settings else None) or
+                                    "admin_daily_digest"
+                                )
                                 formatted_today = now_local.strftime("%A, %d %B %Y")
                                 components = [
                                     {
@@ -2342,7 +2602,11 @@ class CoreWorker:
 
                 # 2. Dispatch Meta Template or Text
                 if creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-                    template_name = creds.get("template_appointment_reminder") or "appointment_ramainder"
+                    template_name = (
+                        creds.get("template_appointment_reminder") or
+                        (t_st.get("template_appointment_reminder") if t_st else None) or
+                        "appointment_ramainder"
+                    )
                     components = [
                         {
                             "type": "body",

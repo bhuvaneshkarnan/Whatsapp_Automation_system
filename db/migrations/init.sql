@@ -16,9 +16,40 @@ CREATE TABLE IF NOT EXISTS tenants (
   timezone      TEXT NOT NULL DEFAULT 'UTC',
   is_active     BOOLEAN DEFAULT true,
   settings      JSONB DEFAULT '{}',             -- feature flags, business hours, etc.
+  -- Razorpay Subscriptions
+  razorpay_customer_id      TEXT,
+  razorpay_subscription_id  TEXT,
+  razorpay_short_url        TEXT,
+  org_lifecycle_stage       TEXT NOT NULL DEFAULT 'setup' CHECK (org_lifecycle_stage IN ('setup', 'ready_to_activate', 'billing_active')),
+  subscription_status       TEXT NOT NULL DEFAULT 'not_started' CHECK (subscription_status IN ('not_started', 'active', 'payment_failed', 'paused', 'cancelled')),
+  next_charge_at            TIMESTAMPTZ,
+  last_payment_status       TEXT,
+  last_charge_at            TIMESTAMPTZ,
+  last_reminder_sent_at     TIMESTAMPTZ,
+  reminder_stage            TEXT,
+  token_invalidated_at      TIMESTAMPTZ,
   created_at    TIMESTAMPTZ DEFAULT now(),
   updated_at    TIMESTAMPTZ DEFAULT now()
 );
+
+-- ── Invoices (Razorpay Subscription payments) ─────────────
+CREATE TABLE IF NOT EXISTS invoices (
+  id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id                 UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  razorpay_invoice_id       TEXT UNIQUE,
+  razorpay_payment_id       TEXT,
+  razorpay_subscription_id  TEXT,
+  amount                    NUMERIC(10, 2) NOT NULL,
+  currency                  TEXT NOT NULL DEFAULT 'INR',
+  status                    TEXT NOT NULL,
+  invoice_pdf_url           TEXT,
+  created_at                TIMESTAMPTZ DEFAULT now(),
+  paid_at                   TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_invoices_tenant_id ON invoices(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_sub_id ON invoices(razorpay_subscription_id);
+CREATE INDEX IF NOT EXISTS idx_tenants_sub_id ON tenants(razorpay_subscription_id);
+
 
 -- ── Per-tenant encrypted credentials ──────────────────────
 -- Each row = one provider credential for one tenant.

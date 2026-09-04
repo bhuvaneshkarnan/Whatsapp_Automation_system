@@ -53,7 +53,25 @@ export const auth = {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ username: email, password }),
     });
-    if (!res.ok) throw new Error(`Login failed: ${res.status}`);
+    if (!res.ok) {
+      let errData: any = null;
+      try {
+        errData = await res.json();
+      } catch {}
+      if (res.status === 402 && errData) {
+        const detail = typeof errData.detail === 'object' ? errData.detail : { code: 'PAYMENT_REQUIRED', message: errData.detail || 'Payment required' };
+        const paymentError: any = new Error(detail.message || 'Subscription payment required');
+        paymentError.code = 'PAYMENT_REQUIRED';
+        paymentError.status = 402;
+        paymentError.paymentDetails = detail;
+        throw paymentError;
+      }
+      let errorMsg = `Login failed: ${res.status}`;
+      if (errData?.detail) {
+        errorMsg = typeof errData.detail === 'string' ? errData.detail : JSON.stringify(errData.detail);
+      }
+      throw new Error(errorMsg);
+    }
     return res.json() as Promise<{ access_token: string; token_type: string; tenant_id: string }>;
   },
   me: () => request<{ id: string; tenant_id: string; role: string }>('/api/v1/auth/users/me'),
@@ -177,8 +195,6 @@ export interface Contact {
   created_at?: string;
 }
 
-export type TenantSettingsUpdate = Partial<TenantSettingsResponse>;
-
 // ── CRM (/api/v1/crm) — all need X-Tenant-ID header (set automatically) ──────
 export const crm = {
   getMe: () => auth.me(),
@@ -215,10 +231,10 @@ export const crm = {
       }
     ),
 
-  bookings: (status?: string, limit = 50) =>
+  bookings: (status?: string, limit = 200) =>
     crm.getBookings(status, limit),
 
-  getBookings: async (status?: string, limit = 50): Promise<Booking[]> => {
+  getBookings: async (status?: string, limit = 200): Promise<Booking[]> => {
     try {
       const rows = await request<Booking[]>(
         `/api/v1/crm/bookings${status ? `?status=${status}&limit=${limit}` : `?limit=${limit}`}`
@@ -245,20 +261,17 @@ export const crm = {
       start_time: string;
       end_time: string;
       price: number;
-      contact_name: string;
-      contact_phone: string;
-      whatsapp_confirmed: boolean;
     }>('/api/v1/crm/bookings', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  updateBookingStatus: (bookingId: string, status: string) =>
+  updateBookingStatus: (bookingId: string, status: string, start_time?: string, end_time?: string) =>
     request<{ status: string; id: string; new_status: string }>(
       `/api/v1/crm/bookings/${bookingId}/status`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, start_time, end_time }),
       }
     ),
 
@@ -331,12 +344,12 @@ export const crm = {
     });
   },
 
-  sendMessage: (convId: string, body: string) =>
+  sendMessage: (convId: string, body: string, template_name?: string, template_params?: string[]) =>
     request<Message>(
       `/api/v1/crm/conversations/${convId}/messages`,
       {
         method: 'POST',
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body, template_name, template_params }),
       }
     ),
 
@@ -571,11 +584,13 @@ export interface TenantSettingsResponse {
   template_cancellation_confirmation?: string;
   template_admin_cancellation_notice?: string;
   template_reschedule_confirmation?: string;
+  template_admin_reschedule_notice?: string;
   template_post_service_review?: string;
   template_appointment_reminder?: string;
   template_reschedule_nudge?: string;
   template_review_request?: string;
   template_admin_daily_digest?: string;
+  template_client_followup?: string;
   google_review_link?: string;
   
   google_client_id?: string;
@@ -597,10 +612,26 @@ export interface TenantSettingsResponse {
     booking_cta?: string;
     revenue_label?: string;
     notes_label?: string;
+    requirement_presets?: string[];
   };
 }
 
+export type TenantSettingsUpdate = Partial<TenantSettingsResponse>;
+
 // ── Super Admin (/api/v1/crm/admin) ───────────────────────────────────────────
+export interface Invoice {
+  id: string;
+  razorpay_invoice_id: string;
+  razorpay_payment_id?: string;
+  razorpay_subscription_id?: string;
+  amount: number;
+  currency: string;
+  status: string;
+  invoice_pdf_url?: string;
+  created_at: string;
+  paid_at?: string;
+}
+
 export interface ClientTenant {
   id: string;
   name: string;
@@ -616,7 +647,14 @@ export interface ClientTenant {
   google_calendar_configured?: boolean;
   monthly_price?: number;
   billing_cycle_day?: number;
+  razorpay_customer_id?: string;
   razorpay_subscription_id?: string;
+  razorpay_short_url?: string;
+  org_lifecycle_stage?: 'setup' | 'ready_to_activate' | 'billing_active' | string;
+  subscription_status?: 'not_started' | 'active' | 'payment_failed' | 'paused' | 'cancelled' | string;
+  next_charge_at?: string;
+  last_payment_status?: string;
+  last_charge_at?: string;
   next_renewal_date?: string;
   billing_method?: string;
 }
@@ -649,6 +687,8 @@ export interface ClientCreatePayload {
   template_cancellation_confirmation?: string;
   template_admin_cancellation_notice?: string;
   template_reschedule_confirmation?: string;
+  template_admin_reschedule_notice?: string;
+  template_client_followup?: string;
   google_client_id?: string;
   google_client_secret?: string;
   google_refresh_token?: string;
@@ -717,6 +757,32 @@ export const admin = {
         body: JSON.stringify(data),
       }
     ),
+  activateBilling: (tenantId: string) =>
+    request<{
+      status: string;
+      tenant_id: string;
+      subscription_id: string;
+      short_url: string;
+      org_lifecycle_stage: string;
+      subscription_status: string;
+      message?: string;
+    }>(`/api/v1/crm/admin/tenants/${tenantId}/activate-billing`, {
+      method: 'POST',
+    }),
+  syncBilling: (tenantId: string) =>
+    request<{
+      status: string;
+      tenant_id: string;
+      razorpay_status: string;
+      subscription_status: string;
+      org_lifecycle_stage: string;
+      next_charge_at?: string;
+      invoices_synced: number;
+    }>(`/api/v1/crm/admin/tenants/${tenantId}/sync-billing`, {
+      method: 'POST',
+    }),
+  getInvoices: (tenantId: string) =>
+    request<Invoice[]>(`/api/v1/crm/admin/tenants/${tenantId}/invoices`),
   sendAdminDueAlert: (data: { super_admin_phone: string; tenant_id?: string; custom_note?: string }) =>
     request<{ status: string; recipient_phone: string; message_preview: string }>(
       '/api/v1/crm/admin/alerts/send-due-alert',
@@ -738,6 +804,13 @@ export const admin = {
         body: JSON.stringify(data),
       }
     ),
+  getTenantSettings: (tenantId: string) =>
+    request<TenantSettingsResponse>(`/api/v1/crm/admin/tenants/${tenantId}/settings`),
+  updateTenantSettings: (tenantId: string, data: TenantSettingsUpdate) =>
+    request<TenantSettingsResponse>(`/api/v1/crm/admin/tenants/${tenantId}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
 };
 
 // ── Marketing / Broadcast Campaigns & Automations ───────────────────────────
@@ -861,6 +934,68 @@ export const marketing = {
 export const health = {
   check: () => request<{ status: string; service: string }>('/health'),
 };
+
+// ── Notifications & Web Push (/api/v1/crm/notifications) ──────────────────────
+export interface CrmNotification {
+  id: string;
+  title: string;
+  body: string;
+  type: string;
+  data: Record<string, any>;
+  is_read: boolean;
+  created_at: string;
+}
+
+export const notificationsApi = {
+  getVapidKey: () =>
+    request<{ vapid_public_key: string }>('/api/v1/crm/notifications/vapid-public-key'),
+
+  subscribe: (data: { endpoint: string; keys: { p256dh: string; auth: string }; user_agent?: string }) =>
+    request<{ status: string; subscribed: boolean }>('/api/v1/crm/notifications/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  unsubscribe: (endpoint: string) =>
+    request<{ status: string; unsubscribed: boolean }>('/api/v1/crm/notifications/unsubscribe', {
+      method: 'POST',
+      body: JSON.stringify({ endpoint }),
+    }),
+
+  list: (limit = 50) =>
+    request<{
+      unread_count: number;
+      subscription_count: number;
+      notifications: CrmNotification[];
+    }>(`/api/v1/crm/notifications?limit=${limit}`),
+
+  markRead: (id: string) =>
+    request<{ status: string; id: string }>(`/api/v1/crm/notifications/${id}/read`, {
+      method: 'PATCH',
+    }),
+
+  markAllRead: () =>
+    request<{ status: string }>('/api/v1/crm/notifications/mark-all-read', {
+      method: 'POST',
+    }),
+
+  sendTest: () =>
+    request<{ status: string; notification_id: string; sent_count: number }>(
+      '/api/v1/crm/notifications/test',
+      { method: 'POST' }
+    ),
+
+  delete: (id: string) =>
+    request<{ status: string; id: string }>(`/api/v1/crm/notifications/${id}`, {
+      method: 'DELETE',
+    }),
+
+  clearAll: () =>
+    request<{ status: string }>('/api/v1/crm/notifications/clear-all', {
+      method: 'POST',
+    }),
+};
+
 
 
 
