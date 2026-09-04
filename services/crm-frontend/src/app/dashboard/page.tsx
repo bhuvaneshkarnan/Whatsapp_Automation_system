@@ -3639,10 +3639,10 @@ export default function DashboardPage() {
 
             {/* ── VIEW 3: INBOX / CONVERSATIONS ───────────────────────────────── */}
             {activeNav === 'inbox' && (
-              <div className="flex-1 flex overflow-hidden border border-border rounded-md bg-surface">
+              <div className="flex-1 flex overflow-hidden border border-border md:rounded-md bg-surface h-full">
                 {/* Conversations List */}
-                <div className={`${selectedConv ? 'hidden md:flex' : 'flex'} w-full md:w-80 bg-surface border-r border-border flex-col shrink-0`}>
-                  <div className="p-3 border-b border-border space-y-2.5">
+                <div className={`${selectedConv ? 'hidden md:flex' : 'flex'} w-full md:w-80 bg-surface border-r border-border flex-col shrink-0 h-full`}>
+                  <div className="p-3 border-b border-border space-y-2.5 bg-surface">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-text-primary uppercase tracking-wider">Chats</span>
                       <div className="flex items-center gap-1.5">
@@ -3745,7 +3745,7 @@ export default function DashboardPage() {
                           }`}
                         >
                           <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                            <div className="w-7 h-7 rounded-sm bg-surface-subtle text-text-secondary border border-border flex items-center justify-center font-medium text-xs shrink-0">
+                            <div className="w-8 h-8 rounded-full bg-surface-subtle text-text-secondary border border-border flex items-center justify-center font-semibold text-xs shrink-0">
                               {conv.contact_name ? conv.contact_name[0].toUpperCase() : 'C'}
                             </div>
                             <div className="flex-1 min-w-0">
@@ -3757,13 +3757,13 @@ export default function DashboardPage() {
                                     if (!cleanP) return null;
                                     const inCrm = Array.isArray(customers) && customers.some((c) => c && c.phone && c.phone.replace(/[^0-9]/g, '') === cleanP);
                                     return inCrm ? (
-                                      <span className="text-[9px] font-semibold px-1 py-0.2 rounded-sm bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                                      <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
                                         CRM
                                       </span>
                                     ) : null;
                                   })()}
                                 </div>
-                                <span className="text-xs text-text-muted font-mono shrink-0">
+                                <span className="text-[11px] text-text-muted font-mono shrink-0">
                                   {conv.last_message_at ? new Date(conv.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                                 </span>
                               </div>
@@ -3771,11 +3771,11 @@ export default function DashboardPage() {
                                 <p className="text-xs text-text-muted truncate font-mono">{conv.contact_phone}</p>
                                 <div className="flex items-center gap-1.5">
                                   {(conv.unread_count || 0) > 0 && selectedConv?.id !== conv.id && (
-                                    <span className="px-1.5 py-0.2 rounded-sm bg-accent text-white text-[10px] font-medium min-w-[16px] text-center">
+                                    <span className="px-1.5 py-0.2 rounded-full bg-accent text-white text-[10px] font-bold min-w-[18px] text-center">
                                       {conv.unread_count}
                                     </span>
                                   )}
-                                  <span className={`text-[10px] font-medium px-1.5 py-0.2 rounded-sm border ${
+                                  <span className={`text-[10px] font-medium px-1.5 py-0.2 rounded-xs border ${
                                     conv.ai_enabled
                                       ? 'bg-status-success-bg text-status-success border-status-success-border'
                                       : 'bg-status-warning-bg text-status-warning border-status-warning-border'
@@ -3824,41 +3824,44 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Chat Stream */}
-                <div className={`${selectedConv ? 'flex' : 'hidden md:flex'} flex-1 flex-col bg-surface`}>
+                {/* Active Chat Conversation Area */}
+                <div className={`${selectedConv ? 'flex' : 'hidden md:flex'} flex-1 flex-col bg-surface h-full min-w-0 overflow-hidden`}>
                   {selectedConv ? (
                     <>
-                      <div className="h-14 px-4 border-b border-border flex items-center justify-between bg-surface shrink-0">
-                        <div className="flex items-center gap-2">
+                      {/* Chat Header (Responsive) */}
+                      <div className="h-14 px-3 sm:px-4 border-b border-border flex items-center justify-between bg-surface shrink-0 z-10">
+                        <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
                           <button
                             type="button"
                             onClick={() => setSelectedConv(null)}
-                            className="md:hidden p-1.5 -ml-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer"
+                            className="md:hidden p-1.5 -ml-1 text-text-secondary hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer shrink-0"
                             title="Back to conversation list"
                           >
-                            <ArrowLeft className="w-4 h-4 stroke-[1.5]" />
+                            <ArrowLeft className="w-5 h-5 stroke-[1.8]" />
                           </button>
-                          <div className="w-7 h-7 rounded-sm bg-accent text-white flex items-center justify-center font-medium text-xs">
+                          <div className="w-8 h-8 rounded-full bg-accent text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
                             {selectedConv.contact_name ? selectedConv.contact_name[0].toUpperCase() : 'C'}
                           </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-medium text-xs text-text-primary">{selectedConv.contact_name || selectedConv.contact_phone}</h4>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <h4 className="font-semibold text-xs sm:text-sm text-text-primary truncate">{selectedConv.contact_name || selectedConv.contact_phone}</h4>
                               {(() => {
                                 const cleanP = selectedConv?.contact_phone ? selectedConv.contact_phone.replace(/[^0-9]/g, '') : '';
                                 if (!cleanP) return null;
                                 const inCrm = Array.isArray(customers) && customers.some((c) => c && c.phone && c.phone.replace(/[^0-9]/g, '') === cleanP);
                                 return inCrm ? (
-                                  <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-sm bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                    In CRM
+                                  <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                                    CRM
                                   </span>
                                 ) : null;
                               })()}
                             </div>
-                            <p className="text-xs text-text-muted font-mono">{selectedConv.contact_phone}</p>
+                            <p className="text-[10px] text-text-muted font-mono truncate">{selectedConv.contact_phone}</p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+
+                        {/* Right Action Icons (Compact & Responsive) */}
+                        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                           {/* Cross-tab CRM profile button */}
                           {(() => {
                             const cleanP = selectedConv?.contact_phone ? selectedConv.contact_phone.replace(/[^0-9]/g, '') : '';
@@ -3868,11 +3871,11 @@ export default function DashboardPage() {
                                 <button
                                   type="button"
                                   onClick={() => openCustomerProfileByPhone(selectedConv.contact_phone || '', selectedConv.contact_name || undefined)}
-                                  className="px-2.5 py-1 rounded-sm text-xs font-medium border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 flex items-center gap-1.5 transition-colors cursor-pointer"
-                                  title="View full customer profile, notes, and bookings"
+                                  className="px-2 py-1 rounded-sm text-xs font-medium border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 flex items-center gap-1 transition-colors cursor-pointer"
+                                  title="View customer profile and bookings"
                                 >
-                                  <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>Manage</span>
+                                  <UserCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span className="hidden sm:inline">Manage</span>
                                 </button>
                               );
                             } else {
@@ -3880,37 +3883,17 @@ export default function DashboardPage() {
                                 <button
                                   type="button"
                                   onClick={() => openCustomerProfileByPhone(selectedConv.contact_phone || '', selectedConv.contact_name || undefined)}
-                                  className="px-2.5 py-1 rounded-sm text-xs font-medium border border-accent bg-accent/10 text-accent hover:bg-accent hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer"
-                                  title="Add this contact as a CRM customer"
+                                  className="px-2 py-1 rounded-sm text-xs font-medium border border-accent bg-accent/10 text-accent hover:bg-accent hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                                  title="Add this contact to CRM"
                                 >
-                                  <UserPlus className="w-3.5 h-3.5" />
-                                  <span>+ Add to CRM</span>
+                                  <UserPlus className="w-3.5 h-3.5 shrink-0" />
+                                  <span className="hidden sm:inline">+ CRM</span>
                                 </button>
                               );
                             }
                           })()}
 
-                          <button
-                            type="button"
-                            onClick={() => toggleImportant(selectedConv.id)}
-                            className={`px-2.5 py-1 rounded-sm text-xs font-medium border flex items-center gap-1.5 transition-colors duration-150 cursor-pointer ${
-                              importantConvIds.includes(selectedConv.id)
-                                ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                : 'bg-surface text-text-secondary hover:text-text-primary hover:bg-surface-subtle border-border'
-                            }`}
-                            title={importantConvIds.includes(selectedConv.id) ? 'Remove from Important' : 'Mark conversation as Important'}
-                          >
-                            <Star className={`w-3.5 h-3.5 stroke-[1.5] ${importantConvIds.includes(selectedConv.id) ? 'fill-amber-500 text-amber-500' : 'text-text-muted'}`} />
-                            <span className="hidden sm:inline">{importantConvIds.includes(selectedConv.id) ? 'Important' : 'Mark important'}</span>
-                          </button>
-
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded-sm border transition-colors duration-150 ${
-                            selectedConv.ai_enabled
-                              ? 'bg-status-success-bg text-status-success border-status-success-border'
-                              : 'bg-status-warning-bg text-status-warning border-status-warning-border'
-                          }`}>
-                            {selectedConv.ai_enabled ? 'AI auto-reply' : 'Human only'}
-                          </span>
+                          {/* AI Toggle Button */}
                           <button
                             type="button"
                             onClick={() => {
@@ -3925,15 +3908,32 @@ export default function DashboardPage() {
                               }
                             }}
                             disabled={togglingAi}
-                            className="cursor-pointer text-text-secondary hover:text-text-primary transition-colors duration-150 disabled:opacity-50"
-                            title={selectedConv.ai_enabled ? 'Pause AI (Human takeover)' : 'Enable AI auto-reply'}
+                            className={`px-2 py-1 rounded-sm text-xs font-medium border flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 ${
+                              selectedConv.ai_enabled
+                                ? 'bg-status-success-bg text-status-success border-status-success-border'
+                                : 'bg-status-warning-bg text-status-warning border-status-warning-border'
+                            }`}
+                            title={selectedConv.ai_enabled ? 'AI is ON (Click to pause)' : 'AI is OFF (Click to resume)'}
                           >
-                            {selectedConv.ai_enabled ? (
-                              <ToggleRight className="w-7 h-7 text-accent" />
-                            ) : (
-                              <ToggleLeft className="w-7 h-7 text-text-muted" />
-                            )}
+                            <Bot className="w-3.5 h-3.5 stroke-[1.5] shrink-0" />
+                            <span className="text-[11px] font-semibold">{selectedConv.ai_enabled ? 'AI' : 'Human'}</span>
                           </button>
+
+                          {/* Star Important */}
+                          <button
+                            type="button"
+                            onClick={() => toggleImportant(selectedConv.id)}
+                            className={`p-1.5 rounded-sm border transition-colors cursor-pointer ${
+                              importantConvIds.includes(selectedConv.id)
+                                ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                : 'bg-surface text-text-secondary hover:text-text-primary hover:bg-surface-subtle border-border'
+                            }`}
+                            title={importantConvIds.includes(selectedConv.id) ? 'Remove Important' : 'Mark Important'}
+                          >
+                            <Star className={`w-3.5 h-3.5 stroke-[1.5] ${importantConvIds.includes(selectedConv.id) ? 'fill-amber-500 text-amber-500' : 'text-text-muted'}`} />
+                          </button>
+
+                          {/* Delete Chat */}
                           <button
                             type="button"
                             onClick={() =>
@@ -3943,15 +3943,16 @@ export default function DashboardPage() {
                                 name: selectedConv.contact_name || selectedConv.contact_phone || 'this customer',
                               })
                             }
-                            className="p-1.5 text-text-muted hover:text-status-error hover:bg-status-error-bg rounded-sm transition-colors duration-150 cursor-pointer ml-1"
-                            title="Delete this chat"
+                            className="p-1.5 text-text-muted hover:text-status-error hover:bg-status-error-bg rounded-sm transition-colors cursor-pointer"
+                            title="Delete chat"
                           >
                             <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
                           </button>
                         </div>
                       </div>
 
-                      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {/* Chat Messages Stream */}
+                      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2.5 bg-canvas/40">
                         {loadingMessages ? (
                           <div className="text-center text-xs text-text-muted py-8">Loading history...</div>
                         ) : messages.map((msg) => {
@@ -3960,9 +3961,7 @@ export default function DashboardPage() {
                           return (
                             <div key={msg.id} className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
                               <div
-                                className={`max-w-[75%] rounded-md px-3.5 py-2.5 text-xs ${
-                                  isInbound ? 'bg-surface-subtle text-text-body border border-border' : 'bg-accent text-white'
-                                }`}
+                                className={`max-w-[85%] sm:max-w-[70%] rounded-2xl ${isInbound ? 'rounded-tl-xs bg-surface text-text-body border border-border shadow-xs' : 'rounded-tr-xs bg-accent text-white shadow-xs'} px-3.5 py-2.5 text-xs`}
                               >
                                 {isVoice && (
                                   <div className="flex items-center gap-1 text-accent-light font-mono text-[10px] mb-1">
@@ -3994,20 +3993,21 @@ export default function DashboardPage() {
                         <div ref={messagesEndRef} />
                       </div>
 
-                      <form onSubmit={handleSendMessage} className="p-3 border-t border-border flex gap-2 bg-surface">
+                      {/* Chat Input */}
+                      <form onSubmit={handleSendMessage} className="p-2 sm:p-3 border-t border-border flex items-center gap-2 bg-surface shrink-0">
                         <input
                           type="text"
                           placeholder="Type WhatsApp reply..."
                           value={newMessage}
                           onChange={(e) => setNewMessage(e.target.value)}
-                          className="flex-1 px-3.5 py-2 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:bg-white focus:border-accent font-sans transition-colors duration-150"
+                          className="flex-1 px-3.5 py-2 bg-surface-subtle border border-border rounded-full text-xs text-text-primary focus:outline-none focus:bg-white focus:border-accent font-sans transition-colors duration-150"
                         />
                         <button
                           type="submit"
                           disabled={!newMessage.trim() || sendingMessage}
-                          className="px-3.5 py-2 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer disabled:opacity-50"
+                          className="w-8 h-8 rounded-full bg-accent hover:bg-accent-hover text-white font-medium flex items-center justify-center transition-colors duration-150 cursor-pointer disabled:opacity-50 shrink-0 shadow-xs"
                         >
-                          <Send className="w-3.5 h-3.5 stroke-[1.5]" />
+                          <Send className="w-3.5 h-3.5 stroke-[1.8]" />
                         </button>
                       </form>
                     </>
@@ -4027,8 +4027,7 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
-
-                        {/* ── UNIFIED VIEW: CUSTOMERS & FOLLOW-UP ───────────────────── */}
+            {/* ── UNIFIED VIEW: CUSTOMERS & FOLLOW-UP ───────────────────── */}
             {(activeNav === 'customers' || activeNav === 'followup') && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-3">
                 {/* Header with Title, Dynamic Taxonomy, + Add Customer, and Sub-Tabs */}
