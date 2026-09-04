@@ -697,7 +697,11 @@ class CoreWorker:
             "8. 12-HOUR TIME FORMAT DIRECTIVE (ABSOLUTE RULE):\n"
             "- ALWAYS speak and quote time in 12-HOUR FORMAT with AM/PM (e.g. '08:30 PM', '10:00 AM', '07:00 PM') in all messages to customers.\n"
             "- NEVER use military or 24-hour time (like 20:30, 19:00, or 14:00) when replying to customers.\n"
-            "- In the JSON action tag [ACTION:CREATE_BOOKING: ...], pass time as 24-hour HH:MM (e.g. '20:30')."
+            "- In the JSON action tag [ACTION:CREATE_BOOKING: ...], pass time as 24-hour HH:MM (e.g. '20:30').\n\n"
+            "9. AUTOMATIC CUSTOMER DETAIL EXTRACTION (AGE & LOCATION):\n"
+            "- If the customer mentions their age (e.g. 'I am 26', 'age 32', '24 yrs old') or their location/city/area (e.g. 'from Anna Nagar, Chennai', 'living in Bangalore', 'from Delhi'):\n"
+            "  Append this action tag on a new line at the very end of your reply:\n"
+            "  [ACTION:CUSTOMER_INFO: {\"age\": <age as integer or null>, \"location\": \"<City or location>\"}]"
         )
 
         full_location = (creds.get("full_location_text") or "").strip() if creds else ""
@@ -800,6 +804,21 @@ class CoreWorker:
                 except Exception as e:
                     logger.warning("reschedule_action_json_parse_failed", error=str(e))
                 response_text = re.sub(r'\[ACTION:RESCHEDULE_BOOKING:\s*\{.*?\}\]', '', response_text, flags=re.DOTALL).strip()
+
+            # Intercept [ACTION:CUSTOMER_INFO: ...] tag
+            m_cust = re.search(r'\[ACTION:CUSTOMER_INFO:\s*(\{.*?\})\]', response_text, re.DOTALL)
+            if m_cust:
+                try:
+                    c_info = json.loads(m_cust.group(1))
+                    c_age = c_info.get("age")
+                    c_loc = c_info.get("location")
+                    if c_age or c_loc:
+                        asyncio.create_task(
+                            self._update_customer_extracted_info(tenant_id, contact_phone, c_age, c_loc)
+                        )
+                except Exception as ex:
+                    logger.warning("customer_info_parse_failed", error=str(ex))
+                response_text = re.sub(r'\[ACTION:CUSTOMER_INFO:\s*\{.*?\}\]', '', response_text, flags=re.DOTALL).strip()
 
             # 3. Intercept [ACTION:CREATE_BOOKING: ...] tag
             m = re.search(r'\[ACTION:CREATE_BOOKING:\s*(\{.*?\})\]', response_text, re.DOTALL)
@@ -972,6 +991,35 @@ class CoreWorker:
                     creds=creds,
                 )
             )
+
+
+    async def _update_customer_extracted_info(self, tenant_id: str, phone: str, age=None, location=None):
+        """Auto-update customer age/location extracted from WhatsApp message by AI."""
+        try:
+            async with asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=2) as pool:
+                async with pool.acquire() as conn:
+                    # Find customer by tenant+phone
+                    row = await conn.fetchrow(
+                        "SELECT id FROM customers WHERE tenant_id=$1 AND phone=$2 LIMIT 1",
+                        tenant_id, phone
+                    )
+                    if not row:
+                        logger.info("customer_info_extract_no_customer", phone=phone)
+                        return
+                    cust_id = row["id"]
+                    if age is not None:
+                        await conn.execute(
+                            "UPDATE customers SET age=$1 WHERE id=$2 AND tenant_id=$3",
+                            int(age), cust_id, tenant_id
+                        )
+                    if location:
+                        await conn.execute(
+                            "UPDATE customers SET location=$1 WHERE id=$2 AND tenant_id=$3",
+                            str(location), cust_id, tenant_id
+                        )
+                    logger.info("customer_info_auto_updated", phone=phone, age=age, location=location)
+        except Exception as ex:
+            logger.warning("customer_info_update_failed", error=str(ex))
 
     async def _execute_ai_booking(
         self,

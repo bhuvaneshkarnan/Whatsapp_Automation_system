@@ -79,8 +79,12 @@ async def lifespan(app: FastAPI):
                     google_task_id TEXT,
                     created_at TIMESTAMPTZ DEFAULT now(),
                     updated_at TIMESTAMPTZ DEFAULT now(),
-                    CONSTRAINT customers_tenant_phone_uniq UNIQUE (tenant_id, phone)
                 );
+                ALTER TABLE customers ADD COLUMN IF NOT EXISTS age INT;
+                ALTER TABLE customers ADD COLUMN IF NOT EXISTS location TEXT;
+                ALTER TABLE customers ADD COLUMN IF NOT EXISTS google_calendar_event_id TEXT;
+                ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_visited_at TIMESTAMPTZ;
+                ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_messaged_at TIMESTAMPTZ;
 
                 CREATE TABLE IF NOT EXISTS customer_notes (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -283,6 +287,8 @@ async def batch_update_contact_consent(
 class CustomerCreatePayload(BaseModel):
     phone: str
     name: Optional[str] = None
+    age: Optional[int] = None
+    location: Optional[str] = None
     preferred_doctor: Optional[str] = "Dr. Sarah Mitchell"
     status: Optional[str] = "new"
     health_concern: Optional[str] = "General Consultation"
@@ -290,10 +296,13 @@ class CustomerCreatePayload(BaseModel):
     converted: Optional[bool] = False
     followup_date: Optional[str] = None
     followup_time: Optional[str] = "10:00 AM"
+    initial_note: Optional[str] = None
 
 
 class CustomerUpdatePayload(BaseModel):
     name: Optional[str] = None
+    age: Optional[int] = None
+    location: Optional[str] = None
     preferred_doctor: Optional[str] = None
     status: Optional[str] = None
     health_concern: Optional[str] = None
@@ -403,9 +412,10 @@ async def list_customers(
 
         query = f"""
             SELECT 
-                c.id, c.tenant_id, c.phone, c.name, c.preferred_doctor, c.status,
+                c.id, c.tenant_id, c.phone, c.name, c.age, c.location, c.preferred_doctor, c.status,
                 c.health_concern, c.lead_probability, c.converted, c.followup_date,
-                c.followup_time, c.google_task_id, c.created_at, c.updated_at,
+                c.followup_time, c.google_task_id, c.google_calendar_event_id, c.last_visited_at, c.last_messaged_at, c.created_at, c.updated_at,
+                (SELECT MAX(b.start_time) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id WHERE ct.phone = c.phone AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS calculated_last_visited,
                 (SELECT ct.wa_profile_name FROM contacts ct WHERE ct.phone = c.phone AND ct.tenant_id = c.tenant_id LIMIT 1) AS wa_profile_name,
                 (SELECT COUNT(*) FROM customer_notes cn WHERE cn.customer_id = c.id) AS notes_count,
                 (SELECT cn2.note_text FROM customer_notes cn2 WHERE cn2.customer_id = c.id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note,
@@ -428,6 +438,8 @@ async def list_customers(
             "id": str(r["id"]),
             "phone": r["phone"],
             "name": r["name"] or "Customer",
+            "age": r["age"],
+            "location": r["location"] or None,
             "wa_profile_name": r["wa_profile_name"] or None,
             "preferred_doctor": r["preferred_doctor"] or "Dr. Sarah Mitchell",
             "status": r["status"] or "new",
@@ -437,9 +449,11 @@ async def list_customers(
             "followup_date": r["followup_date"].isoformat() if r["followup_date"] else None,
             "followup_time": r["followup_time"] or "10:00 AM",
             "google_task_id": r["google_task_id"],
+            "google_calendar_event_id": r.get("google_calendar_event_id") if "google_calendar_event_id" in r else None,
+            "last_visited": (r["last_visited_at"] or r["calculated_last_visited"]).isoformat() if (r["last_visited_at"] or r["calculated_last_visited"]) else None,
             "notes_count": r["notes_count"] or 0,
             "latest_note": r["latest_note"] or None,
-            "last_chat_at": r["last_chat_at"].isoformat() if r["last_chat_at"] else None,
+            "last_chat_at": (r["last_chat_at"] or r["last_messaged_at"]).isoformat() if (r["last_chat_at"] or r["last_messaged_at"]) else None,
             "created_at": r["created_at"].isoformat() if r["created_at"] else None,
         }
         for r in rows
@@ -463,17 +477,36 @@ async def create_customer(
     async with db_pool.acquire() as conn:
         await conn.execute(
             """INSERT INTO customers (
-                id, tenant_id, phone, name, preferred_doctor, status, health_concern,
+                id, tenant_id, phone, name, age, location, preferred_doctor, status, health_concern,
                 lead_probability, converted, followup_date, followup_time, created_at, updated_at
-               ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now())
+               ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), now())
                ON CONFLICT (tenant_id, phone) DO UPDATE SET
                 name = EXCLUDED.name,
+                age = COALESCE(EXCLUDED.age, customers.age),
+                location = COALESCE(EXCLUDED.location, customers.location),
                 preferred_doctor = EXCLUDED.preferred_doctor,
                 health_concern = EXCLUDED.health_concern,
+                lead_probability = EXCLUDED.lead_probability,
+                followup_date = COALESCE(EXCLUDED.followup_date, customers.followup_date),
+                followup_time = COALESCE(EXCLUDED.followup_time, customers.followup_time),
                 updated_at = now()""",
-            cust_id, tenant_id, clean_phone, payload.name, payload.preferred_doctor or "Dr. Sarah Mitchell",
+            cust_id, tenant_id, clean_phone, payload.name, payload.age, payload.location, payload.preferred_doctor or "Dr. Sarah Mitchell",
             payload.status or "new", payload.health_concern or "General Consultation",
             payload.lead_probability or "warm", payload.converted or False, f_date, payload.followup_time or "10:00 AM"
+        )
+        if payload.initial_note and payload.initial_note.strip():
+            await conn.execute(
+                """INSERT INTO customer_notes (id, tenant_id, customer_id, author, note_text, color, created_at)
+                   VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'Admin', $3, 'slate', now())""",
+                tenant_id, cust_id, payload.initial_note.strip()
+            )
+        # Also ensure record exists in contacts table
+        await conn.execute(
+            """INSERT INTO contacts (id, tenant_id, phone, name)
+               VALUES (gen_random_uuid(), $1::uuid, $2, $3)
+               ON CONFLICT (tenant_id, phone) DO UPDATE SET
+                name = COALESCE(EXCLUDED.name, contacts.name)""",
+            tenant_id, clean_phone, payload.name or "Customer"
         )
     return {"status": "ok", "id": cust_id, "phone": clean_phone}
 
@@ -493,6 +526,16 @@ async def update_customer(
     if payload.name is not None:
         updates.append(f"name = ${idx}")
         params.append(payload.name.strip())
+        idx += 1
+
+    if payload.age is not None:
+        updates.append(f"age = ${idx}")
+        params.append(payload.age)
+        idx += 1
+
+    if payload.location is not None:
+        updates.append(f"location = ${idx}")
+        params.append(payload.location.strip())
         idx += 1
 
     if payload.preferred_doctor is not None:
@@ -548,7 +591,7 @@ async def update_customer(
         row = await conn.fetchrow(
             f"""UPDATE customers SET {set_clause}
                 WHERE id = $1::uuid AND tenant_id = $2::uuid
-                RETURNING id, phone, name, preferred_doctor, status, health_concern, lead_probability, converted, followup_date, followup_time""",
+                RETURNING id, phone, name, age, location, preferred_doctor, status, health_concern, lead_probability, converted, followup_date, followup_time""",
             *params
         )
         if not row:
@@ -1282,7 +1325,9 @@ async def sync_customer_to_google_tasks(
         due_iso = f"{cust['followup_date'].isoformat()}T10:00:00.000Z" if cust["followup_date"] else f"{(datetime.utcnow() + timedelta(days=1)).strftime('%Y-%m-%d')}T10:00:00.000Z"
         due_dt = datetime.fromisoformat(due_iso.replace("Z", "+00:00"))
 
-        # Attempt live Google Tasks API dispatch
+        google_cal_id = cust.get("google_calendar_event_id") if "google_calendar_event_id" in cust else None
+
+        # Attempt live Google Tasks & Google Calendar API dispatch
         try:
             from google.oauth2.credentials import Credentials
             from googleapiclient.discovery import build
@@ -1294,23 +1339,77 @@ async def sync_customer_to_google_tasks(
                 client_id=c_id,
                 client_secret=c_secret
             )
-            tasks_service = build("tasks", "v1", credentials=creds)
-            task_body = {
-                "title": f"Follow-up: {cust['name'] or 'Customer'}",
-                "notes": f"Phone: {cust['phone']}\nHealth Concern: {cust['health_concern']}\nLead: {cust['lead_probability'].upper()}\nFollow-up: {cust['followup_date']} at {cust['followup_time']}",
-                "due": due_iso,
-            }
-            res = tasks_service.tasks().insert(tasklist="@default", body=task_body).execute()
-            if res and res.get("id"):
-                google_task_id = res["id"]
-                logger.info("google_task_created_successfully", task_id=google_task_id, customer_id=customer_id)
-        except Exception as ex:
-            logger.warning("google_tasks_api_dispatch_warn", error=str(ex))
 
-        # Save google_task_id in customers table
+            # 1. Google Tasks API dispatch
+            try:
+                tasks_service = build("tasks", "v1", credentials=creds)
+                task_body = {
+                    "title": f"Follow-up: {cust['name'] or 'Customer'}",
+                    "notes": f"Phone: {cust['phone']}\nHealth Concern: {cust['health_concern']}\nLead: {cust['lead_probability'].upper()}\nFollow-up: {cust['followup_date']} at {cust['followup_time']}",
+                    "due": due_iso,
+                }
+                res = tasks_service.tasks().insert(tasklist="@default", body=task_body).execute()
+                if res and res.get("id"):
+                    google_task_id = res["id"]
+                    logger.info("google_task_created_successfully", task_id=google_task_id, customer_id=customer_id)
+            except Exception as ex_t:
+                logger.warning("google_tasks_api_dispatch_warn", error=str(ex_t))
+
+            # 2. Google Calendar API dispatch
+            try:
+                cal_service = build("calendar", "v3", credentials=creds)
+                f_time_str = cust["followup_time"] or "10:00 AM"
+                f_date_val = cust["followup_date"] or (datetime.utcnow().date() + timedelta(days=1))
+                t_obj = time(10, 0)
+                try:
+                    t_obj = datetime.strptime(f_time_str.strip(), "%I:%M %p").time()
+                except Exception:
+                    try: t_obj = datetime.strptime(f_time_str.strip(), "%H:%M").time()
+                    except Exception: pass
+                
+                start_comb = datetime.combine(f_date_val, t_obj)
+                end_comb = start_comb + timedelta(minutes=30)
+                
+                t_tz = "Asia/Kolkata"
+                tz_row = await conn.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                if tz_row:
+                    try:
+                        if isinstance(tz_row, str): tz_row = json.loads(tz_row)
+                        if tz_row.get("timezone"): t_tz = tz_row["timezone"]
+                    except: pass
+
+                cal_event_body = {
+                    "summary": f"Follow-up: {cust['name'] or 'Customer'}",
+                    "description": f"Customer Follow-up\nPhone: {cust['phone']}\nRequirement: {cust['health_concern']}\nStaff: {cust['preferred_doctor']}\nLead: {cust['lead_probability'].upper()}",
+                    "start": {
+                        "dateTime": start_comb.isoformat(),
+                        "timeZone": t_tz
+                    },
+                    "end": {
+                        "dateTime": end_comb.isoformat(),
+                        "timeZone": t_tz
+                    },
+                }
+                if google_cal_id and not google_cal_id.startswith("gcal_"):
+                    try:
+                        cal_res = cal_service.events().update(calendarId="primary", eventId=google_cal_id, body=cal_event_body).execute()
+                    except Exception:
+                        cal_res = cal_service.events().insert(calendarId="primary", body=cal_event_body).execute()
+                else:
+                    cal_res = cal_service.events().insert(calendarId="primary", body=cal_event_body).execute()
+                if cal_res and cal_res.get("id"):
+                    google_cal_id = cal_res["id"]
+                    logger.info("google_calendar_followup_synced", event_id=google_cal_id, customer_id=customer_id)
+            except Exception as ex_c:
+                logger.warning("google_calendar_followup_sync_warn", error=str(ex_c))
+
+        except Exception as ex:
+            logger.warning("google_credentials_error", error=str(ex))
+
+        # Save google_task_id and google_calendar_event_id in customers table
         await conn.execute(
-            "UPDATE customers SET google_task_id = $1 WHERE id = $2::uuid",
-            google_task_id, customer_id
+            "UPDATE customers SET google_task_id = $1, google_calendar_event_id = $2 WHERE id = $3::uuid",
+            google_task_id, google_cal_id, customer_id
         )
 
         # Upsert in local tasks table
@@ -1328,10 +1427,27 @@ async def sync_customer_to_google_tasks(
     return {
         "status": "ok",
         "google_task_id": google_task_id,
+        "google_calendar_event_id": google_cal_id,
         "customer_id": customer_id,
         "title": f"Follow-up: {cust['name'] or 'Customer'}",
         "due_date": due_iso
     }
+
+@app.delete("/customers/{customer_id}")
+@app.delete("/api/v1/crm/customers/{customer_id}")
+async def delete_customer(
+    customer_id: str,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Permanently delete a customer record and all related notes and tasks."""
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM customer_notes WHERE customer_id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
+        await conn.execute("DELETE FROM tasks WHERE customer_id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
+        res = await conn.execute("DELETE FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
+        if res == "DELETE 0":
+            raise HTTPException(404, "Customer not found")
+    return {"status": "ok", "deleted_id": customer_id}
+
 
 
 @app.get("/bookings")
@@ -2509,7 +2625,7 @@ class TenantSettingsUpdate(BaseModel):
     notification_email: Optional[str] = None
     
     industry: Optional[str] = None
-    taxonomy: Optional[Dict[str, str]] = None
+    taxonomy: Optional[Dict[str, Any]] = None
 
 
 @app.get("/settings")

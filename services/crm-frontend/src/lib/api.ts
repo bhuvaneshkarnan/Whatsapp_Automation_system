@@ -105,6 +105,8 @@ export interface Customer {
   id: string;
   phone: string;
   name?: string | null;
+  age?: number | null;
+  location?: string | null;
   wa_profile_name?: string | null;
   preferred_doctor: string;
   status: 'new' | 'contacted' | 'follow-up' | 'converted' | 'lost';
@@ -114,6 +116,8 @@ export interface Customer {
   followup_date?: string | null;
   followup_time?: string | null;
   google_task_id?: string | null;
+  google_calendar_event_id?: string | null;
+  last_visited?: string | null;
   notes_count?: number;
   latest_note?: string | null;
   last_chat_at?: string | null;
@@ -412,6 +416,11 @@ export const crm = {
       body: JSON.stringify(data),
     }),
 
+  deleteCustomer: (customerId: string) =>
+    request<{ status: string; deleted_id: string }>(`/api/v1/crm/customers/${customerId}`, {
+      method: 'DELETE',
+    }),
+
   getCustomerNotes: async (customerId: string): Promise<CustomerNote[]> => {
     try {
       const rows = await request<CustomerNote[]>(`/api/v1/crm/customers/${customerId}/notes`);
@@ -580,9 +589,14 @@ export interface TenantSettingsResponse {
   taxonomy?: {
     staff_label?: string;
     client_label?: string;
+    client_plural?: string;
     requirement_label?: string;
     event_label?: string;
+    event_plural?: string;
+    service_label?: string;
     booking_cta?: string;
+    revenue_label?: string;
+    notes_label?: string;
   };
 }
 

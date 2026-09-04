@@ -104,6 +104,7 @@ import {
   Zap,
   Lightbulb,
   BarChart2,
+  Save,
 } from 'lucide-react';
 
 const COUNTRY_CODES = [
@@ -215,6 +216,72 @@ const TIMEZONE_LIST = [
   { value: 'UTC', label: 'UTC - Coordinated Universal Time' },
 ];
 
+
+export const PREBUILT_REQUIREMENTS_BY_INDUSTRY: Record<string, string[]> = {
+  clinic: [
+    'General Consultation',
+    'Back Pain & Physio',
+    'Dental Checkup & Cleaning',
+    'Skin Health & Dermatology',
+    'Orthopedic Pain',
+    'Diabetes & Wellness',
+  ],
+  education: [
+    'Class 10 Board Exam',
+    'Class 12 IIT-JEE (Physics/Math)',
+    'NEET Medical Entrance',
+    'Spoken English & Fluency',
+    'Foundation Course (Grade 6-9)',
+    'Coding & STEM for Kids',
+  ],
+  real_estate: [
+    '2 BHK Apartment (Mid-Budget)',
+    '3 BHK Luxury Villa',
+    'Commercial Office Space',
+    'Residential Plot / Land',
+    'Penthouse / Waterfront',
+  ],
+  salon_spa: [
+    'Haircut & Styling',
+    'Keratin / Hair Spa',
+    'Facial & Skin Rejuvenation',
+    'Bridal Makeup Package',
+    'Aromatherapy Massage',
+  ],
+  automobile: [
+    'Periodic General Service',
+    'Brake & Suspension Check',
+    'Engine Diagnostics & Oil Change',
+    'AC Service & Detailing',
+    'Accidental Repair / Bodywork',
+  ],
+  consulting: [
+    'Digital Transformation',
+    'Sales & Marketing Strategy',
+    'Legal / Compliance Advisory',
+    'Website & Software Development',
+    'Financial Audit',
+  ],
+  gym_fitness: [
+    'Weight Loss & Cardio',
+    'Muscle Building & Hypertrophy',
+    'Strength & Conditioning',
+    'Yoga & Flexibility',
+    'Personal Training 1-on-1',
+  ],
+  restaurant: [
+    'Dinner Table (2 Guests)',
+    'Family Dining (4-6 Guests)',
+    'Private Party / Birthday (10+ Guests)',
+    'Corporate Lunch Reservation',
+  ],
+  custom: [
+    'General Inquiry',
+    'Service Consultation',
+    'Priority Support',
+    'Follow-up Session',
+  ],
+};
 
 export const INDUSTRY_PRESETS = [
   {
@@ -328,6 +395,32 @@ export default function DashboardPage() {
 
   // Customer Follow-up & Task Calendar State
   const [followupView, setFollowupView] = useState<'list' | 'tasks' | 'notes'>('list');
+  // Add Customer Modal State
+  const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
+  const [addingCustomer, setAddingCustomer] = useState(false);
+  const [addCustomerForm, setAddCustomerForm] = useState({
+    name: '',
+    phone: '',
+    age: '',
+    location: '',
+    preferred_doctor: '',
+    health_concern: '',
+    lead_probability: 'warm' as 'hot' | 'warm' | 'cold',
+    followup_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
+    followup_time: '10:00 AM',
+    initial_note: '',
+  });
+
+  // 2-Step Customer Deletion State
+  const [deletingCustomerId, setDeletingCustomerId] = useState<string | null>(null);
+  const [confirmDeleteStep, setConfirmDeleteStep] = useState(false);
+
+  // Local Concern edit state for Drawer
+  const [drawerConcern, setDrawerConcern] = useState('');
+  const [drawerAge, setDrawerAge] = useState('');
+  const [drawerLocation, setDrawerLocation] = useState('');
+  const [savingDrawerAttributes, setSavingDrawerAttributes] = useState(false);
+
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [followupStatusFilter, setFollowupStatusFilter] = useState<string>('all');
@@ -388,6 +481,16 @@ export default function DashboardPage() {
   // Customer Directory State (VIEW 4)
   const [dirSearch, setDirSearch] = useState('');
   const [dirSelectedCust, setDirSelectedCust] = useState<Customer | null>(null);
+
+  // Sync local drawer fields when a customer is selected in the directory
+  useEffect(() => {
+    if (dirSelectedCust) {
+      setDrawerConcern(dirSelectedCust.health_concern || '');
+      setDrawerAge(dirSelectedCust.age != null ? String(dirSelectedCust.age) : '');
+      setDrawerLocation(dirSelectedCust.location || '');
+      setConfirmDeleteStep(false);
+    }
+  }, [dirSelectedCust?.id]);
 
   // Tasks Calendar State
   const [tasks, setTasks] = useState<FollowupTask[]>([]);
@@ -700,6 +803,7 @@ export default function DashboardPage() {
   const currentTaxonomy = {
     staff_label: settingsForm.taxonomy?.staff_label || (settingsForm.industry === 'education' ? 'Tutor / Counselor' : 'Preferred Doctor / Staff'),
     client_label: settingsForm.taxonomy?.client_label || (settingsForm.industry === 'education' ? 'Student / Parent' : 'Customer'),
+    client_plural: settingsForm.taxonomy?.client_plural || (settingsForm.industry === 'education' ? 'Students' : settingsForm.industry === 'legal' ? 'Clients' : settingsForm.industry === 'realestate' ? 'Buyers' : settingsForm.industry === 'fitness' ? 'Members' : 'Customers'),
     requirement_label: settingsForm.taxonomy?.requirement_label || (settingsForm.industry === 'education' ? 'Target Course & Grade' : 'Health Concern / Treatment'),
     event_label: settingsForm.taxonomy?.event_label || (settingsForm.industry === 'education' ? 'Demo Class / Counseling' : 'Appointment'),
     booking_cta: settingsForm.taxonomy?.booking_cta || (settingsForm.industry === 'education' ? '+ Book Demo Class' : '+ New Appointment'),
@@ -1119,6 +1223,92 @@ export default function DashboardPage() {
       setTimeout(() => setActionNotice(null), 3500);
     } finally {
       setSavingQuickCrm(false);
+    }
+  }
+
+  async function handleCreateCustomer(e: React.FormEvent) {
+    e.preventDefault();
+    if (!addCustomerForm.phone.trim()) {
+      setActionNotice('Phone number is required.');
+      return;
+    }
+    setAddingCustomer(true);
+    try {
+      const res = await crm.createCustomer({
+        name: addCustomerForm.name.trim() || undefined,
+        phone: addCustomerForm.phone.trim(),
+        age: addCustomerForm.age ? parseInt(addCustomerForm.age, 10) : undefined,
+        location: addCustomerForm.location.trim() || undefined,
+        preferred_doctor: addCustomerForm.preferred_doctor.trim() || undefined,
+        health_concern: addCustomerForm.health_concern.trim() || undefined,
+        lead_probability: addCustomerForm.lead_probability,
+        followup_date: addCustomerForm.followup_date || undefined,
+        followup_time: addCustomerForm.followup_time || undefined,
+        initial_note: addCustomerForm.initial_note.trim() || undefined,
+      } as any);
+
+      setActionNotice(`Customer ${addCustomerForm.name || addCustomerForm.phone} created successfully!`);
+      setTimeout(() => setActionNotice(null), 3000);
+      setShowAddCustomerModal(false);
+      setAddCustomerForm({
+        name: '',
+        phone: '',
+        age: '',
+        location: '',
+        preferred_doctor: '',
+        health_concern: '',
+        lead_probability: 'warm',
+        followup_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
+        followup_time: '10:00 AM',
+        initial_note: '',
+      });
+      await loadCustomers();
+    } catch (err: any) {
+      console.error('Failed to create customer:', err);
+      setActionNotice('Failed to create customer: ' + (err.message || 'Error'));
+      setTimeout(() => setActionNotice(null), 3000);
+    } finally {
+      setAddingCustomer(false);
+    }
+  }
+
+  async function handleDeleteCustomer(customerId: string) {
+    setDeletingCustomerId(customerId);
+    try {
+      await crm.deleteCustomer(customerId);
+      setActionNotice('Customer permanently deleted.');
+      setTimeout(() => setActionNotice(null), 3000);
+      setCustomers(prev => prev.filter(c => c.id !== customerId));
+      if (selectedCustomer && selectedCustomer.id === customerId) {
+        setSelectedCustomer(null);
+        setIsDrawerExpanded(false);
+      }
+      setConfirmDeleteStep(false);
+    } catch (err: any) {
+      console.error('Failed to delete customer:', err);
+      setActionNotice('Failed to delete customer: ' + (err.message || 'Error'));
+      setTimeout(() => setActionNotice(null), 3000);
+    } finally {
+      setDeletingCustomerId(null);
+    }
+  }
+
+  async function handleSaveDrawerAttributes() {
+    if (!selectedCustomer) return;
+    setSavingDrawerAttributes(true);
+    try {
+      const patch = {
+        health_concern: drawerConcern.trim() || undefined,
+        age: drawerAge ? parseInt(drawerAge, 10) : undefined,
+        location: drawerLocation.trim() || undefined,
+      };
+      await handleUpdateCustomer(selectedCustomer.id, patch as any);
+      setActionNotice('Customer attributes saved successfully.');
+      setTimeout(() => setActionNotice(null), 2500);
+    } catch (err: any) {
+      console.error('Failed to save attributes:', err);
+    } finally {
+      setSavingDrawerAttributes(false);
     }
   }
 
@@ -2071,25 +2261,13 @@ export default function DashboardPage() {
               <button
                 onClick={() => navigateTo('customers')}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
-                  activeNav === 'customers'
+                  activeNav === 'customers' || activeNav === 'followup'
                     ? 'bg-surface-subtle text-text-primary font-semibold'
                     : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
                 }`}
               >
                 <Users className="w-4 h-4 stroke-[1.5] shrink-0" />
-                <span>Customer directory</span>
-              </button>
-
-              <button
-                onClick={() => navigateTo('followup')}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
-                  activeNav === 'followup'
-                    ? 'bg-surface-subtle text-text-primary font-semibold'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
-                }`}
-              >
-                <CalendarClock className="w-4 h-4 stroke-[1.5] shrink-0" />
-                <span>Customer Followup</span>
+                <span>{currentTaxonomy.client_plural || 'Customers'}</span>
               </button>
 
               <button
@@ -3431,51 +3609,72 @@ export default function DashboardPage() {
             {/* -- VIEW 4: CUSTOMERS DIRECTORY -- */}
             {activeNav === 'customers' && (
               <div className="flex-1 flex flex-col overflow-hidden gap-3">
-                <div className="flex items-center justify-between gap-3 pt-1">
+                {/* Header */}
+                <div className="flex items-center justify-between gap-3 pt-1 flex-wrap">
                   <div>
-                    <h3 className="font-semibold text-sm text-text-primary">Customer directory
-                      <span className="ml-1.5 text-text-muted text-xs font-normal">
-                        ({(Array.isArray(customers) ? customers : []).filter(c => !dirSearch.trim() || ((c?.name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.phone||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.wa_profile_name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.health_concern||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.status||'').toLowerCase().includes(dirSearch.toLowerCase()))).length} of {Array.isArray(customers) ? customers.length : 0})
+                    <h3 className="font-semibold text-sm text-text-primary flex items-center gap-1.5">
+                      <Users className="w-4 h-4 text-accent stroke-[1.5]" />
+                      {currentTaxonomy.client_plural || 'Customers'}
+                      <span className="ml-1 text-text-muted text-xs font-normal">
+                        ({(Array.isArray(customers) ? customers : []).filter(c => !dirSearch.trim() || ((c?.name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.phone||'').includes(dirSearch) || (c?.health_concern||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.status||'').toLowerCase().includes(dirSearch.toLowerCase()))).length} of {Array.isArray(customers) ? customers.length : 0})
                       </span>
                     </h3>
-                    <p className="text-[11px] text-text-muted mt-0.5">Complete CRM records — click any row to view full profile</p>
+                    <p className="text-[11px] text-text-muted mt-0.5">Complete CRM records — click any row to view the full profile</p>
                   </div>
-                  <input
-                    type="text"
-                    placeholder="Search name, phone, concern..."
-                    value={dirSearch}
-                    onChange={(e) => setDirSearch(e.target.value)}
-                    className="px-3 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent w-52"
-                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder={`Search ${(currentTaxonomy.client_plural || 'customers').toLowerCase()}, phone...`}
+                      value={dirSearch}
+                      onChange={(e) => setDirSearch(e.target.value)}
+                      className="px-3 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent w-52"
+                    />
+                    <button
+                      onClick={() => setShowAddCustomerModal(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer shrink-0"
+                    >
+                      <UserPlus className="w-3.5 h-3.5 stroke-[1.5]" />
+                      Add {currentTaxonomy.client_label || 'Customer'}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex-1 flex gap-3 overflow-hidden">
+                  {/* Table */}
                   <div className={`flex-1 overflow-auto border border-border rounded-sm bg-surface ${dirSelectedCust ? 'min-w-0' : ''}`}>
-                    <table className="w-full text-left text-xs min-w-[860px]">
+                    <table className="w-full text-left text-xs min-w-[700px]">
                       <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                         <tr>
-                          <th className="p-2.5 pl-4 whitespace-nowrap">Customer</th>
+                          <th className="p-2.5 pl-4 whitespace-nowrap">{currentTaxonomy.client_label || 'Customer'}</th>
                           <th className="p-2.5 whitespace-nowrap">Phone</th>
                           <th className="p-2.5 whitespace-nowrap">Status</th>
                           <th className="p-2.5 whitespace-nowrap">Lead</th>
-                          <th className="p-2.5 whitespace-nowrap">Health Concern</th>
+                          <th className="p-2.5 whitespace-nowrap">{currentTaxonomy.requirement_label || 'Requirement'}</th>
                           <th className="p-2.5 whitespace-nowrap">Follow-up</th>
-                          <th className="p-2.5 whitespace-nowrap">Notes</th>
-                          <th className="p-2.5 whitespace-nowrap">Converted</th>
-                          <th className="p-2.5 whitespace-nowrap">First Added</th>
                           <th className="p-2.5 whitespace-nowrap">Last Chat</th>
                           <th className="p-2.5 pr-4 text-right whitespace-nowrap">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
                         {loadingCustomers ? (
-                          <tr><td colSpan={11} className="p-8 text-center text-text-muted text-xs">Loading customers...</td></tr>
-                        ) : (Array.isArray(customers) ? customers : []).filter(c => !dirSearch.trim() || ((c?.name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.phone||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.wa_profile_name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.health_concern||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.status||'').toLowerCase().includes(dirSearch.toLowerCase()))).length === 0 ? (
-                          <tr><td colSpan={11} className="p-8 text-center text-text-muted text-xs">No customers found.</td></tr>
-                        ) : (Array.isArray(customers) ? customers : []).filter(c => !dirSearch.trim() || ((c?.name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.phone||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.wa_profile_name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.health_concern||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.status||'').toLowerCase().includes(dirSearch.toLowerCase()))).map((cust) => {
+                          <tr><td colSpan={8} className="p-8 text-center text-text-muted text-xs">Loading {(currentTaxonomy.client_plural || 'customers').toLowerCase()}...</td></tr>
+                        ) : (Array.isArray(customers) ? customers : []).filter(c => !dirSearch.trim() || ((c?.name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.phone||'').includes(dirSearch) || (c?.health_concern||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.status||'').toLowerCase().includes(dirSearch.toLowerCase()))).length === 0 ? (
+                          <tr><td colSpan={8} className="p-8 text-center text-text-muted text-xs">No {(currentTaxonomy.client_plural || 'customers').toLowerCase()} found.</td></tr>
+                        ) : (Array.isArray(customers) ? customers : []).filter(c => !dirSearch.trim() || ((c?.name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.phone||'').includes(dirSearch) || (c?.health_concern||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.status||'').toLowerCase().includes(dirSearch.toLowerCase()))).map((cust) => {
                           const sStyle: Record<string, string> = { converted: 'bg-emerald-50 text-emerald-800 border-emerald-200', 'follow-up': 'bg-amber-50 text-amber-800 border-amber-200', contacted: 'bg-blue-50 text-blue-800 border-blue-200', lost: 'bg-rose-50 text-rose-800 border-rose-200', new: 'bg-slate-100 text-slate-700 border-slate-200' };
                           const lStyle: Record<string, string> = { hot: 'bg-rose-50 text-rose-700 border-rose-200', warm: 'bg-amber-50 text-amber-700 border-amber-200', cold: 'bg-blue-50 text-blue-700 border-blue-200' };
                           const lDot: Record<string, string> = { hot: 'bg-rose-500', warm: 'bg-amber-500', cold: 'bg-blue-400' };
+                          // Follow-up badge logic
+                          let fuBadge: React.ReactNode = <span className="text-text-muted text-[11px]">-</span>;
+                          if (cust.followup_date) {
+                            const today = new Date(); today.setHours(0,0,0,0);
+                            const fuDate = new Date(cust.followup_date); fuDate.setHours(0,0,0,0);
+                            const diff = Math.round((fuDate.getTime() - today.getTime()) / 86400000);
+                            if (diff < 0) fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1 w-fit"><AlertCircle className="w-2.5 h-2.5" />Overdue</span>;
+                            else if (diff === 0) fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200 flex items-center gap-1 w-fit"><Clock className="w-2.5 h-2.5" />Today</span>;
+                            else if (diff === 1) fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-blue-100 text-blue-700 border border-blue-200 flex items-center gap-1 w-fit"><CalendarClock className="w-2.5 h-2.5" />Tomorrow</span>;
+                            else fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 flex items-center gap-1 w-fit"><Calendar className="w-2.5 h-2.5" />{cust.followup_date}</span>;
+                          }
                           return (
                             <tr
                               key={cust.id}
@@ -3483,10 +3682,15 @@ export default function DashboardPage() {
                               className={`hover:bg-surface-subtle/60 transition-colors duration-100 cursor-pointer ${dirSelectedCust?.id === cust.id ? 'bg-blue-50/40 border-l-2 border-l-accent' : ''}`}
                             >
                               <td className="p-2.5 pl-4">
-                                <div className="font-medium text-text-primary">{cust.name || 'Unnamed'}</div>
+                                <div className="font-medium text-text-primary text-[11px]">{cust.name || 'Unnamed'}</div>
                                 {cust.wa_profile_name && cust.wa_profile_name !== cust.name && (
-                                  <div className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1">
-                                    <MessageCircle className="w-2.5 h-2.5 shrink-0" />{cust.wa_profile_name}
+                                  <div className="text-[10px] text-text-muted mt-0.5">{cust.wa_profile_name}</div>
+                                )}
+                                {(cust.age || cust.location) && (
+                                  <div className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1.5">
+                                    {cust.age && <span>{cust.age}y</span>}
+                                    {cust.age && cust.location && <span>·</span>}
+                                    {cust.location && <span className="flex items-center gap-0.5"><MapPin className="w-2.5 h-2.5" />{cust.location}</span>}
                                   </div>
                                 )}
                               </td>
@@ -3502,30 +3706,10 @@ export default function DashboardPage() {
                                   {(cust.lead_probability || 'warm').charAt(0).toUpperCase() + (cust.lead_probability || 'warm').slice(1)}
                                 </span>
                               </td>
-                              <td className="p-2.5 max-w-[160px]">
+                              <td className="p-2.5 max-w-[140px]">
                                 <span className="text-text-secondary text-[11px] truncate block" title={cust.health_concern || ''}>{cust.health_concern || '-'}</span>
                               </td>
-                              <td className="p-2.5 whitespace-nowrap">
-                                {cust.followup_date ? (
-                                  <div>
-                                    <div className="font-mono text-[11px] text-text-body">{cust.followup_date}</div>
-                                    <div className="text-[10px] text-text-muted">{cust.followup_time || '10:00 AM'}</div>
-                                  </div>
-                                ) : <span className="text-text-muted text-[11px]">-</span>}
-                              </td>
-                              <td className="p-2.5 text-center">
-                                <span className={`inline-flex items-center gap-1 text-[11px] ${(cust.notes_count || 0) > 0 ? 'text-accent font-semibold' : 'text-text-muted'}`}>
-                                  <StickyNote className="w-3 h-3 stroke-[1.5]" />{cust.notes_count || 0}
-                                </span>
-                              </td>
-                              <td className="p-2.5 text-center">
-                                {cust.converted
-                                  ? <span className="text-[11px] text-emerald-700 font-medium flex items-center gap-1 justify-center"><CheckCircle2 className="w-3.5 h-3.5 stroke-[1.5]" />Yes</span>
-                                  : <span className="text-[11px] text-text-muted">No</span>}
-                              </td>
-                              <td className="p-2.5 font-mono text-[11px] text-text-muted whitespace-nowrap">
-                                {cust.created_at ? new Date(cust.created_at).toLocaleDateString() : '-'}
-                              </td>
+                              <td className="p-2.5">{fuBadge}</td>
                               <td className="p-2.5 font-mono text-[11px] whitespace-nowrap">
                                 {cust.last_chat_at
                                   ? <span className="flex items-center gap-1 text-blue-600"><MessageCircle className="w-3 h-3 stroke-[1.5]" />{new Date(cust.last_chat_at).toLocaleDateString()}</span>
@@ -3554,12 +3738,14 @@ export default function DashboardPage() {
                     </table>
                   </div>
 
+                  {/* Customer Detail Drawer */}
                   {dirSelectedCust && (
-                    <div className="w-[480px] xl:w-[540px] bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden shadow-sm">
+                    <div className="w-[400px] xl:w-[460px] bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden shadow-sm">
+                      {/* Drawer Header */}
                       <div className="p-3 border-b border-border bg-surface-subtle/50 flex items-center justify-between">
                         <div>
                           <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
-                            <User className="w-3.5 h-3.5 text-accent" />{dirSelectedCust.name || 'Customer Profile'}
+                            <User className="w-3.5 h-3.5 text-accent stroke-[1.5]" />{dirSelectedCust.name || 'Customer Profile'}
                           </h4>
                           <p className="text-[10px] font-mono text-text-muted mt-0.5">{dirSelectedCust.phone}</p>
                         </div>
@@ -3567,18 +3753,101 @@ export default function DashboardPage() {
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
+
                       <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
+                        {/* Identity */}
                         <div className="space-y-1.5">
                           <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Identity</p>
                           <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
-                            {[{ label: 'CRM Name', value: dirSelectedCust.name || '-' }, { label: 'WA Profile', value: dirSelectedCust.wa_profile_name || '-' }, { label: 'Phone', value: dirSelectedCust.phone, mono: true }].map((f) => (
+                            {[
+                              { label: 'Name', value: dirSelectedCust.name || '-' },
+                              { label: 'WA Profile', value: dirSelectedCust.wa_profile_name || '-' },
+                              { label: 'Phone', value: dirSelectedCust.phone, mono: true },
+                            ].map((f) => (
                               <div key={f.label} className="flex items-start justify-between px-2.5 py-2 gap-2">
                                 <span className="text-text-muted shrink-0 text-[11px]">{f.label}</span>
-                                <span className={`text-text-primary font-medium text-right truncate text-[11px] ${f.mono ? 'font-mono' : ''}`}>{f.value}</span>
+                                <span className={`text-text-primary font-medium text-right truncate text-[11px] ${(f as any).mono ? 'font-mono' : ''}`}>{f.value}</span>
                               </div>
                             ))}
                           </div>
                         </div>
+
+                        {/* Editable Attributes */}
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Attributes</p>
+                          <div className="space-y-2">
+                            <div>
+                              <label className="block text-[10px] text-text-muted mb-1">{currentTaxonomy.requirement_label || 'Requirement'}</label>
+                              <textarea
+                                value={drawerConcern}
+                                onChange={(e) => setDrawerConcern(e.target.value)}
+                                rows={2}
+                                placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
+                                className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent resize-none"
+                              />
+                              {/* Pre-built quick chips */}
+                              {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'].map((chip) => (
+                                    <button
+                                      key={chip}
+                                      type="button"
+                                      onClick={() => setDrawerConcern(chip)}
+                                      className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${drawerConcern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'}`}
+                                    >
+                                      {chip}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              <div className="flex-1">
+                                <label className="block text-[10px] text-text-muted mb-1">Age</label>
+                                <input
+                                  type="number"
+                                  min="1" max="120"
+                                  value={drawerAge}
+                                  onChange={(e) => setDrawerAge(e.target.value)}
+                                  placeholder="e.g. 35"
+                                  className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                />
+                              </div>
+                              <div className="flex-1">
+                                <label className="block text-[10px] text-text-muted mb-1">Location</label>
+                                <input
+                                  type="text"
+                                  value={drawerLocation}
+                                  onChange={(e) => setDrawerLocation(e.target.value)}
+                                  placeholder="e.g. Mumbai"
+                                  className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                />
+                              </div>
+                            </div>
+                            <button
+                              onClick={async () => {
+                                setSavingDrawerAttributes(true);
+                                try {
+                                  await handleUpdateCustomer(dirSelectedCust.id, {
+                                    health_concern: drawerConcern.trim() || undefined,
+                                    age: drawerAge ? parseInt(drawerAge, 10) : undefined,
+                                    location: drawerLocation.trim() || undefined,
+                                  } as any);
+                                  setDirSelectedCust(prev => prev ? { ...prev, health_concern: drawerConcern.trim(), age: drawerAge ? parseInt(drawerAge, 10) : prev.age, location: drawerLocation.trim() || prev.location } : null);
+                                  setActionNotice('Attributes saved.');
+                                  setTimeout(() => setActionNotice(null), 2500);
+                                } finally { setSavingDrawerAttributes(false); }
+                              }}
+                              disabled={savingDrawerAttributes}
+                              className="w-full py-1.5 px-3 bg-accent hover:bg-accent-hover disabled:opacity-60 text-white text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                            >
+                              <Save className="w-3 h-3 stroke-[1.5]" />
+                              {savingDrawerAttributes ? 'Saving...' : 'Save Attributes'}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* CRM Status */}
                         <div className="space-y-1.5">
                           <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">CRM Status</p>
                           <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
@@ -3603,21 +3872,23 @@ export default function DashboardPage() {
                             </div>
                           </div>
                         </div>
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Health / Concern</p>
-                          <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
-                            {[{ label: 'Health Concern', value: dirSelectedCust.health_concern || '-' }, { label: 'Preferred Staff', value: dirSelectedCust.preferred_doctor || '-' }].map((f) => (
-                              <div key={f.label} className="flex items-start justify-between px-2.5 py-2 gap-2">
-                                <span className="text-text-muted shrink-0 text-[11px]">{f.label}</span>
-                                <span className="text-text-primary font-medium text-right text-[11px]">{f.value}</span>
-                              </div>
-                            ))}
+
+                        {/* {currentTaxonomy.staff_label} */}
+                        <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
+                          <div className="flex items-start justify-between px-2.5 py-2 gap-2">
+                            <span className="text-text-muted shrink-0 text-[11px]">{currentTaxonomy.staff_label || 'Preferred Staff'}</span>
+                            <span className="text-text-primary font-medium text-right text-[11px]">{dirSelectedCust.preferred_doctor || '-'}</span>
                           </div>
                         </div>
+
+                        {/* Schedule */}
                         <div className="space-y-1.5">
                           <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Schedule</p>
                           <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
-                            {[{ label: 'Follow-up Date', value: dirSelectedCust.followup_date || '-', mono: true }, { label: 'Follow-up Time', value: dirSelectedCust.followup_time || '-', mono: true }].map((f) => (
+                            {[
+                              { label: 'Follow-up Date', value: dirSelectedCust.followup_date || '-', mono: true },
+                              { label: 'Follow-up Time', value: dirSelectedCust.followup_time || '-', mono: true },
+                            ].map((f) => (
                               <div key={f.label} className="flex items-center justify-between px-2.5 py-2 gap-2">
                                 <span className="text-text-muted text-[11px]">{f.label}</span>
                                 <span className={`text-text-primary font-medium text-[11px] ${f.mono ? 'font-mono' : ''}`}>{f.value}</span>
@@ -3625,6 +3896,8 @@ export default function DashboardPage() {
                             ))}
                           </div>
                         </div>
+
+                        {/* Activity */}
                         <div className="space-y-1.5">
                           <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Activity</p>
                           <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
@@ -3633,26 +3906,31 @@ export default function DashboardPage() {
                               { label: 'Last Chat', value: dirSelectedCust.last_chat_at ? new Date(dirSelectedCust.last_chat_at).toLocaleString() : 'No chat', mono: true },
                               { label: 'Notes', value: `${dirSelectedCust.notes_count || 0} note${(dirSelectedCust.notes_count || 0) === 1 ? '' : 's'}` },
                               { label: 'Google Tasks', value: dirSelectedCust.google_task_id ? 'Synced' : 'Not synced' },
+                              { label: 'Google Calendar', value: dirSelectedCust.google_calendar_event_id ? 'Synced' : 'Not synced' },
                             ].map((f) => (
                               <div key={f.label} className="flex items-start justify-between px-2.5 py-2 gap-2">
                                 <span className="text-text-muted shrink-0 text-[11px]">{f.label}</span>
-                                <span className={`text-text-primary font-medium text-right ${f.mono ? 'font-mono text-[10px]' : 'text-[11px]'}`}>{f.value}</span>
+                                <span className={`font-medium text-right ${(f as any).mono ? 'font-mono text-[10px]' : 'text-[11px]'} ${f.value === 'Synced' ? 'text-emerald-600' : f.value === 'Not synced' ? 'text-text-muted' : 'text-text-primary'}`}>{f.value}</span>
                               </div>
                             ))}
                           </div>
                         </div>
+
+                        {/* Latest Note */}
                         {dirSelectedCust.latest_note && (
                           <div className="space-y-1.5">
                             <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Latest Note</p>
                             <div className="bg-amber-50 border border-amber-200 rounded-sm px-2.5 py-2 text-[11px] text-amber-900 leading-relaxed whitespace-pre-wrap">{dirSelectedCust.latest_note}</div>
                           </div>
                         )}
+
+                        {/* Action Buttons */}
                         <div className="flex gap-2 pt-1">
                           <button
                             onClick={() => openChatForContact(dirSelectedCust.phone)}
                             className="flex-1 py-1.5 px-2.5 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-xs font-medium rounded-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                           >
-                            <MessageCircle className="w-3.5 h-3.5 text-accent" /> Open Chat
+                            <MessageCircle className="w-3.5 h-3.5 text-accent stroke-[1.5]" /> Chat
                           </button>
                           <button
                             onClick={() => { navigateTo('followup'); handleSelectCustomer(dirSelectedCust); }}
@@ -3661,9 +3939,198 @@ export default function DashboardPage() {
                             <CalendarClock className="w-3.5 h-3.5" /> Manage
                           </button>
                         </div>
+
+                        {/* 2-Step Deletion */}
+                        <div className="border-t border-border pt-3 mt-1">
+                          {!confirmDeleteStep ? (
+                            <button
+                              onClick={() => setConfirmDeleteStep(true)}
+                              className="w-full py-1.5 px-3 bg-surface border border-rose-200 hover:bg-rose-50 text-rose-600 text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                            >
+                              <Trash2 className="w-3 h-3 stroke-[1.5]" />
+                              Delete {currentTaxonomy.client_label || 'Customer'}
+                            </button>
+                          ) : (
+                            <div className="bg-rose-50 border border-rose-200 rounded-sm p-2.5 space-y-2">
+                              <p className="text-[11px] text-rose-800 font-medium flex items-center gap-1.5">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                This will permanently delete <strong>{dirSelectedCust.name || 'this customer'}</strong> and all their notes, tasks, and data.
+                              </p>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setConfirmDeleteStep(false)}
+                                  className="flex-1 py-1 px-2 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-[11px] rounded-sm transition-colors cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    await handleDeleteCustomer(dirSelectedCust.id);
+                                    setDirSelectedCust(null);
+                                  }}
+                                  disabled={deletingCustomerId === dirSelectedCust.id}
+                                  className="flex-1 py-1 px-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white text-[11px] font-semibold rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                >
+                                  <Trash2 className="w-3 h-3 stroke-[1.5]" />
+                                  {deletingCustomerId === dirSelectedCust.id ? 'Deleting...' : 'Yes, Delete'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* -- ADD CUSTOMER MODAL -- */}
+            {showAddCustomerModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAddCustomerModal(false)}>
+                <div className="bg-surface border border-border rounded-sm shadow-xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                  <div className="p-4 border-b border-border flex items-center justify-between">
+                    <h3 className="font-semibold text-sm text-text-primary flex items-center gap-2">
+                      <UserPlus className="w-4 h-4 text-accent stroke-[1.5]" />
+                      Add {currentTaxonomy.client_label || 'Customer'}
+                    </h3>
+                    <button onClick={() => setShowAddCustomerModal(false)} className="p-1 text-text-muted hover:text-text-primary rounded-sm cursor-pointer">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <form onSubmit={handleCreateCustomer} className="p-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] text-text-muted mb-1">Name</label>
+                        <input
+                          type="text"
+                          value={addCustomerForm.name}
+                          onChange={(e) => setAddCustomerForm(p => ({...p, name: e.target.value}))}
+                          placeholder="Full name"
+                          className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-text-muted mb-1">Phone <span className="text-rose-500">*</span></label>
+                        <input
+                          type="tel"
+                          value={addCustomerForm.phone}
+                          onChange={(e) => setAddCustomerForm(p => ({...p, phone: e.target.value}))}
+                          placeholder="e.g. 919876543210"
+                          required
+                          className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] text-text-muted mb-1">Age</label>
+                        <input
+                          type="number" min="1" max="120"
+                          value={addCustomerForm.age}
+                          onChange={(e) => setAddCustomerForm(p => ({...p, age: e.target.value}))}
+                          placeholder="e.g. 35"
+                          className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-text-muted mb-1">Location</label>
+                        <input
+                          type="text"
+                          value={addCustomerForm.location}
+                          onChange={(e) => setAddCustomerForm(p => ({...p, location: e.target.value}))}
+                          placeholder="City / Area"
+                          className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-text-muted mb-1">{currentTaxonomy.requirement_label || 'Requirement'}</label>
+                      <input
+                        type="text"
+                        value={addCustomerForm.health_concern}
+                        onChange={(e) => setAddCustomerForm(p => ({...p, health_concern: e.target.value}))}
+                        placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
+                        className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                      />
+                      {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'].map((chip) => (
+                            <button key={chip} type="button" onClick={() => setAddCustomerForm(p => ({...p, health_concern: chip}))}
+                              className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${addCustomerForm.health_concern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'}`}>
+                              {chip}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] text-text-muted mb-1">{currentTaxonomy.staff_label || 'Preferred Staff'}</label>
+                        <input
+                          type="text"
+                          value={addCustomerForm.preferred_doctor}
+                          onChange={(e) => setAddCustomerForm(p => ({...p, preferred_doctor: e.target.value}))}
+                          placeholder="Staff name"
+                          className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-text-muted mb-1">Lead</label>
+                        <select
+                          value={addCustomerForm.lead_probability}
+                          onChange={(e) => setAddCustomerForm(p => ({...p, lead_probability: e.target.value as 'hot'|'warm'|'cold'}))}
+                          className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                        >
+                          <option value="hot">Hot</option>
+                          <option value="warm">Warm</option>
+                          <option value="cold">Cold</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] text-text-muted mb-1">Follow-up Date</label>
+                        <input
+                          type="date"
+                          value={addCustomerForm.followup_date}
+                          onChange={(e) => setAddCustomerForm(p => ({...p, followup_date: e.target.value}))}
+                          className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-text-muted mb-1">Follow-up Time</label>
+                        <input
+                          type="text"
+                          value={addCustomerForm.followup_time}
+                          onChange={(e) => setAddCustomerForm(p => ({...p, followup_time: e.target.value}))}
+                          placeholder="10:00 AM"
+                          className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-text-muted mb-1">Initial Note</label>
+                      <textarea
+                        value={addCustomerForm.initial_note}
+                        onChange={(e) => setAddCustomerForm(p => ({...p, initial_note: e.target.value}))}
+                        rows={2}
+                        placeholder="Optional note about this customer..."
+                        className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent resize-none"
+                      />
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button type="button" onClick={() => setShowAddCustomerModal(false)}
+                        className="flex-1 py-1.5 px-3 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-xs font-medium rounded-sm transition-colors cursor-pointer">
+                        Cancel
+                      </button>
+                      <button type="submit" disabled={addingCustomer}
+                        className="flex-1 py-1.5 px-3 bg-accent hover:bg-accent-hover disabled:opacity-60 text-white text-xs font-semibold rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5">
+                        <UserPlus className="w-3.5 h-3.5 stroke-[1.5]" />
+                        {addingCustomer ? 'Adding...' : `Add ${currentTaxonomy.client_label || 'Customer'}`}
+                      </button>
+                    </div>
+                  </form>
                 </div>
               </div>
             )}
