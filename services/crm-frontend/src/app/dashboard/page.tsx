@@ -1027,6 +1027,12 @@ export default function DashboardPage() {
                   prev[idx].last_message_at !== c.last_message_at
               )
             ) {
+              // Silently refresh customers if a new chat arrived
+              crm.getCustomers().then(fresh => {
+                if (isMounted && Array.isArray(fresh)) {
+                  setCustomers(fresh);
+                }
+              }).catch(() => {});
               return convs;
             }
             return prev;

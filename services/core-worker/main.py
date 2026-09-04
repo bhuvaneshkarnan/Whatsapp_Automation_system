@@ -387,6 +387,27 @@ class CoreWorker:
                 name=fields.get("contactName") or None,
             )
 
+            # ── 1b. Automatically ensure customer record exists in Customers tab ──
+            try:
+                await self.db_pool.execute(
+                    """
+                    INSERT INTO customers (tenant_id, phone, name, status, lead_probability, created_at, updated_at)
+                    VALUES ($1::uuid, $2, $3, 'new', 'warm', NOW(), NOW())
+                    ON CONFLICT (tenant_id, phone) DO UPDATE
+                    SET updated_at = NOW(),
+                        name = CASE 
+                            WHEN customers.name IS NULL OR customers.name = '' OR customers.name = 'Customer'
+                            THEN COALESCE(EXCLUDED.name, customers.name)
+                            ELSE customers.name 
+                        END
+                    """,
+                    tenant_id,
+                    fields["from"],
+                    fields.get("contactName") or "Customer",
+                )
+            except Exception as cust_err:
+                logger.warning("auto_upsert_customer_failed", phone=fields.get("from"), error=str(cust_err))
+
             # ── 2. Get or create conversation ─────────────────────────────────
             conv_id, conv_status = await self._get_or_create_conversation(tenant_id, contact_id)
 

@@ -345,43 +345,26 @@ async def list_customers(
 ):
     """List customer follow-up records with segment filters, chat activity, and notes counts."""
     async with db_pool.acquire() as conn:
-        # Check if customers need seeding from contacts
-        cnt = await conn.fetchval("SELECT COUNT(*) FROM customers WHERE tenant_id = $1::uuid", tenant_id)
-        if cnt == 0:
-            await conn.execute("""
-                INSERT INTO customers (tenant_id, phone, name, preferred_doctor, status, health_concern, lead_probability, converted, followup_date, followup_time)
-                SELECT 
-                    c.tenant_id, 
-                    c.phone, 
-                    COALESCE(c.name, c.wa_profile_name, 'Customer'),
-                    CASE (ROW_NUMBER() OVER (ORDER BY c.created_at)) % 3
-                        WHEN 0 THEN 'Dr. Sarah Mitchell'
-                        WHEN 1 THEN 'Dr. Rajesh Kumar'
-                        ELSE 'Dr. Emily Stone'
-                    END,
-                    CASE (ROW_NUMBER() OVER (ORDER BY c.created_at)) % 4
-                        WHEN 0 THEN 'follow-up'
-                        WHEN 1 THEN 'contacted'
-                        WHEN 2 THEN 'new'
-                        ELSE 'converted'
-                    END,
-                    CASE (ROW_NUMBER() OVER (ORDER BY c.created_at)) % 4
-                        WHEN 0 THEN 'Back Pain & Physio Therapy'
-                        WHEN 1 THEN 'Dental Implant Consultation'
-                        WHEN 2 THEN 'Skin Health & Dermatological Checkup'
-                        ELSE 'General Health & Preventive Wellness'
-                    END,
-                    CASE (ROW_NUMBER() OVER (ORDER BY c.created_at)) % 3
-                        WHEN 0 THEN 'hot'
-                        WHEN 1 THEN 'warm'
-                        ELSE 'cold'
-                    END,
-                    CASE (ROW_NUMBER() OVER (ORDER BY c.created_at)) % 4 WHEN 3 THEN true ELSE false END,
-                    CURRENT_DATE + ((ROW_NUMBER() OVER (ORDER BY c.created_at)) % 5)::integer,
-                    '10:30 AM'
-                FROM contacts c WHERE c.tenant_id = $1::uuid
-                ON CONFLICT (tenant_id, phone) DO NOTHING;
-            """, tenant_id)
+        # Automatically sync any new WhatsApp contacts into the customers table
+        await conn.execute("""
+            INSERT INTO customers (tenant_id, phone, name, status, lead_probability, created_at, updated_at)
+            SELECT 
+                c.tenant_id, 
+                c.phone, 
+                COALESCE(c.name, c.wa_profile_name, 'Customer'),
+                'new',
+                'warm',
+                COALESCE(c.created_at, NOW()),
+                NOW()
+            FROM contacts c 
+            WHERE c.tenant_id = $1::uuid
+            ON CONFLICT (tenant_id, phone) DO UPDATE
+            SET name = CASE 
+                WHEN customers.name IS NULL OR customers.name = '' OR customers.name = 'Customer'
+                THEN COALESCE(EXCLUDED.name, customers.name)
+                ELSE customers.name 
+            END;
+        """, tenant_id)
 
         conditions = ["c.tenant_id = $1::uuid"]
         params = [tenant_id]
