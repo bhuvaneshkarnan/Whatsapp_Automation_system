@@ -416,6 +416,7 @@ export default function DashboardPage() {
   // 2-Step Customer Deletion State
   const [deletingCustomerId, setDeletingCustomerId] = useState<string | null>(null);
   const [confirmDeleteStep, setConfirmDeleteStep] = useState(false);
+  const [showCustomerHistoryModal, setShowCustomerHistoryModal] = useState(false);
 
   // Local Concern edit state for Drawer
   const [drawerConcern, setDrawerConcern] = useState('');
@@ -2895,7 +2896,7 @@ export default function DashboardPage() {
                                     title="View full customer profile & notes in CRM"
                                   >
                                     <User className="w-3 h-3 stroke-[1.5]" />
-                                    <span>Profile</span>
+                                    <span>Manage</span>
                                   </button>
 
                                   <button
@@ -3551,7 +3552,7 @@ export default function DashboardPage() {
                                   title="View full customer profile, notes, and bookings"
                                 >
                                   <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>CRM Profile</span>
+                                  <span>Manage</span>
                                 </button>
                               );
                             } else {
@@ -4098,7 +4099,7 @@ export default function DashboardPage() {
                                           onClick={() => handleSelectCustomer(cust)}
                                           className="px-2 py-1 bg-accent hover:bg-accent-hover text-white text-[11px] rounded-sm transition-colors cursor-pointer flex items-center gap-1"
                                         >
-                                          <User className="w-3 h-3 stroke-[1.5]" /> Profile
+                                          <User className="w-3 h-3 stroke-[1.5]" /> Manage
                                         </button>
                                       </div>
                                     </td>
@@ -4470,6 +4471,18 @@ export default function DashboardPage() {
                                   ))}
                                 </div>
                               )}
+                            </div>
+
+                            {/* Customer Data Full History Button */}
+                            <div className="border-t border-border pt-3 mt-2">
+                              <button
+                                type="button"
+                                onClick={() => setShowCustomerHistoryModal(true)}
+                                className="w-full py-1.5 px-3 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 mb-2"
+                              >
+                                <FileText className="w-3 h-3 stroke-[1.5]" />
+                                View Full Customer History
+                              </button>
                             </div>
 
                             {/* 6. 2-Step Permanent Deletion */}
@@ -4850,6 +4863,18 @@ export default function DashboardPage() {
                               >
                                 <CalendarCheck className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
                                 <span>{syncingGoogleTasks ? 'Syncing...' : 'Sync with Google Tasks'}</span>
+                              </button>
+                            </div>
+
+                            {/* Customer Data Full History Button */}
+                            <div className="border-t border-border pt-3 mt-2">
+                              <button
+                                type="button"
+                                onClick={() => setShowCustomerHistoryModal(true)}
+                                className="w-full py-1.5 px-3 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 mb-2"
+                              >
+                                <FileText className="w-3 h-3 stroke-[1.5]" />
+                                View Full Customer History
                               </button>
                             </div>
 
@@ -7802,6 +7827,176 @@ export default function DashboardPage() {
                 >
                   <UserX className="w-3.5 h-3.5 stroke-[1.5]" />
                   <span>Turn off AI for all chats</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── CUSTOMER FULL HISTORY MODAL ─────────────────────────────── */}
+        {showCustomerHistoryModal && selectedCustomer && (
+          <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
+            <div className="bg-surface rounded-lg border border-border w-full max-w-4xl my-6 shadow-lg overflow-hidden flex flex-col">
+
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-surface-subtle">
+                <div className="flex items-center gap-2.5">
+                  <FileText className="w-4 h-4 text-accent stroke-[1.5]" />
+                  <div>
+                    <h2 className="text-sm font-semibold text-text-primary">{selectedCustomer.name || 'Customer'} — Complete History</h2>
+                    <p className="text-[11px] text-text-muted">{selectedCustomer.phone}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomerHistoryModal(false)}
+                  className="p-1.5 rounded-sm hover:bg-surface text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto max-h-[80vh] p-5 space-y-6">
+
+                {/* Section 1: Profile Summary */}
+                <div>
+                  <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-accent" /> Profile
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {[
+                      { label: 'Name', value: selectedCustomer.name || '—' },
+                      { label: 'Phone', value: selectedCustomer.phone },
+                      { label: 'Age', value: selectedCustomer.age ? String(selectedCustomer.age) : '—' },
+                      { label: 'Location', value: selectedCustomer.location || '—' },
+                      { label: currentTaxonomy.requirement_label || 'Concern', value: selectedCustomer.health_concern || '—' },
+                      { label: currentTaxonomy.staff_label || 'Staff', value: selectedCustomer.preferred_doctor || '—' },
+                      { label: 'CRM Status', value: selectedCustomer.status || '—' },
+                      { label: 'Lead Grade', value: selectedCustomer.lead_probability || '—' },
+                      { label: 'Converted', value: selectedCustomer.converted ? 'Yes' : 'No' },
+                      { label: 'Follow-up Date', value: selectedCustomer.followup_date || '—' },
+                      { label: 'Follow-up Time', value: selectedCustomer.followup_time || '—' },
+                      { label: 'Created', value: selectedCustomer.created_at ? new Date(selectedCustomer.created_at).toLocaleDateString() : '—' },
+                    ].map((item) => (
+                      <div key={item.label} className="bg-surface-subtle rounded-sm px-3 py-2 border border-border">
+                        <p className="text-[10px] text-text-muted uppercase tracking-wide mb-0.5">{item.label}</p>
+                        <p className="text-xs font-medium text-text-primary truncate">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Section 2: WhatsApp Chat History */}
+                <div>
+                  <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                    <MessageSquare className="w-3.5 h-3.5 text-accent" /> WhatsApp Conversation
+                  </h3>
+                  {loadingCustomerChat ? (
+                    <div className="text-xs text-text-muted text-center py-4">Loading chat...</div>
+                  ) : customerChat && customerChat.messages && customerChat.messages.length > 0 ? (
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                      {customerChat.messages.map((msg, idx) => (
+                        <div key={idx} className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[75%] px-3 py-2 rounded-md text-[11px] ${
+                            msg.direction === 'outbound'
+                              ? 'bg-accent text-white'
+                              : 'bg-surface-subtle border border-border text-text-primary'
+                          }`}>
+                            <p className="leading-relaxed">{msg.body}</p>
+                            <p className={`text-[9px] mt-1 ${msg.direction === 'outbound' ? 'text-white/70' : 'text-text-muted'}`}>
+                              {msg.created_at ? new Date(msg.created_at).toLocaleString() : ''} {msg.ai_generated ? '· AI' : ''}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-text-muted text-center py-4 bg-surface-subtle rounded-sm border border-border">No chat messages yet.</p>
+                  )}
+                </div>
+
+                {/* Section 3: Notes */}
+                <div>
+                  <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                    <StickyNote className="w-3.5 h-3.5 text-accent" /> Notes ({customerNotes.length})
+                  </h3>
+                  {loadingCustomerNotes ? (
+                    <div className="text-xs text-text-muted text-center py-4">Loading notes...</div>
+                  ) : customerNotes.length > 0 ? (
+                    <div className="space-y-2">
+                      {customerNotes.map((note) => (
+                        <div key={note.id} className="bg-surface-subtle border border-border rounded-sm px-3 py-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-semibold text-accent">{note.author}</span>
+                            <span className="text-[10px] text-text-muted">{note.created_at ? new Date(note.created_at).toLocaleDateString() : ''}</span>
+                          </div>
+                          <p className="text-xs text-text-primary leading-relaxed">{note.note_text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-text-muted text-center py-4 bg-surface-subtle rounded-sm border border-border">No notes yet.</p>
+                  )}
+                </div>
+
+                {/* Section 4: Bookings & Revenue */}
+                <div>
+                  <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                    <CalendarCheck className="w-3.5 h-3.5 text-accent" /> {currentTaxonomy.event_label || 'Appointments'} & Revenue
+                  </h3>
+                  {loadingCustomerBookings ? (
+                    <div className="text-xs text-text-muted text-center py-4">Loading bookings...</div>
+                  ) : customerBookingsData && customerBookingsData.bookings && customerBookingsData.bookings.length > 0 ? (
+                    <div>
+                      {/* Revenue Summary */}
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        {[
+                          { label: 'Total Sessions', value: customerBookingsData.total_sessions },
+                          { label: 'Completed', value: customerBookingsData.completed_sessions },
+                          { label: 'Total Revenue', value: `${currentCurrencySymbol}${customerBookingsData.total_revenue || 0}` },
+                        ].map((stat) => (
+                          <div key={stat.label} className="bg-surface-subtle border border-border rounded-sm px-3 py-2 text-center">
+                            <p className="text-[10px] text-text-muted">{stat.label}</p>
+                            <p className="text-sm font-semibold text-text-primary">{stat.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Booking list */}
+                      <div className="space-y-2">
+                        {customerBookingsData.bookings.map((bk: any) => (
+                          <div key={bk.id} className="flex items-center justify-between bg-surface-subtle border border-border rounded-sm px-3 py-2">
+                            <div>
+                              <p className="text-xs font-medium text-text-primary">{bk.service}</p>
+                              <p className="text-[10px] text-text-muted">{bk.start_time ? new Date(bk.start_time).toLocaleString() : '—'}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs font-semibold text-text-primary">{currentCurrencySymbol}{bk.price || 0}</p>
+                              <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-sm border ${
+                                bk.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                bk.status === 'cancelled' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                                'bg-blue-50 text-blue-700 border-blue-200'
+                              }`}>{bk.status}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-text-muted text-center py-4 bg-surface-subtle rounded-sm border border-border">No appointments booked yet.</p>
+                  )}
+                </div>
+
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-surface-subtle">
+                <p className="text-[10px] text-text-muted">Customer ID: {selectedCustomer.id}</p>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomerHistoryModal(false)}
+                  className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer"
+                >
+                  Close
                 </button>
               </div>
             </div>
