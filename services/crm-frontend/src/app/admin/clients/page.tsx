@@ -1205,11 +1205,11 @@ export default function SuperAdminClients() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="border-b border-border bg-surface-subtle text-xs font-medium text-text-muted">
+                      <tr className="border-b border-border bg-surface-subtle/60 text-[11px] font-semibold text-text-muted uppercase tracking-wider">
                         <th className="py-2.5 px-4">Organization & Integration</th>
-                        <th className="py-2.5 px-4">Plan & Rate</th>
-                        <th className="py-2.5 px-4">Subscription Status</th>
-                        <th className="py-2.5 px-4 text-right">Actions & Configuration</th>
+                        <th className="py-2.5 px-4 whitespace-nowrap">Plan & Rate</th>
+                        <th className="py-2.5 px-4 whitespace-nowrap">Subscription Status</th>
+                        <th className="py-2.5 px-4 text-right whitespace-nowrap">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border text-xs">
@@ -1219,29 +1219,31 @@ export default function SuperAdminClients() {
                           <tr key={t.id} className="hover:bg-surface-subtle/50 transition-colors duration-150">
                             
                             {/* Organization Name & WhatsApp Integration */}
-                            <td className="py-3 px-4">
+                            <td className="py-2.5 px-4 whitespace-nowrap">
                               <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/20 text-accent flex items-center justify-center font-bold text-xs shrink-0">
+                                <div className="w-7 h-7 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-xs shrink-0">
                                   {t.name.slice(0, 2).toUpperCase()}
                                 </div>
                                 <div>
-                                  <p className="font-semibold text-text-primary flex items-center gap-1.5">
-                                    <span>{t.name}</span>
-                                    <span className="text-[10px] font-mono text-text-muted bg-surface-subtle px-1 py-0.2 rounded border border-border">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-semibold text-text-primary text-xs">{t.name}</span>
+                                    <span className="text-[10px] font-mono text-text-muted bg-surface-subtle px-1.5 py-0.2 rounded border border-border">
                                       /{t.slug}
                                     </span>
-                                  </p>
-                                  <p className="text-[11px] text-text-muted">{t.admin_email || 'No email configured'}</p>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
-                                      t.whatsapp_configured
-                                        ? 'bg-status-success-bg text-status-success border-status-success-border font-medium'
-                                        : 'bg-surface-subtle text-text-muted border-border'
-                                    }`}>
-                                      <Smartphone className="w-2.5 h-2.5 stroke-[1.5]" />
-                                      <span>{t.whatsapp_configured ? 'WhatsApp Live' : 'No Meta API'}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 text-[11px] text-text-muted mt-0.5">
+                                    <span className="truncate max-w-[170px]" title={t.admin_email || ''}>
+                                      {t.admin_email || 'No email configured'}
                                     </span>
-                                    <span className="text-[10px] text-text-muted font-mono tabular-nums">
+                                    <span>&bull;</span>
+                                    <span className={`inline-flex items-center gap-1 font-medium ${
+                                      t.whatsapp_configured ? 'text-emerald-600 dark:text-emerald-400' : 'text-text-muted'
+                                    }`}>
+                                      <span className={`w-1.5 h-1.5 rounded-full ${t.whatsapp_configured ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                                      {t.whatsapp_configured ? 'WhatsApp Live' : 'No API'}
+                                    </span>
+                                    <span>&bull;</span>
+                                    <span className="font-mono tabular-nums">
                                       {t.contact_count || 0} contacts &bull; {t.conversation_count || 0} chats
                                     </span>
                                   </div>
@@ -1250,77 +1252,73 @@ export default function SuperAdminClients() {
                             </td>
 
                             {/* Plan & Rate */}
-                            <td className="py-3 px-4">
+                            <td className="py-2.5 px-4 whitespace-nowrap">
                               <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded-sm bg-surface-subtle text-text-secondary border border-border">
-                                  {t.plan || 'PRO'}
+                                <span className="text-[10px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded bg-surface-subtle text-text-secondary border border-border">
+                                  {t.plan || 'CUSTOM'}
                                 </span>
-                                <span className="text-xs font-mono font-medium tabular-nums text-text-body">
-                                  ₹{planFee.toLocaleString('en-IN')}/mo
+                                <span className="text-xs font-mono font-semibold tabular-nums text-text-primary">
+                                  ₹{planFee.toLocaleString('en-IN')}<span className="text-[10px] font-normal text-text-muted">/mo</span>
                                 </span>
                               </div>
-                              {t.next_renewal_date && (
-                                <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1">
-                                  <Calendar className="w-2.5 h-2.5 text-text-muted" />
-                                  <span>{t.next_renewal_date}</span>
-                                </p>
-                              )}
+                              <div className="text-[10px] text-text-muted flex items-center gap-1 mt-0.5 whitespace-nowrap">
+                                <Calendar className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                                <span>{t.next_renewal_date || 'Renews 1st of month'}</span>
+                              </div>
                             </td>
 
                             {/* Razorpay Subscription Lifecycle */}
-                            <td className="py-3 px-4">
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  {t.status !== 'active' ? (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 flex items-center gap-1">
-                                      <Pause className="w-2.5 h-2.5 fill-current" />
-                                      <span>Workspace Paused</span>
-                                    </span>
-                                  ) : t.subscription_status === 'active' ? (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
-                                      <Check className="w-2.5 h-2.5" />
-                                      <span>Active (Paid)</span>
-                                    </span>
-                                  ) : t.subscription_status === 'payment_failed' ? (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center gap-1">
-                                      <AlertCircle className="w-2.5 h-2.5" />
-                                      <span>Payment Failed</span>
-                                    </span>
-                                  ) : (!t.org_lifecycle_stage || t.org_lifecycle_stage === 'setup') ? (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                                      Initial Setup
-                                    </span>
-                                  ) : (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 flex items-center gap-1" title="Payment link generated — waiting for client payment">
-                                      <Clock className="w-2.5 h-2.5" />
-                                      <span>Unpaid • Payment Pending</span>
-                                    </span>
-                                  )}
+                            <td className="py-2.5 px-4 whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                {t.status !== 'active' ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
+                                    <Pause className="w-2.5 h-2.5 fill-current" />
+                                    <span>Workspace Paused</span>
+                                  </span>
+                                ) : t.subscription_status === 'active' ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
+                                    <Check className="w-3 h-3 text-emerald-600" />
+                                    <span>Active (Paid)</span>
+                                  </span>
+                                ) : t.subscription_status === 'payment_failed' ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/25">
+                                    <AlertCircle className="w-3 h-3 text-amber-600" />
+                                    <span>Payment Failed</span>
+                                  </span>
+                                ) : (!t.org_lifecycle_stage || t.org_lifecycle_stage === 'setup') ? (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/25">
+                                    Initial Setup
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-900 dark:text-amber-300 border border-amber-500/30 shadow-xs" title="Payment link generated — waiting for client payment">
+                                    <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                                    <span>Unpaid • Payment Pending</span>
+                                  </span>
+                                )}
 
-                                  {t.razorpay_subscription_id && (
-                                    <button
-                                      onClick={() => handleSyncBilling(t)}
-                                      disabled={syncingBillingId === t.id}
-                                      className="p-1 text-text-muted hover:text-accent rounded transition-colors"
-                                      title="Sync live status from Razorpay"
-                                    >
-                                      <RefreshCw className={`w-3 h-3 ${syncingBillingId === t.id ? 'animate-spin text-accent' : ''}`} />
-                                    </button>
-                                  )}
-                                </div>
+                                {t.razorpay_subscription_id && (
+                                  <button
+                                    onClick={() => handleSyncBilling(t)}
+                                    disabled={syncingBillingId === t.id}
+                                    className="p-1 text-text-muted hover:text-accent rounded hover:bg-surface-subtle transition-colors cursor-pointer"
+                                    title="Sync live status from Razorpay"
+                                  >
+                                    <RefreshCw className={`w-3 h-3 ${syncingBillingId === t.id ? 'animate-spin text-accent' : ''}`} />
+                                  </button>
+                                )}
                               </div>
                             </td>
 
-                            {/* Actions & Configuration */}
-                            <td className="py-3 px-4 text-right">
-                              <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                            {/* Actions & Configuration Toolbar */}
+                            <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                              <div className="inline-flex items-center justify-end gap-1.5">
 
                                 {/* STAGE B ACTION: Activate & Start Billing */}
                                 {(!t.org_lifecycle_stage || t.org_lifecycle_stage === 'setup') && (
                                   <button
                                     onClick={() => handleActivateBilling(t)}
                                     disabled={activatingBillingId === t.id}
-                                    className="px-2.5 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-sm text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50"
+                                    className="px-2 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50"
                                     title="Create Razorpay Customer & Subscription (₹3,499/mo)"
                                   >
                                     {activatingBillingId === t.id ? (
@@ -1328,120 +1326,110 @@ export default function SuperAdminClients() {
                                     ) : (
                                       <Sparkles className="w-3 h-3" />
                                     )}
-                                    <span>Activate Billing</span>
+                                    <span>Activate</span>
                                   </button>
                                 )}
 
-                                {/* VIEW PAYMENT LINK MODAL */}
-                                {t.razorpay_short_url && (
-                                  <button
-                                    onClick={() => setActivePaymentModalTenant(t)}
-                                    className="px-2 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/20 rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1 shadow-xs"
-                                    title="Open Payment Link Modal & Test Checkout"
-                                  >
-                                    <CreditCard className="w-3 h-3" />
-                                    <span>Payment Link</span>
-                                  </button>
-                                )}
-
-                                {/* COPY PAYMENT LINK */}
+                                {/* Copy Payment Link */}
                                 {t.razorpay_short_url && (
                                   <button
                                     onClick={() => handleCopyPaymentLink(t.razorpay_short_url!, t.id)}
-                                    className="px-2 py-1 bg-surface-subtle hover:bg-surface text-text-primary border border-border-strong hover:border-accent rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1 shadow-xs"
+                                    className="px-2 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/20 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
                                     title="Copy Razorpay Payment Link for Client"
                                   >
                                     {copiedLink === t.id ? (
-                                      <Check className="w-3 h-3 text-emerald-500" />
+                                      <Check className="w-3 h-3 text-emerald-600" />
                                     ) : (
-                                      <Copy className="w-3 h-3 text-text-muted" />
+                                      <Copy className="w-3 h-3 text-purple-500" />
                                     )}
-                                    <span>{copiedLink === t.id ? 'Copied' : 'Copy Link'}</span>
+                                    <span>{copiedLink === t.id ? 'Copied' : 'Pay Link'}</span>
                                   </button>
                                 )}
 
-                                {/* INVOICES */}
-                                {t.razorpay_subscription_id && (
-                                  <button
-                                    onClick={() => handleViewInvoices(t)}
-                                    className="px-2 py-1 bg-surface-subtle hover:bg-surface text-text-primary border border-border-strong hover:border-accent rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1 shadow-xs"
-                                    title="View Razorpay Invoices & Receipts"
-                                  >
-                                    <FileText className="w-3 h-3 text-text-muted" />
-                                    <span>Invoices</span>
-                                  </button>
-                                )}
-                                
-                                {/* DATABASE: Inspect all stored keys, business info & DB records */}
-                                <button
-                                  onClick={() => handleOpenDatabaseView(t)}
-                                  className="px-2.5 py-1 bg-surface-subtle hover:bg-surface text-text-primary border border-border-strong hover:border-accent rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1.5 shadow-xs"
-                                  title="Inspect stored database records, credentials, AI system prompt & full config values"
-                                >
-                                  <Database className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                                  <span>Database</span>
-                                </button>
-
-                                {/* PRIMARY: Configure Settings (Super Admin central config) */}
+                                {/* Configure Central Settings */}
                                 <button
                                   onClick={() => handleOpenConfig(t)}
-                                  className="px-2.5 py-1 bg-surface-subtle hover:bg-surface text-text-primary border border-border-strong hover:border-accent rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1.5 shadow-xs"
-                                  title="Configure AI Prompt Brain, WhatsApp API, Templates, Calendar & Billing"
+                                  className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary border border-border hover:border-accent rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                                  title="Configure AI Brain, WhatsApp API, Templates, Calendar & Billing"
                                 >
-                                  <Sliders className="w-3.5 h-3.5 text-text-secondary stroke-[1.5]" />
+                                  <Sliders className="w-3.5 h-3.5 text-text-muted" />
                                   <span>Configure</span>
                                 </button>
 
-                                {/* Open CRM as Client */}
+                                {/* Open CRM */}
                                 <button
                                   onClick={() => handleImpersonateTenant(t.id)}
-                                  className="px-2.5 py-1 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1 shadow-xs"
-                                  title="Access this Tenant's CRM Workspace (Super Admin)"
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                                  title="Access this Tenant's CRM Workspace"
                                 >
                                   <ExternalLink className="w-3 h-3 stroke-[1.5]" />
                                   <span>Open CRM</span>
                                 </button>
 
-                                {/* Toggle Pause / Resume Workspace */}
-                                <button
-                                  onClick={() => handleToggleStatus(t.id, t.status === 'active')}
-                                  disabled={togglingId === t.id}
-                                  className={`p-1.5 rounded-sm transition-colors duration-150 cursor-pointer border ${
-                                    t.status === 'active'
-                                      ? 'text-text-muted hover:text-amber-500 hover:bg-amber-500/10 border-border'
-                                      : 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20'
-                                  }`}
-                                  title={t.status === 'active' ? 'Pause Organization Workspace' : 'Resume Organization Workspace'}
-                                >
-                                  {t.status === 'active' ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                                </button>
+                                {/* Secondary Action Icon Buttons */}
+                                <div className="inline-flex items-center gap-1 border-l border-border pl-1.5 ml-0.5">
+                                  {/* Database Inspector */}
+                                  <button
+                                    onClick={() => handleOpenDatabaseView(t)}
+                                    className="p-1.5 text-text-muted hover:text-accent hover:bg-surface-subtle border border-border rounded transition-colors cursor-pointer"
+                                    title="Database Records & System Config"
+                                  >
+                                    <Database className="w-3.5 h-3.5" />
+                                  </button>
 
-                                {/* Password Reset */}
-                                <button
-                                  onClick={() => {
-                                    setResetTenantId(t.id);
-                                    setResetTenantName(t.name);
-                                    setNewPassword('');
-                                    setResetSuccess(false);
-                                    setResetError('');
-                                  }}
-                                  className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors duration-150 cursor-pointer border border-border"
-                                  title="Reset Client Password"
-                                >
-                                  <Lock className="w-3.5 h-3.5 stroke-[1.5]" />
-                                </button>
+                                  {/* View Invoices */}
+                                  {t.razorpay_subscription_id && (
+                                    <button
+                                      onClick={() => handleViewInvoices(t)}
+                                      className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle border border-border rounded transition-colors cursor-pointer"
+                                      title="View Razorpay Invoices"
+                                    >
+                                      <FileText className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
 
-                                {/* Delete Organization */}
-                                <button
-                                  onClick={() => setDeleteTenantTarget(t)}
-                                  className="p-1.5 text-text-muted hover:text-status-error hover:bg-status-error-bg rounded-sm transition-colors duration-150 cursor-pointer border border-border hover:border-status-error-border"
-                                  title="Delete Organization Permanently"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                                </button>
+                                  {/* Toggle Pause / Resume Workspace */}
+                                  <button
+                                    onClick={() => handleToggleStatus(t.id, t.status === 'active')}
+                                    disabled={togglingId === t.id}
+                                    className={`p-1.5 rounded transition-colors cursor-pointer border ${
+                                      t.status === 'active'
+                                        ? 'text-text-muted hover:text-amber-500 hover:bg-amber-500/10 border-border'
+                                        : 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20'
+                                    }`}
+                                    title={t.status === 'active' ? 'Pause Organization Workspace' : 'Resume Organization Workspace'}
+                                  >
+                                    {t.status === 'active' ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                                  </button>
+
+                                  {/* Password Reset */}
+                                  <button
+                                    onClick={() => {
+                                      setResetTenantId(t.id);
+                                      setResetTenantName(t.name);
+                                      setNewPassword('');
+                                      setResetSuccess(false);
+                                      setResetError('');
+                                    }}
+                                    className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded transition-colors cursor-pointer border border-border"
+                                    title="Reset Client Password"
+                                  >
+                                    <Lock className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {/* Delete Organization */}
+                                  <button
+                                    onClick={() => setDeleteTenantTarget(t)}
+                                    className="p-1.5 text-text-muted hover:text-red-500 hover:bg-red-500/10 rounded transition-colors cursor-pointer border border-border hover:border-red-500/20"
+                                    title="Delete Organization"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
 
                               </div>
                             </td>
+
 
                           </tr>
                         );
