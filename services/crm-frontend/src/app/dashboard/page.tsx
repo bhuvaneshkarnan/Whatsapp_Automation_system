@@ -809,6 +809,7 @@ export default function DashboardPage() {
   const [drawerConcern, setDrawerConcern] = useState('');
   const [drawerAge, setDrawerAge] = useState('');
   const [drawerLocation, setDrawerLocation] = useState('');
+  const [drawerDoctor, setDrawerDoctor] = useState('');
   const [savingDrawerAttributes, setSavingDrawerAttributes] = useState(false);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -878,6 +879,7 @@ export default function DashboardPage() {
       setDrawerConcern(dirSelectedCust.health_concern || '');
       setDrawerAge(dirSelectedCust.age != null ? String(dirSelectedCust.age) : '');
       setDrawerLocation(dirSelectedCust.location || '');
+      setDrawerDoctor(dirSelectedCust.preferred_doctor || '');
       setConfirmDeleteStep(false);
     }
   }, [dirSelectedCust?.id]);
@@ -1156,6 +1158,79 @@ export default function DashboardPage() {
       }
     }
   }, []);
+
+  // ── Quick Preferred Doctors / Staff Presets Editor Modal ───────────────────
+  const [doctorEditModalOpen, setDoctorEditModalOpen] = useState(false);
+  const [doctorEditList, setDoctorEditList] = useState<string[]>([]);
+  const [newDoctorInput, setNewDoctorInput] = useState('');
+  const [savingDoctors, setSavingDoctors] = useState(false);
+
+  const defaultDoctorList = ['Dr. Sarah Mitchell', 'Dr. Rajesh Kumar', 'Dr. Emily Stone'];
+  const configuredDoctors = (settingsForm.taxonomy?.doctor_presets && settingsForm.taxonomy.doctor_presets.length > 0)
+    ? settingsForm.taxonomy.doctor_presets
+    : (settingsForm.taxonomy?.staff_presets && settingsForm.taxonomy.staff_presets.length > 0)
+    ? settingsForm.taxonomy.staff_presets
+    : defaultDoctorList;
+
+  // Combine configured doctors with any custom doctor already assigned to a customer
+  const availableDoctors = Array.from(
+    new Set([
+      ...configuredDoctors,
+      ...(customers || []).map((c) => c.preferred_doctor).filter(Boolean) as string[],
+    ])
+  );
+
+  function openDoctorEditor() {
+    setDoctorEditList([...configuredDoctors]);
+    setNewDoctorInput('');
+    setDoctorEditModalOpen(true);
+  }
+
+  function handleAddDoctor() {
+    const trimmed = newDoctorInput.trim();
+    if (!trimmed) return;
+    if (!doctorEditList.some((d) => d.toLowerCase() === trimmed.toLowerCase())) {
+      setDoctorEditList((prev) => [...prev, trimmed]);
+    }
+    setNewDoctorInput('');
+  }
+
+  function handleRemoveDoctor(doctorToRemove: string) {
+    setDoctorEditList((prev) => prev.filter((d) => d !== doctorToRemove));
+  }
+
+  function handleResetDoctorDefaults() {
+    setDoctorEditList([...defaultDoctorList]);
+  }
+
+  async function handleSaveDoctorsModal() {
+    setSavingDoctors(true);
+    try {
+      const updatedTaxonomy = {
+        ...(settingsForm.taxonomy || currentTaxonomy),
+        doctor_presets: doctorEditList,
+        staff_presets: doctorEditList,
+      };
+      const updatedForm = {
+        ...settingsForm,
+        taxonomy: updatedTaxonomy,
+      };
+      const res = await crm.updateSettings(updatedForm);
+      if (res && res.taxonomy) {
+        setSettingsForm(res);
+      } else {
+        setSettingsForm(updatedForm);
+      }
+      setDoctorEditModalOpen(false);
+      setActionNotice('Preferred doctors list updated successfully.');
+      setTimeout(() => setActionNotice(null), 2500);
+    } catch (err) {
+      console.error('Failed to save doctors list:', err);
+      alert('Failed to save doctors list: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSavingDoctors(false);
+    }
+  }
 
   const handleConnectGoogle = async () => {
     if (!settingsForm.google_client_id?.trim() || !settingsForm.google_client_secret?.trim()) {
@@ -1718,6 +1793,11 @@ export default function DashboardPage() {
 
   async function handleSelectCustomer(cust: Customer) {
     setSelectedCustomer(cust);
+    setDrawerConcern(cust.health_concern || '');
+    setDrawerAge(cust.age != null ? String(cust.age) : '');
+    setDrawerLocation(cust.location || '');
+    setDrawerDoctor(cust.preferred_doctor || '');
+    setConfirmDeleteStep(false);
     setLoadingCustomerNotes(true);
     setLoadingCustomerChat(true);
     setLoadingCustomerBookings(true);
@@ -1875,6 +1955,7 @@ export default function DashboardPage() {
         health_concern: drawerConcern.trim() || undefined,
         age: drawerAge ? parseInt(drawerAge, 10) : undefined,
         location: drawerLocation.trim() || undefined,
+        preferred_doctor: drawerDoctor.trim() || undefined,
       };
       await handleUpdateCustomer(selectedCustomer.id, patch as any);
       setActionNotice('Customer attributes saved successfully.');
@@ -1883,6 +1964,35 @@ export default function DashboardPage() {
       console.error('Failed to save attributes:', err);
     } finally {
       setSavingDrawerAttributes(false);
+    }
+  }
+
+  async function handleDeleteCustomerFollowup(customerId: string) {
+    if (!confirm('Are you sure you want to delete/clear this scheduled follow-up?')) return;
+    const cleared = {
+      followup_date: undefined,
+      followup_time: undefined,
+      google_task_id: undefined,
+      google_calendar_event_id: undefined,
+    };
+    // Instant optimistic update
+    setCustomers((prev) => prev.map((c) => (c.id === customerId ? { ...c, ...cleared } : c)));
+    if (selectedCustomer && selectedCustomer.id === customerId) {
+      setSelectedCustomer((prev) => (prev ? { ...prev, ...cleared } : null));
+    }
+    if (dirSelectedCust && dirSelectedCust.id === customerId) {
+      setDirSelectedCust((prev) => (prev ? { ...prev, ...cleared } : null));
+    }
+    try {
+      await crm.deleteCustomerFollowup(customerId);
+      setActionNotice('Follow-up schedule deleted.');
+      setTimeout(() => setActionNotice(null), 2500);
+      loadTasks();
+    } catch (err: any) {
+      console.error('Failed to delete followup:', err);
+      setActionNotice('Failed to delete follow-up: ' + (err.message || 'Error'));
+      setTimeout(() => setActionNotice(null), 3000);
+      loadCustomers();
     }
   }
 
@@ -5274,16 +5384,26 @@ export default function DashboardPage() {
 
                       {/* Right: Staff Selector & Search */}
                       <div className="flex items-center gap-2">
-                        <select
-                          value={followupDoctorFilter}
-                          onChange={(e) => setFollowupDoctorFilter(e.target.value)}
-                          className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                        >
-                          <option value="all">All {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff'}</option>
-                          <option value="Dr. Sarah Mitchell">Dr. Sarah Mitchell</option>
-                          <option value="Dr. Rajesh Kumar">Dr. Rajesh Kumar</option>
-                          <option value="Dr. Emily Stone">Dr. Emily Stone</option>
-                        </select>
+                        <div className="flex items-center gap-1">
+                          <select
+                            value={followupDoctorFilter}
+                            onChange={(e) => setFollowupDoctorFilter(e.target.value)}
+                            className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[160px]"
+                          >
+                            <option value="all">All {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff'}</option>
+                            {availableDoctors.map((doc) => (
+                              <option key={doc} value={doc}>{doc}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={openDoctorEditor}
+                            title={`Manage ${currentTaxonomy.staff_label || 'Doctors / Staff'}`}
+                            className="p-1 text-text-muted hover:text-accent hover:bg-surface-subtle border border-border rounded-sm transition-colors cursor-pointer"
+                          >
+                            <Pencil className="w-3 h-3 stroke-[1.8]" />
+                          </button>
+                        </div>
 
                         <div className="relative">
                           <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
@@ -5352,7 +5472,6 @@ export default function DashboardPage() {
                               <th className="p-2.5 pl-4">{currentTaxonomy.client_label || 'Customer'}</th>
                               <th className="p-2.5">{currentTaxonomy.staff_label || 'Staff'}</th>
                               <th className="p-2.5">{currentTaxonomy.requirement_label || 'Requirement'}</th>
-                              <th className="p-2.5">Latest WhatsApp Chat</th>
                               <th className="p-2.5">Status</th>
                               <th className="p-2.5">Lead</th>
                               <th className="p-2.5 text-center">Converted</th>
@@ -5364,13 +5483,13 @@ export default function DashboardPage() {
                           <tbody className="divide-y divide-border">
                             {loadingCustomers ? (
                               <tr>
-                                <td colSpan={10} className="p-8 text-center text-text-muted">
+                                <td colSpan={9} className="p-8 text-center text-text-muted">
                                   Loading {(currentTaxonomy.client_plural || 'customers').toLowerCase()}...
                                 </td>
                               </tr>
                             ) : customers.length === 0 ? (
                               <tr>
-                                <td colSpan={10} className="p-8 text-center text-text-muted">
+                                <td colSpan={9} className="p-8 text-center text-text-muted">
                                   No {(currentTaxonomy.client_plural || 'customers').toLowerCase()} match the selected filters.
                                 </td>
                               </tr>
@@ -5408,37 +5527,21 @@ export default function DashboardPage() {
                                       )}
                                     </td>
 
-                                    <td className="p-2.5 text-text-secondary whitespace-nowrap text-[11px]">
-                                      <span>{cust.preferred_doctor || '—'}</span>
+                                    <td className="p-2.5 text-text-secondary whitespace-nowrap text-[11px]" onClick={(e) => e.stopPropagation()}>
+                                      <select
+                                        value={cust.preferred_doctor || ''}
+                                        onChange={(e) => handleUpdateCustomer(cust.id, { preferred_doctor: e.target.value })}
+                                        className="px-1.5 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[135px]"
+                                      >
+                                        <option value="">— Unassigned —</option>
+                                        {availableDoctors.map((doc) => (
+                                          <option key={doc} value={doc}>{doc}</option>
+                                        ))}
+                                      </select>
                                     </td>
 
                                     <td className="p-2.5 text-text-secondary max-w-[150px] truncate" title={cust.health_concern}>
                                       <span className="text-[11px]">{cust.health_concern || '—'}</span>
-                                    </td>
-
-                                    {/* Latest WhatsApp Chat Column */}
-                                    <td className="p-2.5 max-w-[200px]" onClick={(e) => { e.stopPropagation(); openChatForContact(cust.phone); }}>
-                                      {cust.last_message ? (
-                                        <div className="cursor-pointer group" title={`Click to open full chat in Inbox: ${cust.last_message}`}>
-                                          <div className="flex items-center gap-1.5 text-[11px] font-medium text-text-primary group-hover:text-accent truncate">
-                                            <MessageSquare className="w-3 h-3 text-accent shrink-0 stroke-[1.5]" />
-                                            <span className="truncate">{cust.last_message}</span>
-                                            {cust.unread_count && cust.unread_count > 0 ? (
-                                              <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[9px] font-bold rounded-full shrink-0">
-                                                {cust.unread_count}
-                                              </span>
-                                            ) : null}
-                                          </div>
-                                          {cust.last_chat_at && (
-                                            <div className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1 font-mono">
-                                              <Clock className="w-2.5 h-2.5 shrink-0" />
-                                              <span>{formatRelativeTime(cust.last_chat_at)}</span>
-                                            </div>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <span className="text-text-muted text-[11px] italic">No chat yet</span>
-                                      )}
                                     </td>
 
                                     {/* Status Selector */}
@@ -5578,6 +5681,26 @@ export default function DashboardPage() {
                             </div>
                           </div>
 
+                          {/* Latest WhatsApp message bar if available */}
+                          {selectedCustomer.last_message && (
+                            <div
+                              onClick={() => openChatForContact(selectedCustomer.phone)}
+                              className="px-3 py-1.5 bg-blue-50/70 hover:bg-blue-100/60 border-b border-blue-100 flex items-center justify-between gap-2 text-[11px] text-blue-900 cursor-pointer transition-colors"
+                              title="Click to open full conversation in Inbox"
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <MessageSquare className="w-3 h-3 text-accent shrink-0" />
+                                <span className="font-semibold text-text-muted shrink-0">Latest WhatsApp:</span>
+                                <span className="truncate italic text-text-primary">"{selectedCustomer.last_message}"</span>
+                              </div>
+                              {selectedCustomer.last_chat_at && (
+                                <span className="text-[10px] text-text-muted shrink-0 font-mono">
+                                  {formatRelativeTime(selectedCustomer.last_chat_at)}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
                           {/* Panel Body */}
                           <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
                             {/* 1. Identity & Attributes Card */}
@@ -5651,14 +5774,38 @@ export default function DashboardPage() {
                               </div>
 
                               <div className="pt-1">
-                                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.staff_label || 'Assigned Staff'}</label>
-                                <input
-                                  type="text"
-                                  value={selectedCustomer.preferred_doctor || ''}
-                                  onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { preferred_doctor: e.target.value })}
-                                  placeholder={`e.g. Assigned ${currentTaxonomy.staff_label || 'Staff'}`}
-                                  className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                />
+                                <div className="flex items-center justify-between mb-1">
+                                  <label className="text-[10px] text-text-muted">{currentTaxonomy.staff_label || 'Assigned Staff / Doctor'}</label>
+                                  <button
+                                    type="button"
+                                    onClick={openDoctorEditor}
+                                    className="text-[10px] text-accent hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
+                                  >
+                                    <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
+                                    <span>Manage {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff'}</span>
+                                  </button>
+                                </div>
+                                <div className="space-y-1">
+                                  <select
+                                    value={drawerDoctor}
+                                    onChange={(e) => setDrawerDoctor(e.target.value)}
+                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer"
+                                  >
+                                    <option value="">— Unassigned —</option>
+                                    {availableDoctors.map((doc) => (
+                                      <option key={doc} value={doc}>{doc}</option>
+                                    ))}
+                                  </select>
+                                  {drawerDoctor && !availableDoctors.includes(drawerDoctor) && (
+                                    <input
+                                      type="text"
+                                      value={drawerDoctor}
+                                      onChange={(e) => setDrawerDoctor(e.target.value)}
+                                      placeholder="Custom staff name..."
+                                      className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                    />
+                                  )}
+                                </div>
                               </div>
 
                               <button
@@ -5689,6 +5836,17 @@ export default function DashboardPage() {
                                     <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-sm font-medium">
                                       Calendar Synced
                                     </span>
+                                  )}
+                                  {selectedCustomer.followup_date && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteCustomerFollowup(selectedCustomer.id)}
+                                      className="px-2 py-0.5 text-[10px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-sm font-medium transition-colors cursor-pointer flex items-center gap-1"
+                                      title="Delete scheduled follow-up"
+                                    >
+                                      <Trash2 className="w-2.5 h-2.5 stroke-[1.5]" />
+                                      <span>Delete Follow-up</span>
+                                    </button>
                                   )}
                                 </div>
                               </div>
@@ -5790,7 +5948,7 @@ export default function DashboardPage() {
                                 )}
                               </div>
 
-                              <form onSubmit={handleAddCustomerNote} className="space-y-1.5 pt-1">
+                              <form onSubmit={handleAddCustomerNote} className="space-y-2 pt-1">
                                 <div className="flex gap-1.5">
                                   <input
                                     type="text"
@@ -5807,13 +5965,33 @@ export default function DashboardPage() {
                                     className="flex-1 px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
                                   />
                                 </div>
-                                <button
-                                  type="submit"
-                                  disabled={!newCustomerNoteText.trim() || addingCustomerNote}
-                                  className="w-full py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
-                                >
-                                  {addingCustomerNote ? 'Saving...' : '+ Save Note'}
-                                </button>
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] text-text-muted">Color:</span>
+                                    {(['slate','blue','amber','rose','emerald','violet'] as const).map(c => {
+                                      const dotClasses: Record<string, string> = {
+                                        slate:'bg-slate-400', blue:'bg-blue-400', amber:'bg-amber-400',
+                                        rose:'bg-rose-400', emerald:'bg-emerald-400', violet:'bg-violet-400'
+                                      };
+                                      return (
+                                        <button
+                                          type="button"
+                                          key={c}
+                                          title={`Note color: ${c}`}
+                                          onClick={() => setNewCustomerNoteColor(c)}
+                                          className={`w-4 h-4 rounded-full ${dotClasses[c]} cursor-pointer transition-transform ${newCustomerNoteColor === c ? 'ring-2 ring-offset-1 ring-text-primary scale-115' : 'opacity-60 hover:opacity-100'}`}
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                  <button
+                                    type="submit"
+                                    disabled={!newCustomerNoteText.trim() || addingCustomerNote}
+                                    className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
+                                  >
+                                    {addingCustomerNote ? 'Saving...' : '+ Save Note'}
+                                  </button>
+                                </div>
                               </form>
                             </div>
 
@@ -6270,14 +6448,38 @@ export default function DashboardPage() {
                                 </div>
                               </div>
                               <div className="pt-1">
-                                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.staff_label || 'Assigned Staff'}</label>
-                                <input
-                                  type="text"
-                                  value={selectedCustomer.preferred_doctor || ''}
-                                  onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { preferred_doctor: e.target.value })}
-                                  placeholder={`e.g. Assigned ${currentTaxonomy.staff_label || 'Staff'}`}
-                                  className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                />
+                                <div className="flex items-center justify-between mb-1">
+                                  <label className="text-[10px] text-text-muted">{currentTaxonomy.staff_label || 'Assigned Staff / Doctor'}</label>
+                                  <button
+                                    type="button"
+                                    onClick={openDoctorEditor}
+                                    className="text-[10px] text-accent hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
+                                  >
+                                    <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
+                                    <span>Manage {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff'}</span>
+                                  </button>
+                                </div>
+                                <div className="space-y-1">
+                                  <select
+                                    value={drawerDoctor}
+                                    onChange={(e) => setDrawerDoctor(e.target.value)}
+                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer"
+                                  >
+                                    <option value="">— Unassigned —</option>
+                                    {availableDoctors.map((doc) => (
+                                      <option key={doc} value={doc}>{doc}</option>
+                                    ))}
+                                  </select>
+                                  {drawerDoctor && !availableDoctors.includes(drawerDoctor) && (
+                                    <input
+                                      type="text"
+                                      value={drawerDoctor}
+                                      onChange={(e) => setDrawerDoctor(e.target.value)}
+                                      placeholder="Custom staff name..."
+                                      className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                    />
+                                  )}
+                                </div>
                               </div>
                               <button
                                 type="button"
@@ -6296,11 +6498,29 @@ export default function DashboardPage() {
                                   <CalendarClock className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
                                   <span>Schedule Follow-up</span>
                                 </span>
-                                {selectedCustomer.google_task_id && (
-                                  <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium">
-                                    Tasks Synced
-                                  </span>
-                                )}
+                                <div className="flex items-center gap-1.5">
+                                  {selectedCustomer.google_task_id && (
+                                    <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium">
+                                      Tasks Synced
+                                    </span>
+                                  )}
+                                  {selectedCustomer.google_calendar_event_id && (
+                                    <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-sm font-medium">
+                                      Calendar Synced
+                                    </span>
+                                  )}
+                                  {selectedCustomer.followup_date && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteCustomerFollowup(selectedCustomer.id)}
+                                      className="px-2 py-0.5 text-[10px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-sm font-medium transition-colors cursor-pointer flex items-center gap-1"
+                                      title="Delete scheduled follow-up"
+                                    >
+                                      <Trash2 className="w-2.5 h-2.5 stroke-[1.5]" />
+                                      <span>Delete Follow-up</span>
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                               <div className="grid grid-cols-2 gap-2">
                                 <div>
@@ -6789,14 +7009,27 @@ export default function DashboardPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-[11px] text-text-muted mb-1">{currentTaxonomy.staff_label || 'Preferred Staff'}</label>
-                        <input
-                          type="text"
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[11px] text-text-muted">{currentTaxonomy.staff_label || 'Preferred Staff'}</label>
+                          <button
+                            type="button"
+                            onClick={openDoctorEditor}
+                            className="text-[10px] text-accent hover:underline flex items-center gap-0.5 cursor-pointer"
+                          >
+                            <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
+                            <span>Manage</span>
+                          </button>
+                        </div>
+                        <select
                           value={addCustomerForm.preferred_doctor}
                           onChange={(e) => setAddCustomerForm(p => ({...p, preferred_doctor: e.target.value}))}
-                          placeholder="Staff name"
                           className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                        />
+                        >
+                          <option value="">— Select {currentTaxonomy.staff_label || 'Staff'} —</option>
+                          {availableDoctors.map((doc) => (
+                            <option key={doc} value={doc}>{doc}</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label className="block text-[11px] text-text-muted mb-1">Lead</label>
@@ -9485,6 +9718,146 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {/* CUSTOMIZE PREFERRED DOCTORS / STAFF PRESETS MODAL */}
+        {doctorEditModalOpen && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4" onClick={() => setDoctorEditModalOpen(false)}>
+            <div className="w-full max-w-lg bg-surface border border-border rounded-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-border bg-surface-subtle/50">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-sm bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+                    <UserCheck className="w-3.5 h-3.5 stroke-[2]" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-text-primary">
+                      Manage {currentTaxonomy.staff_label || 'Doctors / Staff'}
+                    </h3>
+                    <p className="text-[11px] text-text-muted">
+                      Add, remove, or customize available {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toLowerCase() : 'staff'} members.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDoctorEditModalOpen(false)}
+                  className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer transition-colors"
+                >
+                  <X className="w-4 h-4 stroke-[1.5]" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {/* Input to Add Doctor */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1.5">
+                    Add New {currentTaxonomy.staff_label || 'Doctor / Staff'}
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newDoctorInput}
+                      onChange={(e) => setNewDoctorInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddDoctor();
+                        }
+                      }}
+                      placeholder={`e.g. Dr. Jane Doe or Staff Name...`}
+                      className="flex-1 px-3 py-1.5 text-xs bg-surface-subtle border border-border rounded-sm text-text-primary focus:bg-white focus:border-accent focus:outline-none transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddDoctor}
+                      disabled={!newDoctorInput.trim()}
+                      className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-40 flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5 stroke-[2]" />
+                      <span>Add</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-text-muted mt-1">
+                    Press Enter or click Add to append to your staff selection list.
+                  </p>
+                </div>
+
+                {/* Active Doctors */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
+                      Current {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff'} ({doctorEditList.length})
+                    </label>
+                    <span className="text-[10px] text-text-muted">Click ✕ to remove</span>
+                  </div>
+                  <div className="p-3 bg-surface-subtle border border-border rounded-sm min-h-[90px] max-h-[220px] overflow-y-auto flex flex-wrap gap-1.5 items-start content-start">
+                    {doctorEditList.length === 0 ? (
+                      <p className="text-xs text-text-muted italic py-4 text-center w-full">
+                        No doctors or staff members in list. Add a member above or restore defaults.
+                      </p>
+                    ) : (
+                      doctorEditList.map((doc) => (
+                        <span
+                          key={doc}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface border border-border rounded-sm text-xs font-medium text-text-primary group hover:border-rose-300 transition-colors"
+                        >
+                          <span>{doc}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveDoctor(doc)}
+                            className="text-text-muted group-hover:text-rose-600 hover:bg-rose-50 rounded-xs p-0.5 transition-colors cursor-pointer"
+                            title={`Remove ${doc}`}
+                          >
+                            <X className="w-3 h-3 stroke-[2]" />
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Reset to Defaults */}
+                <div className="pt-1 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={handleResetDoctorDefaults}
+                    className="text-[11px] text-accent hover:underline cursor-pointer flex items-center gap-1"
+                  >
+                    <RotateCcw className="w-3 h-3 stroke-[1.8]" />
+                    <span>Reset to Defaults</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-5 py-3 bg-surface-subtle/50 border-t border-border flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setDoctorEditModalOpen(false)}
+                  className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-secondary border border-border text-xs font-medium rounded-sm transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveDoctorsModal}
+                  disabled={savingDoctors}
+                  className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-2xs"
+                >
+                  {savingDoctors ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5 stroke-[2]" />
+                      <span>Save & Apply</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* QUICK ADD TO CRM MODAL */}
         {showQuickAddCrmModal && (
@@ -9570,14 +9943,27 @@ export default function DashboardPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-[10px] text-text-muted block mb-1 font-medium">Assigned Staff / Doctor</label>
-                    <input
-                      type="text"
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] text-text-muted block font-medium">Assigned Staff / Doctor</label>
+                      <button
+                        type="button"
+                        onClick={openDoctorEditor}
+                        className="text-[10px] text-accent hover:underline flex items-center gap-0.5 cursor-pointer"
+                      >
+                        <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
+                        <span>Manage</span>
+                      </button>
+                    </div>
+                    <select
                       value={quickCrmDoctor}
                       onChange={e => setQuickCrmDoctor(e.target.value)}
-                      placeholder="e.g. Dr. Sarah Mitchell"
                       className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
-                    />
+                    >
+                      <option value="">— Select Staff —</option>
+                      {availableDoctors.map((doc) => (
+                        <option key={doc} value={doc}>{doc}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 

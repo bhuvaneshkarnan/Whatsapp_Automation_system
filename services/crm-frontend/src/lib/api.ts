@@ -449,6 +449,11 @@ export const crm = {
       method: 'DELETE',
     }),
 
+  deleteCustomerFollowup: (customerId: string) =>
+    request<{ status: string; message: string; id: string }>(`/api/v1/crm/customers/${customerId}/followup`, {
+      method: 'DELETE',
+    }),
+
   getCustomerNotes: async (customerId: string): Promise<CustomerNote[]> => {
     try {
       const rows = await request<CustomerNote[]>(`/api/v1/crm/customers/${customerId}/notes`);
@@ -628,6 +633,8 @@ export interface TenantSettingsResponse {
     revenue_label?: string;
     notes_label?: string;
     requirement_presets?: string[];
+    doctor_presets?: string[];
+    staff_presets?: string[];
   };
 }
 

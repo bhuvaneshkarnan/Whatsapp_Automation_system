@@ -434,6 +434,8 @@ class CustomerUpdatePayload(BaseModel):
     converted: Optional[bool] = None
     followup_date: Optional[str] = None
     followup_time: Optional[str] = None
+    clear_followup: Optional[bool] = False
+
 
 
 class CustomerNotePayload(BaseModel):
@@ -712,19 +714,34 @@ async def update_customer(
         params.append(payload.converted)
         idx += 1
 
-    if payload.followup_date is not None:
-        f_date = None
-        if payload.followup_date:
-            try: f_date = datetime.strptime(payload.followup_date, "%Y-%m-%d").date()
-            except: pass
+    if payload.clear_followup:
         updates.append(f"followup_date = ${idx}")
-        params.append(f_date)
+        params.append(None)
         idx += 1
-
-    if payload.followup_time is not None:
         updates.append(f"followup_time = ${idx}")
-        params.append(payload.followup_time.strip())
+        params.append(None)
         idx += 1
+        updates.append(f"google_task_id = ${idx}")
+        params.append(None)
+        idx += 1
+        updates.append(f"google_calendar_event_id = ${idx}")
+        params.append(None)
+        idx += 1
+    else:
+        if payload.followup_date is not None:
+            f_date = None
+            if payload.followup_date and payload.followup_date.strip():
+                try: f_date = datetime.strptime(payload.followup_date.strip(), "%Y-%m-%d").date()
+                except: pass
+            updates.append(f"followup_date = ${idx}")
+            params.append(f_date)
+            idx += 1
+
+        if payload.followup_time is not None:
+            f_time = payload.followup_time.strip() if payload.followup_time and payload.followup_time.strip() else None
+            updates.append(f"followup_time = ${idx}")
+            params.append(f_time)
+            idx += 1
 
     if not updates:
         return {"status": "ok", "message": "No updates provided"}
@@ -850,6 +867,55 @@ async def update_customer(
         "followup_date": row["followup_date"].isoformat() if row["followup_date"] else None,
         "followup_time": row["followup_time"],
     }
+
+
+@app.delete("/customers/{customer_id}/followup")
+@app.delete("/api/v1/crm/customers/{customer_id}/followup")
+async def delete_customer_followup(customer_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Clear and delete the scheduled follow-up for a customer."""
+    async with db_pool.acquire() as conn:
+        # 1. Clean up any linked Google Tasks
+        old_tasks = await conn.fetch(
+            "SELECT id, google_task_id FROM tasks WHERE customer_id = $1::uuid AND tenant_id = $2::uuid",
+            customer_id, tenant_id
+        )
+        g_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+            tenant_id
+        )
+        if g_row and g_row["credential_data"]:
+            try:
+                d = g_row["credential_data"]
+                if isinstance(d, str): d = json.loads(d)
+                r_token, c_id, c_secret = d.get("refresh_token"), d.get("client_id"), d.get("client_secret")
+                if r_token and c_id and c_secret:
+                    from google.oauth2.credentials import Credentials
+                    from googleapiclient.discovery import build
+                    creds = Credentials(token=None, refresh_token=r_token, token_uri="https://oauth2.googleapis.com/token", client_id=c_id, client_secret=c_secret)
+                    t_svc = build("tasks", "v1", credentials=creds)
+                    for ot in old_tasks:
+                        gt_id = ot["google_task_id"]
+                        if gt_id and not gt_id.startswith("gtask_"):
+                            try: t_svc.tasks().delete(tasklist="@default", task=gt_id).execute()
+                            except: pass
+            except Exception as e:
+                logger.warning("google_task_delete_on_clear_error", error=str(e))
+
+        await conn.execute("DELETE FROM tasks WHERE customer_id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
+
+        row = await conn.fetchrow(
+            """UPDATE customers 
+               SET followup_date = NULL, followup_time = NULL, 
+                   google_task_id = NULL, google_calendar_event_id = NULL,
+                   updated_at = now()
+               WHERE id = $1::uuid AND tenant_id = $2::uuid
+               RETURNING id, phone, name, followup_date, followup_time""",
+            customer_id, tenant_id
+        )
+        if not row:
+            raise HTTPException(404, "Customer not found")
+
+    return {"status": "ok", "message": "Follow-up deleted successfully", "id": customer_id}
 
 
 @app.get("/notes")
