@@ -3771,7 +3771,7 @@ export default function DashboardPage() {
                       <span>{currentTaxonomy.client_plural || 'Customers'}</span>
                     </h3>
                     <p className="text-[11px] text-text-muted mt-0.5">
-                      All {(currentTaxonomy.client_plural || 'customers').toLowerCase()}, full database directory, follow-ups, and tasks.
+                      Manage all {(currentTaxonomy.client_plural || 'customers').toLowerCase()}, follow-ups, tasks, and notes.
                     </p>
                   </div>
 
@@ -3788,18 +3788,6 @@ export default function DashboardPage() {
                       >
                         <List className="w-3.5 h-3.5 stroke-[1.5]" />
                         <span>Follow-up</span>
-                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{customers.length}</span>
-                      </button>
-                      <button
-                        onClick={() => setFollowupView('database')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
-                          followupView === 'database'
-                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
-                            : 'text-text-secondary hover:text-text-primary'
-                        }`}
-                      >
-                        <Database className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>Database</span>
                         <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{customers.length}</span>
                       </button>
                       <button
