@@ -54,6 +54,7 @@ import {
   XCircle,
   CalendarDays,
   ArrowUpRight,
+  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   Plus,
@@ -2389,7 +2390,7 @@ export default function DashboardPage() {
       <div className="flex-1 flex overflow-hidden">
         
         {/* ── 1. LEFT SIDEBAR ──────────────────────────────────────────────── */}
-        <aside className="w-56 bg-surface border-r border-border flex flex-col shrink-0 p-3 justify-between">
+        <aside className="hidden md:flex w-56 bg-surface border-r border-border flex-col shrink-0 p-3 justify-between">
           <div className="space-y-1">
             {/* Sidebar Menu Items */}
             <nav className="space-y-0.5">
@@ -2505,7 +2506,7 @@ export default function DashboardPage() {
         </aside>
 
           {/* ── 2. CENTER / MAIN VIEW AREA ───────────────────────────────────── */}
-          <main className="flex-1 flex flex-col overflow-hidden bg-canvas p-6 space-y-6">
+          <main className="flex-1 flex flex-col overflow-hidden bg-canvas p-3 sm:p-6 space-y-4 sm:space-y-6 pb-20 md:pb-6">
             
             {/* ── VIEW 0: DEDICATED OVERVIEW DASHBOARD ─────────────────────────── */}
             {activeNav === 'overview' && (
@@ -3640,7 +3641,7 @@ export default function DashboardPage() {
             {activeNav === 'inbox' && (
               <div className="flex-1 flex overflow-hidden border border-border rounded-md bg-surface">
                 {/* Conversations List */}
-                <div className="w-80 bg-surface border-r border-border flex flex-col shrink-0">
+                <div className={`${activeId ? 'hidden md:flex' : 'flex'} w-full md:w-80 bg-surface border-r border-border flex-col shrink-0`}>
                   <div className="p-3 border-b border-border space-y-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-text-primary uppercase tracking-wider">Chats</span>
@@ -3824,11 +3825,19 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Chat Stream */}
-                <div className="flex-1 flex flex-col bg-surface">
+                <div className={`${activeId ? 'flex' : 'hidden md:flex'} flex-1 flex-col bg-surface`}>
                   {selectedConv ? (
                     <>
                       <div className="h-14 px-4 border-b border-border flex items-center justify-between bg-surface shrink-0">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setActiveId(null)}
+                            className="md:hidden p-1.5 -ml-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer"
+                            title="Back to conversation list"
+                          >
+                            <ArrowLeft className="w-4 h-4 stroke-[1.5]" />
+                          </button>
                           <div className="w-7 h-7 rounded-sm bg-accent text-white flex items-center justify-center font-medium text-xs">
                             {selectedConv.contact_name ? selectedConv.contact_name[0].toUpperCase() : 'C'}
                           </div>
@@ -4243,7 +4252,7 @@ export default function DashboardPage() {
                     {/* Main Table + Customer Detail Drawer */}
                     <div className="flex-1 flex overflow-hidden gap-3">
                       {/* Customers Table */}
-                      <div className={`flex-1 overflow-y-auto border border-border rounded-sm bg-surface ${selectedCustomer ? 'min-w-0' : ''}`}>
+                      <div className={`flex-1 overflow-y-auto border border-border rounded-sm bg-surface ${selectedCustomer ? 'hidden md:block min-w-0' : ''}`}>
                         <table className="w-full text-left text-xs min-w-[720px]">
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                             <tr>
@@ -4412,7 +4421,7 @@ export default function DashboardPage() {
 
                       {/* Customer Detail Drawer / Profile Panel */}
                       {selectedCustomer && (
-                        <div className={`${isDrawerExpanded ? 'w-[740px] max-w-[55vw]' : 'w-[480px] xl:w-[540px]'} bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-sm`}>
+                        <div className={`${isDrawerExpanded ? 'w-full md:w-[740px] md:max-w-[55vw]' : 'w-full md:w-[480px] xl:w-[540px]'} bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-sm`}>
                           {/* Panel Header */}
                           <div className="p-3 border-b border-border flex items-center justify-between bg-surface-subtle/50">
                             <div>
@@ -4887,7 +4896,7 @@ export default function DashboardPage() {
 
                     {/* Database Table & Profile Drawer */}
                     <div className="flex-1 flex overflow-hidden gap-3">
-                      <div className={`flex-1 overflow-y-auto border border-border rounded-sm bg-surface ${selectedCustomer ? 'min-w-0' : ''}`}>
+                      <div className={`flex-1 overflow-y-auto border border-border rounded-sm bg-surface ${selectedCustomer ? 'hidden md:block min-w-0' : ''}`}>
                         <table className="w-full text-left text-xs min-w-[860px]">
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                             <tr>
@@ -5012,7 +5021,7 @@ export default function DashboardPage() {
 
                       {/* Customer Profile Drawer in Database View */}
                       {selectedCustomer && (
-                        <div className={`${isDrawerExpanded ? 'w-[740px] max-w-[55vw]' : 'w-[480px] xl:w-[540px]'} bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-sm`}>
+                        <div className={`${isDrawerExpanded ? 'w-full md:w-[740px] md:max-w-[55vw]' : 'w-full md:w-[480px] xl:w-[540px]'} bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-sm`}>
                           <div className="p-3 border-b border-border flex items-center justify-between bg-surface-subtle/50">
                             <div>
                               <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
@@ -8643,6 +8652,94 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+      {/* ── Mobile Bottom Navigation Bar (md:hidden) ────────────────────────── */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-border flex items-center justify-around h-16 px-1 safe-area-pb shadow-lg">
+        <button
+          type="button"
+          onClick={() => navigateTo('overview')}
+          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+            activeNav === 'overview'
+              ? 'text-accent font-semibold'
+              : 'text-text-muted hover:text-text-primary'
+          }`}
+        >
+          <LayoutGrid className="w-5 h-5 stroke-[1.5]" />
+          <span className="text-[10px] mt-0.5 tracking-tight">Overview</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigateTo('inbox')}
+          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer relative ${
+            activeNav === 'inbox'
+              ? 'text-accent font-semibold'
+              : 'text-text-muted hover:text-text-primary'
+          }`}
+        >
+          <div className="relative">
+            <MessageSquare className="w-5 h-5 stroke-[1.5]" />
+            {conversations.filter(c => (c.unread_count || 0) > 0).length > 0 && (
+              <span className="absolute -top-1 -right-2 w-3.5 h-3.5 bg-accent text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                {conversations.filter(c => (c.unread_count || 0) > 0).length}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] mt-0.5 tracking-tight">Chats</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigateTo('customers')}
+          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+            activeNav === 'customers' || activeNav === 'followup'
+              ? 'text-accent font-semibold'
+              : 'text-text-muted hover:text-text-primary'
+          }`}
+        >
+          <Users className="w-5 h-5 stroke-[1.5]" />
+          <span className="text-[10px] mt-0.5 tracking-tight truncate max-w-[64px]">{currentTaxonomy.client_plural || 'Customers'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigateTo('bookings')}
+          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+            activeNav === 'bookings'
+              ? 'text-accent font-semibold'
+              : 'text-text-muted hover:text-text-primary'
+          }`}
+        >
+          <CalendarDays className="w-5 h-5 stroke-[1.5]" />
+          <span className="text-[10px] mt-0.5 tracking-tight">Bookings</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigateTo('calendar')}
+          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+            activeNav === 'calendar'
+              ? 'text-accent font-semibold'
+              : 'text-text-muted hover:text-text-primary'
+          }`}
+        >
+          <Calendar className="w-5 h-5 stroke-[1.5]" />
+          <span className="text-[10px] mt-0.5 tracking-tight">Calendar</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigateTo('settings')}
+          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+            activeNav === 'settings'
+              ? 'text-accent font-semibold'
+              : 'text-text-muted hover:text-text-primary'
+          }`}
+        >
+          <Sliders className="w-5 h-5 stroke-[1.5]" />
+          <span className="text-[10px] mt-0.5 tracking-tight">Settings</span>
+        </button>
+      </nav>
+
       </div>
   );
 }

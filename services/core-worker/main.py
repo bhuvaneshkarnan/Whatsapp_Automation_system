@@ -2392,7 +2392,7 @@ class CoreWorker:
         """Find due scheduled jobs and send WhatsApp messages."""
         due_jobs = await self.db_pool.fetch(
             """SELECT sj.id, sj.tenant_id, sj.job_type, sj.booking_id,
-                      b.service, b.start_time, b.end_time, b.notes,
+                      b.contact_id, b.service, b.start_time, b.end_time, b.notes,
                       c.phone, c.name as contact_name,
                       tc.credential_data as wa_creds
                FROM scheduled_jobs sj
@@ -2420,6 +2420,19 @@ class CoreWorker:
                     "UPDATE scheduled_jobs SET status = 'sent', sent_at = now() WHERE id = $1",
                     job["id"],
                 )
+
+                if job.get("contact_id") and job.get("tenant_id"):
+                    conv_row = await self.db_pool.fetchrow(
+                        "SELECT id FROM conversations WHERE contact_id = $1 AND tenant_id = $2 LIMIT 1",
+                        job["contact_id"], job["tenant_id"]
+                    )
+                    if conv_row:
+                        await self.db_pool.execute(
+                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
+                            str(uuid.uuid4()), conv_row["id"], job["tenant_id"], message
+                        )
+
                 logger.info("scheduled_job_sent", job_id=str(job["id"]), job_type=job["job_type"])
             except Exception as e:
                 logger.error("scheduled_job_failed", job_id=str(job["id"]), error=str(e))

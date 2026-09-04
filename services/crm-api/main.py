@@ -1847,6 +1847,32 @@ async def create_booking(
         except Exception as e:
             logger.warning("calendar_sync_trigger_error", error=str(e))
 
+        # Schedule automatic 24h & 2h reminders and post-session review request
+        try:
+            remind_24h = st_dt - datetime.timedelta(hours=24)
+            if remind_24h > datetime.datetime.now(tz):
+                await conn.execute(
+                    """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                       VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
+                    tenant_id, booking_id, remind_24h
+                )
+            remind_2h = st_dt - datetime.timedelta(hours=2)
+            if remind_2h > datetime.datetime.now(tz):
+                await conn.execute(
+                    """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                       VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
+                    tenant_id, booking_id, remind_2h
+                )
+            review_at = et_dt + datetime.timedelta(hours=1)
+            await conn.execute(
+                """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                   VALUES (gen_random_uuid(), $1::uuid, 'review_request', $2::uuid, $3, 'pending', now())""",
+                tenant_id, booking_id, review_at
+            )
+            logger.info("scheduled_reminder_and_review_jobs_queued", booking_id=booking_id)
+        except Exception as e_job:
+            logger.warning("scheduled_jobs_queue_failed", error=str(e_job))
+
     return {
         "status": "created",
         "id": booking_id,
@@ -2070,6 +2096,18 @@ async def update_booking_status(
             clock_str = st_local.strftime("%I:%M %p")
         
         # If cancelled and synced to Google Calendar, remove the Google Calendar event
+                # If cancelled, cancel any pending scheduled reminder jobs
+        if payload.status == "cancelled":
+            await conn.execute(
+                "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND status = 'pending'",
+                booking_id
+            )
+                # If cancelled, cancel any pending scheduled reminder jobs
+        if payload.status == "cancelled":
+            await conn.execute(
+                "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND status = 'pending'",
+                booking_id
+            )
         if payload.status == "cancelled" and booking.get("google_event_id"):
             try:
                 gcal_row = await conn.fetchrow(
