@@ -80,6 +80,8 @@ import {
   Square,
   Activity,
   FileSpreadsheet,
+  Download,
+  Database,
   Edit2,
   Globe,
   DollarSign,
@@ -394,7 +396,7 @@ export default function DashboardPage() {
   const [settingsTab, setSettingsTab] = useState<'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'account'>('ai');
 
   // Customer Follow-up & Task Calendar State
-  const [followupView, setFollowupView] = useState<'list' | 'tasks' | 'notes'>('list');
+  const [followupView, setFollowupView] = useState<'list' | 'database' | 'tasks' | 'notes'>('list');
   // Add Customer Modal State
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
   const [addingCustomer, setAddingCustomer] = useState(false);
@@ -800,6 +802,53 @@ export default function DashboardPage() {
   };
 
   
+  const exportCustomersToCsv = () => {
+    if (!customers || customers.length === 0) {
+      alert('No customer records to export.');
+      return;
+    }
+    const headers = [
+      'Name',
+      'Phone',
+      'Age',
+      'Location',
+      currentTaxonomy.requirement_label || 'Requirement',
+      currentTaxonomy.staff_label || 'Staff',
+      'Status',
+      'Lead Probability',
+      'Converted',
+      'Follow-up Date',
+      'Follow-up Time',
+      'Latest Note',
+      'Notes Count',
+      'Created At'
+    ];
+    const rows = customers.map(c => [
+      `"${(c.name || '').replace(/"/g, '""')}"`,
+      `"${(c.phone || '').replace(/"/g, '""')}"`,
+      c.age != null ? c.age : '',
+      `"${(c.location || '').replace(/"/g, '""')}"`,
+      `"${(c.health_concern || '').replace(/"/g, '""')}"`,
+      `"${(c.preferred_doctor || '').replace(/"/g, '""')}"`,
+      c.status || '',
+      c.lead_probability || '',
+      c.converted ? 'Yes' : 'No',
+      c.followup_date || '',
+      c.followup_time || '',
+      `"${(c.latest_note || '').replace(/"/g, '""')}"`,
+      c.notes_count || 0,
+      c.created_at ? new Date(c.created_at).toISOString().split('T')[0] : ''
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `customers_database_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const currentTaxonomy = {
     staff_label: settingsForm.taxonomy?.staff_label || (settingsForm.industry === 'education' ? 'Tutor / Counselor' : 'Preferred Doctor / Staff'),
     client_label: settingsForm.taxonomy?.client_label || (settingsForm.industry === 'education' ? 'Student / Parent' : 'Customer'),
@@ -969,19 +1018,19 @@ export default function DashboardPage() {
     }
   }, [activeNav]);
 
-  // Refetch customers when filter state changes
+  // Refetch customers when filter state changes (Instant responsive filtering)
   useEffect(() => {
-    if (activeNav === 'followup') {
+    if (activeNav === 'customers' || activeNav === 'followup') {
       loadCustomers();
     }
-  }, [followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupSearch]);
+  }, [activeNav, followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupSearch]);
 
   // Refetch tasks when task filter changes
   useEffect(() => {
-    if (activeNav === 'followup') {
+    if (activeNav === 'customers' || activeNav === 'followup') {
       loadTasks();
     }
-  }, [taskFilter]);
+  }, [activeNav, taskFilter]);
 
   // Load analytics when sub-tab switches to analytics
   useEffect(() => {
@@ -999,81 +1048,90 @@ export default function DashboardPage() {
     selectedConvRef.current = selectedConv;
   }, [selectedConv]);
 
-  // Real-time live polling for active chat messages (every 1.2s) & conversations (every 3s)
+  // Real-time optimized live polling with mutex locking & tab-visibility check (every 4s)
+  const isPollingRef = useRef(false);
   useEffect(() => {
     let isMounted = true;
 
     const poll = async () => {
-      if (!isMounted) return;
+      if (!isMounted || isPollingRef.current) return;
+      if (typeof document !== 'undefined' && document.hidden) return; // Skip polling when tab is inactive
 
-      // 1. Fetch active conversation messages
-      const activeId = selectedConvRef.current?.id;
-      if (activeId) {
+      isPollingRef.current = true;
+      try {
+        // 1. Fetch active conversation messages only if currently on inbox tab
+        const activeId = selectedConvRef.current?.id;
+        if (activeId && activeNav === 'inbox') {
+          try {
+            const msgs = await crm.getMessages(activeId);
+            if (isMounted && Array.isArray(msgs) && selectedConvRef.current?.id === activeId) {
+              setMessages((prev) => {
+                if (
+                  msgs.length !== prev.length ||
+                  msgs.some(
+                    (m, idx) =>
+                      !prev[idx] ||
+                      prev[idx].id !== m.id ||
+                      prev[idx].status !== m.status ||
+                      prev[idx].body !== m.body
+                  )
+                ) {
+                  setTimeout(() => {
+                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                  }, 50);
+                  return msgs;
+                }
+                return prev;
+              });
+            }
+          } catch {
+            // silent
+          }
+        }
+
+        // 2. Fetch conversations list silently
         try {
-          const msgs = await crm.getMessages(activeId);
-          if (isMounted && Array.isArray(msgs) && selectedConvRef.current?.id === activeId) {
-            setMessages((prev) => {
+          const convs = await crm.getConversations();
+          if (isMounted && Array.isArray(convs)) {
+            setConversations((prev) => {
               if (
-                msgs.length !== prev.length ||
-                msgs.some(
-                  (m, idx) =>
+                convs.length !== prev.length ||
+                convs.some(
+                  (c, idx) =>
                     !prev[idx] ||
-                    prev[idx].id !== m.id ||
-                    prev[idx].status !== m.status ||
-                    prev[idx].body !== m.body
+                    prev[idx].id !== c.id ||
+                    prev[idx].unread_count !== c.unread_count ||
+                    prev[idx].last_message_at !== c.last_message_at
                 )
               ) {
-                setTimeout(() => {
-                  messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-                }, 50);
-                return msgs;
+                // Silently refresh customers if a new chat arrived
+                if (activeNav === 'customers' || activeNav === 'followup') {
+                  crm.getCustomers().then(fresh => {
+                    if (isMounted && Array.isArray(fresh)) {
+                      setCustomers(fresh);
+                    }
+                  }).catch(() => {});
+                }
+                return convs;
               }
               return prev;
             });
           }
-        } catch (err) {
-          // silent on background poll
+        } catch {
+          // silent
         }
-      }
-
-      // 2. Fetch conversations list silently
-      try {
-        const convs = await crm.getConversations();
-        if (isMounted && Array.isArray(convs)) {
-          setConversations((prev) => {
-            if (
-              convs.length !== prev.length ||
-              convs.some(
-                (c, idx) =>
-                  !prev[idx] ||
-                  prev[idx].id !== c.id ||
-                  prev[idx].unread_count !== c.unread_count ||
-                  prev[idx].last_message_at !== c.last_message_at
-              )
-            ) {
-              // Silently refresh customers if a new chat arrived
-              crm.getCustomers().then(fresh => {
-                if (isMounted && Array.isArray(fresh)) {
-                  setCustomers(fresh);
-                }
-              }).catch(() => {});
-              return convs;
-            }
-            return prev;
-          });
-        }
-      } catch (err) {
-        // silent
+      } finally {
+        isPollingRef.current = false;
       }
     };
 
-    // Run poll every 1200ms
-    const interval = setInterval(poll, 1200);
+    // Run lightweight poll every 4000ms
+    const interval = setInterval(poll, 4000);
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [activeNav]);
 
   async function loadBookings() {
     setLoadingBookings(true);
@@ -3647,7 +3705,7 @@ export default function DashboardPage() {
                       <span>{currentTaxonomy.client_plural || 'Customers'}</span>
                     </h3>
                     <p className="text-[11px] text-text-muted mt-0.5">
-                      All {(currentTaxonomy.client_plural || 'customers').toLowerCase()}, follow-ups, scheduled tasks, and notes.
+                      All {(currentTaxonomy.client_plural || 'customers').toLowerCase()}, full database directory, follow-ups, and tasks.
                     </p>
                   </div>
 
@@ -3664,6 +3722,18 @@ export default function DashboardPage() {
                       >
                         <List className="w-3.5 h-3.5 stroke-[1.5]" />
                         <span>Follow-up</span>
+                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{customers.length}</span>
+                      </button>
+                      <button
+                        onClick={() => setFollowupView('database')}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                          followupView === 'database'
+                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        <Database className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span>Database</span>
                         <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{customers.length}</span>
                       </button>
                       <button
@@ -3696,6 +3766,16 @@ export default function DashboardPage() {
                       </button>
                     </div>
 
+                    {/* Export CSV Button */}
+                    <button
+                      onClick={exportCustomersToCsv}
+                      className="flex items-center gap-1.5 px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-sm transition-colors cursor-pointer"
+                      title="Export customer records to CSV"
+                    >
+                      <Download className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span>Export CSV</span>
+                    </button>
+
                     {/* + Add Customer Button */}
                     <button
                       onClick={() => setShowAddCustomerModal(true)}
@@ -3723,7 +3803,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* ── SUB-VIEW A: FOLLOW-UP LIST ──────────────────────────────── */}
+                {/* ── SUB-VIEW A: FOLLOW-UP PIPELINE ──────────────────────────────── */}
                 {followupView === 'list' && (
                   <div className="flex-1 flex flex-col overflow-hidden space-y-3">
                     {/* Filter & Segment Controls */}
@@ -4424,10 +4504,387 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* ── SUB-VIEW B: TASK CALENDAR VIEW ─────────────────────────── */}
+                {/* ── SUB-VIEW B: COMPLETE CUSTOMER DATABASE ───────────────────── */}
+                {followupView === 'database' && (
+                  <div className="flex-1 flex flex-col overflow-hidden space-y-3">
+                    {/* Database Filters & Quick Search Toolbar */}
+                    <div className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 bg-surface border border-border rounded-sm">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
+                          <input
+                            type="text"
+                            placeholder="Search name, phone, city, requirement..."
+                            value={followupSearch}
+                            onChange={(e) => setFollowupSearch(e.target.value)}
+                            className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-64"
+                          />
+                        </div>
+
+                        <select
+                          value={followupStatusFilter}
+                          onChange={(e) => setFollowupStatusFilter(e.target.value)}
+                          className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                        >
+                          <option value="all">All Statuses</option>
+                          <option value="new">New</option>
+                          <option value="contacted">Contacted</option>
+                          <option value="follow-up">Follow-up</option>
+                          <option value="converted">Converted</option>
+                          <option value="lost">Lost</option>
+                        </select>
+
+                        <select
+                          value={followupProbabilityFilter}
+                          onChange={(e) => setFollowupProbabilityFilter(e.target.value)}
+                          className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                        >
+                          <option value="all">All Leads</option>
+                          <option value="hot">Hot</option>
+                          <option value="warm">Warm</option>
+                          <option value="cold">Cold</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-text-muted font-mono">
+                          {customers.length} total records
+                        </span>
+                        <button
+                          onClick={exportCustomersToCsv}
+                          className="flex items-center gap-1.5 px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer"
+                        >
+                          <Download className="w-3.5 h-3.5 stroke-[1.5]" />
+                          <span>Export to CSV</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Database Table & Profile Drawer */}
+                    <div className="flex-1 flex overflow-hidden gap-3">
+                      <div className={`flex-1 overflow-y-auto border border-border rounded-sm bg-surface ${selectedCustomer ? 'min-w-0' : ''}`}>
+                        <table className="w-full text-left text-xs min-w-[860px]">
+                          <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
+                            <tr>
+                              <th className="p-2.5 pl-4">{currentTaxonomy.client_label || 'Customer'}</th>
+                              <th className="p-2.5">Phone</th>
+                              <th className="p-2.5">Age & Location</th>
+                              <th className="p-2.5">{currentTaxonomy.requirement_label || 'Requirement / Concern'}</th>
+                              <th className="p-2.5">{currentTaxonomy.staff_label || 'Staff'}</th>
+                              <th className="p-2.5">Status</th>
+                              <th className="p-2.5">Lead</th>
+                              <th className="p-2.5 text-center">Converted</th>
+                              <th className="p-2.5">Follow-up</th>
+                              <th className="p-2.5">Added</th>
+                              <th className="p-2.5 text-right pr-4">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {loadingCustomers ? (
+                              <tr>
+                                <td colSpan={11} className="p-8 text-center text-text-muted">
+                                  Loading database records...
+                                </td>
+                              </tr>
+                            ) : customers.length === 0 ? (
+                              <tr>
+                                <td colSpan={11} className="p-8 text-center text-text-muted">
+                                  No customer records found matching your filters.
+                                </td>
+                              </tr>
+                            ) : (
+                              customers.map((cust) => {
+                                const isSelected = selectedCustomer?.id === cust.id;
+                                return (
+                                  <tr
+                                    key={cust.id}
+                                    onClick={() => handleSelectCustomer(cust)}
+                                    className={`cursor-pointer transition-colors duration-150 ${
+                                      isSelected ? 'bg-blue-50/50 border-l-2 border-l-accent' : 'hover:bg-surface-subtle/70'
+                                    }`}
+                                  >
+                                    <td className="p-2.5 pl-4">
+                                      <div className="font-semibold text-text-primary text-[11px]">{cust.name || 'Customer'}</div>
+                                    </td>
+                                    <td className="p-2.5 font-mono text-[11px] text-text-muted whitespace-nowrap">{cust.phone}</td>
+                                    <td className="p-2.5 text-text-secondary text-[11px] whitespace-nowrap">
+                                      {cust.age || cust.location ? (
+                                        <div className="flex items-center gap-1.5">
+                                          {cust.age && <span className="font-medium">{cust.age} yrs</span>}
+                                          {cust.age && cust.location && <span>·</span>}
+                                          {cust.location && <span className="flex items-center gap-0.5 text-text-muted"><MapPin className="w-2.5 h-2.5" />{cust.location}</span>}
+                                        </div>
+                                      ) : (
+                                        <span className="text-text-muted">—</span>
+                                      )}
+                                    </td>
+                                    <td className="p-2.5 text-text-secondary max-w-[160px] truncate text-[11px]" title={cust.health_concern}>
+                                      {cust.health_concern || '—'}
+                                    </td>
+                                    <td className="p-2.5 text-text-secondary whitespace-nowrap text-[11px]">
+                                      {cust.preferred_doctor || '—'}
+                                    </td>
+                                    <td className="p-2.5" onClick={(e) => e.stopPropagation()}>
+                                      <span className={`px-2 py-0.5 rounded-sm text-[10px] font-medium uppercase border ${
+                                        cust.status === 'converted'
+                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                          : cust.status === 'follow-up'
+                                          ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                          : cust.status === 'contacted'
+                                          ? 'bg-blue-50 text-blue-800 border-blue-200'
+                                          : cust.status === 'lost'
+                                          ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                          : 'bg-slate-100 text-slate-800 border-slate-200'
+                                      }`}>
+                                        {cust.status}
+                                      </span>
+                                    </td>
+                                    <td className="p-2.5">
+                                      <span className={`px-1.5 py-0.5 rounded-sm text-[10px] font-medium border uppercase ${
+                                        cust.lead_probability === 'hot'
+                                          ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                          : cust.lead_probability === 'warm'
+                                          ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                          : 'bg-blue-50 text-blue-800 border-blue-200'
+                                      }`}>
+                                        {cust.lead_probability}
+                                      </span>
+                                    </td>
+                                    <td className="p-2.5 text-center">
+                                      <span className={`text-[10px] font-semibold ${cust.converted ? 'text-emerald-700' : 'text-text-muted'}`}>
+                                        {cust.converted ? 'Yes' : 'No'}
+                                      </span>
+                                    </td>
+                                    <td className="p-2.5 font-mono text-[10px] text-text-secondary whitespace-nowrap">
+                                      {cust.followup_date || '—'}
+                                    </td>
+                                    <td className="p-2.5 font-mono text-[10px] text-text-muted whitespace-nowrap">
+                                      {cust.created_at ? new Date(cust.created_at).toLocaleDateString() : '—'}
+                                    </td>
+                                    <td className="p-2.5 pr-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                      <div className="flex items-center gap-1.5 justify-end">
+                                        <button
+                                          onClick={() => openChatForContact(cust.phone)}
+                                          className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary text-[11px] rounded-sm border border-border transition-colors cursor-pointer flex items-center gap-1"
+                                        >
+                                          <MessageSquare className="w-3 h-3 stroke-[1.5]" /> Chat
+                                        </button>
+                                        <button
+                                          onClick={() => handleSelectCustomer(cust)}
+                                          className="px-2 py-1 bg-accent hover:bg-accent-hover text-white text-[11px] rounded-sm transition-colors cursor-pointer flex items-center gap-1"
+                                        >
+                                          <User className="w-3 h-3 stroke-[1.5]" /> Details
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Customer Profile Drawer in Database View */}
+                      {selectedCustomer && (
+                        <div className={`${isDrawerExpanded ? 'w-[740px] max-w-[55vw]' : 'w-[480px] xl:w-[540px]'} bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-sm`}>
+                          <div className="p-3 border-b border-border flex items-center justify-between bg-surface-subtle/50">
+                            <div>
+                              <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
+                                <User className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                                <span>{selectedCustomer.name || 'Customer Profile'}</span>
+                              </h4>
+                              <p className="text-[10px] font-mono text-text-muted mt-0.5">{selectedCustomer.phone}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => openChatForContact(selectedCustomer.phone)}
+                                className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary text-[11px] font-medium rounded-sm border border-border flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Open WhatsApp chat"
+                              >
+                                <MessageSquare className="w-3 h-3 text-accent stroke-[1.5]" />
+                                <span>Chat</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setIsDrawerExpanded(!isDrawerExpanded)}
+                                className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
+                                title={isDrawerExpanded ? 'Collapse panel' : 'Expand full width'}
+                              >
+                                {isDrawerExpanded ? <Minimize2 className="w-3.5 h-3.5 stroke-[1.5]" /> : <Maximize2 className="w-3.5 h-3.5 stroke-[1.5]" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setSelectedCustomer(null); setIsDrawerExpanded(false); }}
+                                className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
+                                title="Close profile"
+                              >
+                                <X className="w-3.5 h-3.5 stroke-[1.5]" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
+                            <div className="space-y-2 p-3 bg-surface-subtle border border-border rounded-sm">
+                              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Customer Details</p>
+                              <div>
+                                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.requirement_label || 'Requirement / Concern'}</label>
+                                <textarea
+                                  value={drawerConcern}
+                                  onChange={(e) => setDrawerConcern(e.target.value)}
+                                  rows={2}
+                                  placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
+                                  className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent resize-none"
+                                />
+                                {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] && (
+                                  <div className="flex flex-wrap gap-1 mt-1">
+                                    {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'].map((chip) => (
+                                      <button
+                                        key={chip}
+                                        type="button"
+                                        onClick={() => setDrawerConcern(chip)}
+                                        className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${
+                                          drawerConcern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'
+                                        }`}
+                                      >
+                                        {chip}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 pt-1">
+                                <div>
+                                  <label className="text-[10px] text-text-muted block mb-1">Age</label>
+                                  <input
+                                    type="number" min="1" max="120"
+                                    value={drawerAge}
+                                    onChange={(e) => setDrawerAge(e.target.value)}
+                                    placeholder="e.g. 35"
+                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-text-muted block mb-1">Location</label>
+                                  <input
+                                    type="text"
+                                    value={drawerLocation}
+                                    onChange={(e) => setDrawerLocation(e.target.value)}
+                                    placeholder="e.g. Mumbai"
+                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                </div>
+                              </div>
+                              <div className="pt-1">
+                                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.staff_label || 'Assigned Staff'}</label>
+                                <input
+                                  type="text"
+                                  value={selectedCustomer.preferred_doctor || ''}
+                                  onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { preferred_doctor: e.target.value })}
+                                  placeholder={`e.g. Assigned ${currentTaxonomy.staff_label || 'Staff'}`}
+                                  className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={handleSaveDrawerAttributes}
+                                disabled={savingDrawerAttributes}
+                                className="w-full py-1.5 px-3 bg-accent hover:bg-accent-hover disabled:opacity-60 text-white text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 mt-2"
+                              >
+                                <Save className="w-3 h-3 stroke-[1.5]" />
+                                {savingDrawerAttributes ? 'Saving...' : 'Save Attributes'}
+                              </button>
+                            </div>
+
+                            <div className="p-3 bg-surface-subtle border border-border rounded-sm space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                                  <CalendarClock className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                                  <span>Schedule Follow-up</span>
+                                </span>
+                                {selectedCustomer.google_task_id && (
+                                  <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium">
+                                    Tasks Synced
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Date</label>
+                                  <input
+                                    type="date"
+                                    value={selectedCustomer.followup_date || ''}
+                                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_date: e.target.value })}
+                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Time</label>
+                                  <input
+                                    type="text"
+                                    value={selectedCustomer.followup_time || '10:00 AM'}
+                                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_time: e.target.value })}
+                                    placeholder="e.g. 10:30 AM"
+                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={syncingGoogleTasks}
+                                onClick={() => handleSyncCustomerToGoogleTasks(selectedCustomer.id)}
+                                className="w-full py-1.5 px-2.5 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium border border-border rounded-sm flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <CalendarCheck className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                                <span>{syncingGoogleTasks ? 'Syncing...' : 'Sync with Google Tasks'}</span>
+                              </button>
+                            </div>
+
+                            <div className="border-t border-border pt-3 mt-2">
+                              {!confirmDeleteStep ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteStep(true)}
+                                  className="w-full py-1.5 px-3 bg-surface border border-rose-200 hover:bg-rose-50 text-rose-600 text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                                >
+                                  <Trash2 className="w-3 h-3 stroke-[1.5]" />
+                                  Delete {currentTaxonomy.client_label || 'Customer'}
+                                </button>
+                              ) : (
+                                <div className="bg-rose-50 border border-rose-200 rounded-sm p-2.5 space-y-2">
+                                  <p className="text-[11px] text-rose-800 font-medium">
+                                    Delete <strong>{selectedCustomer.name || 'this customer'}</strong> permanently?
+                                  </p>
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteStep(false)}
+                                      className="flex-1 py-1 px-2 bg-surface border border-border text-text-primary text-[11px] rounded-sm"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteCustomer(selectedCustomer.id)}
+                                      disabled={deletingCustomerId === selectedCustomer.id}
+                                      className="flex-1 py-1 px-2 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-semibold rounded-sm"
+                                    >
+                                      {deletingCustomerId === selectedCustomer.id ? 'Deleting...' : 'Yes, Delete'}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── SUB-VIEW C: TASK CALENDAR VIEW ─────────────────────────── */}
                 {followupView === 'tasks' && (
                   <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-5xl">
-                    {/* Task Filter Pills + Add Task */}
                     <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface border border-border rounded-sm">
                       <div className="flex items-center gap-1">
                         <span className="text-[11px] font-medium text-text-muted mr-1">Filter:</span>
@@ -4461,7 +4918,6 @@ export default function DashboardPage() {
                       </button>
                     </div>
 
-                    {/* Task Cards List */}
                     <div className="space-y-2">
                       {loadingTasks ? (
                         <p className="text-xs text-text-muted text-center py-8">Loading tasks...</p>
@@ -4548,10 +5004,9 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* ── SUB-VIEW C: OVERALL NOTES VIEW ──────────────────────────── */}
+                {/* ── SUB-VIEW D: OVERALL NOTES VIEW ──────────────────────────── */}
                 {followupView === 'notes' && (
                   <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-5xl">
-                    {/* Notes Toolbar */}
                     <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface border border-border rounded-sm">
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] font-medium text-text-muted">Color:</span>
@@ -4593,7 +5048,6 @@ export default function DashboardPage() {
                       </div>
                     </div>
 
-                    {/* Notes Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       {loadingAllNotes ? (
                         <p className="text-xs text-text-muted col-span-full text-center py-8">Loading notes...</p>
@@ -4668,8 +5122,7 @@ export default function DashboardPage() {
                 )}
               </div>
             )}
-
-            {/* ── ADD CUSTOMER MODAL ─────────────────────────────────────── */}
+{/* ── ADD CUSTOMER MODAL ─────────────────────────────────────── */}
             {showAddCustomerModal && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAddCustomerModal(false)}>
                 <div className="bg-surface border border-border rounded-sm shadow-xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
