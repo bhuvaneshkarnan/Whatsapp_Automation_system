@@ -2315,7 +2315,7 @@ export default function DashboardPage() {
   return (
     <div className="w-full h-screen bg-canvas flex flex-col overflow-hidden font-sans text-text-body">
       {/* ── Top Header Navigation Bar ───────────────────────────────────────── */}
-      <header className="h-13 sm:h-14 px-3 sm:px-6 border-b border-border flex items-center justify-between shrink-0 bg-surface">
+      <header className="h-12 sm:h-14 px-3 sm:px-6 border-b border-border flex items-center justify-between shrink-0 bg-surface/95 backdrop-blur-sm z-30">
         {/* Logo & Current View Title */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
@@ -2506,7 +2506,7 @@ export default function DashboardPage() {
         </aside>
 
           {/* ── 2. CENTER / MAIN VIEW AREA ───────────────────────────────────── */}
-          <main className="flex-1 flex flex-col overflow-hidden bg-canvas p-3 sm:p-6 space-y-3 sm:space-y-6 pb-20 md:pb-6">
+          <main className="flex-1 flex flex-col overflow-hidden bg-canvas p-2 sm:p-6 space-y-2.5 sm:space-y-6 pb-20 md:pb-6">
             
             {/* ── VIEW 0: DEDICATED OVERVIEW DASHBOARD ─────────────────────────── */}
             {activeNav === 'overview' && (
@@ -2775,7 +2775,7 @@ export default function DashboardPage() {
 
                   <div className="flex items-center gap-2">
                     {/* Status Filter Segmented Control (Upcoming, Completed, No-Show, Cancelled) */}
-                    <div className="flex gap-0.5 bg-surface-subtle p-0.5 rounded-sm border border-border">
+                    <div className="flex overflow-x-auto no-scrollbar gap-0.5 bg-surface-subtle p-0.5 rounded-md border border-border shrink-0 max-w-full">
                       {[
                         { id: 'upcoming', label: 'Upcoming' },
                         { id: 'completed', label: 'Completed' },
@@ -4044,7 +4044,7 @@ export default function DashboardPage() {
 
                   <div className="flex items-center gap-2 flex-wrap">
                     {/* View Switcher Pills */}
-                    <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5">
+                    <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-md p-0.5 overflow-x-auto no-scrollbar shrink-0">
                       <button
                         onClick={() => setFollowupView('list')}
                         className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
@@ -4130,7 +4130,7 @@ export default function DashboardPage() {
                     {/* Filter & Segment Controls */}
                     <div className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 bg-surface border border-border rounded-sm">
                       {/* Left: Status Filter Pills */}
-                      <div className="flex flex-wrap items-center gap-1">
+                      <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5 max-w-full shrink-0">
                         <span className="text-[11px] font-medium text-text-muted mr-1">Status:</span>
                         {[
                           { key: 'all', label: 'All' },
@@ -4420,7 +4420,7 @@ export default function DashboardPage() {
 
                       {/* Customer Detail Drawer / Profile Panel */}
                       {selectedCustomer && (
-                        <div className={`${isDrawerExpanded ? 'w-full md:w-[740px] md:max-w-[55vw]' : 'w-full md:w-[480px] xl:w-[540px]'} bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-sm`}>
+                        <div className={`fixed inset-0 z-50 md:relative md:inset-auto md:z-auto w-full ${isDrawerExpanded ? 'md:w-[740px] md:max-w-[55vw]' : 'md:w-[480px] xl:w-[540px]'} bg-surface border border-border md:rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-2xl md:shadow-sm`}>
                           {/* Panel Header */}
                           <div className="p-3 border-b border-border flex items-center justify-between bg-surface-subtle/50">
                             <div>
@@ -5020,7 +5020,7 @@ export default function DashboardPage() {
 
                       {/* Customer Profile Drawer in Database View */}
                       {selectedCustomer && (
-                        <div className={`${isDrawerExpanded ? 'w-full md:w-[740px] md:max-w-[55vw]' : 'w-full md:w-[480px] xl:w-[540px]'} bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-sm`}>
+                        <div className={`fixed inset-0 z-50 md:relative md:inset-auto md:z-auto w-full ${isDrawerExpanded ? 'md:w-[740px] md:max-w-[55vw]' : 'md:w-[480px] xl:w-[540px]'} bg-surface border border-border md:rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-2xl md:shadow-sm`}>
                           <div className="p-3 border-b border-border flex items-center justify-between bg-surface-subtle/50">
                             <div>
                               <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
@@ -8652,7 +8652,7 @@ export default function DashboardPage() {
           </div>
         )}
       {/* ── Mobile Bottom Navigation Bar (md:hidden) ────────────────────────── */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-border flex items-center justify-around h-16 px-1 safe-area-pb shadow-lg">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-border flex items-center justify-around h-14 px-1 safe-area-pb shadow-lg">
         <button
           type="button"
           onClick={() => navigateTo('overview')}
