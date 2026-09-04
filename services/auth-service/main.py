@@ -132,9 +132,13 @@ async def login_for_access_token(
             if tenant_info:
                 stage = tenant_info.get("org_lifecycle_stage") or "setup"
                 sub_status = tenant_info.get("subscription_status") or "not_started"
-                # Gating rule: ONLY gate if org_lifecycle_stage == 'billing_active' and subscription_status in ('payment_failed', 'paused', 'cancelled')
-                # Orgs in 'setup' or 'ready_to_activate' log in freely!
-                if stage == "billing_active" and sub_status in ("payment_failed", "paused", "cancelled"):
+                # Gating rule: Block access if payment is pending (ready_to_activate and not paid)
+                # or if billing is active but payment failed/paused/cancelled.
+                is_unpaid = (
+                    (stage == "ready_to_activate" and sub_status != "active")
+                    or (stage == "billing_active" and sub_status in ("payment_failed", "paused", "cancelled"))
+                )
+                if is_unpaid:
                     raise HTTPException(
                         status_code=status.HTTP_402_PAYMENT_REQUIRED,
                         detail={
@@ -142,7 +146,7 @@ async def login_for_access_token(
                             "status": sub_status,
                             "org_name": tenant_info["name"],
                             "short_url": tenant_info.get("razorpay_short_url") or "",
-                            "message": "Subscription payment required to access this organization's workspace."
+                            "message": "Subscription payment required (₹3,499/mo) to access this organization's workspace."
                         }
                     )
 

@@ -1201,22 +1201,19 @@ export default function SuperAdminClients() {
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-border bg-surface-subtle text-xs font-medium text-text-muted">
-                        <th className="py-2.5 px-4">Organization</th>
+                        <th className="py-2.5 px-4">Organization & Integration</th>
                         <th className="py-2.5 px-4">Plan & Rate</th>
                         <th className="py-2.5 px-4">Subscription Status</th>
-                        <th className="py-2.5 px-4">Integration Status</th>
-                        <th className="py-2.5 px-4">Status</th>
                         <th className="py-2.5 px-4 text-right">Actions & Configuration</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border text-xs">
                       {filteredTenants.map((t) => {
-                        const planFee = t.monthly_price || ((t.plan || 'pro').toLowerCase() === 'starter' ? 999 : (t.plan || 'pro').toLowerCase() === 'enterprise' ? 9999 : 2999);
-                        const renewalDay = t.billing_cycle_day || 1;
+                        const planFee = t.monthly_price || ((t.plan || 'pro').toLowerCase() === 'starter' ? 999 : (t.plan || 'pro').toLowerCase() === 'enterprise' ? 9999 : 3499);
                         return (
                           <tr key={t.id} className="hover:bg-surface-subtle/50 transition-colors duration-150">
                             
-                            {/* Organization Name */}
+                            {/* Organization Name & WhatsApp Integration */}
                             <td className="py-3 px-4">
                               <div className="flex items-center gap-2.5">
                                 <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/20 text-accent flex items-center justify-center font-bold text-xs shrink-0">
@@ -1230,6 +1227,19 @@ export default function SuperAdminClients() {
                                     </span>
                                   </p>
                                   <p className="text-[11px] text-text-muted">{t.admin_email || 'No email configured'}</p>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
+                                      t.whatsapp_configured
+                                        ? 'bg-status-success-bg text-status-success border-status-success-border font-medium'
+                                        : 'bg-surface-subtle text-text-muted border-border'
+                                    }`}>
+                                      <Smartphone className="w-2.5 h-2.5 stroke-[1.5]" />
+                                      <span>{t.whatsapp_configured ? 'WhatsApp Live' : 'No Meta API'}</span>
+                                    </span>
+                                    <span className="text-[10px] text-text-muted font-mono tabular-nums">
+                                      {t.contact_count || 0} contacts &bull; {t.conversation_count || 0} chats
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
                             </td>
@@ -1244,35 +1254,41 @@ export default function SuperAdminClients() {
                                   ₹{planFee.toLocaleString('en-IN')}/mo
                                 </span>
                               </div>
+                              {t.next_renewal_date && (
+                                <p className="text-[10px] text-text-muted flex items-center gap-1 mt-1">
+                                  <Calendar className="w-2.5 h-2.5 text-text-muted" />
+                                  <span>{t.next_renewal_date}</span>
+                                </p>
+                              )}
                             </td>
 
                             {/* Razorpay Subscription Lifecycle */}
                             <td className="py-3 px-4">
                               <div className="space-y-1">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  {(!t.org_lifecycle_stage || t.org_lifecycle_stage === 'setup') ? (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                                      Setup
-                                    </span>
-                                  ) : t.org_lifecycle_stage === 'ready_to_activate' ? (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                                      Ready to Activate
+                                  {t.status !== 'active' ? (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 flex items-center gap-1">
+                                      <Pause className="w-2.5 h-2.5 fill-current" />
+                                      <span>Workspace Paused</span>
                                     </span>
                                   ) : t.subscription_status === 'active' ? (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                                      Active
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                                      <Check className="w-2.5 h-2.5" />
+                                      <span>Active (Paid)</span>
                                     </span>
                                   ) : t.subscription_status === 'payment_failed' ? (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                                      Payment Failed
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center gap-1">
+                                      <AlertCircle className="w-2.5 h-2.5" />
+                                      <span>Payment Failed</span>
                                     </span>
-                                  ) : t.subscription_status === 'paused' ? (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
-                                      Paused
+                                  ) : (!t.org_lifecycle_stage || t.org_lifecycle_stage === 'setup') ? (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                                      Initial Setup
                                     </span>
                                   ) : (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20">
-                                      {t.subscription_status || 'Cancelled'}
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 flex items-center gap-1" title="Payment link generated — waiting for client payment">
+                                      <Clock className="w-2.5 h-2.5" />
+                                      <span>Unpaid • Payment Pending</span>
                                     </span>
                                   )}
 
@@ -1287,51 +1303,10 @@ export default function SuperAdminClients() {
                                     </button>
                                   )}
                                 </div>
-
-                                {t.next_renewal_date && (
-                                  <p className="text-[11px] text-text-muted flex items-center gap-1">
-                                    <Calendar className="w-2.5 h-2.5 text-text-muted" />
-                                    <span>{t.next_renewal_date}</span>
-                                  </p>
-                                )}
                               </div>
                             </td>
 
-                            {/* Integration Status */}
-                            <td className="py-3 px-4">
-                              <div className="flex items-center gap-2">
-                                <span className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-sm border ${
-                                  t.whatsapp_configured
-                                    ? 'bg-status-success-bg text-status-success border-status-success-border font-medium'
-                                    : 'bg-surface-subtle text-text-muted border-border'
-                                }`}>
-                                  <Smartphone className="w-3 h-3 stroke-[1.5]" />
-                                  <span>{t.whatsapp_configured ? 'WhatsApp Live' : 'No Meta API'}</span>
-                                </span>
-                                <span className="text-[11px] text-text-muted font-mono tabular-nums">
-                                  {t.contact_count || 0} contacts &bull; {t.conversation_count || 0} chats
-                                </span>
-                              </div>
-                            </td>
-
-                            {/* Status */}
-                            <td className="py-3 px-4">
-                              <button
-                                onClick={() => handleToggleStatus(t.id, t.status === 'active')}
-                                disabled={togglingId === t.id}
-                                className={`text-[11px] font-medium px-2 py-0.5 rounded-sm flex items-center gap-1 transition-colors duration-150 cursor-pointer border ${
-                                  t.status === 'active'
-                                    ? 'bg-status-success-bg text-status-success border-status-success-border'
-                                    : 'bg-status-error-bg text-status-error border-status-error-border'
-                                }`}
-                                title="Click to toggle status"
-                              >
-                                {t.status === 'active' ? <Play className="w-2.5 h-2.5 fill-current" /> : <Pause className="w-2.5 h-2.5 fill-current" />}
-                                <span>{t.status === 'active' ? 'Active' : 'Paused'}</span>
-                              </button>
-                            </td>
-
-                            {/* Actions */}
+                            {/* Actions & Configuration */}
                             <td className="py-3 px-4 text-right">
                               <div className="flex items-center justify-end gap-1.5 flex-wrap">
 
@@ -1416,10 +1391,24 @@ export default function SuperAdminClients() {
                                 <button
                                   onClick={() => handleImpersonateTenant(t.id)}
                                   className="px-2.5 py-1 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1 shadow-xs"
-                                  title="Access this Tenant's CRM Workspace"
+                                  title="Access this Tenant's CRM Workspace (Super Admin)"
                                 >
                                   <ExternalLink className="w-3 h-3 stroke-[1.5]" />
                                   <span>Open CRM</span>
+                                </button>
+
+                                {/* Toggle Pause / Resume Workspace */}
+                                <button
+                                  onClick={() => handleToggleStatus(t.id, t.status === 'active')}
+                                  disabled={togglingId === t.id}
+                                  className={`p-1.5 rounded-sm transition-colors duration-150 cursor-pointer border ${
+                                    t.status === 'active'
+                                      ? 'text-text-muted hover:text-amber-500 hover:bg-amber-500/10 border-border'
+                                      : 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20'
+                                  }`}
+                                  title={t.status === 'active' ? 'Pause Organization Workspace' : 'Resume Organization Workspace'}
+                                >
+                                  {t.status === 'active' ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
                                 </button>
 
                                 {/* Password Reset */}
