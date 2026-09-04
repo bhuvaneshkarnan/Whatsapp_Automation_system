@@ -480,7 +480,7 @@ export default function SuperAdminClients() {
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
     if (!token) {
-      router.replace('/login');
+      router.replace('/bhuvanesh');
       return;
     }
 
@@ -501,7 +501,7 @@ export default function SuperAdminClients() {
         loadData();
       })
       .catch(() => {
-        router.replace('/login');
+        router.replace('/bhuvanesh');
       });
   }, []);
 

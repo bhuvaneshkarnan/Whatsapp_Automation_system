@@ -43,19 +43,24 @@ export default function LoginPage() {
       localStorage.setItem('auth_token', res.access_token);
       localStorage.setItem('tenant_id', res.tenant_id);
 
-      // Resolve fixed onboarding business slug
+      // Check if logged in user is super_admin
+      try {
+        const me = await auth.me();
+        if (me.role === 'super_admin') {
+          router.push('/bhuvanesh');
+          return;
+        }
+      } catch {}
+
+      // Standard client: route directly to their business workspace
       try {
         const settings = await crm.getSettings();
-        let slug = settings.slug || 'boldlabs';
-        if (email.toLowerCase().includes('bhuvanesh')) {
-          slug = 'bhuvanesh';
-        }
+        const slug = settings.slug || 'boldlabs';
         localStorage.setItem('tenant_slug', slug);
         router.push(`/${slug}`);
       } catch {
-        const defaultSlug = email.toLowerCase().includes('bhuvanesh') ? 'bhuvanesh' : 'boldlabs';
-        localStorage.setItem('tenant_slug', defaultSlug);
-        router.push(`/${defaultSlug}`);
+        localStorage.setItem('tenant_slug', 'boldlabs');
+        router.push('/boldlabs');
       }
     } catch (err: any) {
       if (err?.code === 'PAYMENT_REQUIRED' && err.paymentDetails) {

@@ -3151,15 +3151,6 @@ export default function DashboardPage() {
                 <Megaphone className="w-4 h-4 stroke-[1.5] shrink-0" />
                 <span>Marketing</span>
               </button>
-
-              <button
-                onClick={() => router.push('/admin/clients')}
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium transition-colors duration-150 cursor-pointer"
-                title="Super Admin Portal - Manage Clients, Billing & Organizations"
-              >
-                <ShieldCheck className="w-4 h-4 stroke-[1.5] shrink-0 text-accent" />
-                <span className="font-semibold text-accent">Admin Portal</span>
-              </button>
             </nav>
           </div>
 
