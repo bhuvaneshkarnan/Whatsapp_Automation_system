@@ -923,10 +923,15 @@ export default function SuperAdminClients() {
         {/* Top Header */}
         <header className="h-14 border-b border-border bg-surface px-6 flex items-center justify-between shrink-0">
           <div>
-            <h2 className="font-semibold text-xs text-text-primary">
-              {activeTab === 'organizations' && 'Client Organizations & Centralized Configuration'}
-              {activeTab === 'razorpay' && 'Razorpay Subscriptions & Renewal Alerts'}
-              {activeTab === 'admin_config' && 'Super Admin Notification Settings'}
+            <h2 className="font-semibold text-xs text-text-primary flex items-center gap-2">
+              <span>
+                {activeTab === 'organizations' && 'Client Organizations & Centralized Configuration'}
+                {activeTab === 'razorpay' && 'Razorpay Subscriptions & Renewal Alerts'}
+                {activeTab === 'admin_config' && 'Super Admin Notification Settings'}
+              </span>
+              <span className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono font-medium">
+                Unified Portal v2.4
+              </span>
             </h2>
             <p className="text-xs text-text-muted">
               {activeTab === 'organizations' && 'Manage client workspaces, inspect live database records, configure AI brains, WhatsApp APIs, templates & billing'}

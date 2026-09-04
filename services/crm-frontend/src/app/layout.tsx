@@ -32,6 +32,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${urbanist.variable} ${openSans.variable}`}>
+      <head>
+        <meta httpEquiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+        <meta httpEquiv="Pragma" content="no-cache" />
+        <meta httpEquiv="Expires" content="0" />
+      </head>
       <body className="bg-canvas text-text-primary min-h-screen antialiased font-sans">
         {children}
       </body>
