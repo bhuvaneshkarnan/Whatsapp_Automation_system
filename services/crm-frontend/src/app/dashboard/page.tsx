@@ -809,6 +809,30 @@ export default function DashboardPage() {
     booking_cta: settingsForm.taxonomy?.booking_cta || (settingsForm.industry === 'education' ? '+ Book Demo Class' : '+ New Appointment'),
   };
 
+  const filteredTasks = tasks.filter((task) => {
+    if (taskFilter === 'all') return true;
+    if (taskFilter === 'completed') return task.completed;
+    if (task.completed) return false;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const due = task.due_date ? new Date(task.due_date) : null;
+    if (!due) return taskFilter === 'upcoming';
+    due.setHours(0, 0, 0, 0);
+    if (taskFilter === 'today') return due.getTime() === today.getTime();
+    if (taskFilter === 'overdue') return due.getTime() < today.getTime();
+    if (taskFilter === 'upcoming') return due.getTime() > today.getTime();
+    return true;
+  });
+
+  const filteredAllNotes = allNotes.filter((nt) => {
+    const matchesColor = allNotesColorFilter === 'all' || nt.color === allNotesColorFilter;
+    const matchesSearch = !allNotesSearch || (
+      (nt.note_text && nt.note_text.toLowerCase().includes(allNotesSearch.toLowerCase())) ||
+      (nt.author && nt.author.toLowerCase().includes(allNotesSearch.toLowerCase())) ||
+      (nt.customer_name && nt.customer_name.toLowerCase().includes(allNotesSearch.toLowerCase()))
+    );
+    return matchesColor && matchesSearch;
+  });
+
   const currentCurrencySymbol = settingsForm.currency_symbol || (
     settingsForm.currency === 'USD' ? '$' :
     settingsForm.currency === 'EUR' ? '€' :
@@ -3612,386 +3636,1040 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* -- VIEW 4: CUSTOMERS DIRECTORY -- */}
-            {activeNav === 'customers' && (
-              <div className="flex-1 flex flex-col overflow-hidden gap-3">
-                {/* Header */}
-                <div className="flex items-center justify-between gap-3 pt-1 flex-wrap">
+                        {/* ── UNIFIED VIEW: CUSTOMERS & FOLLOW-UP ───────────────────── */}
+            {(activeNav === 'customers' || activeNav === 'followup') && (
+              <div className="flex-1 flex flex-col overflow-hidden space-y-3">
+                {/* Header with Title, Dynamic Taxonomy, + Add Customer, and Sub-Tabs */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-border pb-2.5 pt-1">
                   <div>
-                    <h3 className="font-semibold text-sm text-text-primary flex items-center gap-1.5">
+                    <h3 className="font-semibold text-sm text-text-primary flex items-center gap-2">
                       <Users className="w-4 h-4 text-accent stroke-[1.5]" />
-                      {currentTaxonomy.client_plural || 'Customers'}
-                      <span className="ml-1 text-text-muted text-xs font-normal">
-                        ({(Array.isArray(customers) ? customers : []).filter(c => !dirSearch.trim() || ((c?.name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.phone||'').includes(dirSearch) || (c?.health_concern||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.status||'').toLowerCase().includes(dirSearch.toLowerCase()))).length} of {Array.isArray(customers) ? customers.length : 0})
-                      </span>
+                      <span>{currentTaxonomy.client_plural || 'Customers'}</span>
                     </h3>
-                    <p className="text-[11px] text-text-muted mt-0.5">Complete CRM records — click any row to view the full profile</p>
+                    <p className="text-[11px] text-text-muted mt-0.5">
+                      All {(currentTaxonomy.client_plural || 'customers').toLowerCase()}, follow-ups, scheduled tasks, and notes.
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder={`Search ${(currentTaxonomy.client_plural || 'customers').toLowerCase()}, phone...`}
-                      value={dirSearch}
-                      onChange={(e) => setDirSearch(e.target.value)}
-                      className="px-3 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent w-52"
-                    />
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* View Switcher Pills */}
+                    <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5">
+                      <button
+                        onClick={() => setFollowupView('list')}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                          followupView === 'list'
+                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        <List className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span>Follow-up</span>
+                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{customers.length}</span>
+                      </button>
+                      <button
+                        onClick={() => setFollowupView('tasks')}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                          followupView === 'tasks'
+                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        <CalendarCheck className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span>Tasks</span>
+                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{tasks.filter(t => !t.completed).length}</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setFollowupView('notes');
+                          setLoadingAllNotes(true);
+                          crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
+                        }}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                          followupView === 'notes'
+                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        <StickyNote className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span>Notes</span>
+                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{allNotes.length}</span>
+                      </button>
+                    </div>
+
+                    {/* + Add Customer Button */}
                     <button
                       onClick={() => setShowAddCustomerModal(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer shrink-0"
+                      className="flex items-center gap-1.5 px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer shrink-0"
                     >
                       <UserPlus className="w-3.5 h-3.5 stroke-[1.5]" />
                       Add {currentTaxonomy.client_label || 'Customer'}
                     </button>
+
+                    {/* Refresh Button */}
+                    <button
+                      onClick={() => {
+                        loadCustomers();
+                        loadTasks();
+                        if (followupView === 'notes') {
+                          setLoadingAllNotes(true);
+                          crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
+                        }
+                      }}
+                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Refresh"
+                    >
+                      <RotateCcw className={`w-3.5 h-3.5 ${loadingCustomers || loadingTasks || loadingAllNotes ? 'animate-spin' : ''}`} />
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex-1 flex gap-3 overflow-hidden">
-                  {/* Table */}
-                  <div className={`flex-1 overflow-auto border border-border rounded-sm bg-surface ${dirSelectedCust ? 'min-w-0' : ''}`}>
-                    <table className="w-full text-left text-xs min-w-[700px]">
-                      <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
-                        <tr>
-                          <th className="p-2.5 pl-4 whitespace-nowrap">{currentTaxonomy.client_label || 'Customer'}</th>
-                          <th className="p-2.5 whitespace-nowrap">Phone</th>
-                          <th className="p-2.5 whitespace-nowrap">Status</th>
-                          <th className="p-2.5 whitespace-nowrap">Lead</th>
-                          <th className="p-2.5 whitespace-nowrap">{currentTaxonomy.requirement_label || 'Requirement'}</th>
-                          <th className="p-2.5 whitespace-nowrap">Follow-up</th>
-                          <th className="p-2.5 whitespace-nowrap">Last Chat</th>
-                          <th className="p-2.5 pr-4 text-right whitespace-nowrap">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {loadingCustomers ? (
-                          <tr><td colSpan={8} className="p-8 text-center text-text-muted text-xs">Loading {(currentTaxonomy.client_plural || 'customers').toLowerCase()}...</td></tr>
-                        ) : (Array.isArray(customers) ? customers : []).filter(c => !dirSearch.trim() || ((c?.name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.phone||'').includes(dirSearch) || (c?.health_concern||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.status||'').toLowerCase().includes(dirSearch.toLowerCase()))).length === 0 ? (
-                          <tr><td colSpan={8} className="p-8 text-center text-text-muted text-xs">No {(currentTaxonomy.client_plural || 'customers').toLowerCase()} found.</td></tr>
-                        ) : (Array.isArray(customers) ? customers : []).filter(c => !dirSearch.trim() || ((c?.name||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.phone||'').includes(dirSearch) || (c?.health_concern||'').toLowerCase().includes(dirSearch.toLowerCase()) || (c?.status||'').toLowerCase().includes(dirSearch.toLowerCase()))).map((cust) => {
-                          const sStyle: Record<string, string> = { converted: 'bg-emerald-50 text-emerald-800 border-emerald-200', 'follow-up': 'bg-amber-50 text-amber-800 border-amber-200', contacted: 'bg-blue-50 text-blue-800 border-blue-200', lost: 'bg-rose-50 text-rose-800 border-rose-200', new: 'bg-slate-100 text-slate-700 border-slate-200' };
-                          const lStyle: Record<string, string> = { hot: 'bg-rose-50 text-rose-700 border-rose-200', warm: 'bg-amber-50 text-amber-700 border-amber-200', cold: 'bg-blue-50 text-blue-700 border-blue-200' };
-                          const lDot: Record<string, string> = { hot: 'bg-rose-500', warm: 'bg-amber-500', cold: 'bg-blue-400' };
-                          // Follow-up badge logic
-                          let fuBadge: React.ReactNode = <span className="text-text-muted text-[11px]">-</span>;
-                          if (cust.followup_date) {
-                            const today = new Date(); today.setHours(0,0,0,0);
-                            const fuDate = new Date(cust.followup_date); fuDate.setHours(0,0,0,0);
-                            const diff = Math.round((fuDate.getTime() - today.getTime()) / 86400000);
-                            if (diff < 0) fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1 w-fit"><AlertCircle className="w-2.5 h-2.5" />Overdue</span>;
-                            else if (diff === 0) fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200 flex items-center gap-1 w-fit"><Clock className="w-2.5 h-2.5" />Today</span>;
-                            else if (diff === 1) fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-blue-100 text-blue-700 border border-blue-200 flex items-center gap-1 w-fit"><CalendarClock className="w-2.5 h-2.5" />Tomorrow</span>;
-                            else fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 flex items-center gap-1 w-fit"><Calendar className="w-2.5 h-2.5" />{cust.followup_date}</span>;
-                          }
-                          return (
-                            <tr
-                              key={cust.id}
-                              onClick={() => setDirSelectedCust(dirSelectedCust?.id === cust.id ? null : cust)}
-                              className={`hover:bg-surface-subtle/60 transition-colors duration-100 cursor-pointer ${dirSelectedCust?.id === cust.id ? 'bg-blue-50/40 border-l-2 border-l-accent' : ''}`}
-                            >
-                              <td className="p-2.5 pl-4">
-                                <div className="font-medium text-text-primary text-[11px]">{cust.name || 'Unnamed'}</div>
-                                {cust.wa_profile_name && cust.wa_profile_name !== cust.name && (
-                                  <div className="text-[10px] text-text-muted mt-0.5">{cust.wa_profile_name}</div>
-                                )}
-                                {(cust.age || cust.location) && (
-                                  <div className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1.5">
-                                    {cust.age && <span>{cust.age}y</span>}
-                                    {cust.age && cust.location && <span>·</span>}
-                                    {cust.location && <span className="flex items-center gap-0.5"><MapPin className="w-2.5 h-2.5" />{cust.location}</span>}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="p-2.5 font-mono text-text-secondary whitespace-nowrap text-[11px]">{cust.phone}</td>
-                              <td className="p-2.5">
-                                <span className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border ${sStyle[cust.status] || sStyle['new']}`}>
-                                  {cust.status === 'follow-up' ? 'Follow-up' : (cust.status || 'New').charAt(0).toUpperCase() + (cust.status || 'New').slice(1)}
-                                </span>
-                              </td>
-                              <td className="p-2.5">
-                                <span className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border flex items-center gap-1 w-fit ${lStyle[cust.lead_probability] || lStyle['warm']}`}>
-                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${lDot[cust.lead_probability] || lDot['warm']}`} />
-                                  {(cust.lead_probability || 'warm').charAt(0).toUpperCase() + (cust.lead_probability || 'warm').slice(1)}
-                                </span>
-                              </td>
-                              <td className="p-2.5 max-w-[140px]">
-                                <span className="text-text-secondary text-[11px] truncate block" title={cust.health_concern || ''}>{cust.health_concern || '-'}</span>
-                              </td>
-                              <td className="p-2.5">{fuBadge}</td>
-                              <td className="p-2.5 font-mono text-[11px] whitespace-nowrap">
-                                {cust.last_chat_at
-                                  ? <span className="flex items-center gap-1 text-blue-600"><MessageCircle className="w-3 h-3 stroke-[1.5]" />{new Date(cust.last_chat_at).toLocaleDateString()}</span>
-                                  : <span className="text-text-muted">No chat</span>}
-                              </td>
-                              <td className="p-2.5 pr-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center gap-1.5 justify-end">
-                                  <button
-                                    onClick={() => openChatForContact(cust.phone)}
-                                    className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary text-[11px] rounded-sm border border-border transition-colors cursor-pointer flex items-center gap-1"
-                                  >
-                                    <MessageCircle className="w-3 h-3 stroke-[1.5]" /> Chat
-                                  </button>
-                                  <button
-                                    onClick={() => setDirSelectedCust(dirSelectedCust?.id === cust.id ? null : cust)}
-                                    className="px-2 py-1 bg-accent hover:bg-accent-hover text-white text-[11px] rounded-sm transition-colors cursor-pointer flex items-center gap-1"
-                                  >
-                                    <User className="w-3 h-3 stroke-[1.5]" /> Profile
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Customer Detail Drawer */}
-                  {dirSelectedCust && (
-                    <div className="w-[400px] xl:w-[460px] bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden shadow-sm">
-                      {/* Drawer Header */}
-                      <div className="p-3 border-b border-border bg-surface-subtle/50 flex items-center justify-between">
-                        <div>
-                          <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
-                            <User className="w-3.5 h-3.5 text-accent stroke-[1.5]" />{dirSelectedCust.name || 'Customer Profile'}
-                          </h4>
-                          <p className="text-[10px] font-mono text-text-muted mt-0.5">{dirSelectedCust.phone}</p>
-                        </div>
-                        <button onClick={() => setDirSelectedCust(null)} className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
+                {/* ── SUB-VIEW A: FOLLOW-UP LIST ──────────────────────────────── */}
+                {followupView === 'list' && (
+                  <div className="flex-1 flex flex-col overflow-hidden space-y-3">
+                    {/* Filter & Segment Controls */}
+                    <div className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 bg-surface border border-border rounded-sm">
+                      {/* Left: Status Filter Pills */}
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="text-[11px] font-medium text-text-muted mr-1">Status:</span>
+                        {[
+                          { key: 'all', label: 'All' },
+                          { key: 'new', label: 'New' },
+                          { key: 'contacted', label: 'Contacted' },
+                          { key: 'follow-up', label: 'Follow-up' },
+                          { key: 'converted', label: 'Converted' },
+                          { key: 'lost', label: 'Lost' },
+                        ].map((st) => (
+                          <button
+                            key={st.key}
+                            onClick={() => setFollowupStatusFilter(st.key)}
+                            className={`px-2.5 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer ${
+                              followupStatusFilter === st.key
+                                ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
+                                : 'bg-surface border-border text-text-secondary hover:text-text-primary hover:bg-surface-subtle'
+                            }`}
+                          >
+                            {st.label}
+                          </button>
+                        ))}
                       </div>
 
-                      <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
-                        {/* Identity */}
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Identity</p>
-                          <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
-                            {[
-                              { label: 'Name', value: dirSelectedCust.name || '-' },
-                              { label: 'WA Profile', value: dirSelectedCust.wa_profile_name || '-' },
-                              { label: 'Phone', value: dirSelectedCust.phone, mono: true },
-                            ].map((f) => (
-                              <div key={f.label} className="flex items-start justify-between px-2.5 py-2 gap-2">
-                                <span className="text-text-muted shrink-0 text-[11px]">{f.label}</span>
-                                <span className={`text-text-primary font-medium text-right truncate text-[11px] ${(f as any).mono ? 'font-mono' : ''}`}>{f.value}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
+                      {/* Middle: Lead Probability Badges */}
+                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] font-medium text-text-muted mr-1">Lead:</span>
+                        {[
+                          { key: 'all', label: 'All' },
+                          { key: 'hot', label: 'Hot', dot: 'bg-rose-500' },
+                          { key: 'warm', label: 'Warm', dot: 'bg-amber-500' },
+                          { key: 'cold', label: 'Cold', dot: 'bg-blue-400' },
+                        ].map((prob) => (
+                          <button
+                            key={prob.key}
+                            onClick={() => setFollowupProbabilityFilter(prob.key)}
+                            className={`px-2 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer flex items-center gap-1 ${
+                              followupProbabilityFilter === prob.key
+                                ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
+                                : 'bg-surface border-border text-text-secondary hover:text-text-primary'
+                            }`}
+                          >
+                            {prob.dot && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${prob.dot}`} />}
+                            <span>{prob.label}</span>
+                          </button>
+                        ))}
+                      </div>
 
-                        {/* Editable Attributes */}
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Attributes</p>
-                          <div className="space-y-2">
+                      {/* Right: Staff Selector & Search */}
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={followupDoctorFilter}
+                          onChange={(e) => setFollowupDoctorFilter(e.target.value)}
+                          className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                        >
+                          <option value="all">All {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff'}</option>
+                          <option value="Dr. Sarah Mitchell">Dr. Sarah Mitchell</option>
+                          <option value="Dr. Rajesh Kumar">Dr. Rajesh Kumar</option>
+                          <option value="Dr. Emily Stone">Dr. Emily Stone</option>
+                        </select>
+
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
+                          <input
+                            type="text"
+                            placeholder={`Filter ${(currentTaxonomy.client_plural || 'customers').toLowerCase()}, phone...`}
+                            value={followupSearch}
+                            onChange={(e) => setFollowupSearch(e.target.value)}
+                            className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-48"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quick KPI Summary Bar */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-text-muted font-medium">Total {currentTaxonomy.client_plural || 'Customers'}</p>
+                          <p className="text-base font-semibold text-text-primary mt-0.5">{customers.length}</p>
+                        </div>
+                        <Users className="w-4 h-4 text-text-muted stroke-[1.5]" />
+                      </div>
+
+                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-amber-700 font-medium">Pending Follow-ups</p>
+                          <p className="text-base font-semibold text-amber-900 mt-0.5">
+                            {customers.filter(c => c.status === 'follow-up' || c.status === 'new').length}
+                          </p>
+                        </div>
+                        <Clock3 className="w-4 h-4 text-amber-600 stroke-[1.5]" />
+                      </div>
+
+                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-rose-700 font-medium">Hot Leads</p>
+                          <p className="text-base font-semibold text-rose-900 mt-0.5">
+                            {customers.filter(c => c.lead_probability === 'hot').length}
+                          </p>
+                        </div>
+                        <Flame className="w-4 h-4 text-rose-600 stroke-[1.5]" />
+                      </div>
+
+                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-emerald-700 font-medium">Converted {currentTaxonomy.client_plural || 'Customers'}</p>
+                          <p className="text-base font-semibold text-emerald-900 mt-0.5">
+                            {customers.filter(c => c.converted).length}
+                            <span className="text-[10px] text-emerald-600 ml-1.5 font-normal">
+                              ({customers.length ? Math.round((customers.filter(c => c.converted).length / customers.length) * 100) : 0}%)
+                            </span>
+                          </p>
+                        </div>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 stroke-[1.5]" />
+                      </div>
+                    </div>
+
+                    {/* Main Table + Customer Detail Drawer */}
+                    <div className="flex-1 flex overflow-hidden gap-3">
+                      {/* Customers Table */}
+                      <div className={`flex-1 overflow-y-auto border border-border rounded-sm bg-surface ${selectedCustomer ? 'min-w-0' : ''}`}>
+                        <table className="w-full text-left text-xs min-w-[720px]">
+                          <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
+                            <tr>
+                              <th className="p-2.5 pl-4">{currentTaxonomy.client_label || 'Customer'}</th>
+                              <th className="p-2.5">{currentTaxonomy.staff_label || 'Staff'}</th>
+                              <th className="p-2.5">{currentTaxonomy.requirement_label || 'Requirement'}</th>
+                              <th className="p-2.5">Status</th>
+                              <th className="p-2.5">Lead</th>
+                              <th className="p-2.5 text-center">Converted</th>
+                              <th className="p-2.5">Follow-up Due</th>
+                              <th className="p-2.5">Latest Note</th>
+                              <th className="p-2.5 text-right pr-4">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {loadingCustomers ? (
+                              <tr>
+                                <td colSpan={9} className="p-8 text-center text-text-muted">
+                                  Loading {(currentTaxonomy.client_plural || 'customers').toLowerCase()}...
+                                </td>
+                              </tr>
+                            ) : customers.length === 0 ? (
+                              <tr>
+                                <td colSpan={9} className="p-8 text-center text-text-muted">
+                                  No {(currentTaxonomy.client_plural || 'customers').toLowerCase()} match the selected filters.
+                                </td>
+                              </tr>
+                            ) : (
+                              customers.map((cust) => {
+                                const isSelected = selectedCustomer?.id === cust.id;
+                                let fuBadge: React.ReactNode = <span className="text-text-muted text-[11px]">—</span>;
+                                if (cust.followup_date) {
+                                  const today = new Date(); today.setHours(0,0,0,0);
+                                  const fuDate = new Date(cust.followup_date); fuDate.setHours(0,0,0,0);
+                                  const diff = Math.round((fuDate.getTime() - today.getTime()) / 86400000);
+                                  if (diff < 0) fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1 w-fit"><AlertCircle className="w-2.5 h-2.5" />Overdue</span>;
+                                  else if (diff === 0) fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200 flex items-center gap-1 w-fit"><Clock className="w-2.5 h-2.5" />Today</span>;
+                                  else if (diff === 1) fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-blue-100 text-blue-700 border border-blue-200 flex items-center gap-1 w-fit"><CalendarClock className="w-2.5 h-2.5" />Tomorrow</span>;
+                                  else fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 flex items-center gap-1 w-fit"><Calendar className="w-2.5 h-2.5" />{cust.followup_date}</span>;
+                                }
+
+                                return (
+                                  <tr
+                                    key={cust.id}
+                                    onClick={() => handleSelectCustomer(cust)}
+                                    className={`cursor-pointer transition-colors duration-150 ${
+                                      isSelected ? 'bg-blue-50/50 border-l-2 border-l-accent' : 'hover:bg-surface-subtle/70'
+                                    }`}
+                                  >
+                                    <td className="p-2.5 pl-4">
+                                      <div className="font-medium text-text-primary text-[11px]">{cust.name || 'Customer'}</div>
+                                      <div className="font-mono text-[10px] text-text-muted mt-0.5">{cust.phone}</div>
+                                      {(cust.age || cust.location) && (
+                                        <div className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1">
+                                          {cust.age && <span>{cust.age}y</span>}
+                                          {cust.age && cust.location && <span>·</span>}
+                                          {cust.location && <span className="flex items-center gap-0.5"><MapPin className="w-2.5 h-2.5" />{cust.location}</span>}
+                                        </div>
+                                      )}
+                                    </td>
+
+                                    <td className="p-2.5 text-text-secondary whitespace-nowrap text-[11px]">
+                                      <span>{cust.preferred_doctor || '—'}</span>
+                                    </td>
+
+                                    <td className="p-2.5 text-text-secondary max-w-[150px] truncate" title={cust.health_concern}>
+                                      <span className="text-[11px]">{cust.health_concern || '—'}</span>
+                                    </td>
+
+                                    {/* Status Selector */}
+                                    <td className="p-2.5" onClick={(e) => e.stopPropagation()}>
+                                      <select
+                                        value={cust.status}
+                                        onChange={(e) => handleUpdateCustomer(cust.id, { status: e.target.value as any })}
+                                        className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border focus:outline-none cursor-pointer ${
+                                          cust.status === 'converted'
+                                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                            : cust.status === 'follow-up'
+                                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                            : cust.status === 'contacted'
+                                            ? 'bg-blue-50 text-blue-800 border-blue-200'
+                                            : cust.status === 'lost'
+                                            ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                            : 'bg-slate-100 text-slate-800 border-slate-200'
+                                        }`}
+                                      >
+                                        <option value="new">New</option>
+                                        <option value="contacted">Contacted</option>
+                                        <option value="follow-up">Follow-up</option>
+                                        <option value="converted">Converted</option>
+                                        <option value="lost">Lost</option>
+                                      </select>
+                                    </td>
+
+                                    {/* Lead Probability Selector */}
+                                    <td className="p-2.5" onClick={(e) => e.stopPropagation()}>
+                                      <select
+                                        value={cust.lead_probability}
+                                        onChange={(e) => handleUpdateCustomer(cust.id, { lead_probability: e.target.value as any })}
+                                        className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border focus:outline-none cursor-pointer ${
+                                          cust.lead_probability === 'hot'
+                                            ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                            : cust.lead_probability === 'warm'
+                                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                            : 'bg-blue-50 text-blue-800 border-blue-200'
+                                        }`}
+                                      >
+                                        <option value="hot">Hot</option>
+                                        <option value="warm">Warm</option>
+                                        <option value="cold">Cold</option>
+                                      </select>
+                                    </td>
+
+                                    {/* Converted Toggle */}
+                                    <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                      <button
+                                        onClick={() => handleUpdateCustomer(cust.id, { converted: !cust.converted })}
+                                        className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border transition-colors cursor-pointer ${
+                                          cust.converted
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                                            : 'bg-surface text-text-muted border-border hover:text-text-primary'
+                                        }`}
+                                      >
+                                        {cust.converted ? 'Converted' : 'Pending'}
+                                      </button>
+                                    </td>
+
+                                    {/* Follow-up Due Badge */}
+                                    <td className="p-2.5">{fuBadge}</td>
+
+                                    {/* Latest Note */}
+                                    <td className="p-2.5 max-w-[160px]">
+                                      {cust.latest_note ? (
+                                        <div className="truncate text-text-secondary text-[11px]" title={cust.latest_note}>
+                                          {cust.latest_note}
+                                        </div>
+                                      ) : (
+                                        <span className="text-text-muted text-[11px]">No notes</span>
+                                      )}
+                                    </td>
+
+                                    {/* Actions */}
+                                    <td className="p-2.5 pr-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                      <div className="flex items-center gap-1.5 justify-end">
+                                        <button
+                                          onClick={() => openChatForContact(cust.phone)}
+                                          className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary text-[11px] rounded-sm border border-border transition-colors cursor-pointer flex items-center gap-1"
+                                        >
+                                          <MessageSquare className="w-3 h-3 stroke-[1.5]" /> Chat
+                                        </button>
+                                        <button
+                                          onClick={() => handleSelectCustomer(cust)}
+                                          className="px-2 py-1 bg-accent hover:bg-accent-hover text-white text-[11px] rounded-sm transition-colors cursor-pointer flex items-center gap-1"
+                                        >
+                                          <User className="w-3 h-3 stroke-[1.5]" /> Profile
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Customer Detail Drawer / Profile Panel */}
+                      {selectedCustomer && (
+                        <div className={`${isDrawerExpanded ? 'w-[740px] max-w-[55vw]' : 'w-[480px] xl:w-[540px]'} bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-sm`}>
+                          {/* Panel Header */}
+                          <div className="p-3 border-b border-border flex items-center justify-between bg-surface-subtle/50">
                             <div>
-                              <label className="block text-[10px] text-text-muted mb-1">{currentTaxonomy.requirement_label || 'Requirement'}</label>
-                              <textarea
-                                value={drawerConcern}
-                                onChange={(e) => setDrawerConcern(e.target.value)}
-                                rows={2}
-                                placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
-                                className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent resize-none"
-                              />
-                              {/* Pre-built quick chips */}
-                              {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] && (
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                  {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'].map((chip) => (
-                                    <button
-                                      key={chip}
-                                      type="button"
-                                      onClick={() => setDrawerConcern(chip)}
-                                      className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${drawerConcern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'}`}
-                                    >
-                                      {chip}
-                                    </button>
+                              <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
+                                <User className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                                <span>{selectedCustomer.name || 'Customer Profile'}</span>
+                              </h4>
+                              <p className="text-[10px] font-mono text-text-muted mt-0.5">{selectedCustomer.phone}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => openChatForContact(selectedCustomer.phone)}
+                                className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary text-[11px] font-medium rounded-sm border border-border flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Open WhatsApp chat"
+                              >
+                                <MessageSquare className="w-3 h-3 text-accent stroke-[1.5]" />
+                                <span>Chat</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setIsDrawerExpanded(!isDrawerExpanded)}
+                                className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
+                                title={isDrawerExpanded ? 'Collapse panel' : 'Expand full width'}
+                              >
+                                {isDrawerExpanded ? <Minimize2 className="w-3.5 h-3.5 stroke-[1.5]" /> : <Maximize2 className="w-3.5 h-3.5 stroke-[1.5]" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setSelectedCustomer(null); setIsDrawerExpanded(false); }}
+                                className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
+                                title="Close profile"
+                              >
+                                <X className="w-3.5 h-3.5 stroke-[1.5]" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Panel Body */}
+                          <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
+                            {/* 1. Identity & Attributes Card */}
+                            <div className="space-y-2 p-3 bg-surface-subtle border border-border rounded-sm">
+                              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Customer Details</p>
+                              
+                              <div>
+                                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.requirement_label || 'Requirement / Concern'}</label>
+                                <textarea
+                                  value={drawerConcern}
+                                  onChange={(e) => setDrawerConcern(e.target.value)}
+                                  rows={2}
+                                  placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
+                                  className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent resize-none"
+                                />
+                                {/* Prebuilt Chips */}
+                                {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] && (
+                                  <div className="flex flex-wrap gap-1 mt-1">
+                                    {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'].map((chip) => (
+                                      <button
+                                        key={chip}
+                                        type="button"
+                                        onClick={() => setDrawerConcern(chip)}
+                                        className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${
+                                          drawerConcern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'
+                                        }`}
+                                      >
+                                        {chip}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2 pt-1">
+                                <div>
+                                  <label className="text-[10px] text-text-muted block mb-1">Age</label>
+                                  <input
+                                    type="number" min="1" max="120"
+                                    value={drawerAge}
+                                    onChange={(e) => setDrawerAge(e.target.value)}
+                                    placeholder="e.g. 35"
+                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-text-muted block mb-1">Location</label>
+                                  <input
+                                    type="text"
+                                    value={drawerLocation}
+                                    onChange={(e) => setDrawerLocation(e.target.value)}
+                                    placeholder="e.g. Mumbai"
+                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="pt-1">
+                                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.staff_label || 'Assigned Staff'}</label>
+                                <input
+                                  type="text"
+                                  value={selectedCustomer.preferred_doctor || ''}
+                                  onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { preferred_doctor: e.target.value })}
+                                  placeholder={`e.g. Assigned ${currentTaxonomy.staff_label || 'Staff'}`}
+                                  className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                />
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={handleSaveDrawerAttributes}
+                                disabled={savingDrawerAttributes}
+                                className="w-full py-1.5 px-3 bg-accent hover:bg-accent-hover disabled:opacity-60 text-white text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 mt-2"
+                              >
+                                <Save className="w-3 h-3 stroke-[1.5]" />
+                                {savingDrawerAttributes ? 'Saving...' : 'Save Attributes'}
+                              </button>
+                            </div>
+
+                            {/* 2. Schedule Follow-up Card */}
+                            <div className="p-3 bg-surface-subtle border border-border rounded-sm space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                                  <CalendarClock className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                                  <span>Schedule Follow-up</span>
+                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  {selectedCustomer.google_task_id && (
+                                    <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium">
+                                      Tasks Synced
+                                    </span>
+                                  )}
+                                  {selectedCustomer.google_calendar_event_id && (
+                                    <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-sm font-medium">
+                                      Calendar Synced
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Date</label>
+                                  <input
+                                    type="date"
+                                    value={selectedCustomer.followup_date || ''}
+                                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_date: e.target.value })}
+                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Time</label>
+                                  <input
+                                    type="text"
+                                    value={selectedCustomer.followup_time || '10:00 AM'}
+                                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_time: e.target.value })}
+                                    placeholder="e.g. 10:30 AM"
+                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                disabled={syncingGoogleTasks}
+                                onClick={() => handleSyncCustomerToGoogleTasks(selectedCustomer.id)}
+                                className="w-full py-1.5 px-2.5 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium border border-border rounded-sm flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <CalendarCheck className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                                <span>
+                                  {syncingGoogleTasks
+                                    ? 'Syncing with Google Calendar & Tasks...'
+                                    : (selectedCustomer.google_task_id || selectedCustomer.google_calendar_event_id)
+                                    ? 'Re-sync with Google Calendar & Tasks'
+                                    : 'Sync to Google Calendar & Tasks'}
+                                </span>
+                              </button>
+                            </div>
+
+                            {/* 3. Notes History & Add Note */}
+                            <div className="space-y-2 border-t border-border pt-3">
+                              <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                                <StickyNote className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                                <span>Staff Notes ({customerNotes.length})</span>
+                              </span>
+
+                              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                                {loadingCustomerNotes ? (
+                                  <p className="text-[11px] text-text-muted text-center py-2">Loading notes...</p>
+                                ) : customerNotes.length === 0 ? (
+                                  <p className="text-[11px] text-text-muted text-center py-2 bg-surface-subtle/50 rounded-sm border border-border">
+                                    No notes added yet.
+                                  </p>
+                                ) : (
+                                  customerNotes.map((nt) => {
+                                    const noteColor = nt.color || 'slate';
+                                    const colorMap: Record<string, string> = {
+                                      slate: 'border-l-slate-400 bg-slate-50',
+                                      blue: 'border-l-blue-400 bg-blue-50',
+                                      amber: 'border-l-amber-400 bg-amber-50',
+                                      rose: 'border-l-rose-400 bg-rose-50',
+                                      emerald: 'border-l-emerald-400 bg-emerald-50',
+                                      violet: 'border-l-violet-400 bg-violet-50',
+                                    };
+                                    const badgeMap: Record<string, string> = {
+                                      slate: 'bg-slate-200 text-slate-700',
+                                      blue: 'bg-blue-100 text-blue-700',
+                                      amber: 'bg-amber-100 text-amber-700',
+                                      rose: 'bg-rose-100 text-rose-700',
+                                      emerald: 'bg-emerald-100 text-emerald-700',
+                                      violet: 'bg-violet-100 text-violet-700',
+                                    };
+                                    return (
+                                      <div key={nt.id} className={`pl-2.5 pr-2.5 py-2 border border-border border-l-2 rounded-sm space-y-1 ${colorMap[noteColor] || colorMap.slate}`}>
+                                        <div className="flex items-center justify-between text-[10px]">
+                                          <span className={`font-semibold px-1.5 py-0.5 rounded-sm text-[10px] ${badgeMap[noteColor] || badgeMap.slate}`}>{nt.author}</span>
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-text-muted font-mono">
+                                              {nt.created_at ? new Date(nt.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleDeleteNote(nt.id)}
+                                              title="Delete note"
+                                              className="p-0.5 text-text-muted hover:text-rose-600 rounded cursor-pointer"
+                                            >
+                                              <Trash2 className="w-3 h-3 stroke-[1.5]" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                        <p className="text-xs text-text-body whitespace-pre-wrap leading-relaxed font-sans">{nt.note_text}</p>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+
+                              <form onSubmit={handleAddCustomerNote} className="space-y-1.5 pt-1">
+                                <div className="flex gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={newCustomerNoteAuthor}
+                                    onChange={(e) => setNewCustomerNoteAuthor(e.target.value)}
+                                    placeholder="Author"
+                                    className="w-24 px-2 py-1 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={newCustomerNoteText}
+                                    onChange={(e) => setNewCustomerNoteText(e.target.value)}
+                                    placeholder="Add a staff note..."
+                                    className="flex-1 px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                </div>
+                                <button
+                                  type="submit"
+                                  disabled={!newCustomerNoteText.trim() || addingCustomerNote}
+                                  className="w-full py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  {addingCustomerNote ? 'Saving...' : '+ Save Note'}
+                                </button>
+                              </form>
+                            </div>
+
+                            {/* 4. WhatsApp Chat History & Reply */}
+                            <div className="space-y-2 border-t border-border pt-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                                  <MessageSquare className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                                  <span>WhatsApp Chat History</span>
+                                </span>
+                                {customerChat?.unread_count ? (
+                                  <span className="px-1.5 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-bold">
+                                    {customerChat.unread_count} unread
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              <div className="h-44 overflow-y-auto p-2 bg-canvas border border-border rounded-sm space-y-2">
+                                {loadingCustomerChat ? (
+                                  <p className="text-[11px] text-text-muted text-center py-6">Loading chat history...</p>
+                                ) : !customerChat || !customerChat.messages || customerChat.messages.length === 0 ? (
+                                  <p className="text-[11px] text-text-muted text-center py-6">No WhatsApp messages yet.</p>
+                                ) : (
+                                  customerChat.messages.map((msg) => {
+                                    const isInbound = msg.direction === 'inbound';
+                                    return (
+                                      <div key={msg.id} className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
+                                        <div className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${isInbound ? 'bg-surface text-text-body border border-border' : 'bg-accent text-white'}`}>
+                                          <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
+                                          <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}>
+                                            <span>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+
+                              <form onSubmit={handleSendCustomerReply} className="flex gap-1.5 pt-1">
+                                <input
+                                  type="text"
+                                  value={customerReplyText}
+                                  onChange={(e) => setCustomerReplyText(e.target.value)}
+                                  placeholder="Type WhatsApp follow-up reply..."
+                                  className="flex-1 px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                />
+                                <button
+                                  type="submit"
+                                  disabled={!customerReplyText.trim() || sendingCustomerReply}
+                                  className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  <Send className="w-3.5 h-3.5 stroke-[1.5]" />
+                                </button>
+                              </form>
+                            </div>
+
+                            {/* 5. Bookings & Revenue */}
+                            <div className="space-y-2 border-t border-border pt-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                                  <CalendarDays className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                                  <span>Bookings & Revenue</span>
+                                </span>
+                                {customerBookingsData && (
+                                  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm">
+                                    Total: {currentCurrencySymbol}{customerBookingsData.total_revenue ?? 0}
+                                  </span>
+                                )}
+                              </div>
+
+                              {loadingCustomerBookings ? (
+                                <p className="text-[11px] text-text-muted text-center py-2">Loading bookings...</p>
+                              ) : !customerBookingsData || !Array.isArray(customerBookingsData.bookings) || customerBookingsData.bookings.length === 0 ? (
+                                <p className="text-[11px] text-text-muted text-center py-2 bg-surface-subtle/50 rounded-sm border border-border">No appointments booked yet.</p>
+                              ) : (
+                                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                                  {(customerBookingsData?.bookings || []).map((bk) => (
+                                    <div key={bk.id} className="p-2 bg-surface-subtle border border-border rounded-sm flex items-center justify-between gap-2 text-xs">
+                                      <div className="min-w-0">
+                                        <p className="font-medium text-text-primary truncate">{bk.service}</p>
+                                        <p className="text-[10px] text-text-muted font-mono mt-0.5">
+                                          {bk.start_time ? new Date(bk.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                                        </p>
+                                      </div>
+                                      <div className="text-right shrink-0">
+                                        <p className="font-mono font-medium text-text-primary">{currentCurrencySymbol}{bk.price || 0}</p>
+                                        <span className={`text-[9px] font-semibold px-1 py-0.2 rounded-sm border ${
+                                          bk.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                                          bk.status === 'no_show' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                                          'bg-blue-50 text-blue-800 border-blue-200'
+                                        }`}>
+                                          {bk.status}
+                                        </span>
+                                      </div>
+                                    </div>
                                   ))}
                                 </div>
                               )}
                             </div>
-                            <div className="flex gap-2">
-                              <div className="flex-1">
-                                <label className="block text-[10px] text-text-muted mb-1">Age</label>
-                                <input
-                                  type="number"
-                                  min="1" max="120"
-                                  value={drawerAge}
-                                  onChange={(e) => setDrawerAge(e.target.value)}
-                                  placeholder="e.g. 35"
-                                  className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                />
-                              </div>
-                              <div className="flex-1">
-                                <label className="block text-[10px] text-text-muted mb-1">Location</label>
-                                <input
-                                  type="text"
-                                  value={drawerLocation}
-                                  onChange={(e) => setDrawerLocation(e.target.value)}
-                                  placeholder="e.g. Mumbai"
-                                  className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                />
-                              </div>
-                            </div>
-                            <button
-                              onClick={async () => {
-                                setSavingDrawerAttributes(true);
-                                try {
-                                  await handleUpdateCustomer(dirSelectedCust.id, {
-                                    health_concern: drawerConcern.trim() || undefined,
-                                    age: drawerAge ? parseInt(drawerAge, 10) : undefined,
-                                    location: drawerLocation.trim() || undefined,
-                                  } as any);
-                                  setDirSelectedCust(prev => prev ? { ...prev, health_concern: drawerConcern.trim(), age: drawerAge ? parseInt(drawerAge, 10) : prev.age, location: drawerLocation.trim() || prev.location } : null);
-                                  setActionNotice('Attributes saved.');
-                                  setTimeout(() => setActionNotice(null), 2500);
-                                } finally { setSavingDrawerAttributes(false); }
-                              }}
-                              disabled={savingDrawerAttributes}
-                              className="w-full py-1.5 px-3 bg-accent hover:bg-accent-hover disabled:opacity-60 text-white text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                            >
-                              <Save className="w-3 h-3 stroke-[1.5]" />
-                              {savingDrawerAttributes ? 'Saving...' : 'Save Attributes'}
-                            </button>
-                          </div>
-                        </div>
 
-                        {/* CRM Status */}
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">CRM Status</p>
-                          <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
-                            <div className="flex items-center justify-between px-2.5 py-2 gap-2">
-                              <span className="text-text-muted text-[11px]">Status</span>
-                              <span className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border ${({ converted: 'bg-emerald-50 text-emerald-800 border-emerald-200', 'follow-up': 'bg-amber-50 text-amber-800 border-amber-200', contacted: 'bg-blue-50 text-blue-800 border-blue-200', lost: 'bg-rose-50 text-rose-800 border-rose-200', new: 'bg-slate-100 text-slate-700 border-slate-200' } as Record<string,string>)[dirSelectedCust.status] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                                {dirSelectedCust.status === 'follow-up' ? 'Follow-up' : (dirSelectedCust.status || 'New').charAt(0).toUpperCase() + (dirSelectedCust.status || 'New').slice(1)}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between px-2.5 py-2 gap-2">
-                              <span className="text-text-muted text-[11px]">Lead</span>
-                              <span className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border flex items-center gap-1 ${({ hot: 'bg-rose-50 text-rose-700 border-rose-200', warm: 'bg-amber-50 text-amber-700 border-amber-200', cold: 'bg-blue-50 text-blue-700 border-blue-200' } as Record<string,string>)[dirSelectedCust.lead_probability] || 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${{ hot: 'bg-rose-500', warm: 'bg-amber-500', cold: 'bg-blue-400' }[dirSelectedCust.lead_probability] || 'bg-amber-500'}`} />
-                                {(dirSelectedCust.lead_probability || 'warm').charAt(0).toUpperCase() + (dirSelectedCust.lead_probability || 'warm').slice(1)}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between px-2.5 py-2 gap-2">
-                              <span className="text-text-muted text-[11px]">Converted</span>
-                              {dirSelectedCust.converted
-                                ? <span className="text-emerald-700 font-semibold flex items-center gap-1 text-[11px]"><CheckCircle2 className="w-3 h-3" /> Yes</span>
-                                : <span className="text-text-muted text-[11px]">No</span>}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* {currentTaxonomy.staff_label} */}
-                        <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
-                          <div className="flex items-start justify-between px-2.5 py-2 gap-2">
-                            <span className="text-text-muted shrink-0 text-[11px]">{currentTaxonomy.staff_label || 'Preferred Staff'}</span>
-                            <span className="text-text-primary font-medium text-right text-[11px]">{dirSelectedCust.preferred_doctor || '-'}</span>
-                          </div>
-                        </div>
-
-                        {/* Schedule */}
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Schedule</p>
-                          <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
-                            {[
-                              { label: 'Follow-up Date', value: dirSelectedCust.followup_date || '-', mono: true },
-                              { label: 'Follow-up Time', value: dirSelectedCust.followup_time || '-', mono: true },
-                            ].map((f) => (
-                              <div key={f.label} className="flex items-center justify-between px-2.5 py-2 gap-2">
-                                <span className="text-text-muted text-[11px]">{f.label}</span>
-                                <span className={`text-text-primary font-medium text-[11px] ${f.mono ? 'font-mono' : ''}`}>{f.value}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Activity */}
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Activity</p>
-                          <div className="bg-surface-subtle border border-border rounded-sm divide-y divide-border">
-                            {[
-                              { label: 'First Added', value: dirSelectedCust.created_at ? new Date(dirSelectedCust.created_at).toLocaleString() : '-', mono: true },
-                              { label: 'Last Chat', value: dirSelectedCust.last_chat_at ? new Date(dirSelectedCust.last_chat_at).toLocaleString() : 'No chat', mono: true },
-                              { label: 'Notes', value: `${dirSelectedCust.notes_count || 0} note${(dirSelectedCust.notes_count || 0) === 1 ? '' : 's'}` },
-                              { label: 'Google Tasks', value: dirSelectedCust.google_task_id ? 'Synced' : 'Not synced' },
-                              { label: 'Google Calendar', value: dirSelectedCust.google_calendar_event_id ? 'Synced' : 'Not synced' },
-                            ].map((f) => (
-                              <div key={f.label} className="flex items-start justify-between px-2.5 py-2 gap-2">
-                                <span className="text-text-muted shrink-0 text-[11px]">{f.label}</span>
-                                <span className={`font-medium text-right ${(f as any).mono ? 'font-mono text-[10px]' : 'text-[11px]'} ${f.value === 'Synced' ? 'text-emerald-600' : f.value === 'Not synced' ? 'text-text-muted' : 'text-text-primary'}`}>{f.value}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Latest Note */}
-                        {dirSelectedCust.latest_note && (
-                          <div className="space-y-1.5">
-                            <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Latest Note</p>
-                            <div className="bg-amber-50 border border-amber-200 rounded-sm px-2.5 py-2 text-[11px] text-amber-900 leading-relaxed whitespace-pre-wrap">{dirSelectedCust.latest_note}</div>
-                          </div>
-                        )}
-
-                        {/* Action Buttons */}
-                        <div className="flex gap-2 pt-1">
-                          <button
-                            onClick={() => openChatForContact(dirSelectedCust.phone)}
-                            className="flex-1 py-1.5 px-2.5 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-xs font-medium rounded-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5 text-accent stroke-[1.5]" /> Chat
-                          </button>
-                          <button
-                            onClick={() => { navigateTo('followup'); handleSelectCustomer(dirSelectedCust); }}
-                            className="flex-1 py-1.5 px-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                          >
-                            <CalendarClock className="w-3.5 h-3.5" /> Manage
-                          </button>
-                        </div>
-
-                        {/* 2-Step Deletion */}
-                        <div className="border-t border-border pt-3 mt-1">
-                          {!confirmDeleteStep ? (
-                            <button
-                              onClick={() => setConfirmDeleteStep(true)}
-                              className="w-full py-1.5 px-3 bg-surface border border-rose-200 hover:bg-rose-50 text-rose-600 text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                            >
-                              <Trash2 className="w-3 h-3 stroke-[1.5]" />
-                              Delete {currentTaxonomy.client_label || 'Customer'}
-                            </button>
-                          ) : (
-                            <div className="bg-rose-50 border border-rose-200 rounded-sm p-2.5 space-y-2">
-                              <p className="text-[11px] text-rose-800 font-medium flex items-center gap-1.5">
-                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                                This will permanently delete <strong>{dirSelectedCust.name || 'this customer'}</strong> and all their notes, tasks, and data.
-                              </p>
-                              <div className="flex gap-2">
+                            {/* 6. 2-Step Permanent Deletion */}
+                            <div className="border-t border-border pt-3 mt-2">
+                              {!confirmDeleteStep ? (
                                 <button
-                                  onClick={() => setConfirmDeleteStep(false)}
-                                  className="flex-1 py-1 px-2 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-[11px] rounded-sm transition-colors cursor-pointer"
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  onClick={async () => {
-                                    await handleDeleteCustomer(dirSelectedCust.id);
-                                    setDirSelectedCust(null);
-                                  }}
-                                  disabled={deletingCustomerId === dirSelectedCust.id}
-                                  className="flex-1 py-1 px-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white text-[11px] font-semibold rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                  type="button"
+                                  onClick={() => setConfirmDeleteStep(true)}
+                                  className="w-full py-1.5 px-3 bg-surface border border-rose-200 hover:bg-rose-50 text-rose-600 text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5"
                                 >
                                   <Trash2 className="w-3 h-3 stroke-[1.5]" />
-                                  {deletingCustomerId === dirSelectedCust.id ? 'Deleting...' : 'Yes, Delete'}
+                                  Delete {currentTaxonomy.client_label || 'Customer'}
+                                </button>
+                              ) : (
+                                <div className="bg-rose-50 border border-rose-200 rounded-sm p-2.5 space-y-2">
+                                  <p className="text-[11px] text-rose-800 font-medium flex items-center gap-1.5">
+                                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                    Permanently delete <strong>{selectedCustomer.name || 'this customer'}</strong> and all their notes, tasks, and history?
+                                  </p>
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteStep(false)}
+                                      className="flex-1 py-1 px-2 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-[11px] rounded-sm transition-colors cursor-pointer"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteCustomer(selectedCustomer.id)}
+                                      disabled={deletingCustomerId === selectedCustomer.id}
+                                      className="flex-1 py-1 px-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white text-[11px] font-semibold rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                    >
+                                      <Trash2 className="w-3 h-3 stroke-[1.5]" />
+                                      {deletingCustomerId === selectedCustomer.id ? 'Deleting...' : 'Yes, Delete'}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── SUB-VIEW B: TASK CALENDAR VIEW ─────────────────────────── */}
+                {followupView === 'tasks' && (
+                  <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-5xl">
+                    {/* Task Filter Pills + Add Task */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface border border-border rounded-sm">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] font-medium text-text-muted mr-1">Filter:</span>
+                        {[
+                          { key: 'all', label: 'All Tasks' },
+                          { key: 'today', label: 'Due Today' },
+                          { key: 'upcoming', label: 'Upcoming' },
+                          { key: 'overdue', label: 'Overdue' },
+                          { key: 'completed', label: 'Completed' },
+                        ].map((tf) => (
+                          <button
+                            key={tf.key}
+                            onClick={() => setTaskFilter(tf.key as any)}
+                            className={`px-2.5 py-1 text-xs rounded-sm border transition-colors cursor-pointer ${
+                              taskFilter === tf.key
+                                ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
+                                : 'bg-surface border-border text-text-secondary hover:text-text-primary'
+                            }`}
+                          >
+                            {tf.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={() => setShowAddTaskModal(true)}
+                        className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span>Add Task</span>
+                      </button>
+                    </div>
+
+                    {/* Task Cards List */}
+                    <div className="space-y-2">
+                      {loadingTasks ? (
+                        <p className="text-xs text-text-muted text-center py-8">Loading tasks...</p>
+                      ) : filteredTasks.length === 0 ? (
+                        <div className="p-8 text-center bg-surface border border-border rounded-sm space-y-1">
+                          <CheckSquare className="w-8 h-8 text-text-muted mx-auto stroke-[1]" />
+                          <p className="text-xs text-text-secondary font-medium">No tasks found</p>
+                          <p className="text-[11px] text-text-muted">You have no tasks matching this filter.</p>
+                        </div>
+                      ) : (
+                        filteredTasks.map((task) => {
+                          const isTaskOverdue = task.due_date && new Date(task.due_date) < new Date(new Date().setHours(0, 0, 0, 0)) && !task.completed;
+                          const isTaskToday = task.due_date && new Date(task.due_date).toDateString() === new Date().toDateString();
+
+                          return (
+                            <div
+                              key={task.id}
+                              className={`p-3.5 bg-surface border rounded-sm flex items-start gap-3 transition-colors ${
+                                task.completed
+                                  ? 'border-border opacity-60'
+                                  : isTaskOverdue
+                                  ? 'border-rose-300 bg-rose-50/20'
+                                  : 'border-border hover:border-border-strong'
+                              }`}
+                            >
+                              <button
+                                onClick={() => handleToggleTask(task.id)}
+                                className="mt-0.5 text-text-muted hover:text-accent cursor-pointer transition-colors"
+                              >
+                                {task.completed ? (
+                                  <CheckSquare className="w-4 h-4 text-emerald-600 stroke-[2]" />
+                                ) : (
+                                  <Square className="w-4 h-4 stroke-[1.5]" />
+                                )}
+                              </button>
+
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className={`text-xs font-semibold ${task.completed ? 'line-through text-text-muted' : 'text-text-primary'}`}>
+                                    {task.title}
+                                  </p>
+                                  {task.google_task_id && (
+                                    <span className="text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 py-0.2 rounded-xs font-medium">
+                                      Google Tasks
+                                    </span>
+                                  )}
+                                </div>
+
+                                {(task.description || (task as any).notes) && (
+                                  <p className="text-[11px] text-text-secondary whitespace-pre-wrap">{task.description || (task as any).notes}</p>
+                                )}
+
+                                <div className="flex items-center gap-3 text-[10px] text-text-muted flex-wrap pt-0.5">
+                                  {task.due_date && (
+                                    <span className={`flex items-center gap-1 font-mono ${
+                                      isTaskOverdue ? 'text-rose-600 font-semibold' : isTaskToday ? 'text-amber-600 font-semibold' : ''
+                                    }`}>
+                                      <Clock className="w-3 h-3 stroke-[1.5]" />
+                                      <span>Due: {task.due_date}</span>
+                                    </span>
+                                  )}
+                                  {task.customer_name && (
+                                    <span className="flex items-center gap-1">
+                                      <User className="w-3 h-3 stroke-[1.5]" />
+                                      <span>{task.customer_name}</span>
+                                      {task.customer_phone && <span className="font-mono text-text-muted">({task.customer_phone})</span>}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <button
+                                onClick={() => handleDeleteTask(task.id)}
+                                className="text-text-muted hover:text-rose-600 p-1 rounded-sm cursor-pointer transition-colors"
+                                title="Delete task"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                              </button>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── SUB-VIEW C: OVERALL NOTES VIEW ──────────────────────────── */}
+                {followupView === 'notes' && (
+                  <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-5xl">
+                    {/* Notes Toolbar */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface border border-border rounded-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-medium text-text-muted">Color:</span>
+                        <div className="flex items-center gap-1">
+                          {['all', 'slate', 'blue', 'amber', 'rose', 'emerald', 'violet'].map((c) => (
+                            <button
+                              key={c}
+                              onClick={() => setAllNotesColorFilter(c)}
+                              className={`px-2 py-0.5 text-xs rounded-sm border capitalize transition-colors cursor-pointer ${
+                                allNotesColorFilter === c
+                                  ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
+                                  : 'bg-surface border-border text-text-secondary hover:text-text-primary'
+                              }`}
+                            >
+                              {c}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
+                          <input
+                            type="text"
+                            placeholder="Search all notes..."
+                            value={allNotesSearch}
+                            onChange={(e) => setAllNotesSearch(e.target.value)}
+                            className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-48"
+                          />
+                        </div>
+                        <button
+                          onClick={() => setShowAddOverallNoteModal(true)}
+                          className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
+                          <span>Add Note</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Notes Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {loadingAllNotes ? (
+                        <p className="text-xs text-text-muted col-span-full text-center py-8">Loading notes...</p>
+                      ) : filteredAllNotes.length === 0 ? (
+                        <div className="col-span-full p-8 text-center bg-surface border border-border rounded-sm space-y-1">
+                          <StickyNote className="w-8 h-8 text-text-muted mx-auto stroke-[1]" />
+                          <p className="text-xs text-text-secondary font-medium">No notes found</p>
+                          <p className="text-[11px] text-text-muted">No customer notes match the current search / color filter.</p>
+                        </div>
+                      ) : (
+                        filteredAllNotes.map((nt) => {
+                          const noteColor = nt.color || 'slate';
+                          const colorMap: Record<string, string> = {
+                            slate: 'border-l-slate-400 bg-slate-50',
+                            blue: 'border-l-blue-400 bg-blue-50',
+                            amber: 'border-l-amber-400 bg-amber-50',
+                            rose: 'border-l-rose-400 bg-rose-50',
+                            emerald: 'border-l-emerald-400 bg-emerald-50',
+                            violet: 'border-l-violet-400 bg-violet-50',
+                          };
+                          const badgeMap: Record<string, string> = {
+                            slate: 'bg-slate-200 text-slate-700',
+                            blue: 'bg-blue-100 text-blue-700',
+                            amber: 'bg-amber-100 text-amber-700',
+                            rose: 'bg-rose-100 text-rose-700',
+                            emerald: 'bg-emerald-100 text-emerald-700',
+                            violet: 'bg-violet-100 text-violet-700',
+                          };
+
+                          return (
+                            <div
+                              key={nt.id}
+                              className={`p-3.5 border border-border border-l-4 rounded-sm space-y-2 flex flex-col justify-between ${
+                                colorMap[noteColor] || colorMap.slate
+                              }`}
+                            >
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <span className={`font-semibold px-1.5 py-0.5 rounded-sm text-[10px] ${badgeMap[noteColor] || badgeMap.slate}`}>
+                                    {nt.author}
+                                  </span>
+                                  <span className="text-[10px] text-text-muted font-mono">
+                                    {nt.created_at ? new Date(nt.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-text-body whitespace-pre-wrap leading-relaxed">{nt.note_text}</p>
+                              </div>
+
+                              <div className="pt-2 border-t border-border/50 flex items-center justify-between text-[11px]">
+                                {nt.customer_name ? (
+                                  <span className="font-medium text-text-primary flex items-center gap-1">
+                                    <User className="w-3 h-3 text-accent stroke-[1.5]" />
+                                    <span className="truncate max-w-[140px]">{nt.customer_name}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-text-muted">General</span>
+                                )}
+                                <button
+                                  onClick={() => handleDeleteNote(nt.id)}
+                                  className="text-text-muted hover:text-rose-600 p-0.5 rounded cursor-pointer"
+                                  title="Delete note"
+                                >
+                                  <Trash2 className="w-3 h-3 stroke-[1.5]" />
                                 </button>
                               </div>
                             </div>
-                          )}
-                        </div>
-                      </div>
+                          );
+                        })
+                      )}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* -- ADD CUSTOMER MODAL -- */}
+            {/* ── ADD CUSTOMER MODAL ─────────────────────────────────────── */}
             {showAddCustomerModal && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAddCustomerModal(false)}>
                 <div className="bg-surface border border-border rounded-sm shadow-xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -4141,1023 +4819,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* ── VIEW 5: CUSTOMER FOLLOWUP & TASK CALENDAR ───────────────────── */}
-            {activeNav === 'followup' && (
-              <div className="flex-1 flex flex-col overflow-hidden space-y-4">
-                {/* Compact & Clean Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-border pb-2.5">
-                  <div>
-                    <h3 className="font-semibold text-sm text-text-primary flex items-center gap-2">
-                      <CalendarClock className="w-4 h-4 text-accent stroke-[1.5]" />
-                      <span>Customer Follow-up</span>
-                    </h3>
-                    <p className="text-[11px] text-text-muted mt-0.5">
-                      Follow-ups, scheduled tasks, and staff notes.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {/* Compact View Switcher Pills */}
-                    <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5">
-                      <button
-                        onClick={() => setFollowupView('list')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
-                          followupView === 'list'
-                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
-                            : 'text-text-secondary hover:text-text-primary'
-                        }`}
-                      >
-                        <List className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>Follow-up</span>
-                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{customers.length}</span>
-                      </button>
-                      <button
-                        onClick={() => setFollowupView('tasks')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
-                          followupView === 'tasks'
-                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
-                            : 'text-text-secondary hover:text-text-primary'
-                        }`}
-                      >
-                        <CalendarCheck className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>Tasks</span>
-                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{tasks.filter(t => !t.completed).length}</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          setFollowupView('notes');
-                          setLoadingAllNotes(true);
-                          crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
-                        }}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
-                          followupView === 'notes'
-                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
-                            : 'text-text-secondary hover:text-text-primary'
-                        }`}
-                      >
-                        <StickyNote className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>Notes</span>
-                        <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{allNotes.length}</span>
-                      </button>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        loadCustomers();
-                        loadTasks();
-                        if (followupView === 'notes') {
-                          setLoadingAllNotes(true);
-                          crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
-                        }
-                      }}
-                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
-                      title="Refresh"
-                    >
-                      <RotateCcw className={`w-3.5 h-3.5 ${loadingCustomers || loadingTasks || loadingAllNotes ? 'animate-spin' : ''}`} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* ── SUB-VIEW A: FOLLOW-UP LIST ──────────────────────────────── */}
-                {followupView === 'list' && (
-                  <div className="flex-1 flex flex-col overflow-hidden space-y-3">
-                    {/* Filter & Segment Controls */}
-                    <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-surface border border-border rounded-sm">
-                      {/* Left: Status Filter Pills */}
-                      <div className="flex flex-wrap items-center gap-1">
-                        <span className="text-[11px] font-medium text-text-muted mr-1">Status:</span>
-                        {[
-                          { key: 'all', label: 'All' },
-                          { key: 'new', label: 'New', color: 'text-slate-700 bg-slate-100 border-slate-200' },
-                          { key: 'contacted', label: 'Contacted', color: 'text-blue-700 bg-blue-50 border-blue-200' },
-                          { key: 'follow-up', label: 'Follow-up', color: 'text-amber-700 bg-amber-50 border-amber-200' },
-                          { key: 'converted', label: 'Converted', color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
-                          { key: 'lost', label: 'Lost', color: 'text-rose-700 bg-rose-50 border-rose-200' },
-                        ].map((st) => (
-                          <button
-                            key={st.key}
-                            onClick={() => setFollowupStatusFilter(st.key)}
-                            className={`px-2.5 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer ${
-                              followupStatusFilter === st.key
-                                ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
-                                : 'bg-surface border-border text-text-secondary hover:text-text-primary hover:bg-surface-subtle'
-                            }`}
-                          >
-                            {st.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Middle: Probability Badges */}
-                      <div className="flex items-center gap-1">
-                        <span className="text-[11px] font-medium text-text-muted mr-1">Lead:</span>
-                        {[
-                          { key: 'all', label: 'All', Icon: null },
-                          { key: 'hot', label: 'Hot', Icon: Flame, color: 'text-rose-700 bg-rose-50 border-rose-200' },
-                          { key: 'warm', label: 'Warm', Icon: Sun, color: 'text-amber-700 bg-amber-50 border-amber-200' },
-                          { key: 'cold', label: 'Cold', Icon: Snowflake, color: 'text-blue-700 bg-blue-50 border-blue-200' },
-                        ].map((prob) => {
-                          const ProbIcon = prob.Icon;
-                          return (
-                            <button
-                              key={prob.key}
-                              onClick={() => setFollowupProbabilityFilter(prob.key)}
-                              className={`px-2 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer flex items-center gap-1 ${
-                                followupProbabilityFilter === prob.key
-                                  ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
-                                  : 'bg-surface border-border text-text-secondary hover:text-text-primary'
-                              }`}
-                            >
-                              {ProbIcon && <ProbIcon className="w-3 h-3" />}
-                              <span>{prob.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {/* Right: Doctor Selector & Search */}
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={followupDoctorFilter}
-                          onChange={(e) => setFollowupDoctorFilter(e.target.value)}
-                          className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                        >
-                          <option value="all">All Doctors</option>
-                          <option value="Dr. Sarah Mitchell">Dr. Sarah Mitchell</option>
-                          <option value="Dr. Rajesh Kumar">Dr. Rajesh Kumar</option>
-                          <option value="Dr. Emily Stone">Dr. Emily Stone</option>
-                        </select>
-
-                        <div className="relative">
-                          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
-                          <input
-                            type="text"
-                            placeholder="Filter name, phone, issue..."
-                            value={followupSearch}
-                            onChange={(e) => setFollowupSearch(e.target.value)}
-                            className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-48"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Quick KPI Summary Bar */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
-                        <div>
-                          <p className="text-[11px] text-text-muted font-medium">Total Customers</p>
-                          <p className="text-base font-semibold text-text-primary mt-0.5">{customers.length}</p>
-                        </div>
-                        <Users className="w-4 h-4 text-text-muted" />
-                      </div>
-
-                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
-                        <div>
-                          <p className="text-[11px] text-amber-700 font-medium">Pending Follow-ups</p>
-                          <p className="text-base font-semibold text-amber-900 mt-0.5">
-                            {customers.filter(c => c.status === 'follow-up' || c.status === 'new').length}
-                          </p>
-                        </div>
-                        <Clock3 className="w-4 h-4 text-amber-600" />
-                      </div>
-
-                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
-                        <div>
-                          <p className="text-[11px] text-rose-700 font-medium">Hot Leads</p>
-                          <p className="text-base font-semibold text-rose-900 mt-0.5">
-                            {customers.filter(c => c.lead_probability === 'hot').length}
-                          </p>
-                        </div>
-                        <Flame className="w-4 h-4 text-rose-600" />
-                      </div>
-
-                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
-                        <div>
-                          <p className="text-[11px] text-emerald-700 font-medium">Converted Customers</p>
-                          <p className="text-base font-semibold text-emerald-900 mt-0.5">
-                            {customers.filter(c => c.converted).length}
-                            <span className="text-[10px] text-emerald-600 ml-1.5 font-normal">
-                              ({customers.length ? Math.round((customers.filter(c => c.converted).length / customers.length) * 100) : 0}%)
-                            </span>
-                          </p>
-                        </div>
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      </div>
-                    </div>
-
-                    {/* Main Table + Slide-Over / Detail Split */}
-                    <div className="flex-1 flex overflow-hidden gap-4">
-                      {/* Customers Table */}
-                      <div className="flex-1 overflow-y-auto border border-border rounded-sm bg-surface">
-                        <table className="w-full text-left text-xs">
-                          <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium sticky top-0 z-10">
-                            <tr>
-                              <th className="p-3 pl-4">Customer</th>
-                              <th className="p-3">Doctor</th>
-                              <th className="p-3">Health Concern</th>
-                              <th className="p-3">Status</th>
-                              <th className="p-3">Lead</th>
-                              <th className="p-3 text-center">Converted</th>
-                              <th className="p-3">Follow-up Due</th>
-                              <th className="p-3">Latest Note</th>
-                              <th className="p-3 text-right pr-4">Action</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border">
-                            {loadingCustomers ? (
-                              <tr>
-                                <td colSpan={9} className="p-8 text-center text-text-muted">
-                                  Loading customers...
-                                </td>
-                              </tr>
-                            ) : customers.length === 0 ? (
-                              <tr>
-                                <td colSpan={9} className="p-8 text-center text-text-muted">
-                                  No customers match the selected filters.
-                                </td>
-                              </tr>
-                            ) : (
-                              customers.map((cust) => {
-                                const isSelected = selectedCustomer?.id === cust.id;
-                                const isOverdue = cust.followup_date && new Date(cust.followup_date) < new Date(new Date().setHours(0, 0, 0, 0)) && !cust.converted;
-                                const isToday = cust.followup_date && new Date(cust.followup_date).toDateString() === new Date().toDateString();
-
-                                return (
-                                  <tr
-                                    key={cust.id}
-                                    onClick={() => handleSelectCustomer(cust)}
-                                    className={`cursor-pointer transition-colors duration-150 ${
-                                      isSelected ? 'bg-surface-subtle/80 font-medium' : 'hover:bg-surface-subtle'
-                                    }`}
-                                  >
-                                    <td className="p-3 pl-4">
-                                      <div className="font-semibold text-text-primary">{cust.name || 'Customer'}</div>
-                                      <div className="font-mono text-[11px] text-text-muted mt-0.5">{cust.phone}</div>
-                                    </td>
-
-                                    <td className="p-3 text-text-secondary whitespace-nowrap">
-                                      <div className="flex items-center gap-1.5">
-                                        <Stethoscope className="w-3.5 h-3.5 text-accent shrink-0" />
-                                        <span>{cust.preferred_doctor || 'Dr. Sarah Mitchell'}</span>
-                                      </div>
-                                    </td>
-
-                                    <td className="p-3 text-text-secondary max-w-[180px] truncate" title={cust.health_concern}>
-                                      <span className="px-2 py-0.5 bg-surface-subtle border border-border rounded-sm text-[11px]">
-                                        {cust.health_concern || 'General'}
-                                      </span>
-                                    </td>
-
-                                    {/* Instant Status Selector */}
-                                    <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                                      <select
-                                        value={cust.status}
-                                        onChange={(e) => handleUpdateCustomer(cust.id, { status: e.target.value as any })}
-                                        className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border focus:outline-none cursor-pointer ${
-                                          cust.status === 'converted'
-                                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                            : cust.status === 'follow-up'
-                                            ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                            : cust.status === 'contacted'
-                                            ? 'bg-blue-50 text-blue-800 border-blue-200'
-                                            : cust.status === 'lost'
-                                            ? 'bg-rose-50 text-rose-800 border-rose-200'
-                                            : 'bg-slate-100 text-slate-800 border-slate-200'
-                                        }`}
-                                      >
-                                        <option value="new">New</option>
-                                        <option value="contacted">Contacted</option>
-                                        <option value="follow-up">Follow-up</option>
-                                        <option value="converted">Converted</option>
-                                        <option value="lost">Lost</option>
-                                      </select>
-                                    </td>
-
-                                    {/* Instant Lead Probability Selector */}
-                                    <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                                      <select
-                                        value={cust.lead_probability}
-                                        onChange={(e) => handleUpdateCustomer(cust.id, { lead_probability: e.target.value as any })}
-                                        className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border focus:outline-none cursor-pointer ${
-                                          cust.lead_probability === 'hot'
-                                            ? 'bg-rose-50 text-rose-800 border-rose-200'
-                                            : cust.lead_probability === 'warm'
-                                            ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                            : 'bg-blue-50 text-blue-800 border-blue-200'
-                                        }`}
-                                      >
-                                        <option value="hot">Hot</option>
-                                        <option value="warm">Warm</option>
-                                        <option value="cold">Cold</option>
-                                      </select>
-                                    </td>
-
-                                    {/* Instant Converted Toggle */}
-                                    <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                                      <button
-                                        onClick={() => handleUpdateCustomer(cust.id, { converted: !cust.converted })}
-                                        className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border transition-colors cursor-pointer ${
-                                          cust.converted
-                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
-                                            : 'bg-surface text-text-muted border-border hover:text-text-primary'
-                                        }`}
-                                      >
-                                        {cust.converted ? 'Converted' : 'Pending'}
-                                      </button>
-                                    </td>
-
-                                    {/* Follow-up Date & Time */}
-                                    <td className="p-3 whitespace-nowrap">
-                                      {cust.followup_date ? (
-                                        <div className="flex flex-col gap-0.5">
-                                          <span className={`inline-flex items-center gap-1 font-mono text-[11px] ${
-                                            isOverdue ? 'text-rose-700 font-semibold' : isToday ? 'text-amber-700 font-semibold' : 'text-text-body'
-                                          }`}>
-                                            {isOverdue && <AlertCircle className="w-3 h-3 stroke-[2] text-rose-600" />}
-                                            {isToday && <Clock className="w-3 h-3 stroke-[2] text-amber-600" />}
-                                            <span>{cust.followup_date}</span>
-                                          </span>
-                                          <span className="text-[10px] text-text-muted font-mono">{cust.followup_time || '10:00 AM'}</span>
-                                        </div>
-                                      ) : (
-                                        <span className="text-text-muted text-[11px]">—</span>
-                                      )}
-                                    </td>
-
-                                    {/* Latest Note Snippet */}
-                                    <td className="p-3 max-w-[200px]">
-                                      {cust.latest_note ? (
-                                        <div className="truncate text-text-secondary text-[11px]" title={cust.latest_note}>
-                                          {cust.latest_note}
-                                        </div>
-                                      ) : (
-                                        <span className="text-text-muted text-[11px]">No notes yet</span>
-                                      )}
-                                      <div className="text-[10px] text-text-muted mt-0.5">
-                                        {cust.notes_count || 0} {cust.notes_count === 1 ? 'note' : 'notes'}
-                                      </div>
-                                    </td>
-
-                                    {/* Action Button */}
-                                    <td className="p-3 text-right pr-4">
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleSelectCustomer(cust);
-                                        }}
-                                        className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-primary font-medium text-xs rounded-sm border border-border transition-colors cursor-pointer"
-                                      >
-                                        Details
-                                      </button>
-                                    </td>
-                                  </tr>
-                                );
-                              })
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {/* Customer Detail Drawer / Side Panel */}
-                      {selectedCustomer && (
-                        <div className={`${isDrawerExpanded ? 'w-[780px] max-w-[60vw]' : 'w-[540px] xl:w-[620px]'} bg-surface border border-border rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-sm`}>
-                          {/* Panel Header */}
-                          <div className="p-3.5 border-b border-border flex items-center justify-between bg-surface-subtle/50">
-                            <div>
-                              <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
-                                <User className="w-3.5 h-3.5 text-accent" />
-                                <span>{selectedCustomer.name || 'Customer'}</span>
-                              </h4>
-                              <p className="text-[11px] font-mono text-text-muted mt-0.5">{selectedCustomer.phone}</p>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={() => openChatForContact(selectedCustomer.phone)}
-                                className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium rounded-sm border border-border flex items-center gap-1.5 transition-colors cursor-pointer"
-                                title="Open WhatsApp chat with this customer"
-                              >
-                                <MessageSquare className="w-3.5 h-3.5 text-accent" />
-                                <span>Chat</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setIsDrawerExpanded(!isDrawerExpanded)}
-                                className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
-                                title={isDrawerExpanded ? 'Collapse panel' : 'Expand to full width'}
-                              >
-                                {isDrawerExpanded ? <Minimize2 className="w-4 h-4 stroke-[1.5]" /> : <Maximize2 className="w-4 h-4 stroke-[1.5]" />}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => { setSelectedCustomer(null); setIsDrawerExpanded(false); }}
-                                className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
-                                title="Close panel"
-                              >
-                                <X className="w-4 h-4 stroke-[1.5]" />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Panel Body Scroll Area */}
-                          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                            {/* 1. Editable Follow-up Date & Google Tasks Sync Card */}
-                            <div className="p-3 bg-surface-subtle border border-border rounded-sm space-y-2.5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-                                  <CalendarClock className="w-3.5 h-3.5 text-accent" />
-                                  <span>Schedule Follow-up</span>
-                                </span>
-                                {selectedCustomer.google_task_id && (
-                                  <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium flex items-center gap-1">
-                                    <CheckCircle2 className="w-3 h-3 stroke-[1.5]" /> Google Tasks Synced
-                                  </span>
-                                )}
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Date</label>
-                                  <input
-                                    type="date"
-                                    value={selectedCustomer.followup_date || ''}
-                                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_date: e.target.value })}
-                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Time</label>
-                                  <input
-                                    type="text"
-                                    value={selectedCustomer.followup_time || '10:00 AM'}
-                                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_time: e.target.value })}
-                                    placeholder="e.g. 10:30 AM"
-                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Google Tasks Sync Action */}
-                              <div className="pt-1">
-                                <button
-                                  type="button"
-                                  disabled={syncingGoogleTasks}
-                                  onClick={() => handleSyncCustomerToGoogleTasks(selectedCustomer.id)}
-                                  className="w-full py-1.5 px-2.5 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium border border-border rounded-sm flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
-                                >
-                                  <CalendarCheck className="w-3.5 h-3.5 text-accent" />
-                                  <span>
-                                    {syncingGoogleTasks
-                                      ? 'Syncing to Google Tasks...'
-                                      : selectedCustomer.google_task_id
-                                      ? 'Re-sync with Google Tasks'
-                                      : 'Add to Google Tasks'}
-                                  </span>
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* 2. Customer Attributes & Doctor Selection */}
-                            <div className="space-y-2 text-xs">
-                              <div>
-                                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.staff_label}</label>
-                                <input
-                                  type="text"
-                                  value={selectedCustomer.preferred_doctor || ''}
-                                  onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { preferred_doctor: e.target.value })}
-                                  placeholder={`e.g. Assigned ${currentTaxonomy.staff_label}`}
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.requirement_label}</label>
-                                <input
-                                  type="text"
-                                  value={selectedCustomer.health_concern || ''}
-                                  onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { health_concern: e.target.value })}
-                                  placeholder={`e.g. Primary ${currentTaxonomy.requirement_label}`}
-                                  className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
-                                />
-                              </div>
-                            </div>
-
-                            {/* 3. Timestamped Customer Notes Log */}
-                            <div className="space-y-2 border-t border-border pt-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-                                  <StickyNote className="w-3.5 h-3.5 text-accent" />
-                                  <span>Staff Notes ({customerNotes.length})</span>
-                                </span>
-                              </div>
-
-                              {/* Notes Timeline List */}
-                              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                                {loadingCustomerNotes ? (
-                                  <p className="text-[11px] text-text-muted text-center py-2">Loading notes...</p>
-                                ) : customerNotes.length === 0 ? (
-                                  <p className="text-[11px] text-text-muted text-center py-2 bg-surface-subtle/50 rounded-sm border border-border">
-                                    No notes added yet.
-                                  </p>
-                                ) : (
-                                  customerNotes.map((nt) => {
-                                    const noteColor = nt.color || 'slate';
-                                    const colorMap: Record<string, string> = {
-                                      slate: 'border-l-slate-400 bg-slate-50',
-                                      blue: 'border-l-blue-400 bg-blue-50',
-                                      amber: 'border-l-amber-400 bg-amber-50',
-                                      rose: 'border-l-rose-400 bg-rose-50',
-                                      emerald: 'border-l-emerald-400 bg-emerald-50',
-                                      violet: 'border-l-violet-400 bg-violet-50',
-                                    };
-                                    const badgeMap: Record<string, string> = {
-                                      slate: 'bg-slate-200 text-slate-700',
-                                      blue: 'bg-blue-100 text-blue-700',
-                                      amber: 'bg-amber-100 text-amber-700',
-                                      rose: 'bg-rose-100 text-rose-700',
-                                      emerald: 'bg-emerald-100 text-emerald-700',
-                                      violet: 'bg-violet-100 text-violet-700',
-                                    };
-                                    return (
-                                      <div key={nt.id} className={`pl-2.5 pr-2.5 py-2 border border-border border-l-2 rounded-sm space-y-1 ${colorMap[noteColor] || colorMap.slate}`}>
-                                        <div className="flex items-center justify-between text-[10px]">
-                                          <span className={`font-semibold px-1.5 py-0.5 rounded-sm text-[10px] ${badgeMap[noteColor] || badgeMap.slate}`}>{nt.author}</span>
-                                          <div className="flex items-center gap-1.5">
-                                            <span className="text-text-muted font-mono">
-                                              {nt.created_at ? new Date(nt.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
-                                            </span>
-                                            <button
-                                              type="button"
-                                              onClick={() => handleDeleteNote(nt.id)}
-                                              title="Delete note"
-                                              className="p-0.5 text-text-muted hover:text-rose-600 rounded cursor-pointer"
-                                            >
-                                              <Trash2 className="w-3 h-3 stroke-[1.5]" />
-                                            </button>
-                                          </div>
-                                        </div>
-                                        <p className="text-xs text-text-body whitespace-pre-wrap leading-relaxed font-sans">{nt.note_text}</p>
-                                      </div>
-                                    );
-                                  })
-                                )}
-                              </div>
-
-                              {/* Add Note Input with color picker */}
-                              <form onSubmit={handleAddCustomerNote} className="space-y-1.5 pt-1">
-                                <div className="flex gap-1.5">
-                                  <input
-                                    type="text"
-                                    value={newCustomerNoteAuthor}
-                                    onChange={(e) => setNewCustomerNoteAuthor(e.target.value)}
-                                    placeholder="Author"
-                                    className="w-24 px-2 py-1 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                  />
-                                  <input
-                                    type="text"
-                                    value={newCustomerNoteText}
-                                    onChange={(e) => setNewCustomerNoteText(e.target.value)}
-                                    placeholder="Add a staff note..."
-                                    className="flex-1 px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                  />
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[10px] text-text-muted">Color:</span>
-                                  {(['slate','blue','amber','rose','emerald','violet'] as const).map(c => {
-                                    const dotClasses: Record<string, string> = {
-                                      slate:'bg-slate-400', blue:'bg-blue-400', amber:'bg-amber-400',
-                                      rose:'bg-rose-400', emerald:'bg-emerald-400', violet:'bg-violet-400'
-                                    };
-                                    return (
-                                      <button
-                                        key={c}
-                                        type="button"
-                                        title={c}
-                                        onClick={() => setNewCustomerNoteColor(c)}
-                                        className={`w-4 h-4 rounded-full ${dotClasses[c]} transition-transform cursor-pointer ${newCustomerNoteColor === c ? 'ring-2 ring-offset-1 ring-text-primary scale-110' : 'opacity-70 hover:opacity-100'}`}
-                                      />
-                                    );
-                                  })}
-                                </div>
-                                <button
-                                  type="submit"
-                                  disabled={!newCustomerNoteText.trim() || addingCustomerNote}
-                                  className="w-full py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
-                                >
-                                  {addingCustomerNote ? 'Saving...' : '+ Save Note'}
-                                </button>
-                              </form>
-                            </div>
-
-                            {/* 4. WhatsApp Chat Thread & Direct Reply */}
-                            <div className="space-y-2 border-t border-border pt-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-                                  <MessageSquare className="w-3.5 h-3.5 text-accent" />
-                                  <span>WhatsApp Chat History</span>
-                                </span>
-                                {customerChat?.unread_count ? (
-                                  <span className="px-1.5 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-bold">
-                                    {customerChat.unread_count} unread
-                                  </span>
-                                ) : null}
-                              </div>
-
-                              {/* Chat Activity Metadata */}
-                              {customerChat && (
-                                <div className="flex items-center justify-between text-[10px] text-text-muted px-1">
-                                  <span>First: {customerChat.first_message_at ? new Date(customerChat.first_message_at).toLocaleDateString() : '—'}</span>
-                                  <span>Last: {customerChat.last_message_at ? new Date(customerChat.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
-                                </div>
-                              )}
-
-                              {/* Chat Thread Container */}
-                              <div className="h-56 overflow-y-auto p-2.5 bg-canvas border border-border rounded-sm space-y-2">
-                                {loadingCustomerChat ? (
-                                  <p className="text-[11px] text-text-muted text-center py-8">Loading chat history...</p>
-                                ) : !customerChat || !customerChat.messages || customerChat.messages.length === 0 ? (
-                                  <p className="text-[11px] text-text-muted text-center py-8">No WhatsApp messages yet.</p>
-                                ) : (
-                                  customerChat.messages.map((msg) => {
-                                    const isInbound = msg.direction === 'inbound';
-                                    return (
-                                      <div key={msg.id} className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
-                                        <div
-                                          className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${
-                                            isInbound
-                                              ? 'bg-surface text-text-body border border-border'
-                                              : 'bg-accent text-white'
-                                          }`}
-                                        >
-                                          <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
-                                          <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}>
-                                            <span>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
-                                            {!isInbound && (
-                                              <span>{msg.status === 'read' ? <CheckCheck className="w-3 h-3 text-sky-400 inline" /> : msg.status === 'delivered' ? <CheckCheck className="w-3 h-3 text-teal-200 inline" /> : <Check className="w-3 h-3 text-teal-200 inline" />}</span>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    );
-                                  })
-                                )}
-                              </div>
-
-                              {/* Direct Reply Form */}
-                              <form onSubmit={handleSendCustomerReply} className="flex gap-1.5 pt-1">
-                                <input
-                                  type="text"
-                                  value={customerReplyText}
-                                  onChange={(e) => setCustomerReplyText(e.target.value)}
-                                  placeholder="Type WhatsApp follow-up reply..."
-                                  className="flex-1 px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                />
-                                <button
-                                  type="submit"
-                                  disabled={!customerReplyText.trim() || sendingCustomerReply}
-                                  className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
-                                >
-                                  <Send className="w-3.5 h-3.5" />
-                                </button>
-                              </form>
-                              {/* 5. Bookings & Lifetime Value History */}
-                              <div className="space-y-2 border-t border-border pt-3">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-                                    <CalendarDays className="w-3.5 h-3.5 text-accent" />
-                                    <span>Bookings & Revenue</span>
-                                  </span>
-                                  {customerBookingsData && (
-                                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm">
-                                      Total: {currentCurrencySymbol}{customerBookingsData.total_revenue ?? 0}
-                                    </span>
-                                  )}
-                                </div>
-
-                                {loadingCustomerBookings ? (
-                                  <p className="text-[11px] text-text-muted text-center py-2">Loading bookings...</p>
-                                ) : !customerBookingsData || !Array.isArray(customerBookingsData.bookings) || customerBookingsData.bookings.length === 0 ? (
-                                  <div className="p-2.5 bg-surface-subtle border border-border rounded-sm text-center">
-                                    <p className="text-[11px] text-text-muted">No appointments booked yet.</p>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setNewBookingForm({
-                                          contact_name: selectedCustomer.name || '',
-                                          contact_phone: selectedCustomer.phone || '',
-                                          service: selectedCustomer.health_concern || '',
-                                          date: new Date().toISOString().split('T')[0],
-                                          time: '10:00',
-                                          price: 0,
-                                          notes: ''
-                                        });
-                                        setIsAddBookingOpen(true);
-                                      }}
-                                      className="mt-1.5 text-[11px] text-accent font-medium hover:underline cursor-pointer inline-flex items-center gap-1"
-                                    >
-                                      <Plus className="w-3 h-3" />
-                                      <span>Book an appointment</span>
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-                                    {(customerBookingsData?.bookings || []).map((bk) => (
-                                      <div key={bk.id} className="p-2 bg-surface-subtle border border-border rounded-sm flex items-center justify-between gap-2 text-xs">
-                                        <div className="min-w-0">
-                                          <p className="font-medium text-text-primary truncate">{bk.service}</p>
-                                          <p className="text-[10px] text-text-muted font-mono mt-0.5">
-                                            {bk.start_time ? new Date(bk.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
-                                          </p>
-                                        </div>
-                                        <div className="text-right shrink-0">
-                                          <p className="font-mono font-medium text-text-primary">{currentCurrencySymbol}{bk.price || 0}</p>
-                                          <span className={`text-[9px] font-semibold px-1 py-0.2 rounded-sm border ${
-                                            bk.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                                            bk.status === 'no_show' ? 'bg-amber-50 text-amber-800 border-amber-200' :
-                                            'bg-blue-50 text-blue-800 border-blue-200'
-                                          }`}>
-                                            {bk.status}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    ))}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setNewBookingForm({
-                                          contact_name: selectedCustomer.name || '',
-                                          contact_phone: selectedCustomer.phone || '',
-                                          service: selectedCustomer.health_concern || '',
-                                          date: new Date().toISOString().split('T')[0],
-                                          time: '10:00',
-                                          price: 0,
-                                          notes: ''
-                                        });
-                                        setIsAddBookingOpen(true);
-                                      }}
-                                      className="w-full py-1 text-center text-[11px] text-accent font-medium hover:underline cursor-pointer"
-                                    >
-                                      + Book another appointment
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* ── SUB-VIEW B: TASK CALENDAR VIEW ─────────────────────────── */}
-                {followupView === 'tasks' && (
-                  <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-5xl">
-                    {/* Task Filter Pills + Add Task */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface border border-border rounded-sm">
-                      <div className="flex items-center gap-1">
-                        <span className="text-[11px] font-medium text-text-muted mr-1">Filter:</span>
-                        {[
-                          { key: 'all', label: 'All Tasks' },
-                          { key: 'today', label: 'Due Today' },
-                          { key: 'upcoming', label: 'Upcoming' },
-                          { key: 'overdue', label: 'Overdue' },
-                          { key: 'completed', label: 'Completed' },
-                        ].map((tf) => (
-                          <button
-                            key={tf.key}
-                            onClick={() => setTaskFilter(tf.key as any)}
-                            className={`px-2.5 py-1 text-xs rounded-sm border transition-colors cursor-pointer ${
-                              taskFilter === tf.key
-                                ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
-                                : 'bg-surface border-border text-text-secondary hover:text-text-primary'
-                            }`}
-                          >
-                            {tf.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      <button
-                        onClick={() => setShowAddTaskModal(true)}
-                        className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5 stroke-[2]" />
-                        Add Task
-                      </button>
-                    </div>
-
-                    {/* Tasks List */}
-                    <div className="space-y-2.5">
-                      {loadingTasks ? (
-                        <div className="p-8 text-center text-text-muted bg-surface border border-border rounded-sm">
-                          Loading tasks...
-                        </div>
-                      ) : tasks.length === 0 ? (
-                        <div className="p-8 text-center text-text-muted bg-surface border border-border rounded-sm">
-                          No follow-up tasks found for this filter.
-                        </div>
-                      ) : (
-                        tasks.map((tsk) => (
-                          <div
-                            key={tsk.id}
-                            className={`p-3.5 bg-surface border rounded-sm flex items-start justify-between gap-4 transition-colors ${
-                              tsk.completed
-                                ? 'border-border opacity-70 bg-surface-subtle/30'
-                                : tsk.is_overdue
-                                ? 'border-rose-300 bg-rose-50/30'
-                                : 'border-border hover:border-border-strong'
-                            }`}
-                          >
-                            {/* Checkbox & Task Info */}
-                            <div className="flex items-start gap-3">
-                              <button
-                                onClick={() => handleToggleTask(tsk.id)}
-                                disabled={togglingTaskId === tsk.id}
-                                className={`mt-0.5 w-4 h-4 rounded-sm border flex items-center justify-center transition-colors cursor-pointer ${
-                                  tsk.completed
-                                    ? 'bg-accent border-accent text-white'
-                                    : tsk.is_overdue
-                                    ? 'border-rose-400 bg-white hover:border-rose-600'
-                                    : 'border-border bg-white hover:border-accent'
-                                }`}
-                              >
-                                {tsk.completed && <Check className="w-3 h-3 stroke-[2.5]" />}
-                              </button>
-
-                              <div className="space-y-1">
-                                <h5 className={`text-xs font-semibold ${tsk.completed ? 'line-through text-text-muted' : 'text-text-primary'}`}>
-                                  {tsk.title}
-                                </h5>
-                                {tsk.description && (
-                                  <p className="text-[11px] text-text-secondary">{tsk.description}</p>
-                                )}
-
-                                <div className="flex flex-wrap items-center gap-2 pt-1">
-                                  {tsk.customer_phone && (
-                                    <span className="font-mono text-[10px] text-text-muted bg-surface-subtle border border-border px-1.5 py-0.5 rounded-sm flex items-center gap-1">
-                                      <Phone className="w-3 h-3 stroke-[1.5]" /> {tsk.customer_phone}
-                                    </span>
-                                  )}
-                                  {tsk.google_task_id && (
-                                    <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium flex items-center gap-1">
-                                      <CheckCircle2 className="w-3 h-3 stroke-[1.5]" /> Google Tasks
-                                    </span>
-                                  )}
-                                  {tsk.google_event_id && (
-                                    <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-sm font-medium flex items-center gap-1">
-                                      <Calendar className="w-3 h-3 stroke-[1.5]" /> Google Calendar
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Due Date, Overdue Badge & Delete Action */}
-                            <div className="flex items-center gap-2.5 shrink-0">
-                              <div className="text-right">
-                                {tsk.is_overdue && !tsk.completed && (
-                                  <span className="inline-flex items-center gap-1 text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-sm font-semibold mb-1">
-                                    <AlertCircle className="w-3 h-3 text-rose-600" />
-                                    Overdue
-                                  </span>
-                                )}
-                                <p className={`text-xs font-mono ${tsk.is_overdue && !tsk.completed ? 'text-rose-700 font-semibold' : 'text-text-muted'}`}>
-                                  {tsk.due_date ? new Date(tsk.due_date).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'No due date'}
-                                </p>
-                              </div>
-
-                              <button
-                                onClick={() => handleDeleteTask(tsk.id)}
-                                title="Delete task"
-                                className="p-1 text-text-muted hover:text-rose-600 hover:bg-rose-50 rounded-sm border border-transparent hover:border-rose-200 transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                              </button>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* ── SUB-VIEW C: OVERALL NOTES ────────────────────────────────── */}
-                {followupView === 'notes' && (
-                  <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-5xl">
-                    {/* Notes Filters & Add Button */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface border border-border rounded-sm">
-                      <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[200px]">
-                        <div className="relative flex-1 min-w-[180px]">
-                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
-                          <input
-                            type="text"
-                            value={allNotesSearch}
-                            onChange={(e) => setAllNotesSearch(e.target.value)}
-                            placeholder="Search notes, customers..."
-                            className="w-full pl-7 pr-3 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                          />
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <span className="text-[11px] text-text-muted">Color:</span>
-                          {(['all','slate','blue','amber','rose','emerald','violet'] as const).map(c => {
-                            const dotClasses: Record<string, string> = {
-                              all:'bg-text-muted', slate:'bg-slate-400', blue:'bg-blue-400',
-                              amber:'bg-amber-400', rose:'bg-rose-400', emerald:'bg-emerald-400', violet:'bg-violet-400'
-                            };
-                            return (
-                              <button
-                                key={c}
-                                title={c}
-                                onClick={() => {
-                                  setAllNotesColorFilter(c);
-                                  setLoadingAllNotes(true);
-                                  crm.getAllNotes({ color: c === 'all' ? undefined : c, q: allNotesSearch || undefined }).then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
-                                }}
-                                className={`w-4 h-4 rounded-full ${dotClasses[c]} cursor-pointer transition-transform ${allNotesColorFilter === c ? 'ring-2 ring-offset-1 ring-text-primary scale-110' : 'opacity-60 hover:opacity-100'}`}
-                              />
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={() => setShowAddOverallNoteModal(true)}
-                        className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-                      >
-                        <Plus className="w-3.5 h-3.5 stroke-[2]" />
-                        <span>Add Note</span>
-                      </button>
-                    </div>
-
-                    {/* Notes List */}
-                    <div className="space-y-2.5">
-                      {loadingAllNotes ? (
-                        <div className="p-8 text-center text-text-muted bg-surface border border-border rounded-sm">Loading notes...</div>
-                      ) : allNotes.length === 0 ? (
-                        <div className="p-8 text-center text-text-muted bg-surface border border-border rounded-sm">No notes found.</div>
-                      ) : (
-                        allNotes
-                          .filter(n => {
-                            if (!allNotesSearch) return true;
-                            const q = allNotesSearch.toLowerCase();
-                            return (n.note_text || '').toLowerCase().includes(q) ||
-                              (n.author || '').toLowerCase().includes(q) ||
-                              (n.customer_name || '').toLowerCase().includes(q) ||
-                              (n.customer_phone || '').toLowerCase().includes(q);
-                          })
-                          .map(n => {
-                            const noteColor = n.color || 'slate';
-                            const colorMap: Record<string, string> = {
-                              slate: 'border-l-slate-400 bg-slate-50',
-                              blue: 'border-l-blue-400 bg-blue-50',
-                              amber: 'border-l-amber-400 bg-amber-50',
-                              rose: 'border-l-rose-400 bg-rose-50',
-                              emerald: 'border-l-emerald-400 bg-emerald-50',
-                              violet: 'border-l-violet-400 bg-violet-50',
-                            };
-                            const badgeMap: Record<string, string> = {
-                              slate:'bg-slate-200 text-slate-700', blue:'bg-blue-100 text-blue-700',
-                              amber:'bg-amber-100 text-amber-700', rose:'bg-rose-100 text-rose-700',
-                              emerald:'bg-emerald-100 text-emerald-700', violet:'bg-violet-100 text-violet-700'
-                            };
-                            return (
-                              <div key={n.id} className={`pl-3 pr-3.5 py-3 border border-border border-l-2 rounded-sm ${colorMap[noteColor] || colorMap.slate}`}>
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="space-y-1">
-                                    <div className="flex items-center gap-2">
-                                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-sm ${badgeMap[noteColor] || badgeMap.slate}`}>{n.author}</span>
-                                      <span className="text-[11px] font-medium text-text-primary">{n.customer_name}</span>
-                                      {n.customer_phone && <span className="font-mono text-[10px] text-text-muted">{n.customer_phone}</span>}
-                                      {n.preferred_doctor && <span className="text-[10px] text-text-secondary flex items-center gap-0.5"><Stethoscope className="w-3 h-3 stroke-[1.5]" />{n.preferred_doctor}</span>}
-                                    </div>
-                                    <p className="text-xs text-text-body whitespace-pre-wrap leading-relaxed">{n.note_text}</p>
-                                  </div>
-
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <span className="text-[10px] font-mono text-text-muted">
-                                      {n.created_at ? new Date(n.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
-                                    </span>
-                                    <button
-                                      onClick={() => handleDeleteNote(n.id)}
-                                      title="Delete note"
-                                      className="p-1 text-text-muted hover:text-rose-600 hover:bg-rose-50 rounded-sm border border-transparent hover:border-rose-200 transition-colors cursor-pointer"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-
-            {/* ── VIEW 6: MARKETING HUB ─────────────────────────────────────── */}
+{/* ── VIEW 6: MARKETING HUB ─────────────────────────────────────── */}
             {activeNav === 'marketing' && (
               <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-6xl pb-8">
                 {/* Header */}
