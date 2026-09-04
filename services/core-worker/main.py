@@ -11,6 +11,7 @@ Reads messages from Redis Streams, processes them:
 import asyncio
 import json
 import os
+import time
 import uuid
 import datetime
 from datetime import timezone
@@ -352,7 +353,21 @@ class CoreWorker:
         """
         while True:
             try:
-                # Read up to 20 messages, block for 2s if stream is empty
+                # 1. First drain/recover any pending unacknowledged messages (e.g. from restarts)
+                try:
+                    pending = await self.redis.xreadgroup(
+                        CONSUMER_GROUP, CONSUMER_NAME,
+                        {STREAM_KEY: "0"},
+                        count=10,
+                    )
+                    if pending:
+                        for _stream, p_messages in pending:
+                            for msg_id, fields in p_messages:
+                                asyncio.create_task(self._handle_message(msg_id, fields))
+                except Exception as p_err:
+                    logger.debug("pending_stream_check_skip", error=str(p_err))
+
+                # 2. Read new messages from stream, block for 2s if empty
                 results = await self.redis.xreadgroup(
                     CONSUMER_GROUP, CONSUMER_NAME,
                     {STREAM_KEY: ">"},
