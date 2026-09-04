@@ -150,11 +150,28 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan, title="CRM API")
 
-# --- Dummy auth dependency for MVP (in real app, validate JWT from auth-service) ---
+# --- Auth dependencies ---
+JWT_SECRET = os.getenv("JWT_SECRET", "super_secret_dev_key_only")
+ALGORITHM = "HS256"
+
 async def get_tenant_id(x_tenant_id: str = Header(...)) -> str:
     if not x_tenant_id:
         raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
     return x_tenant_id
+
+async def verify_super_admin(authorization: Optional[str] = Header(None)) -> dict:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Super admin authentication required")
+    token = authorization.split(" ", 1)[1]
+    try:
+        from jose import jwt, JWTError
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
+        role = payload.get("role")
+        if role != "super_admin":
+            raise HTTPException(status_code=403, detail="Super admin privileges required")
+        return payload
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired session token")
 
 # ── Gmail Direct Dispatch & Email Builders ─────────────────────────────────────
 def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_body: str):
@@ -3727,7 +3744,7 @@ class PasswordReset(BaseModel):
 
 
 @app.get("/admin/tenants")
-async def list_admin_tenants():
+async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
     """List all client tenants with metadata, stats, billing, and primary admin email."""
     async with db_pool.acquire() as conn:
         rows = await conn.fetch(
@@ -3753,7 +3770,7 @@ async def list_admin_tenants():
         if isinstance(cfg, str):
             try: cfg = json.loads(cfg)
             except: cfg = {}
-        monthly_price = float(cfg.get("monthly_price", 999.0 if (r["plan"] or "").lower() == "starter" else (9999.0 if (r["plan"] or "").lower() == "enterprise" else 2999.0)))
+        monthly_price = float(cfg.get("monthly_price", 999.0 if (r["plan"] or "").lower() == "starter" else (9999.0 if (r["plan"] or "").lower() == "enterprise" else 3499.0)))
         billing_day = int(cfg.get("billing_cycle_day", 1))
         razorpay_sub_id = r["razorpay_subscription_id"] or cfg.get("razorpay_subscription_id", "")
         next_renewal = r["next_charge_at"].strftime("%d %b %Y") if r["next_charge_at"] else cfg.get("next_renewal_date", f"Day {billing_day} of every month")
@@ -3787,7 +3804,7 @@ async def list_admin_tenants():
 
 
 @app.post("/admin/tenants")
-async def create_admin_tenant(payload: TenantCreate):
+async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(verify_super_admin)):
     """
     Onboard a brand new client:
     1. Create tenant record with billing settings
@@ -3841,7 +3858,7 @@ async def create_admin_tenant(payload: TenantCreate):
             compiled_prompt = payload.ai_prompt.strip() or f"You are {assistant_name}, the official WhatsApp assistant for {payload.name.strip()}. Assist customers politely and accurately."
 
         # Prepare Billing Settings
-        m_price = payload.monthly_price if payload.monthly_price is not None else (999.0 if (payload.plan or "").lower() == "starter" else (9999.0 if (payload.plan or "").lower() == "enterprise" else 2999.0))
+        m_price = payload.monthly_price if payload.monthly_price is not None else (999.0 if (payload.plan or "").lower() == "starter" else (9999.0 if (payload.plan or "").lower() == "enterprise" else 3499.0))
         b_day = payload.billing_cycle_day or 1
         t_settings = {
             "monthly_price": float(m_price),
@@ -4017,7 +4034,7 @@ async def get_admin_tenant_details(tenant_id: str):
 
 
 @app.post("/admin/tenants/{tenant_id}/reset-password")
-async def reset_admin_tenant_password(tenant_id: str, payload: PasswordReset):
+async def reset_admin_tenant_password(tenant_id: str, payload: PasswordReset, admin_user: dict = Depends(verify_super_admin)):
     """Reset the admin password for a client organization."""
     if not payload.new_password or len(payload.new_password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
@@ -4056,20 +4073,20 @@ async def reset_admin_tenant_password(tenant_id: str, payload: PasswordReset):
 
 
 @app.get("/admin/tenants/{tenant_id}/settings")
-async def get_admin_tenant_settings(tenant_id: str):
+async def get_admin_tenant_settings(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
     """Retrieve full settings for a specific client organization as Super Admin."""
     return await get_tenant_settings(tenant_id)
 
 
 @app.put("/admin/tenants/{tenant_id}/settings")
-async def update_admin_tenant_settings(tenant_id: str, payload: TenantSettingsUpdate):
+async def update_admin_tenant_settings(tenant_id: str, payload: TenantSettingsUpdate, admin_user: dict = Depends(verify_super_admin)):
     """Update all settings & credentials for a specific client organization directly from Super Admin."""
     return await update_tenant_settings(payload, tenant_id)
 
 
 
 @app.patch("/admin/tenants/{tenant_id}/toggle-status")
-async def toggle_admin_tenant_status(tenant_id: str):
+async def toggle_admin_tenant_status(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
     """Toggle tenant active / paused status (e.g. for non-payment or maintenance)."""
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -4091,7 +4108,7 @@ async def toggle_admin_tenant_status(tenant_id: str):
 
 
 @app.delete("/admin/tenants/{tenant_id}")
-async def delete_admin_tenant(tenant_id: str):
+async def delete_admin_tenant(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
     """Permanently delete a client organization and all its data."""
     async with db_pool.acquire() as conn:
         tenant = await conn.fetchrow("SELECT id, name FROM tenants WHERE id = $1::uuid", tenant_id)
@@ -4113,7 +4130,7 @@ async def delete_admin_tenant(tenant_id: str):
 
 
 class PaymentReminderRequest(BaseModel):
-    amount: float = 2999.0
+    amount: float = 3499.0
     currency: str = "INR"
     due_date: str = "in 3 days"
     payment_link: Optional[str] = ""
@@ -4122,7 +4139,7 @@ class PaymentReminderRequest(BaseModel):
 
 
 @app.get("/admin/stats")
-async def get_platform_admin_stats():
+async def get_platform_admin_stats(admin_user: dict = Depends(verify_super_admin)):
     """Retrieve global multi-tenant platform metrics, MRR and health status."""
     async with db_pool.acquire() as conn:
         tenants = await conn.fetch("SELECT id, name, plan, is_active, created_at FROM tenants")
@@ -4133,10 +4150,10 @@ async def get_platform_admin_stats():
         # Calculate estimated MRR based on plans
         plan_prices = {
             "starter": 999.0,
-            "pro": 2999.0,
+            "pro": 3499.0,
             "enterprise": 9999.0
         }
-        total_mrr = sum(plan_prices.get((t["plan"] or "pro").lower(), 2999.0) for t in tenants if t["is_active"])
+        total_mrr = sum(plan_prices.get((t["plan"] or "pro").lower(), 3499.0) for t in tenants if t["is_active"])
         
     return {
         "total_tenants": len(tenants),
@@ -4157,7 +4174,8 @@ async def get_platform_admin_stats():
 async def send_tenant_payment_reminder(
     tenant_id: str,
     payload: PaymentReminderRequest,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    admin_user: dict = Depends(verify_super_admin)
 ):
     """Send an automated WhatsApp payment reminder to client organization admin."""
     async with db_pool.acquire() as conn:
@@ -4225,7 +4243,7 @@ class TenantBillingUpdate(BaseModel):
 
 
 @app.put("/admin/tenants/{tenant_id}/billing")
-async def update_tenant_billing_config(tenant_id: str, payload: TenantBillingUpdate):
+async def update_tenant_billing_config(tenant_id: str, payload: TenantBillingUpdate, admin_user: dict = Depends(verify_super_admin)):
     """Update a client organization's plan, pricing, and Razorpay subscription details."""
     async with db_pool.acquire() as conn:
         t_row = await conn.fetchrow("SELECT plan, settings FROM tenants WHERE id = $1::uuid", tenant_id)
@@ -4349,7 +4367,7 @@ async def dispatch_subscription_reminder(tenant_id: str, reminder_stage: int, pa
 
 
 @app.post("/admin/tenants/{tenant_id}/activate-billing")
-async def activate_tenant_billing(tenant_id: str):
+async def activate_tenant_billing(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
     """
     Stage B: Activate & Start Billing.
     Creates Razorpay Customer and Subscription for the organization,
@@ -4436,7 +4454,7 @@ async def activate_tenant_billing(tenant_id: str):
 
 
 @app.post("/admin/tenants/{tenant_id}/sync-billing")
-async def sync_tenant_billing(tenant_id: str):
+async def sync_tenant_billing(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
     """
     On-demand reconciliation with Razorpay API.
     Fetches latest subscription state and invoices, updating local records.
@@ -4523,7 +4541,7 @@ async def sync_tenant_billing(tenant_id: str):
 
 
 @app.get("/admin/tenants/{tenant_id}/invoices")
-async def get_tenant_invoices(tenant_id: str):
+async def get_tenant_invoices(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
     """Retrieve billing invoice history for an organization."""
     async with db_pool.acquire() as conn:
         rows = await conn.fetch(

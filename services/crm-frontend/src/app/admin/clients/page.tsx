@@ -396,7 +396,7 @@ export default function SuperAdminClients() {
   // Edit Client Razorpay Billing Modal
   const [editingBillingTenant, setEditingBillingTenant] = useState<ClientTenant | null>(null);
   const [billingPlan, setBillingPlan] = useState<string>('pro');
-  const [billingPrice, setBillingPrice] = useState<number>(2999);
+  const [billingPrice, setBillingPrice] = useState<number>(3499);
   const [billingDay, setBillingDay] = useState<number>(1);
   const [billingRazorpayId, setBillingRazorpayId] = useState<string>('');
   const [billingNextDate, setBillingNextDate] = useState<string>('');
@@ -444,7 +444,7 @@ export default function SuperAdminClients() {
     admin_email: '',
     admin_password: '',
     plan: 'pro',
-    monthly_price: 2999,
+    monthly_price: 3499,
     billing_cycle_day: 1,
     razorpay_subscription_id: '',
     meta_phone_id: '',
@@ -475,10 +475,34 @@ export default function SuperAdminClients() {
 
   const [formData, setFormData] = useState(initialFormData);
 
+  const [authChecking, setAuthChecking] = useState(true);
+
   useEffect(() => {
-    const saved = localStorage.getItem('boldlabs_super_admin_phone');
-    if (saved) setSuperAdminPhone(saved);
-    loadData();
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    if (!token) {
+      router.replace('/login');
+      return;
+    }
+
+    // Verify token and verify super_admin role against auth service
+    fetch('/api/v1/auth/users/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Unauthorized');
+        const user = await res.json();
+        if (user.role !== 'super_admin') {
+          router.replace('/dashboard');
+          return;
+        }
+        setAuthChecking(false);
+        const saved = localStorage.getItem('boldlabs_super_admin_phone');
+        if (saved) setSuperAdminPhone(saved);
+        loadData();
+      })
+      .catch(() => {
+        router.replace('/login');
+      });
   }, []);
 
   function handleSaveAdminPhone(e: React.FormEvent) {
@@ -811,8 +835,17 @@ export default function SuperAdminClients() {
     const plan = (t.plan || 'pro').toLowerCase();
     if (plan === 'starter') return acc + 999;
     if (plan === 'enterprise') return acc + 9999;
-    return acc + 2999;
+    return acc + 3499;
   }, 0);
+
+  if (authChecking) {
+    return (
+      <div className="h-screen w-full bg-canvas flex flex-col items-center justify-center gap-3">
+        <Loader2 className="w-8 h-8 animate-spin text-accent" />
+        <p className="text-xs text-text-secondary font-medium">Verifying Super Admin Access...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-canvas text-text-primary font-sans antialiased overflow-hidden">
@@ -863,14 +896,22 @@ export default function SuperAdminClients() {
           })}
         </nav>
 
-        {/* Footer: Quick switch back to CRM Dashboard */}
-        <div className="p-3 border-t border-border">
+        {/* Footer: Quick switch back to CRM Dashboard & /bhuvanesh */}
+        <div className="p-3 border-t border-border space-y-1.5">
+          <button
+            onClick={() => router.push('/bhuvanesh')}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 text-accent rounded-sm text-xs font-semibold transition-colors duration-150 cursor-pointer border border-accent/20"
+            title="Open /bhuvanesh Workspace"
+          >
+            <MessageSquare className="w-3.5 h-3.5 stroke-[1.5]" />
+            <span>Open /bhuvanesh CRM</span>
+          </button>
           <button
             onClick={() => router.push('/dashboard')}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer border border-border"
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer border border-border"
           >
             <ArrowLeft className="w-3.5 h-3.5 stroke-[1.5]" />
-            <span>Return to CRM</span>
+            <span>Return to Dashboard</span>
           </button>
         </div>
 
@@ -3358,9 +3399,10 @@ export default function SuperAdminClients() {
                             onChange={(e) => setEditingConfigTenant({ ...editingConfigTenant, plan: e.target.value })}
                             className="w-full px-3 py-1.5 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-accent cursor-pointer"
                           >
+                            <option value="pro">Standard Automation Plan (₹3,499/mo) &mdash; Official Razorpay Sub</option>
                             <option value="starter">Starter Plan (₹999/mo)</option>
-                            <option value="pro">Pro Plan (₹2,999/mo)</option>
                             <option value="enterprise">Enterprise Plan (₹9,999/mo)</option>
+                            <option value="custom">Custom Plan</option>
                           </select>
                         </div>
 
@@ -3568,14 +3610,14 @@ export default function SuperAdminClients() {
                       const p = e.target.value;
                       let price = formData.monthly_price;
                       if (p === 'starter') price = 999;
-                      else if (p === 'pro') price = 2999;
+                      else if (p === 'pro') price = 3499;
                       else if (p === 'enterprise') price = 9999;
                       setFormData({ ...formData, plan: p, monthly_price: price });
                     }}
                     className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
                   >
+                    <option value="pro">Standard Automation Plan (₹3,499/mo)</option>
                     <option value="starter">Starter (₹999/mo)</option>
-                    <option value="pro">Pro (₹2,999/mo)</option>
                     <option value="enterprise">Enterprise (₹9,999/mo)</option>
                     <option value="custom">Custom plan</option>
                   </select>
@@ -3587,7 +3629,7 @@ export default function SuperAdminClients() {
                     type="number"
                     required
                     min={0}
-                    placeholder="2999"
+                    placeholder="3499"
                     value={formData.monthly_price}
                     onChange={(e) => setFormData({ ...formData, monthly_price: Number(e.target.value) })}
                     className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono tabular-nums text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"

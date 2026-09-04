@@ -97,16 +97,28 @@ async def login_for_access_token(
     username_clean = (form_data.username or "").strip().lower()
     async with db_pool.acquire() as conn:
         user = await conn.fetchrow(
-            "SELECT id, tenant_id, password_hash, role FROM users WHERE LOWER(TRIM(email)) = $1 AND is_active = true",
+            "SELECT id, tenant_id, password_hash, role, is_active FROM users WHERE LOWER(TRIM(email)) = $1",
             username_clean
         )
 
-        password_valid = user and verify_password(form_data.password, user["password_hash"])
-        
-        if not user or not password_valid:
+        if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect email or password",
+                detail="No account found with this email address. Please check your email or contact support.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        if not user.get("is_active", True):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Your account has been deactivated. Please contact your administrator.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        if not verify_password(form_data.password, user["password_hash"]):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect password. Please verify and try again.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         

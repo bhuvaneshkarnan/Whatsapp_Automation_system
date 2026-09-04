@@ -440,6 +440,7 @@ const INDUSTRY_PRESETS = [
 
 export default function DashboardPage() {
   const router = useRouter();
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
   
   // Navigation: overview | inbox | bookings | calendar | customers | followup | marketing | settings
   const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'followup' | 'marketing' | 'settings'>(() => {
@@ -1300,20 +1301,21 @@ export default function DashboardPage() {
 
   // Initial Auth & Load
   useEffect(() => {
-    const token = localStorage.getItem('auth_token');
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
     if (!token) {
-      router.push('/login');
+      router.replace('/login');
       return;
-    }
-    if (typeof window !== 'undefined') {
-      const storedSlug = localStorage.getItem('tenant_slug') || 'boldlabs';
-      if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
-        window.history.replaceState(null, '', `/${storedSlug}${window.location.hash || ''}`);
-      }
     }
     crm.getMe()
       .then((data) => {
         setUser(data);
+        setIsAuthChecking(false);
+        if (typeof window !== 'undefined') {
+          const storedSlug = localStorage.getItem('tenant_slug') || 'boldlabs';
+          if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
+            window.history.replaceState(null, '', `/${storedSlug}${window.location.hash || ''}`);
+          }
+        }
         loadConversations();
         loadBookings();
         loadContacts();
@@ -1322,7 +1324,7 @@ export default function DashboardPage() {
       })
       .catch(() => {
         localStorage.removeItem('auth_token');
-        router.push('/login');
+        router.replace('/login');
       });
   }, [router]);
 
@@ -2780,6 +2782,18 @@ export default function DashboardPage() {
     };
   };
 
+  if (isAuthChecking) {
+    return (
+      <div className="h-screen w-screen bg-[#0a0f1d] flex flex-col items-center justify-center gap-3 select-none">
+        <div className="w-9 h-9 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+        <div className="flex flex-col items-center gap-1 text-center">
+          <span className="text-sm font-semibold text-white tracking-wide">Boldlabs CRM</span>
+          <span className="text-xs text-slate-400">Verifying authorized access...</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full h-screen bg-canvas flex flex-col overflow-hidden font-sans text-text-body">
       {/* ── Top Header Navigation Bar ───────────────────────────────────────── */}
@@ -2788,7 +2802,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
             <span className="font-bold text-[17px] text-text-primary tracking-tight">
-              {settingsForm.name || 'WhatsApp CRM'}
+              {settingsForm.name || 'Boldlabs CRM'}
             </span>
           </div>
 
@@ -7594,7 +7608,7 @@ export default function DashboardPage() {
                         </div>
                         <div className="p-3 bg-surface-subtle rounded-sm border border-border flex items-center gap-2.5">
                           <span className="font-bold text-[16px] text-text-primary tracking-tight">
-                            {settingsForm.name || 'WhatsApp CRM'}
+                            {settingsForm.name || 'Boldlabs CRM'}
                           </span>
                           <span className="text-[13px] font-medium text-text-muted">
                             / Overview

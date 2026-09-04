@@ -46,11 +46,14 @@ export default function LoginPage() {
       // Resolve fixed onboarding business slug
       try {
         const settings = await crm.getSettings();
-        const slug = settings.slug || 'boldlabs';
+        let slug = settings.slug || 'boldlabs';
+        if (email.toLowerCase().includes('bhuvanesh')) {
+          slug = 'bhuvanesh';
+        }
         localStorage.setItem('tenant_slug', slug);
         router.push(`/${slug}`);
       } catch {
-        const defaultSlug = 'boldlabs';
+        const defaultSlug = email.toLowerCase().includes('bhuvanesh') ? 'bhuvanesh' : 'boldlabs';
         localStorage.setItem('tenant_slug', defaultSlug);
         router.push(`/${defaultSlug}`);
       }
@@ -58,7 +61,9 @@ export default function LoginPage() {
       if (err?.code === 'PAYMENT_REQUIRED' && err.paymentDetails) {
         setPaymentRequired(err.paymentDetails);
       } else {
-        setError(err instanceof Error ? err.message : 'Invalid credentials. Please verify your email and password.');
+        const rawMsg = err instanceof Error ? err.message : 'Invalid credentials. Please verify your email and password.';
+        const cleanMsg = rawMsg.replace(/^(Error:\s*|API Error \(\d+\):\s*|Login failed:\s*\d+\s*[-:]?\s*)/i, '').trim();
+        setError(cleanMsg || 'Incorrect email or password. Please verify your credentials.');
       }
     } finally {
       setLoading(false);
@@ -79,7 +84,7 @@ export default function LoginPage() {
               Subscription Payment Required
             </h1>
             <p className="text-xs text-text-muted mt-1">
-              {paymentRequired.org_name ? `Organization: ${paymentRequired.org_name}` : 'WhatsApp CRM Platform'}
+              {paymentRequired.org_name ? `Organization: ${paymentRequired.org_name}` : 'Boldlabs CRM'}
             </p>
           </div>
 
@@ -148,7 +153,7 @@ export default function LoginPage() {
             <MessageSquare className="w-5 h-5 stroke-[1.5]" />
           </div>
           <h1 className="text-xl font-semibold text-text-primary">
-            WhatsApp CRM Platform
+            Boldlabs CRM
           </h1>
           <p className="text-xs text-text-muted mt-1">
             Sign in to access your business inbox and bookings
@@ -237,7 +242,7 @@ export default function LoginPage() {
 
         {/* Footer */}
         <p className="text-center text-xs text-text-muted mt-6">
-          &copy; {new Date().getFullYear()} WhatsApp Automation System
+          &copy; {new Date().getFullYear()} Boldlabs CRM. All rights reserved.
         </p>
       </div>
     </div>

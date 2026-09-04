@@ -71,9 +71,15 @@ export const auth = {
         paymentError.paymentDetails = detail;
         throw paymentError;
       }
-      let errorMsg = `Login failed: ${res.status}`;
+      let errorMsg = 'Invalid email or password. Please try again.';
       if (errData?.detail) {
-        errorMsg = typeof errData.detail === 'string' ? errData.detail : JSON.stringify(errData.detail);
+        errorMsg = typeof errData.detail === 'string' 
+          ? errData.detail 
+          : (errData.detail.message || JSON.stringify(errData.detail));
+      } else if (res.status === 401) {
+        errorMsg = 'Incorrect email or password. Please verify your credentials.';
+      } else if (res.status === 500) {
+        errorMsg = 'Server error. Please try again shortly or contact support.';
       }
       throw new Error(errorMsg);
     }

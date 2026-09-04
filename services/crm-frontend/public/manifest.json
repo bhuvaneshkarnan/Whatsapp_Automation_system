@@ -1,0 +1,16 @@
+{
+  "name": "Boldlabs AI WhatsApp CRM",
+  "short_name": "Boldlabs CRM",
+  "start_url": "/boldlabs",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#090d16",
+  "description": "Enterprise WhatsApp Automation, AI Booking, and Live CRM Platform",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}
