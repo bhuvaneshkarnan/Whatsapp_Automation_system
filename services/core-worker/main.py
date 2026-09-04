@@ -11,9 +11,9 @@ Reads messages from Redis Streams, processes them:
 import asyncio
 import json
 import os
-import time
 import uuid
-from datetime import datetime, timezone
+import datetime
+from datetime import timezone
 from typing import Optional
 
 import asyncpg
@@ -2271,21 +2271,21 @@ class CoreWorker:
         name = job.get("contact_name") or "there"
         service = job["service"]
         start = job["start_time"]
-        if isinstance(start, datetime):
+        if isinstance(start, datetime.datetime):
             start_str = start.strftime("%A, %d %B at %I:%M %p")
         else:
             start_str = str(start)
 
         if job["job_type"] == "reminder":
             return (
-                f"Hi {name}! ⏰ This is a friendly reminder that you have a *{service}* appointment "
+                f"Hi {name}! This is a friendly reminder that you have a *{service}* appointment "
                 f"scheduled for *{start_str}*. We look forward to seeing you!"
             )
         elif job["job_type"] == "review_request":
             return (
-                f"Hi {name}! We hope your *{service}* went well! 😊 "
+                f"Hi {name}! We hope your *{service}* went well! "
                 f"We'd love to hear your feedback. Please take a moment to share your experience with us. "
-                f"Your feedback helps us serve you better! 🌟"
+                f"Your feedback helps us serve you better!"
             )
         return f"Hi {name}, this is a message from us regarding your {service} booking."
 
