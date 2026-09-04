@@ -1303,7 +1303,9 @@ export default function DashboardPage() {
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
     if (!token) {
-      router.replace('/login');
+      if (typeof window !== 'undefined') {
+        window.location.replace('/login');
+      }
       return;
     }
     crm.getMe()
@@ -1323,10 +1325,12 @@ export default function DashboardPage() {
         loadSettings();
       })
       .catch(() => {
-        localStorage.removeItem('auth_token');
-        router.replace('/login');
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('auth_token');
+          window.location.replace('/login');
+        }
       });
-  }, [router]);
+  }, []);
 
   // Load Sticky Notes from localStorage
   useEffect(() => {
@@ -2785,6 +2789,17 @@ export default function DashboardPage() {
   if (isAuthChecking) {
     return (
       <div className="h-screen w-screen bg-[#0a0f1d] flex flex-col items-center justify-center gap-3 select-none">
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                if (!localStorage.getItem('auth_token')) {
+                  window.location.replace('/login');
+                }
+              } catch (e) {}
+            `,
+          }}
+        />
         <div className="w-9 h-9 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
         <div className="flex flex-col items-center gap-1 text-center">
           <span className="text-sm font-semibold text-white tracking-wide">Boldlabs CRM</span>
