@@ -2254,7 +2254,25 @@ class CoreWorker:
                RETURNING id""",
             str(uuid.uuid4()), tenant_id, phone, name,
         )
-        return str(row["id"])
+        contact_id = str(row["id"])
+
+        # Real-time customer sync: Ensure customer record exists in customers table for CRM Customers tab
+        try:
+            clean_digits = re.sub(r"[^0-9]", "", phone)
+            await self.db_pool.execute(
+                """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, last_messaged_at, created_at, updated_at)
+                   VALUES (gen_random_uuid(), $1::uuid, $2, COALESCE($3, 'Customer'), 'new', 'warm', now(), now(), now())
+                   ON CONFLICT (tenant_id, phone)
+                   DO UPDATE SET
+                     name = CASE WHEN customers.name IS NULL OR customers.name = 'Customer' THEN COALESCE(EXCLUDED.name, customers.name) ELSE customers.name END,
+                     last_messaged_at = now(),
+                     updated_at = now()""",
+                tenant_id, clean_digits, name
+            )
+        except Exception as e:
+            logger.warning("customer_upsert_from_contact_failed", error=str(e), phone=phone)
+
+        return contact_id
 
     async def _get_or_create_conversation(self, tenant_id: str, contact_id: str) -> tuple[str, str]:
         row = await self.db_pool.fetchrow(
@@ -2297,6 +2315,18 @@ class CoreWorker:
                        WHERE id = $1::uuid""",
                     conversation_id
                 )
+
+            # Keep customer record in customers table synced with latest WhatsApp chat timestamp
+            await self.db_pool.execute(
+                """UPDATE customers c
+                   SET last_messaged_at = NOW(), updated_at = NOW()
+                   FROM contacts ct
+                   JOIN conversations cv ON cv.contact_id = ct.id
+                   WHERE cv.id = $1::uuid
+                     AND (c.phone = ct.phone OR RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10))
+                     AND c.tenant_id = cv.tenant_id""",
+                conversation_id
+            )
         except Exception as e:
             logger.warning("update_conversation_timestamp_failed", conv_id=conversation_id, error=str(e))
 

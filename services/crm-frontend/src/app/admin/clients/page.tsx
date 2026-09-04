@@ -429,7 +429,9 @@ export default function SuperAdminClients() {
   // Password reset modal state
   const [resetTenantId, setResetTenantId] = useState<string | null>(null);
   const [resetTenantName, setResetTenantName] = useState<string>('');
+  const [resetTenantEmail, setResetTenantEmail] = useState<string>('');
   const [newPassword, setNewPassword] = useState('');
+  const [showResetPasswordText, setShowResetPasswordText] = useState(true);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [resetError, setResetError] = useState('');
   const [resettingPassword, setResettingPassword] = useState(false);
@@ -794,11 +796,6 @@ export default function SuperAdminClients() {
     try {
       await admin.resetPassword(resetTenantId, newPassword);
       setResetSuccess(true);
-      setTimeout(() => {
-        setResetTenantId(null);
-        setNewPassword('');
-        setResetSuccess(false);
-      }, 2000);
     } catch (err: unknown) {
       setResetError(err instanceof Error ? err.message : 'Failed to reset password.');
     } finally {
@@ -1290,8 +1287,8 @@ export default function SuperAdminClients() {
                                     Initial Setup
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-900 dark:text-amber-300 border border-amber-500/30 shadow-xs" title="Payment link generated — waiting for client payment">
-                                    <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-200 text-slate-950 dark:bg-amber-950/80 dark:text-amber-100 border border-amber-400 dark:border-amber-600 shadow-xs" title="Payment link generated — waiting for client payment">
+                                    <Clock className="w-3 h-3 text-slate-950 dark:text-amber-300 shrink-0" />
                                     <span>Unpaid • Payment Pending</span>
                                   </span>
                                 )}
@@ -1407,7 +1404,9 @@ export default function SuperAdminClients() {
                                     onClick={() => {
                                       setResetTenantId(t.id);
                                       setResetTenantName(t.name);
+                                      setResetTenantEmail(t.admin_email || `admin@${t.slug}.com`);
                                       setNewPassword('');
+                                      setShowResetPasswordText(true);
                                       setResetSuccess(false);
                                       setResetError('');
                                     }}
@@ -3436,7 +3435,7 @@ export default function SuperAdminClients() {
                             placeholder="Enter new strong password"
                             value={newPassword}
                             onChange={(e) => setNewPassword(e.target.value)}
-                            className="flex-1 px-3 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent"
+                            className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-sm text-xs font-mono font-bold text-slate-950 focus:border-accent"
                           />
                           <button
                             type="button"
@@ -3678,77 +3677,185 @@ export default function SuperAdminClients() {
         </div>
       )}
 
-      {/* ── MODAL: RESET CLIENT PASSWORD ──────────────────────────────────────── */}
+      {/* ── MODAL: RESET CLIENT PASSWORD & ACCESS CREDENTIALS ────────────────────────────── */}
       {resetTenantId && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-surface border border-border rounded-md w-full max-w-sm overflow-hidden shadow-2xl">
-            <div className="h-12 px-5 border-b border-border flex items-center justify-between bg-surface">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-surface border border-border rounded-lg w-full max-w-md overflow-hidden shadow-2xl">
+            <div className="h-12 px-5 border-b border-border flex items-center justify-between bg-surface-subtle">
               <div className="flex items-center gap-2">
                 <Lock className="w-4 h-4 text-accent stroke-[1.5]" />
-                <h3 className="text-xs font-semibold text-text-primary">
-                  Reset Client Password
+                <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                  Client Access & Credentials
                 </h3>
               </div>
               <button
-                onClick={() => setResetTenantId(null)}
+                onClick={() => {
+                  setResetTenantId(null);
+                  setResetSuccess(false);
+                  setResetError('');
+                }}
                 className="p-1 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer"
               >
                 <X className="w-4 h-4 stroke-[1.5]" />
               </button>
             </div>
 
-            <form onSubmit={handleResetPassword} className="p-5 space-y-3.5">
-              {resetTenantName && (
-                <p className="text-xs text-text-muted">
-                  Setting new login password for <strong className="text-text-primary">{resetTenantName}</strong>.
-                </p>
-              )}
+            <form onSubmit={handleResetPassword} className="p-5 space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-border">
+                <div>
+                  <span className="text-[10px] text-text-muted uppercase tracking-wider font-semibold block">Organization</span>
+                  <span className="text-sm font-bold text-slate-950 dark:text-slate-100">{resetTenantName}</span>
+                </div>
+                <a
+                  href="https://crm.goboldlabs.com/login"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-accent hover:underline bg-accent/10 border border-accent/20 rounded"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  <span>crm.goboldlabs.com/login</span>
+                </a>
+              </div>
+
+              {/* Login Email / Username Box - Visible Solid Black Text */}
+              <div className="space-y-1">
+                <label className="block text-[11px] font-bold text-slate-900 dark:text-slate-200 uppercase tracking-wider">
+                  Client Username / Login Email
+                </label>
+                <div className="flex items-center justify-between px-3 py-2 bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-md">
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <Mail className="w-3.5 h-3.5 text-slate-700 dark:text-slate-300 shrink-0" />
+                    <span className="text-xs font-mono font-bold text-slate-950 dark:text-slate-100 select-all truncate">
+                      {resetTenantEmail || 'admin@client.com'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(resetTenantEmail);
+                      setCopiedField('login_email');
+                      setTimeout(() => setCopiedField(null), 2000);
+                    }}
+                    className="p-1 text-slate-700 hover:text-slate-950 dark:text-slate-300 dark:hover:text-white rounded transition-colors cursor-pointer"
+                    title="Copy Username"
+                  >
+                    {copiedField === 'login_email' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* New Password Input Box - Visible Solid Black Text */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11px] font-bold text-slate-900 dark:text-slate-200 uppercase tracking-wider">
+                    Set Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+                      let pwd = '';
+                      for (let i = 0; i < 10; i++) {
+                        pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+                      }
+                      setNewPassword(pwd);
+                      setShowResetPasswordText(true);
+                    }}
+                    className="text-[11px] font-bold text-accent hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Generate Random</span>
+                  </button>
+                </div>
+                <div className="relative flex items-center">
+                  <input
+                    type={showResetPasswordText ? 'text' : 'password'}
+                    required
+                    placeholder="Min 6 characters"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full pl-3 pr-16 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-mono font-bold text-slate-950 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
+                  />
+                  <div className="absolute right-2 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowResetPasswordText(!showResetPasswordText)}
+                      className="p-1 text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white cursor-pointer"
+                      title={showResetPasswordText ? 'Hide password' : 'Show password'}
+                    >
+                      {showResetPasswordText ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                    {newPassword && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(newPassword);
+                          setCopiedField('new_password');
+                          setTimeout(() => setCopiedField(null), 2000);
+                        }}
+                        className="p-1 text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white cursor-pointer"
+                        title="Copy Password"
+                      >
+                        {copiedField === 'new_password' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               {resetError && (
-                <div className="p-3 bg-status-error-bg border border-status-error-border text-status-error text-xs rounded-sm font-medium flex items-center gap-1.5">
+                <div className="p-3 bg-status-error-bg border border-status-error-border text-status-error text-xs rounded-md font-medium flex items-center gap-1.5">
                   <AlertCircle className="w-4 h-4 shrink-0 stroke-[1.5]" />
                   <span>{resetError}</span>
                 </div>
               )}
 
-              {resetSuccess ? (
-                <div className="p-3 bg-status-success-bg border border-status-success-border text-status-success text-xs rounded-sm font-medium flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 stroke-[1.5]" />
-                  <span>Password reset successfully!</span>
+              {resetSuccess && (
+                <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-slate-950 dark:text-emerald-100 text-xs rounded-md space-y-2">
+                  <div className="flex items-center gap-1.5 font-bold text-emerald-800 dark:text-emerald-300">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>Password updated successfully!</span>
+                  </div>
+                  <p className="text-[11px] text-slate-800 dark:text-slate-200">
+                    Client credentials ready. You can copy full login details below:
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const text = `Organization: ${resetTenantName}\nLogin Portal: https://crm.goboldlabs.com/login\nUsername: ${resetTenantEmail}\nPassword: ${newPassword}`;
+                      navigator.clipboard.writeText(text);
+                      setCopiedField('all_creds');
+                      setTimeout(() => setCopiedField(null), 2000);
+                    }}
+                    className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    {copiedField === 'all_creds' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedField === 'all_creds' ? 'Copied Full Credentials!' : 'Copy Full Login Details'}</span>
+                  </button>
                 </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="block text-xs font-medium text-text-primary mb-1">New Password</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Min 6 characters"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                    />
-                  </div>
-
-                  <div className="pt-2 flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setResetTenantId(null)}
-                      className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={resettingPassword || !newPassword || newPassword.length < 6}
-                      className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-                    >
-                      {resettingPassword ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                      <span>{resettingPassword ? 'Updating...' : 'Update Password'}</span>
-                    </button>
-                  </div>
-                </>
               )}
+
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResetTenantId(null);
+                    setResetSuccess(false);
+                    setResetError('');
+                  }}
+                  className="px-3.5 py-1.5 text-xs font-semibold text-text-secondary hover:text-text-primary rounded cursor-pointer"
+                >
+                  {resetSuccess ? 'Close' : 'Cancel'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={resettingPassword || !newPassword || newPassword.length < 6}
+                  className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-bold rounded transition-colors duration-150 cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-xs"
+                >
+                  {resettingPassword ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  <span>{resettingPassword ? 'Updating...' : (resetSuccess ? 'Update Again' : 'Save Password')}</span>
+                </button>
+              </div>
             </form>
           </div>
         </div>

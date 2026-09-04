@@ -469,6 +469,35 @@ async def list_customers(
 ):
     """List customer follow-up records with segment filters, chat activity, and notes counts."""
     async with db_pool.acquire() as conn:
+        # Ensure all WhatsApp contacts/conversations have a customer record
+        try:
+            await conn.execute("""
+                INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, last_messaged_at, created_at, updated_at)
+                SELECT 
+                    gen_random_uuid(), 
+                    c.tenant_id, 
+                    REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 
+                    COALESCE(c.name, c.wa_profile_name, 'Customer'), 
+                    'new', 
+                    'warm',
+                    (SELECT MAX(m.created_at) FROM messages m JOIN conversations cv ON m.conversation_id = cv.id WHERE cv.contact_id = c.id),
+                    c.created_at, 
+                    now()
+                FROM contacts c
+                WHERE c.tenant_id = $1::uuid
+                  AND NOT EXISTS (
+                    SELECT 1 FROM customers cust 
+                    WHERE cust.tenant_id = c.tenant_id 
+                      AND (
+                        cust.phone = REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g')
+                        OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10)
+                      )
+                )
+                ON CONFLICT (tenant_id, phone) DO NOTHING
+            """, tenant_id)
+        except Exception as e:
+            logger.warning("customer_sync_from_contacts_failed", error=str(e))
+
         conditions = ["c.tenant_id = $1::uuid"]
         params = [tenant_id]
         idx = 2
@@ -533,9 +562,15 @@ async def list_customers(
             FROM customers c
             WHERE {where_clause}
             ORDER BY 
-                CASE c.lead_probability WHEN 'hot' THEN 1 WHEN 'warm' THEN 2 ELSE 3 END ASC,
-                c.followup_date ASC NULLS LAST,
-                c.created_at DESC
+                COALESCE(
+                    (SELECT MAX(m.created_at) FROM messages m 
+                     JOIN conversations cv ON m.conversation_id = cv.id 
+                     JOIN contacts ct ON cv.contact_id = ct.id 
+                     WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                       AND cv.tenant_id = c.tenant_id),
+                    c.last_messaged_at,
+                    c.created_at
+                ) DESC NULLS LAST
             LIMIT ${idx} OFFSET ${idx + 1}
         """
         rows = await conn.fetch(query, *params)
