@@ -19,6 +19,7 @@ const openSans = Open_Sans({
 export const metadata: Metadata = {
   title: "WhatsApp CRM & Automation Platform",
   description: "Enterprise WhatsApp Automation, AI Booking, and Live CRM Platform",
+  manifest: "/manifest.json",
   icons: {
     icon: "/favicon.ico",
   },

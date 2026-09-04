@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS tenants (
   last_payment_status       TEXT,
   last_charge_at            TIMESTAMPTZ,
   last_reminder_sent_at     TIMESTAMPTZ,
-  reminder_stage            TEXT,
+  reminder_stage            INTEGER DEFAULT 0,
   token_invalidated_at      TIMESTAMPTZ,
   created_at    TIMESTAMPTZ DEFAULT now(),
   updated_at    TIMESTAMPTZ DEFAULT now()

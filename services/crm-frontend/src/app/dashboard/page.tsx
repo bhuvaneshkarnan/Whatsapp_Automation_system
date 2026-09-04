@@ -18,6 +18,8 @@ import {
   Contact,
   TenantSettingsResponse,
   TenantSettingsUpdate,
+  notificationsApi,
+  CrmNotification,
 } from '@/lib/api';
 import {
   MessageSquare,
@@ -39,6 +41,7 @@ import {
   CalendarClock,
   CalendarCheck,
   Key,
+  Mail,
   MapPin,
   FileText,
   Copy,
@@ -59,10 +62,14 @@ import {
   ChevronRight,
   Plus,
   X,
+  Pencil,
   Star,
   UserX,
   RotateCcw,
   Bell,
+  BellRing,
+  BellOff,
+  Volume2,
   MoreHorizontal,
   Folder,
   FolderOpen,
@@ -220,7 +227,41 @@ const TIMEZONE_LIST = [
 ];
 
 
-export const PREBUILT_REQUIREMENTS_BY_INDUSTRY: Record<string, string[]> = {
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+function formatRelativeTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHours = Math.floor(diffMin / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffSec < 60) return 'Just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
+const PREBUILT_REQUIREMENTS_BY_INDUSTRY: Record<string, string[]> = {
   clinic: [
     'General Consultation',
     'Back Pain & Physio',
@@ -286,7 +327,7 @@ export const PREBUILT_REQUIREMENTS_BY_INDUSTRY: Record<string, string[]> = {
   ],
 };
 
-export const INDUSTRY_PRESETS = [
+const INDUSTRY_PRESETS = [
   {
     id: 'education',
     name: 'Education, Academies & Coaching Institutes',
@@ -296,6 +337,7 @@ export const INDUSTRY_PRESETS = [
       requirement_label: 'Target Course & Grade',
       event_label: 'Demo Class / Counseling Session',
       booking_cta: '+ Book Demo Class / Counseling',
+      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.education,
     },
   },
   {
@@ -307,6 +349,7 @@ export const INDUSTRY_PRESETS = [
       requirement_label: 'Health Concern / Symptoms',
       event_label: 'Clinic Appointment',
       booking_cta: '+ New Appointment',
+      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic,
     },
   },
   {
@@ -318,6 +361,7 @@ export const INDUSTRY_PRESETS = [
       requirement_label: 'Budget, Location & Unit Size',
       event_label: 'Site Visit / Walkthrough',
       booking_cta: '+ Schedule Site Visit',
+      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.real_estate,
     },
   },
   {
@@ -329,6 +373,7 @@ export const INDUSTRY_PRESETS = [
       requirement_label: 'Hair/Skin Goal & Desired Service',
       event_label: 'Salon Session / Slot',
       booking_cta: '+ Book Salon Session',
+      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.salon_spa,
     },
   },
   {
@@ -340,6 +385,7 @@ export const INDUSTRY_PRESETS = [
       requirement_label: 'Vehicle Model & Issue',
       event_label: 'Service Slot / Test Drive',
       booking_cta: '+ Book Service Slot',
+      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.automobile,
     },
   },
   {
@@ -351,6 +397,7 @@ export const INDUSTRY_PRESETS = [
       requirement_label: 'Project Scope & Requirements',
       event_label: 'Strategy Call / Consultation',
       booking_cta: '+ Book Discovery Call',
+      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.consulting,
     },
   },
   {
@@ -362,6 +409,7 @@ export const INDUSTRY_PRESETS = [
       requirement_label: 'Fitness Goal & Health Notes',
       event_label: 'Trial Class / Assessment',
       booking_cta: '+ Book Trial Class',
+      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.gym_fitness,
     },
   },
   {
@@ -373,6 +421,7 @@ export const INDUSTRY_PRESETS = [
       requirement_label: 'Party Size & Dietary Preferences',
       event_label: 'Table Reservation',
       booking_cta: '+ Reserve Table',
+      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.restaurant,
     },
   },
   {
@@ -384,6 +433,7 @@ export const INDUSTRY_PRESETS = [
       requirement_label: 'Primary Requirement / Notes',
       event_label: 'Booking / Session',
       booking_cta: '+ New Booking',
+      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.custom,
     },
   },
 ];
@@ -409,7 +459,7 @@ export default function DashboardPage() {
     return 'overview';
   });
   const [sidebarFilter, setSidebarFilter] = useState<'all' | 'recent' | 'favorites' | 'active'>('all');
-  const [settingsTab, setSettingsTab] = useState<'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'account'>('ai');
+  const [settingsTab, setSettingsTab] = useState<'branding' | 'notifications' | 'localization' | 'terminology' | 'account'>('branding');
 
   // Customer Follow-up & Task Calendar State
   const [followupView, setFollowupView] = useState<'list' | 'database' | 'tasks' | 'notes'>(() => {
@@ -423,6 +473,295 @@ export default function DashboardPage() {
     }
     return 'list';
   });
+
+  // ── Web Push & Notification Center State ─────────────────────────────────────
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notificationsList, setNotificationsList] = useState<CrmNotification[]>([]);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>('default');
+
+  // ── Quick Requirement / Concern Presets Editor Modal ───────────────────────
+  const [presetEditModalOpen, setPresetEditModalOpen] = useState(false);
+  const [presetEditList, setPresetEditList] = useState<string[]>([]);
+  const [newPresetInput, setNewPresetInput] = useState('');
+  const [savingPresets, setSavingPresets] = useState(false);
+
+  function openPresetEditor() {
+    const currentList = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+      ? settingsForm.taxonomy.requirement_presets
+      : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic);
+    setPresetEditList([...currentList]);
+    setNewPresetInput('');
+    setPresetEditModalOpen(true);
+  }
+
+  function handleAddPreset() {
+    const trimmed = newPresetInput.trim();
+    if (!trimmed) return;
+    if (!presetEditList.some(p => p.toLowerCase() === trimmed.toLowerCase())) {
+      setPresetEditList(prev => [...prev, trimmed]);
+    }
+    setNewPresetInput('');
+  }
+
+  function handleRemovePreset(presetToRemove: string) {
+    setPresetEditList(prev => prev.filter(p => p !== presetToRemove));
+  }
+
+  function handleResetPresetDefaults() {
+    const industryKey = settingsForm.industry || 'clinic';
+    const defaults = PREBUILT_REQUIREMENTS_BY_INDUSTRY[industryKey] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic;
+    setPresetEditList([...defaults]);
+  }
+
+  async function handleSavePresetsModal() {
+    setSavingPresets(true);
+    try {
+      const updatedTaxonomy = {
+        ...(settingsForm.taxonomy || currentTaxonomy),
+        requirement_presets: presetEditList,
+      };
+      const updatedForm = {
+        ...settingsForm,
+        taxonomy: updatedTaxonomy,
+      };
+      const res = await crm.updateSettings(updatedForm);
+      if (res && res.taxonomy) {
+        setSettingsForm(res);
+      } else {
+        setSettingsForm(updatedForm);
+      }
+      setPresetEditModalOpen(false);
+    } catch (err) {
+      console.error('Failed to save presets:', err);
+      alert('Failed to save presets: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSavingPresets(false);
+    }
+  }
+
+  const [isPushSubscribed, setIsPushSubscribed] = useState(false);
+  const [isPushLoading, setIsPushLoading] = useState(false);
+  const [testingPush, setTestingPush] = useState(false);
+
+  const fetchNotifications = async () => {
+    try {
+      const res = await notificationsApi.list(50);
+      setNotificationsList(res.notifications || []);
+      setUnreadNotifCount(res.unread_count || 0);
+    } catch {
+      // Ignore background poll errors
+    }
+  };
+
+  const checkPushStatus = async () => {
+    if (typeof window === 'undefined') return;
+    if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setPushPermission('unsupported');
+      return;
+    }
+    setPushPermission(Notification.permission);
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) {
+        const sub = await reg.pushManager.getSubscription();
+        setIsPushSubscribed(!!sub);
+      }
+    } catch {
+      setIsPushSubscribed(false);
+    }
+  };
+
+  const subscribePushNotifications = async () => {
+    if (typeof window === 'undefined') return;
+    if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setActionNotice('Web Push is not supported in this browser.');
+      return;
+    }
+
+    setIsPushLoading(true);
+    try {
+      const perm = await Notification.requestPermission();
+      setPushPermission(perm);
+      if (perm !== 'granted') {
+        setActionNotice('Notification permission denied. Please allow notifications in browser settings.');
+        setIsPushLoading(false);
+        return;
+      }
+
+      // Register and update /sw.js service worker
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      await reg.update();
+      await navigator.serviceWorker.ready;
+
+      // Fetch VAPID Public Key from backend
+      const { vapid_public_key } = await notificationsApi.getVapidKey();
+      if (!vapid_public_key) {
+        throw new Error('VAPID public key not configured on server');
+      }
+
+      const appServerKey = urlBase64ToUint8Array(vapid_public_key);
+      const subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: appServerKey,
+      });
+
+      const subJson = subscription.toJSON();
+      if (!subscription.endpoint || !subJson.keys?.p256dh || !subJson.keys?.auth) {
+        throw new Error('Incomplete push subscription generated');
+      }
+
+      await notificationsApi.subscribe({
+        endpoint: subscription.endpoint,
+        keys: {
+          p256dh: subJson.keys.p256dh,
+          auth: subJson.keys.auth,
+        },
+        user_agent: navigator.userAgent,
+      });
+
+      setIsPushSubscribed(true);
+      setActionNotice('🔔 Real Web Push enabled! You will receive alerts even with the browser closed.');
+
+      // Fire an immediate confirmation notification banner
+      try {
+        await reg.showNotification('🔔 Boldlabs Web Push Enabled', {
+          body: 'Real-time notifications are now active on your laptop!',
+          icon: '/favicon.ico',
+          badge: '/favicon.ico',
+          tag: 'push-enabled-welcome',
+          requireInteraction: true,
+        });
+      } catch (e) {
+        console.warn(e);
+      }
+
+      fetchNotifications();
+    } catch (err: any) {
+      console.error('Push subscribe error:', err);
+      setActionNotice(`Failed to enable push: ${err.message || err}`);
+    } finally {
+      setIsPushLoading(false);
+    }
+  };
+
+  const sendTestNotification = async () => {
+    setTestingPush(true);
+    try {
+      // 1. Direct browser popup test
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          if ('serviceWorker' in navigator) {
+            const reg = await navigator.serviceWorker.ready;
+            if (reg) {
+              await reg.showNotification('🔔 Boldlabs Live Alert', {
+                body: 'Real notification is active on this device!',
+                icon: '/favicon.ico',
+                badge: '/favicon.ico',
+                tag: `test-alert-${Date.now()}`,
+                renotify: true,
+                requireInteraction: true,
+                data: { url: '/boldlabs' },
+              } as any);
+            }
+          }
+        } catch (localErr) {
+          console.warn('Local showNotification warning:', localErr);
+        }
+      }
+
+      // 2. Dispatches real backend VAPID Web Push via Google FCM / Apple Push
+      await notificationsApi.sendTest();
+      setActionNotice('🔔 Test push sent! If not visible on screen, check Windows Action Center (bottom right) or Mac Notifications.');
+      setTimeout(fetchNotifications, 1000);
+    } catch (err: any) {
+      setActionNotice(`Test push failed: ${err.message || err}`);
+    } finally {
+      setTestingPush(false);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await notificationsApi.markAllRead();
+      setUnreadNotifCount(0);
+      setNotificationsList((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleDeleteNotification = async (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const prevList = [...notificationsList];
+    const prevCount = unreadNotifCount;
+    const item = prevList.find((n) => n.id === id);
+    if (item && !item.is_read) {
+      setUnreadNotifCount((c) => Math.max(0, c - 1));
+    }
+    setNotificationsList((prev) => prev.filter((n) => n.id !== id));
+    try {
+      await notificationsApi.delete(id);
+    } catch (err) {
+      console.error('Failed to delete notification', err);
+      setNotificationsList(prevList);
+      setUnreadNotifCount(prevCount);
+    }
+  };
+
+  const handleClearAllNotifications = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const prevList = [...notificationsList];
+    const prevCount = unreadNotifCount;
+    setNotificationsList([]);
+    setUnreadNotifCount(0);
+    try {
+      await notificationsApi.clearAll();
+    } catch (err) {
+      console.error('Failed to clear notifications', err);
+      setNotificationsList(prevList);
+      setUnreadNotifCount(prevCount);
+    }
+  };
+
+  const handleNotificationClick = async (notif: CrmNotification) => {
+    try {
+      if (!notif.is_read) {
+        await notificationsApi.markRead(notif.id);
+        setUnreadNotifCount((prev) => Math.max(0, prev - 1));
+        setNotificationsList((prev) =>
+          prev.map((n) => (n.id === notif.id ? { ...n, is_read: true } : n))
+        );
+      }
+    } catch {}
+
+    setShowNotifications(false);
+
+    if (notif.data?.phone) {
+      navigateTo('inbox');
+      const targetPhone = notif.data.phone.replace('+', '').trim();
+      const match = conversations.find(
+        (c) => c.contact_phone && c.contact_phone.replace('+', '').trim() === targetPhone
+      );
+      if (match) {
+        setSelectedConv(match);
+      }
+    } else if (notif.type === 'booking' || notif.type === 'cancellation' || notif.type === 'reschedule') {
+      navigateTo('bookings');
+    }
+  };
+
+  // Poll notifications and check push status on load
+  useEffect(() => {
+    fetchNotifications();
+    checkPushStatus();
+    const interval = setInterval(fetchNotifications, 20000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Synchronize active navigation tab and sub-views to localStorage & URL hash so page refreshes stay on same tab
   useEffect(() => {
@@ -592,8 +931,10 @@ export default function DashboardPage() {
     return [
       { id: 'utility_general_update', name: 'utility_general_update', label: '1. Utility / Promotional Update (utility_general_update)', variables_count: 3 },
       { id: 'booking_confirmationn', name: 'booking_confirmationn', label: '2. Appointment Confirmation (booking_confirmationn)', variables_count: 4 },
-      { id: 'reschedule_nudge', name: 'reschedule_nudge', label: '3. Re-engagement / Recall Nudge (reschedule_nudge)', variables_count: 2 },
-      { id: 'review_request', name: 'review_request', label: '4. Customer Feedback & Review Request (review_request)', variables_count: 3 },
+      { id: 'booking_reschedule_confirmation', name: 'booking_reschedule_confirmation', label: '3. Reschedule Confirmation (booking_reschedule_confirmation)', variables_count: 4 },
+      { id: 'reschedule_nudge', name: 'reschedule_nudge', label: '4. Re-engagement / Recall Nudge (reschedule_nudge)', variables_count: 2 },
+      { id: 'client_followup_checkin', name: 'client_followup_checkin', label: '5. Client Follow-up Check-in (client_followup_checkin)', variables_count: 3 },
+      { id: 'review_request', name: 'review_request', label: '6. Customer Feedback & Review Request (review_request)', variables_count: 3 },
     ];
   });
 
@@ -686,6 +1027,9 @@ export default function DashboardPage() {
   const [updatingBookingId, setUpdatingBookingId] = useState<string | null>(null);
   const [selectedBookingDetail, setSelectedBookingDetail] = useState<Booking | null>(null);
   const [isBookingDetailModalOpen, setIsBookingDetailModalOpen] = useState(false);
+  const [rescheduleDate, setRescheduleDate] = useState('');
+  const [rescheduleTime, setRescheduleTime] = useState('10:00');
+  const [isRescheduling, setIsRescheduling] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   // Price Editing State
@@ -755,8 +1099,8 @@ export default function DashboardPage() {
     meta_access_token: '',
     meta_app_secret: '',
     verify_token: '',
-    primary_model_provider: 'gemini',
-    ai_model: 'gemini-2.0-flash',
+    primary_model_provider: 'groq',
+    ai_model: 'gemini-3.1-flash-lite',
     gemini_api_key: '',
     groq_api_key: '',
     opencode_api_key: '',
@@ -772,14 +1116,16 @@ export default function DashboardPage() {
     currency_symbol: '₹',
     admin_whatsapp_number: '',
     template_booking_confirmation: 'booking_confirmationn',
-    template_reschedule_confirmation: 'booking_confirmationn',
+    template_reschedule_confirmation: 'booking_reschedule_confirmation',
     template_cancellation_confirmation: 'cancellation_confirmation',
-    template_post_service_review: 'post_service_review',
+    template_post_service_review: 'review_request',
     template_appointment_reminder: 'appointment_ramainder',
     template_reschedule_nudge: 'reschedule_nudge',
     template_review_request: 'review_request',
+    template_client_followup: 'client_followup_checkin',
     google_review_link: '',
     template_admin_notification: 'admin_notification',
+    template_admin_reschedule_notice: 'admin_reschedule_notice',
     template_admin_human_request: 'admin_human_request',
     template_admin_cancellation_notice: 'admin_cancellation_notice',
     template_admin_daily_digest: 'admin_daily_digest',
@@ -1044,9 +1390,7 @@ export default function DashboardPage() {
     if (activeNav === 'bookings') {
       loadBookings();
     } else if (activeNav === 'calendar') {
-      loadBookings();
-      loadCustomers();
-      loadTasks();
+      loadCalendarData();
     } else if (activeNav === 'customers') {
       loadContacts();
       loadCustomers();
@@ -1199,14 +1543,32 @@ export default function DashboardPage() {
     };
   }, [activeNav]);
 
-  async function loadBookings() {
+  async function loadBookings(limit = 200) {
     setLoadingBookings(true);
     try {
-      const data = await crm.getBookings();
+      const data = await crm.getBookings(undefined, limit);
       const list = Array.isArray(data) ? data : [];
       setBookings(list);
     } catch (err) {
       console.error('Error fetching bookings:', err);
+    } finally {
+      setLoadingBookings(false);
+    }
+  }
+
+  async function loadCalendarData() {
+    setLoadingBookings(true);
+    try {
+      const [bData, cData, tData] = await Promise.all([
+        crm.getBookings(undefined, 500).catch(() => []),
+        crm.getCustomers({ limit: 500 }).catch(() => []),
+        crm.getTasks('all').catch(() => []),
+      ]);
+      if (Array.isArray(bData)) setBookings(bData);
+      if (Array.isArray(cData) && cData.length > 0) setCustomers(cData);
+      if (Array.isArray(tData)) setTasks(tData);
+    } catch (err) {
+      console.error('Error loading calendar data:', err);
     } finally {
       setLoadingBookings(false);
     }
@@ -1865,16 +2227,31 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleUpdateBookingStatus(bookingId: string, newStatus: string) {
+  useEffect(() => {
+    if (selectedBookingDetail?.start_time) {
+      const dt = new Date(selectedBookingDetail.start_time);
+      if (!isNaN(dt.getTime())) {
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const d = String(dt.getDate()).padStart(2, '0');
+        const hr = String(dt.getHours()).padStart(2, '0');
+        const min = String(dt.getMinutes()).padStart(2, '0');
+        setRescheduleDate(`${y}-${m}-${d}`);
+        setRescheduleTime(`${hr}:${min}`);
+      }
+    }
+  }, [selectedBookingDetail]);
+
+  async function handleUpdateBookingStatus(bookingId: string, newStatus: string, newStartTime?: string) {
     setUpdatingBookingId(bookingId);
     setActionNotice(null);
     try {
-      await crm.updateBookingStatus(bookingId, newStatus);
+      await crm.updateBookingStatus(bookingId, newStatus, newStartTime);
       setBookings((prev) =>
-        prev.map((b) => (b.id === bookingId ? { ...b, status: newStatus } : b))
+        prev.map((b) => (b.id === bookingId ? { ...b, status: newStatus, ...(newStartTime ? { start_time: newStartTime } : {}) } : b))
       );
       if (selectedBookingDetail && selectedBookingDetail.id === bookingId) {
-        setSelectedBookingDetail({ ...selectedBookingDetail, status: newStatus });
+        setSelectedBookingDetail({ ...selectedBookingDetail, status: newStatus, ...(newStartTime ? { start_time: newStartTime } : {}) });
       }
 
       if (newStatus === 'completed') {
@@ -1885,12 +2262,34 @@ export default function DashboardPage() {
         setActionNotice('Booking Cancelled. Cancellation notification WhatsApp template sent to client.');
       } else if (newStatus === 'confirmed') {
         setActionNotice('Booking Confirmed! Official confirmation WhatsApp template sent to client.');
+      } else if (newStatus === 'rescheduled') {
+        setActionNotice('Booking Rescheduled! Reschedule confirmation WhatsApp template sent to client.');
       }
       setTimeout(() => setActionNotice(null), 5500);
+      loadBookings();
     } catch (err) {
       alert('Failed to update booking status.');
     } finally {
       setUpdatingBookingId(null);
+    }
+  }
+
+  async function handleRescheduleBooking(bookingId: string, newDate: string, newTime: string) {
+    if (!newDate || !newTime) {
+      alert('Please select both a new date and time to reschedule.');
+      return;
+    }
+    setIsRescheduling(true);
+    try {
+      const newStartTime = `${newDate}T${newTime}:00`;
+      await handleUpdateBookingStatus(bookingId, 'rescheduled', newStartTime);
+      setIsBookingDetailModalOpen(false);
+      setSelectedBookingDetail(null);
+      loadCalendarData();
+    } catch (err: any) {
+      alert(err instanceof Error ? err.message : 'Failed to reschedule booking.');
+    } finally {
+      setIsRescheduling(false);
     }
   }
 
@@ -2304,12 +2703,81 @@ export default function DashboardPage() {
     calendarTitle = `${first.toLocaleDateString([], { month: 'short', day: 'numeric' })} – ${last.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
   }
 
-  const isSameDay = (d1: Date, d2: Date) => {
+  const isSameDay = (d1: any, d2: any) => {
+    if (!d1 || !d2) return false;
+    const toDateObj = (val: any): Date | null => {
+      if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+      const str = String(val).trim();
+      if (!str) return null;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+        const [y, m, d] = str.split('-').map(Number);
+        return new Date(y, m - 1, d);
+      }
+      const parsed = new Date(str);
+      return isNaN(parsed.getTime()) ? null : parsed;
+    };
+    const date1 = toDateObj(d1);
+    const date2 = toDateObj(d2);
+    if (!date1 || !date2) return false;
     return (
-      d1.getFullYear() === d2.getFullYear() &&
-      d1.getMonth() === d2.getMonth() &&
-      d1.getDate() === d2.getDate()
+      date1.getFullYear() === date2.getFullYear() &&
+      date1.getMonth() === date2.getMonth() &&
+      date1.getDate() === date2.getDate()
     );
+  };
+
+  const parseEventTime = (timeStr: string | null | undefined): { hour: number; minute: number; formatted: string; isAllDay: boolean } => {
+    if (!timeStr || typeof timeStr !== 'string') {
+      return { hour: -1, minute: 0, formatted: 'All Day', isAllDay: true };
+    }
+    const s = timeStr.trim();
+    if (!s || /^(all[\s-]?day|anytime|any[\s-]?time|today)$/i.test(s)) {
+      return { hour: -1, minute: 0, formatted: 'All Day', isAllDay: true };
+    }
+    const m = s.match(/^(\d{1,2})(?::(\d{1,2}))?\s*(AM|PM)?$/i);
+    if (!m) {
+      return { hour: -1, minute: 0, formatted: s, isAllDay: true };
+    }
+    let h = parseInt(m[1], 10);
+    const min = m[2] ? parseInt(m[2].padEnd(2, '0').slice(0, 2), 10) : 0;
+    const ampm = m[3] ? m[3].toUpperCase() : null;
+    if (ampm === 'PM' && h < 12) h += 12;
+    if (ampm === 'AM' && h === 12) h = 0;
+    if (h < 0 || h > 23) {
+      return { hour: -1, minute: 0, formatted: s, isAllDay: true };
+    }
+    const displayH = h % 12 === 0 ? 12 : h % 12;
+    const displayAmpm = h >= 12 ? 'PM' : 'AM';
+    const displayMin = String(min).padStart(2, '0');
+    return {
+      hour: h,
+      minute: min,
+      formatted: `${displayH}:${displayMin} ${displayAmpm}`,
+      isAllDay: false,
+    };
+  };
+
+  const parseTaskTime = (dueDateStr: string | null | undefined): { hour: number; minute: number; formatted: string; isAllDay: boolean } => {
+    if (!dueDateStr) return { hour: -1, minute: 0, formatted: 'All Day', isAllDay: true };
+    if (!dueDateStr.includes('T') && !dueDateStr.includes(' ')) {
+      return { hour: -1, minute: 0, formatted: 'All Day', isAllDay: true };
+    }
+    const d = new Date(dueDateStr);
+    if (isNaN(d.getTime())) return { hour: -1, minute: 0, formatted: 'All Day', isAllDay: true };
+    const h = d.getHours();
+    const m = d.getMinutes();
+    if (h === 0 && m === 0 && d.getSeconds() === 0) {
+      return { hour: -1, minute: 0, formatted: 'All Day', isAllDay: true };
+    }
+    const displayH = h % 12 === 0 ? 12 : h % 12;
+    const displayAmpm = h >= 12 ? 'PM' : 'AM';
+    const displayMin = String(m).padStart(2, '0');
+    return {
+      hour: h,
+      minute: m,
+      formatted: `${displayH}:${displayMin} ${displayAmpm}`,
+      isAllDay: false,
+    };
   };
 
   return (
@@ -2365,11 +2833,215 @@ export default function DashboardPage() {
             )}
           </button>
 
-          {/* Notification Bell */}
-          <button className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors duration-150 relative border border-border">
-            <Bell className="w-3.5 h-3.5 stroke-[1.5]" />
-            <span className="w-1.5 h-1.5 rounded-full bg-accent absolute top-1 right-1" />
-          </button>
+          {/* Notification Bell with Dropdown Popover */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setShowNotifications(!showNotifications);
+                if (!showNotifications) {
+                  fetchNotifications();
+                  checkPushStatus();
+                }
+              }}
+              className={`p-1.5 rounded-sm transition-colors duration-150 relative border cursor-pointer ${
+                showNotifications
+                  ? 'bg-surface-subtle text-text-primary border-border-strong ring-1 ring-border-strong'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle border-border'
+              }`}
+              title="Notifications & Background Web Push"
+            >
+              <Bell className="w-3.5 h-3.5 stroke-[1.5]" />
+              {unreadNotifCount > 0 ? (
+                <span className="min-w-[15px] h-3.5 px-1 rounded-full bg-accent text-white text-[9px] font-bold flex items-center justify-center absolute -top-1 -right-1 ring-1 ring-canvas">
+                  {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
+                </span>
+              ) : isPushSubscribed ? (
+                <span className="w-1.5 h-1.5 rounded-full bg-status-success absolute top-1 right-1" />
+              ) : null}
+            </button>
+
+            {/* Notification Center Popover */}
+            {showNotifications && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowNotifications(false)}
+                />
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-surface border border-border rounded-lg shadow-2xl z-50 overflow-hidden text-left flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
+                  {/* Popover Header */}
+                  <div className="px-4 py-3 border-b border-border bg-surface-subtle/50 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Bell className="w-4 h-4 text-accent stroke-[1.5]" />
+                      <span className="text-xs font-semibold text-text-primary">Notifications & Alerts</span>
+                      {unreadNotifCount > 0 && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-accent/10 text-accent rounded-full border border-accent/20">
+                          {unreadNotifCount} unread
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {unreadNotifCount > 0 && (
+                        <button
+                          onClick={handleMarkAllRead}
+                          className="text-[11px] text-text-muted hover:text-text-primary cursor-pointer transition-colors"
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                      {notificationsList.length > 0 && (
+                        <button
+                          onClick={handleClearAllNotifications}
+                          className="text-[11px] text-text-muted hover:text-status-danger cursor-pointer transition-colors"
+                          title="Clear all notifications"
+                        >
+                          Clear all
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setShowNotifications(false)}
+                        className="text-text-muted hover:text-text-primary p-0.5 rounded-sm hover:bg-surface-subtle cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5 stroke-[1.5]" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Web Push Background Alert Status Card */}
+                  <div className="p-3 bg-surface border-b border-border">
+                    {isPushSubscribed ? (
+                      <div className="p-2.5 rounded-md bg-status-success/5 border border-status-success/20 flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-status-success animate-pulse" />
+                            <span className="text-xs font-semibold text-status-success">Real Web Push Active</span>
+                          </div>
+                          <span className="text-[10px] text-text-muted font-mono">Background Alerts</span>
+                        </div>
+                        <p className="text-[11px] text-text-secondary leading-tight">
+                          You will receive real-time push notifications for new WhatsApp messages and bookings even when your browser is closed.
+                        </p>
+                        <div className="flex items-center justify-end gap-2 pt-1 border-t border-status-success/10">
+                          <button
+                            onClick={sendTestNotification}
+                            disabled={testingPush}
+                            className="px-2.5 py-1 text-[11px] font-medium bg-surface text-text-primary border border-border hover:bg-surface-subtle rounded flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-colors"
+                          >
+                            <Zap className="w-3 h-3 text-accent" />
+                            <span>{testingPush ? 'Sending...' : 'Send Test Alert'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : pushPermission === 'denied' ? (
+                      <div className="p-2.5 rounded-md bg-status-warning/5 border border-status-warning/20 flex flex-col gap-1.5">
+                        <div className="flex items-center gap-1.5 text-status-warning">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          <span className="text-xs font-semibold">Notifications Blocked</span>
+                        </div>
+                        <p className="text-[11px] text-text-muted leading-tight">
+                          Browser notifications are blocked. Please click the padlock/tune icon in your browser address bar and allow Notifications for this site.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="p-2.5 rounded-md bg-accent/5 border border-accent/20 flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                          <BellRing className="w-3.5 h-3.5 text-accent" />
+                          <span className="text-xs font-semibold text-text-primary">Enable Background Push Alerts</span>
+                        </div>
+                        <p className="text-[11px] text-text-muted leading-tight">
+                          Never miss a client! Receive real instant desktop & mobile alerts even when your browser is closed or inactive.
+                        </p>
+                        <button
+                          onClick={subscribePushNotifications}
+                          disabled={isPushLoading}
+                          className="w-full py-1.5 px-3 rounded text-xs font-semibold bg-accent hover:bg-accent-hover text-white flex items-center justify-center gap-2 cursor-pointer shadow-sm transition-colors disabled:opacity-50"
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                          <span>{isPushLoading ? 'Enabling...' : 'Enable Real Web Push Notifications'}</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Notification List Body */}
+                  <div className="overflow-y-auto flex-1 max-h-72 divide-y divide-border">
+                    {notificationsList.length === 0 ? (
+                      <div className="py-8 px-4 text-center">
+                        <CheckCircle2 className="w-6 h-6 text-text-muted/40 mx-auto mb-2 stroke-[1.5]" />
+                        <p className="text-xs font-medium text-text-primary">All caught up!</p>
+                        <p className="text-[11px] text-text-muted mt-0.5">No recent notifications.</p>
+                      </div>
+                    ) : (
+                      notificationsList.map((notif) => {
+                        const isMsg = notif.type === 'message';
+                        const isBkg = notif.type === 'booking';
+                        const isCan = notif.type === 'cancellation';
+                        return (
+                          <div
+                            key={notif.id}
+                            onClick={() => handleNotificationClick(notif)}
+                            className={`p-3 flex items-start gap-3 hover:bg-surface-subtle/70 transition-colors cursor-pointer text-left ${
+                              !notif.is_read ? 'bg-surface-subtle/30' : ''
+                            }`}
+                          >
+                            <div className="mt-0.5 shrink-0">
+                              {isMsg ? (
+                                <div className="w-7 h-7 rounded-full bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+                                  <MessageSquare className="w-3.5 h-3.5 stroke-[1.5]" />
+                                </div>
+                              ) : isBkg ? (
+                                <div className="w-7 h-7 rounded-full bg-status-success/10 border border-status-success/20 flex items-center justify-center text-status-success">
+                                  <Calendar className="w-3.5 h-3.5 stroke-[1.5]" />
+                                </div>
+                              ) : isCan ? (
+                                <div className="w-7 h-7 rounded-full bg-status-danger/10 border border-status-danger/20 flex items-center justify-center text-status-danger">
+                                  <AlertCircle className="w-3.5 h-3.5 stroke-[1.5]" />
+                                </div>
+                              ) : (
+                                <div className="w-7 h-7 rounded-full bg-surface-subtle border border-border flex items-center justify-center text-text-secondary">
+                                  <Bell className="w-3.5 h-3.5 stroke-[1.5]" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1">
+                                <p className={`text-xs truncate ${!notif.is_read ? 'font-semibold text-text-primary' : 'font-medium text-text-secondary'}`}>
+                                  {notif.title}
+                                </p>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {!notif.is_read && (
+                                    <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleDeleteNotification(e, notif.id)}
+                                    className="w-6 h-6 flex items-center justify-center text-text-muted hover:text-status-danger rounded hover:bg-surface-subtle transition-colors cursor-pointer"
+                                    title="Delete notification"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                                  </button>
+                                </div>
+                              </div>
+                              <p className="text-[11px] text-text-muted line-clamp-2 mt-0.5">
+                                {notif.body}
+                              </p>
+                              <div className="flex items-center justify-between mt-1 text-[10px] text-text-muted">
+                                <span>{formatRelativeTime(notif.created_at)}</span>
+                                {notif.data?.phone && (
+                                  <span className="text-accent hover:underline font-mono">
+                                    {notif.data.phone}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
@@ -2496,8 +3168,8 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2.5">
                 <Sliders className="w-4 h-4 stroke-[1.5] text-text-secondary" />
                 <div>
-                  <p className="text-xs font-medium text-text-primary">Settings</p>
-                  <p className="text-[11px] text-text-muted">Configuration</p>
+                  <p className="text-xs font-medium text-text-primary">Preferences</p>
+                  <p className="text-[11px] text-text-muted">Workspace & Branding</p>
                 </div>
               </div>
               <ChevronRight className="w-3.5 h-3.5 stroke-[1.5] text-text-muted" />
@@ -2822,6 +3494,16 @@ export default function DashboardPage() {
                       })}
                     </div>
 
+                    {/* Switch to Calendar Schedule Button */}
+                    <button
+                      onClick={() => navigateTo('calendar')}
+                      className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 border border-border cursor-pointer shadow-xs"
+                      title="Switch to Calendar Schedule view"
+                    >
+                      <CalendarDays className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                      <span>Calendar Schedule</span>
+                    </button>
+
                     {/* Add Booking Button */}
                     <button
                       onClick={() => setIsAddBookingOpen(true)}
@@ -3070,6 +3752,16 @@ export default function DashboardPage() {
 
                     <button
                       type="button"
+                      onClick={() => navigateTo('bookings')}
+                      className="px-2.5 py-1 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer font-medium shadow-xs"
+                      title="Switch to Bookings Table list view"
+                    >
+                      <List className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span className="hidden sm:inline">Table View</span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => setShowAddTaskModal(true)}
                       className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer"
                       title="Create a new task"
@@ -3115,31 +3807,38 @@ export default function DashboardPage() {
                         // 1. Matching Bookings
                         const cellBookings = (bookings || []).filter((b) => {
                           if (!b || !b.start_time) return false;
-                          const bDate = new Date(b.start_time);
-                          return isSameDay(bDate, cellDate);
+                          return isSameDay(b.start_time, cellDate);
                         });
 
-                        // 2. Matching Customer Follow-ups
+                        // 2. Matching Customer Follow-ups (timezone-safe)
                         const cellFollowups = (customers || []).filter((c) => {
                           if (!c || !c.followup_date) return false;
-                          const fDate = new Date(c.followup_date + (c.followup_date.includes('T') ? '' : 'T00:00:00'));
-                          return isSameDay(fDate, cellDate);
+                          return isSameDay(c.followup_date, cellDate);
                         });
 
                         // 3. Matching Tasks
                         const cellTasks = (tasks || []).filter((t) => {
                           if (!t || !t.due_date) return false;
-                          const tDate = new Date(t.due_date);
-                          return isSameDay(tDate, cellDate);
+                          return isSameDay(t.due_date, cellDate);
                         });
 
                         const showBookings = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings';
                         const showFollowups = calendarLayerFilter === 'all' || calendarLayerFilter === 'followups';
                         const showTasks = calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks';
 
-                        const totalEvents = (showBookings ? cellBookings.length : 0) +
-                                            (showFollowups ? cellFollowups.length : 0) +
-                                            (showTasks ? cellTasks.length : 0);
+                        const allCellItems: Array<
+                          | { type: 'booking'; data: Booking }
+                          | { type: 'followup'; data: Customer }
+                          | { type: 'task'; data: FollowupTask }
+                        > = [
+                          ...(showBookings ? cellBookings.map((b) => ({ type: 'booking' as const, data: b })) : []),
+                          ...(showFollowups ? cellFollowups.map((f) => ({ type: 'followup' as const, data: f })) : []),
+                          ...(showTasks ? cellTasks.map((t) => ({ type: 'task' as const, data: t })) : []),
+                        ];
+
+                        const totalEvents = allCellItems.length;
+                        const visibleItems = allCellItems.slice(0, 3);
+                        const overflowCount = totalEvents - visibleItems.length;
 
                         return (
                           <div
@@ -3148,7 +3847,7 @@ export default function DashboardPage() {
                               setCurrentDate(cellDate);
                               setCalendarViewMode('day');
                             }}
-                            className={`min-h-[100px] p-2 flex flex-col justify-between transition-colors duration-150 cursor-pointer ${
+                            className={`min-h-[110px] p-2 flex flex-col justify-between transition-colors duration-150 cursor-pointer ${
                               isToday ? 'bg-surface-subtle' : 'hover:bg-surface-subtle/60'
                             }`}
                           >
@@ -3164,72 +3863,92 @@ export default function DashboardPage() {
                               </span>
                               {totalEvents > 0 && (
                                 <span className="text-[10px] font-mono text-text-muted bg-surface px-1.5 py-0.2 rounded-sm border border-border font-medium">
-                                  {totalEvents} {totalEvents === 1 ? 'event' : 'events'}
+                                  {totalEvents} {totalEvents === 1 ? 'item' : 'items'}
                                 </span>
                               )}
                             </div>
 
-                            <div className="space-y-1 mt-1 overflow-y-auto max-h-[85px] pr-0.5">
-                              {/* A. Bookings */}
-                              {showBookings && cellBookings.map((b) => (
-                                <button
-                                  type="button"
-                                  key={`b-${b.id}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedBookingDetail(b);
-                                    setIsBookingDetailModalOpen(true);
-                                  }}
-                                  className={`w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium transition-colors duration-150 border ${
-                                    b.status === 'completed'
-                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                      : b.status === 'no_show'
-                                      ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                      : b.status === 'cancelled'
-                                      ? 'bg-rose-50 text-rose-800 border-rose-300'
-                                      : 'bg-accent text-white border-accent'
-                                  }`}
-                                  title={`Appointment: ${b.contact_name || b.service} (${b.status})`}
-                                >
-                                  {b.start_time ? new Date(b.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''} · {b.contact_name || b.service}
-                                </button>
-                              ))}
+                            <div className="space-y-1 mt-1 overflow-hidden pr-0.5">
+                              {visibleItems.map((item) => {
+                                if (item.type === 'booking') {
+                                  const b = item.data;
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={`b-${b.id}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedBookingDetail(b);
+                                        setIsBookingDetailModalOpen(true);
+                                      }}
+                                      className={`w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium transition-colors duration-150 border cursor-pointer ${
+                                        b.status === 'completed'
+                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                          : b.status === 'no_show'
+                                          ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                          : b.status === 'cancelled'
+                                          ? 'bg-rose-50 text-rose-800 border-rose-300'
+                                          : 'bg-accent text-white border-accent'
+                                      }`}
+                                      title={`Appointment: ${b.contact_name || b.service} (${b.status})`}
+                                    >
+                                      {b.start_time ? new Date(b.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''} · {b.contact_name || b.service}
+                                    </button>
+                                  );
+                                }
+                                if (item.type === 'followup') {
+                                  const cust = item.data;
+                                  const timeInfo = parseEventTime(cust.followup_time);
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={`f-${cust.id}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openCustomerProfileByPhone(cust.phone, cust.name || undefined);
+                                      }}
+                                      className="w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer"
+                                      title={`Follow-up with ${cust.name || cust.phone} (${timeInfo.formatted})`}
+                                    >
+                                      {timeInfo.formatted} · 📞 {cust.name || cust.phone}
+                                    </button>
+                                  );
+                                }
+                                const t = item.data;
+                                return (
+                                  <button
+                                    type="button"
+                                    key={`t-${t.id}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleToggleTask(t.id);
+                                    }}
+                                    className={`w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium transition-colors border cursor-pointer ${
+                                      t.completed
+                                        ? 'bg-surface text-text-muted border-border line-through opacity-70'
+                                        : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
+                                    }`}
+                                    title={`Task: ${t.title} (Click to toggle completed)`}
+                                  >
+                                    {t.completed ? '✓' : '□'} {t.title}
+                                  </button>
+                                );
+                              })}
 
-                              {/* B. Scheduled Follow-ups */}
-                              {showFollowups && cellFollowups.map((cust) => (
+                              {overflowCount > 0 && (
                                 <button
                                   type="button"
-                                  key={`f-${cust.id}`}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    openCustomerProfileByPhone(cust.phone, cust.name || undefined);
+                                    setCurrentDate(cellDate);
+                                    setCalendarViewMode('day');
                                   }}
-                                  className="w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100 transition-colors"
-                                  title={`Follow-up with ${cust.name || cust.phone} (${cust.followup_time || '10:00 AM'})`}
+                                  className="w-full text-center py-0.5 text-[9px] font-semibold text-accent hover:underline bg-accent/5 hover:bg-accent/10 rounded-xs transition-colors cursor-pointer block"
+                                  title="View full day schedule"
                                 >
-                                  {cust.followup_time || '10:00 AM'} · 📞 {cust.name || cust.phone}
+                                  +{overflowCount} more &rarr;
                                 </button>
-                              ))}
-
-                              {/* C. Tasks */}
-                              {showTasks && cellTasks.map((t) => (
-                                <button
-                                  type="button"
-                                  key={`t-${t.id}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleToggleTask(t.id);
-                                  }}
-                                  className={`w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium transition-colors border ${
-                                    t.completed
-                                      ? 'bg-surface text-text-muted border-border line-through opacity-70'
-                                      : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
-                                  }`}
-                                  title={`Task: ${t.title} (Click to toggle completed)`}
-                                >
-                                  {t.completed ? '✓' : '□'} {t.title}
-                                </button>
-                              ))}
+                              )}
                             </div>
                           </div>
                         );
@@ -3243,7 +3962,7 @@ export default function DashboardPage() {
                   <div className="flex-1 overflow-y-auto border border-border rounded-md bg-surface flex flex-col">
                     {/* Week Days Header */}
                     <div className="grid grid-cols-8 bg-surface-subtle border-b border-border text-center py-2 shrink-0">
-                      <div className="text-xs font-medium text-text-muted font-mono">Time</div>
+                      <div className="text-xs font-medium text-text-muted font-mono flex items-center justify-center">Time</div>
                       {currentWeekDays.map((day, idx) => {
                         const isToday = isSameDay(new Date(), day);
                         return (
@@ -3253,7 +3972,7 @@ export default function DashboardPage() {
                               setCurrentDate(day);
                               setCalendarViewMode('day');
                             }}
-                            className="flex flex-col items-center gap-0.5 cursor-pointer hover:opacity-80"
+                            className="flex flex-col items-center gap-0.5 cursor-pointer hover:opacity-80 transition-opacity"
                           >
                             <span className="text-[11px] font-medium text-text-muted">
                               {day.toLocaleDateString([], { weekday: 'short' })}
@@ -3270,9 +3989,96 @@ export default function DashboardPage() {
                       })}
                     </div>
 
-                    {/* Week Hours Grid */}
+                    {/* All-Day / Anytime Row */}
+                    <div className="grid grid-cols-8 min-h-[38px] divide-x divide-border bg-surface-subtle/30 border-b border-border shrink-0">
+                      <div className="p-1.5 text-right text-[10px] font-medium text-text-muted bg-surface-subtle/50 flex items-center justify-end">
+                        All-Day
+                      </div>
+                      {currentWeekDays.map((day, dIdx) => {
+                        const showFollowups = calendarLayerFilter === 'all' || calendarLayerFilter === 'followups';
+                        const showTasks = calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks';
+
+                        const dayAllDayFollowups = (customers || []).filter((c) => {
+                          if (!c || !c.followup_date || !isSameDay(c.followup_date, day)) return false;
+                          const t = parseEventTime(c.followup_time);
+                          return t.isAllDay || t.hour < 6;
+                        });
+
+                        const dayAllDayTasks = (tasks || []).filter((t) => {
+                          if (!t || !t.due_date || !isSameDay(t.due_date, day)) return false;
+                          const tInfo = parseTaskTime(t.due_date);
+                          return tInfo.isAllDay || tInfo.hour < 6;
+                        });
+
+                        const hasAllDay = (showFollowups && dayAllDayFollowups.length > 0) || (showTasks && dayAllDayTasks.length > 0);
+
+                        return (
+                          <div key={`allday-${dIdx}`} className="p-1 space-y-1 min-h-[38px]">
+                            {showFollowups && dayAllDayFollowups.map((cust) => (
+                              <div
+                                key={`adf-${cust.id}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openCustomerProfileByPhone(cust.phone, cust.name || undefined);
+                                }}
+                                className="px-1.5 py-0.5 rounded-xs bg-blue-50 border border-blue-200 text-blue-800 text-[10px] flex items-center justify-between gap-1 cursor-pointer hover:bg-blue-100 transition-colors"
+                                title={`Follow-up: ${cust.name || cust.phone}`}
+                              >
+                                <span className="truncate font-medium">📞 {cust.name || cust.phone}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openChatForContact(cust.phone);
+                                  }}
+                                  className="text-blue-700 hover:text-blue-900 shrink-0 cursor-pointer"
+                                  title="WhatsApp chat"
+                                >
+                                  <MessageSquare className="w-2.5 h-2.5" />
+                                </button>
+                              </div>
+                            ))}
+
+                            {showTasks && dayAllDayTasks.map((t) => (
+                              <div
+                                key={`adt-${t.id}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleTask(t.id);
+                                }}
+                                className={`px-1.5 py-0.5 rounded-xs border text-[10px] flex items-center justify-between gap-1 cursor-pointer transition-colors ${
+                                  t.completed
+                                    ? 'bg-surface text-text-muted border-border line-through'
+                                    : 'bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100'
+                                }`}
+                                title={`Task: ${t.title}`}
+                              >
+                                <span className="truncate font-medium">{t.completed ? '✓' : '□'} {t.title}</span>
+                                {t.customer_phone && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openChatForContact(t.customer_phone!);
+                                    }}
+                                    className="text-amber-800 hover:text-amber-950 shrink-0 cursor-pointer"
+                                    title={`Chat with ${t.customer_name || t.customer_phone}`}
+                                  >
+                                    <MessageSquare className="w-2.5 h-2.5" />
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+
+                            {!hasAllDay && <div className="h-full" />}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Week Hours Grid (6 AM to 11 PM) */}
                     <div className="divide-y divide-border flex-1 overflow-y-auto">
-                      {[8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((hour) => (
+                      {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23].map((hour) => (
                         <div key={hour} className="grid grid-cols-8 min-h-[64px] divide-x divide-border">
                           {/* Hour Label */}
                           <div className="p-2 text-right text-xs font-mono text-text-muted bg-surface-subtle/30">
@@ -3289,24 +4095,16 @@ export default function DashboardPage() {
 
                             const slotFollowups = (customers || []).filter((c) => {
                               if (!c || !c.followup_date) return false;
-                              const fDate = new Date(c.followup_date + (c.followup_date.includes('T') ? '' : 'T00:00:00'));
-                              if (!isSameDay(fDate, day)) return false;
-                              const fTimeStr = c.followup_time || '10:00 AM';
-                              const match = fTimeStr.match(/(\d+)(?::(\d+))?\s*(AM|PM)?/i);
-                              if (match) {
-                                let h = parseInt(match[1], 10);
-                                const isPM = match[3] && match[3].toUpperCase() === 'PM';
-                                if (isPM && h < 12) h += 12;
-                                if (!isPM && match[3] && h === 12) h = 0;
-                                return h === hour;
-                              }
-                              return hour === 10;
+                              if (!isSameDay(c.followup_date, day)) return false;
+                              const t = parseEventTime(c.followup_time);
+                              return !t.isAllDay && t.hour === hour;
                             });
 
                             const slotTasks = (tasks || []).filter((t) => {
                               if (!t || !t.due_date) return false;
-                              const tDate = new Date(t.due_date);
-                              return isSameDay(tDate, day) && tDate.getHours() === hour;
+                              if (!isSameDay(t.due_date, day)) return false;
+                              const tInfo = parseTaskTime(t.due_date);
+                              return !tInfo.isAllDay && tInfo.hour === hour;
                             });
 
                             const showBookings = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings';
@@ -3331,7 +4129,7 @@ export default function DashboardPage() {
                                       setNewBookingForm((prev) => ({ ...prev, date: dStr, time: tStr }));
                                       setIsAddBookingOpen(true);
                                     }}
-                                    className="w-full h-full opacity-0 group-hover:opacity-100 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 text-xs font-medium rounded-sm"
+                                    className="w-full h-full opacity-0 group-hover:opacity-100 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 text-xs font-medium rounded-sm cursor-pointer"
                                     title="Add appointment at this time"
                                   >
                                     <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -3360,24 +4158,55 @@ export default function DashboardPage() {
                                           <span className="truncate">{b.contact_name || 'Client'}</span>
                                           <span className="font-mono opacity-80">{b.start_time ? new Date(b.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                                         </div>
-                                        <p className="truncate opacity-90">{b.service}</p>
+                                        <div className="flex items-center justify-between gap-1 mt-0.5">
+                                          <p className="truncate opacity-90">{b.service}</p>
+                                          {b.contact_phone && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openChatForContact(b.contact_phone);
+                                              }}
+                                              className="p-0.5 hover:opacity-100 opacity-80 transition-opacity cursor-pointer shrink-0"
+                                              title="WhatsApp Chat"
+                                            >
+                                              <MessageSquare className="w-2.5 h-2.5" />
+                                            </button>
+                                          )}
+                                        </div>
                                       </div>
                                     ))}
 
-                                    {showFollowups && slotFollowups.map((cust) => (
-                                      <div
-                                        key={cust.id}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          openCustomerProfileByPhone(cust.phone, cust.name || undefined);
-                                        }}
-                                        className="p-1 rounded-sm border bg-blue-50 border-blue-200 text-blue-800 text-left cursor-pointer hover:bg-blue-100 text-[10px]"
-                                        title={`Follow-up with ${cust.name || cust.phone}`}
-                                      >
-                                        <p className="font-semibold truncate">📞 {cust.name || cust.phone}</p>
-                                        <p className="truncate text-blue-700">{cust.health_concern || 'Follow-up Call'}</p>
-                                      </div>
-                                    ))}
+                                    {showFollowups && slotFollowups.map((cust) => {
+                                      const tInfo = parseEventTime(cust.followup_time);
+                                      return (
+                                        <div
+                                          key={cust.id}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openCustomerProfileByPhone(cust.phone, cust.name || undefined);
+                                          }}
+                                          className="p-1 rounded-sm border bg-blue-50 border-blue-200 text-blue-800 text-left cursor-pointer hover:bg-blue-100 text-[10px] transition-colors"
+                                          title={`Follow-up with ${cust.name || cust.phone} (${tInfo.formatted})`}
+                                        >
+                                          <div className="flex items-center justify-between gap-1 font-semibold">
+                                            <span className="truncate">📞 {cust.name || cust.phone}</span>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openChatForContact(cust.phone);
+                                              }}
+                                              className="p-0.5 text-blue-700 hover:text-blue-950 rounded hover:bg-blue-200/50 transition-colors cursor-pointer shrink-0"
+                                              title="WhatsApp Chat"
+                                            >
+                                              <MessageSquare className="w-2.5 h-2.5" />
+                                            </button>
+                                          </div>
+                                          <p className="truncate text-blue-700 mt-0.5">{cust.health_concern || 'Follow-up Call'}</p>
+                                        </div>
+                                      );
+                                    })}
 
                                     {showTasks && slotTasks.map((t) => (
                                       <div
@@ -3386,13 +4215,28 @@ export default function DashboardPage() {
                                           e.stopPropagation();
                                           handleToggleTask(t.id);
                                         }}
-                                        className={`p-1 rounded-sm border text-left cursor-pointer text-[10px] ${
+                                        className={`p-1 rounded-sm border text-left cursor-pointer text-[10px] transition-colors ${
                                           t.completed
                                             ? 'bg-surface text-text-muted border-border line-through'
                                             : 'bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100'
                                         }`}
                                       >
-                                        <p className="font-medium truncate">{t.completed ? '✓' : '□'} {t.title}</p>
+                                        <div className="flex items-center justify-between gap-1">
+                                          <p className="font-medium truncate">{t.completed ? '✓' : '□'} {t.title}</p>
+                                          {t.customer_phone && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openChatForContact(t.customer_phone!);
+                                              }}
+                                              className="p-0.5 text-amber-800 hover:text-amber-950 rounded hover:bg-amber-200/50 transition-colors cursor-pointer shrink-0"
+                                              title={`WhatsApp chat with ${t.customer_name || t.customer_phone}`}
+                                            >
+                                              <MessageSquare className="w-2.5 h-2.5" />
+                                            </button>
+                                          )}
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
@@ -3413,20 +4257,21 @@ export default function DashboardPage() {
                     {(() => {
                       const dayBookings = (bookings || []).filter((b) => {
                         if (!b || !b.start_time) return false;
-                        return isSameDay(new Date(b.start_time), currentDate);
+                        return isSameDay(b.start_time, currentDate);
                       });
                       const dayFollowups = (customers || []).filter((c) => {
                         if (!c || !c.followup_date) return false;
-                        const fDate = new Date(c.followup_date + (c.followup_date.includes('T') ? '' : 'T00:00:00'));
-                        return isSameDay(fDate, currentDate);
+                        return isSameDay(c.followup_date, currentDate);
                       });
                       const dayTasks = (tasks || []).filter((t) => {
                         if (!t || !t.due_date) return false;
-                        return isSameDay(new Date(t.due_date), currentDate);
+                        return isSameDay(t.due_date, currentDate);
                       });
 
                       const totalRev = dayBookings.reduce((sum, b) => sum + (Number(b.price) || 0), 0);
                       const pendingTasks = dayTasks.filter((t) => !t.completed).length;
+
+                      const currentDateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
 
                       return (
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -3454,20 +4299,26 @@ export default function DashboardPage() {
                           <div className="p-3 bg-surface border border-border rounded-md flex items-center justify-between">
                             <div>
                               <p className="text-xs font-medium text-text-muted">Quick Action</p>
-                              <p className="text-xs text-text-secondary mt-0.5">Schedule new item</p>
+                              <p className="text-xs text-text-secondary mt-0.5">Schedule on this day</p>
                             </div>
                             <div className="flex gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => setShowAddTaskModal(true)}
-                                className="px-2 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-sm text-[11px] font-medium"
+                                onClick={() => {
+                                  setAddTaskDueDate(currentDateStr);
+                                  setShowAddTaskModal(true);
+                                }}
+                                className="px-2 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-sm text-[11px] font-medium cursor-pointer transition-colors"
                               >
                                 + Task
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setIsAddBookingOpen(true)}
-                                className="px-2.5 py-1 bg-accent hover:bg-accent-hover text-white rounded-sm text-[11px] font-medium"
+                                onClick={() => {
+                                  setNewBookingForm((prev) => ({ ...prev, date: currentDateStr, time: '10:00' }));
+                                  setIsAddBookingOpen(true);
+                                }}
+                                className="px-2.5 py-1 bg-accent hover:bg-accent-hover text-white rounded-sm text-[11px] font-medium cursor-pointer transition-colors"
                               >
                                 + Booking
                               </button>
@@ -3477,9 +4328,111 @@ export default function DashboardPage() {
                       );
                     })()}
 
-                    {/* Hourly Timeline */}
+                    {/* All-Day / Unscheduled Items Panel (if any exist for currentDate) */}
+                    {(() => {
+                      const showFollowups = calendarLayerFilter === 'all' || calendarLayerFilter === 'followups';
+                      const showTasks = calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks';
+
+                      const allDayFollowups = (customers || []).filter((c) => {
+                        if (!c || !c.followup_date || !isSameDay(c.followup_date, currentDate)) return false;
+                        const t = parseEventTime(c.followup_time);
+                        return t.isAllDay || t.hour < 6;
+                      });
+
+                      const allDayTasks = (tasks || []).filter((t) => {
+                        if (!t || !t.due_date || !isSameDay(t.due_date, currentDate)) return false;
+                        const tInfo = parseTaskTime(t.due_date);
+                        return tInfo.isAllDay || tInfo.hour < 6;
+                      });
+
+                      if ((!showFollowups || allDayFollowups.length === 0) && (!showTasks || allDayTasks.length === 0)) {
+                        return null;
+                      }
+
+                      return (
+                        <div className="p-3 bg-surface-subtle/50 rounded-md border border-border space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                              <LayoutGrid className="w-3.5 h-3.5 text-text-muted" />
+                              <span>All-Day & Anytime Items for Today</span>
+                            </span>
+                            <span className="text-[10px] font-mono text-text-muted">
+                              {(showFollowups ? allDayFollowups.length : 0) + (showTasks ? allDayTasks.length : 0)} items
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {showFollowups && allDayFollowups.map((cust) => (
+                              <div
+                                key={`dadf-${cust.id}`}
+                                onClick={() => openCustomerProfileByPhone(cust.phone, cust.name || undefined)}
+                                className="p-2.5 rounded-sm border bg-blue-50/70 border-blue-200 text-blue-900 flex items-center justify-between gap-2 cursor-pointer hover:bg-blue-100/70 transition-colors"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-semibold truncate">📞 {cust.name || cust.phone}</p>
+                                  <p className="text-[11px] text-blue-700 truncate">{cust.health_concern || 'Follow-up Call'}</p>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openChatForContact(cust.phone);
+                                    }}
+                                    className="p-1 text-blue-700 hover:text-blue-950 hover:bg-blue-200 rounded cursor-pointer"
+                                    title="WhatsApp Chat"
+                                  >
+                                    <MessageSquare className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+
+                            {showTasks && allDayTasks.map((t) => (
+                              <div
+                                key={`dadt-${t.id}`}
+                                onClick={() => handleToggleTask(t.id)}
+                                className={`p-2.5 rounded-sm border flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                                  t.completed
+                                    ? 'bg-surface text-text-muted border-border line-through'
+                                    : 'bg-amber-50/70 border-amber-200 text-amber-950 hover:bg-amber-100/70'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={t.completed}
+                                    onChange={() => handleToggleTask(t.id)}
+                                    className="rounded-xs text-accent cursor-pointer shrink-0"
+                                  />
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-semibold truncate">{t.title}</p>
+                                    {t.description && <p className="text-[11px] text-text-muted truncate">{t.description}</p>}
+                                  </div>
+                                </div>
+                                {t.customer_phone && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openChatForContact(t.customer_phone!);
+                                    }}
+                                    className="p-1 text-amber-800 hover:text-amber-950 hover:bg-amber-200/60 rounded cursor-pointer shrink-0"
+                                    title={`Chat with ${t.customer_name || t.customer_phone}`}
+                                  >
+                                    <MessageSquare className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Hourly Timeline (6 AM to 11 PM) */}
                     <div className="space-y-2 pt-2 divide-y divide-border">
-                      {[8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((hour) => {
+                      {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23].map((hour) => {
                         const hourBookings = (bookings || []).filter((b) => {
                           if (!b || !b.start_time) return false;
                           const bDate = new Date(b.start_time);
@@ -3488,24 +4441,16 @@ export default function DashboardPage() {
 
                         const hourFollowups = (customers || []).filter((c) => {
                           if (!c || !c.followup_date) return false;
-                          const fDate = new Date(c.followup_date + (c.followup_date.includes('T') ? '' : 'T00:00:00'));
-                          if (!isSameDay(fDate, currentDate)) return false;
-                          const fTimeStr = c.followup_time || '10:00 AM';
-                          const match = fTimeStr.match(/(\d+)(?::(\d+))?\s*(AM|PM)?/i);
-                          if (match) {
-                            let h = parseInt(match[1], 10);
-                            const isPM = match[3] && match[3].toUpperCase() === 'PM';
-                            if (isPM && h < 12) h += 12;
-                            if (!isPM && match[3] && h === 12) h = 0;
-                            return h === hour;
-                          }
-                          return hour === 10;
+                          if (!isSameDay(c.followup_date, currentDate)) return false;
+                          const t = parseEventTime(c.followup_time);
+                          return !t.isAllDay && t.hour === hour;
                         });
 
                         const hourTasks = (tasks || []).filter((t) => {
                           if (!t || !t.due_date) return false;
-                          const tDate = new Date(t.due_date);
-                          return isSameDay(tDate, currentDate) && tDate.getHours() === hour;
+                          if (!isSameDay(t.due_date, currentDate)) return false;
+                          const tInfo = parseTaskTime(t.due_date);
+                          return !tInfo.isAllDay && tInfo.hour === hour;
                         });
 
                         const showBookings = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings';
@@ -3562,39 +4507,70 @@ export default function DashboardPage() {
                                           <p className="text-[11px] text-text-secondary">{b.service} &bull; {b.contact_phone}</p>
                                         </div>
                                       </div>
-                                      <div className="text-right">
-                                        <p className="text-xs font-mono font-medium text-text-primary">{currentCurrencySymbol}{b.price || 0}</p>
-                                        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-sm border ${
-                                          b.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                                          b.status === 'no_show' ? 'bg-amber-50 text-amber-800 border-amber-200' :
-                                          b.status === 'cancelled' ? 'bg-rose-50 text-rose-800 border-rose-200' :
-                                          'bg-blue-50 text-blue-800 border-blue-200'
-                                        }`}>
-                                          {b.status}
-                                        </span>
+                                      <div className="flex items-center gap-3">
+                                        <div className="text-right">
+                                          <p className="text-xs font-mono font-medium text-text-primary">{currentCurrencySymbol}{b.price || 0}</p>
+                                          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-sm border ${
+                                            b.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                                            b.status === 'no_show' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                                            b.status === 'cancelled' ? 'bg-rose-50 text-rose-800 border-rose-200' :
+                                            'bg-blue-50 text-blue-800 border-blue-200'
+                                          }`}>
+                                            {b.status}
+                                          </span>
+                                        </div>
+                                        {b.contact_phone && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openChatForContact(b.contact_phone);
+                                            }}
+                                            className="p-1.5 bg-surface-subtle hover:bg-accent hover:text-white text-text-secondary rounded border border-border transition-colors cursor-pointer"
+                                            title="WhatsApp Chat"
+                                          >
+                                            <MessageSquare className="w-3.5 h-3.5" />
+                                          </button>
+                                        )}
                                       </div>
                                     </div>
                                   ))}
 
                                   {/* Follow-ups */}
-                                  {showFollowups && hourFollowups.map((cust) => (
-                                    <div
-                                      key={`hf-${cust.id}`}
-                                      onClick={() => openCustomerProfileByPhone(cust.phone, cust.name || undefined)}
-                                      className="p-3 bg-blue-50/70 hover:bg-blue-50 border border-blue-200 rounded-md flex items-center justify-between cursor-pointer transition-colors duration-150"
-                                    >
-                                      <div className="flex items-center gap-3">
-                                        <Phone className="w-4 h-4 text-blue-600" />
-                                        <div>
-                                          <p className="text-xs font-semibold text-blue-950">Follow-up: {cust.name || cust.phone}</p>
-                                          <p className="text-[11px] text-blue-800">{cust.health_concern || 'Follow-up Call'} &bull; Assigned: {cust.preferred_doctor || 'Staff'}</p>
+                                  {showFollowups && hourFollowups.map((cust) => {
+                                    const tInfo = parseEventTime(cust.followup_time);
+                                    return (
+                                      <div
+                                        key={`hf-${cust.id}`}
+                                        onClick={() => openCustomerProfileByPhone(cust.phone, cust.name || undefined)}
+                                        className="p-3 bg-blue-50/70 hover:bg-blue-50 border border-blue-200 rounded-md flex items-center justify-between cursor-pointer transition-colors duration-150"
+                                      >
+                                        <div className="flex items-center gap-3">
+                                          <Phone className="w-4 h-4 text-blue-600" />
+                                          <div>
+                                            <p className="text-xs font-semibold text-blue-950">Follow-up: {cust.name || cust.phone}</p>
+                                            <p className="text-[11px] text-blue-800">{cust.health_concern || 'Follow-up Call'} &bull; Assigned: {cust.preferred_doctor || 'Staff'}</p>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[10px] font-medium bg-blue-100 text-blue-900 px-2 py-0.5 rounded-sm border border-blue-300">
+                                            {tInfo.formatted}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openChatForContact(cust.phone);
+                                            }}
+                                            className="p-1.5 bg-blue-100 hover:bg-blue-600 hover:text-white text-blue-800 rounded border border-blue-300 transition-colors cursor-pointer"
+                                            title="Chat on WhatsApp"
+                                          >
+                                            <MessageSquare className="w-3.5 h-3.5" />
+                                          </button>
                                         </div>
                                       </div>
-                                      <span className="text-[10px] font-medium bg-blue-100 text-blue-900 px-2 py-0.5 rounded-sm border border-blue-300">
-                                        {cust.followup_time || '10:00 AM'}
-                                      </span>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
 
                                   {/* Tasks */}
                                   {showTasks && hourTasks.map((t) => (
@@ -3619,9 +4595,24 @@ export default function DashboardPage() {
                                           {t.description && <p className="text-[11px] text-text-muted">{t.description}</p>}
                                         </div>
                                       </div>
-                                      <span className="text-[10px] font-mono text-amber-800 bg-amber-100 px-2 py-0.5 rounded-sm border border-amber-300">
-                                        {t.completed ? 'Completed' : 'Pending Task'}
-                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-mono text-amber-800 bg-amber-100 px-2 py-0.5 rounded-sm border border-amber-300">
+                                          {t.completed ? 'Completed' : 'Pending Task'}
+                                        </span>
+                                        {t.customer_phone && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openChatForContact(t.customer_phone!);
+                                            }}
+                                            className="p-1.5 bg-amber-100 hover:bg-amber-700 hover:text-white text-amber-900 rounded border border-amber-300 transition-colors cursor-pointer"
+                                            title={`WhatsApp chat with ${t.customer_name || t.customer_phone}`}
+                                          >
+                                            <MessageSquare className="w-3.5 h-3.5" />
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
                                   ))}
                                 </>
@@ -4474,9 +5465,15 @@ export default function DashboardPage() {
                                   className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent resize-none"
                                 />
                                 {/* Prebuilt Chips */}
-                                {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] && (
+                                {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                                  ? settingsForm.taxonomy.requirement_presets
+                                  : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
+                                ) && (
                                   <div className="flex flex-wrap gap-1 mt-1">
-                                    {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'].map((chip) => (
+                                    {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                                      ? settingsForm.taxonomy.requirement_presets
+                                      : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
+                                    ).map((chip) => (
                                       <button
                                         key={chip}
                                         type="button"
@@ -4488,7 +5485,16 @@ export default function DashboardPage() {
                                         {chip}
                                       </button>
                                     ))}
-                                  </div>
+                                                                        <button
+                                        type="button"
+                                        onClick={openPresetEditor}
+                                        title="Edit presets (add or remove)"
+                                        className="px-1.5 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-text-muted hover:text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
+                                      >
+                                        <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
+                                        <span>Edit</span>
+                                      </button>
+                                    </div>
                                 )}
                               </div>
 
@@ -5069,9 +6075,15 @@ export default function DashboardPage() {
                                   placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
                                   className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent resize-none"
                                 />
-                                {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] && (
+                                {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                                  ? settingsForm.taxonomy.requirement_presets
+                                  : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
+                                ) && (
                                   <div className="flex flex-wrap gap-1 mt-1">
-                                    {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'].map((chip) => (
+                                    {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                                      ? settingsForm.taxonomy.requirement_presets
+                                      : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
+                                    ).map((chip) => (
                                       <button
                                         key={chip}
                                         type="button"
@@ -5083,7 +6095,16 @@ export default function DashboardPage() {
                                         {chip}
                                       </button>
                                     ))}
-                                  </div>
+                                                                        <button
+                                        type="button"
+                                        onClick={openPresetEditor}
+                                        title="Edit presets (add or remove)"
+                                        className="px-1.5 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-text-muted hover:text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
+                                      >
+                                        <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
+                                        <span>Edit</span>
+                                      </button>
+                                    </div>
                                 )}
                               </div>
                               <div className="grid grid-cols-2 gap-2 pt-1">
@@ -5535,14 +6556,29 @@ export default function DashboardPage() {
                         placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
                         className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
                       />
-                      {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] && (
+                      {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                        ? settingsForm.taxonomy.requirement_presets
+                        : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
+                      ) && (
                         <div className="flex flex-wrap gap-1 mt-1.5">
-                          {PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'].map((chip) => (
+                          {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                            ? settingsForm.taxonomy.requirement_presets
+                            : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
+                          ).map((chip) => (
                             <button key={chip} type="button" onClick={() => setAddCustomerForm(p => ({...p, health_concern: chip}))}
                               className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${addCustomerForm.health_concern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'}`}>
                               {chip}
                             </button>
                           ))}
+                                                  <button
+                            type="button"
+                            onClick={openPresetEditor}
+                            title="Edit presets (add or remove)"
+                            className="px-1.5 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-text-muted hover:text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
+                          >
+                            <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
+                            <span>Edit</span>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -6463,19 +7499,37 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* ── VIEW 5: SETTINGS & BYOK ─────────────────────────────────────── */}
+            {/* ── VIEW 5: WORKSPACE PREFERENCES (WHITE-LABEL CLIENT VIEW) ────────── */}
             {activeNav === 'settings' && (
               <div className="flex-1 overflow-y-auto space-y-6 max-w-4xl">
+                {/* Managed Platform Banner */}
+                <div className="p-4 bg-surface rounded-md border border-border flex items-start gap-3.5">
+                  <div className="w-8 h-8 rounded-md bg-accent/10 text-accent flex items-center justify-center shrink-0 mt-0.5 border border-accent/20">
+                    <Sparkles className="w-4 h-4 stroke-[1.5]" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-semibold text-text-primary">Managed Client Workspace</h4>
+                      <span className="text-[10px] font-medium bg-surface-subtle text-text-muted px-2 py-0.5 rounded-sm border border-border">
+                        Platform Managed
+                      </span>
+                    </div>
+                    <p className="text-xs text-text-muted mt-1 leading-relaxed">
+                      Your AI language models, WhatsApp Meta Cloud API webhooks, and core integrations are securely managed by your platform administrator. Customize your business branding, alert channels, regional defaults, and CRM labels below.
+                    </p>
+                  </div>
+                </div>
+
                 {settingsSaved && (
-                  <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl font-medium flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-emerald-600" />
-                    <span>All settings, credentials, and message templates saved successfully!</span>
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-md font-medium flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Workspace preferences saved successfully!</span>
                   </div>
                 )}
 
                 {settingsError && (
-                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl font-medium flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-rose-600" />
+                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-md font-medium flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                     <span>{settingsError}</span>
                   </div>
                 )}
@@ -6483,12 +7537,11 @@ export default function DashboardPage() {
                 {/* Subtabs Bar */}
                 <div className="flex gap-1 border-b border-border pb-3 flex-wrap">
                   {[
-                    { id: 'ai', label: 'AI Intelligence & BYOK', icon: Bot },
-                    { id: 'whatsapp', label: 'Meta WhatsApp API', icon: Phone },
-                    { id: 'templates', label: 'Message templates', icon: FileText },
-                    { id: 'location', label: 'Branding & Localization', icon: Building2 },
-                    { id: 'calendar', label: 'Google Calendar', icon: Calendar },
-                    { id: 'account', label: 'Account', icon: LogOut },
+                    { id: 'branding', label: 'Profile & Branding', icon: Building2 },
+                    { id: 'notifications', label: 'Alert Channels', icon: Bell },
+                    { id: 'localization', label: 'Regional & Currency', icon: Globe },
+                    { id: 'terminology', label: 'CRM Terminology', icon: Sliders },
+                    { id: 'account', label: 'Account & Session', icon: LogOut },
                   ].map((tab) => {
                     const Icon = tab.icon;
                     return (
@@ -6510,517 +7563,94 @@ export default function DashboardPage() {
 
                 <form onSubmit={handleSaveSettings} className="space-y-6">
                   
-                  {/* ── 1. AI BRAIN & BYOK MODEL KEYS ──────────────────────── */}
-                  {settingsTab === 'ai' && (
-                    <div className="space-y-4 bg-surface p-5 rounded-md border border-border">
-                      <div className="flex items-center justify-between pb-2 border-b border-border">
+                  {/* ── 1. PROFILE & BRANDING ─────────────────────────────────── */}
+                  {settingsTab === 'branding' && (
+                    <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
+                      <div className="pb-2 border-b border-border flex items-center justify-between">
                         <div>
-                          <h4 className="font-semibold text-xs text-text-primary">AI intelligence & model routing</h4>
-                          <p className="text-xs text-text-muted">Insert your own model API keys (BYOK) with automatic fallback redundancy.</p>
+                          <h4 className="font-semibold text-xs text-text-primary">Business Profile & Brand Identity</h4>
+                          <p className="text-xs text-text-muted">Set your business name, assistant greeting name, and customer-facing links.</p>
                         </div>
-                        <span className="px-2 py-0.5 rounded-sm text-xs font-medium bg-surface-subtle text-text-secondary border border-border">
-                          Active: {settingsForm.primary_model_provider?.toUpperCase() || 'GEMINI'}
-                        </span>
+                      </div>
+
+                      {/* Header Brand Preview */}
+                      <div className="p-4 bg-surface rounded-md border border-border space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-medium text-text-muted uppercase tracking-wider">
+                            CRM Header Preview
+                          </label>
+                          <span className="text-xs font-medium text-status-success bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
+                            Live Sync
+                          </span>
+                        </div>
+                        <div className="p-3 bg-surface-subtle rounded-sm border border-border flex items-center gap-2.5">
+                          <span className="font-bold text-[16px] text-text-primary tracking-tight">
+                            {settingsForm.name || 'WhatsApp CRM'}
+                          </span>
+                          <span className="text-[13px] font-medium text-text-muted">
+                            / Overview
+                          </span>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">Primary AI provider</label>
-                          <select
-                            value={settingsForm.primary_model_provider || 'gemini'}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, primary_model_provider: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans transition-colors duration-150"
-                          >
-                            <option value="gemini">Google Gemini (Recommended / Multimodal)</option>
-                            <option value="groq">Groq Cloud (LLaMA 3.3)</option>
-                            <option value="opencode">OpenCode / OpenAI Endpoint</option>
-                          </select>
+                          <label className="block text-xs font-medium text-text-primary mb-1">Company / Brand Name</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Boldlabs Studio / City Health Clinic"
+                            value={settingsForm.name || ''}
+                            onChange={(e) => setSettingsForm({ ...settingsForm, name: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                          />
+                          <p className="text-xs text-text-muted mt-1">Displayed in your header and customer notifications.</p>
                         </div>
 
                         <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">Assistant name</label>
+                          <label className="block text-xs font-medium text-text-primary mb-1">Assistant Display Name</label>
                           <input
                             type="text"
                             placeholder="e.g. Reception Assistant"
                             value={settingsForm.assistant_name || ''}
                             onChange={(e) => setSettingsForm({ ...settingsForm, assistant_name: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans transition-colors duration-150"
+                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                           />
-                          <p className="text-xs text-text-muted mt-1">Name used when greeting customers.</p>
+                          <p className="text-xs text-text-muted mt-1">Name used when introducing your assistant to customers.</p>
                         </div>
                       </div>
 
-                      {/* 1 Single Master AI Prompt & Knowledge Field */}
-                      <div className="space-y-4 pt-2">
-                        <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <label className="text-xs font-medium text-text-primary">
-                              AI instructions & knowledge base
-                            </label>
-                            <span className="text-xs text-text-muted">Master prompt</span>
-                          </div>
-                          <textarea
-                            rows={10}
-                            placeholder="Provide everything your AI needs to know:&#10;&#10;1. About Your Business: What you do, who runs it.&#10;2. Services & Pricing: Services offered, exact pricing, consultation fees.&#10;3. Conversational Goal: How to greet, answer queries, handle objections, and guide customers to book.&#10;4. Tone: Friendly, natural, short WhatsApp texting style (1-2 lines)."
-                            value={settingsForm.ai_prompt || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, ai_prompt: e.target.value })}
-                            className="w-full px-3.5 py-2.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans leading-relaxed resize-y transition-colors duration-150"
-                          />
+                      {/* Business Address */}
+                      <div className="p-4 bg-surface rounded-md border border-border space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-medium text-text-primary">
+                            Business Address & Google Maps Link
+                          </label>
+                          <span className="text-xs font-medium text-text-muted bg-surface-subtle px-2 py-0.5 rounded-sm border border-border">
+                            Sent after booking
+                          </span>
                         </div>
-
-                        {/* Location Box */}
-                        <div className="p-4 bg-surface rounded-md border border-border space-y-2">
-                          <div className="flex items-center justify-between">
-                            <label className="text-xs font-medium text-text-primary">
-                              Business address & Google Maps link
-                            </label>
-                            <span className="text-xs font-medium text-text-muted bg-surface-subtle px-2 py-0.5 rounded-sm border border-border">
-                              Sent after booking
-                            </span>
-                          </div>
-                          <textarea
-                            rows={2}
-                            placeholder="e.g. 123 Health Ave, Anna Nagar, Chennai. Maps: https://maps.app.goo.gl/xyz"
-                            value={settingsForm.full_location_text || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, full_location_text: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans resize-none transition-colors duration-150"
-                          />
-                        </div>
-
-                        {/* Admin Notification Alerts */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                          <div className="p-3.5 bg-surface rounded-md border border-border space-y-1.5">
-                            <label className="block text-xs font-medium text-text-primary">
-                              Admin WhatsApp phone (booking alerts)
-                            </label>
-                            <input
-                              type="text"
-                              placeholder="e.g. +917603807215"
-                              value={settingsForm.admin_whatsapp_number || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, admin_whatsapp_number: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted">
-                              Receives instant WhatsApp notifications when an appointment is booked.
-                            </p>
-                          </div>
-
-                          <div className="p-3.5 bg-surface rounded-md border border-border space-y-1.5">
-                            <label className="block text-xs font-medium text-text-primary">
-                              Admin notification email
-                            </label>
-                            <input
-                              type="email"
-                              placeholder="e.g. bhuvaneshkarnan@gmail.com"
-                              value={settingsForm.notification_email || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, notification_email: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted">
-                              Receives email confirmations and Google Calendar invites.
-                            </p>
-                          </div>
-                        </div>
-
-                                                {/* Business Industry & Dynamic CRM Terminology */}
-                        <div className="p-4 bg-surface rounded-md border border-border space-y-3 pt-3">
-                          <div className="flex items-center justify-between pb-2 border-b border-border">
-                            <div className="flex items-center gap-2">
-                              <Building2 className="w-4 h-4 text-text-secondary stroke-[1.5]" />
-                              <div>
-                                <h5 className="font-medium text-xs text-text-primary">Business industry & CRM terminology</h5>
-                                <p className="text-xs text-text-muted">Choose your industry preset or customize terminology for your business.</p>
-                              </div>
-                            </div>
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/20">
-                              {INDUSTRY_PRESETS.find((p) => p.id === (settingsForm.industry || 'clinic'))?.name || 'Custom'}
-                            </span>
-                          </div>
-
-                          {/* Preset Dropdown */}
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">
-                              Industry Preset (Select to auto-fill CRM labels)
-                            </label>
-                            <select
-                              value={settingsForm.industry || 'clinic'}
-                              onChange={(e) => {
-                                const selectedPreset = INDUSTRY_PRESETS.find((p) => p.id === e.target.value);
-                                setSettingsForm({
-                                  ...settingsForm,
-                                  industry: e.target.value,
-                                  taxonomy: selectedPreset ? { ...selectedPreset.taxonomy } : settingsForm.taxonomy,
-                                });
-                              }}
-                              className="w-full px-2.5 py-2 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer font-medium"
-                            >
-                              {INDUSTRY_PRESETS.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {p.name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {/* 4 Customizable Label Fields */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">
-                                Staff / Specialist Label
-                              </label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.staff_label ?? currentTaxonomy.staff_label}
-                                onChange={(e) =>
-                                  setSettingsForm({
-                                    ...settingsForm,
-                                    taxonomy: {
-                                      ...(settingsForm.taxonomy || currentTaxonomy),
-                                      staff_label: e.target.value,
-                                    },
-                                  })
-                                }
-                                placeholder="e.g. Tutor / Counselor"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">
-                                Customer / Client Label
-                              </label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.client_label ?? currentTaxonomy.client_label}
-                                onChange={(e) =>
-                                  setSettingsForm({
-                                    ...settingsForm,
-                                    taxonomy: {
-                                      ...(settingsForm.taxonomy || currentTaxonomy),
-                                      client_label: e.target.value,
-                                    },
-                                  })
-                                }
-                                placeholder="e.g. Student / Parent"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">
-                                Requirement / Notes Label
-                              </label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.requirement_label ?? currentTaxonomy.requirement_label}
-                                onChange={(e) =>
-                                  setSettingsForm({
-                                    ...settingsForm,
-                                    taxonomy: {
-                                      ...(settingsForm.taxonomy || currentTaxonomy),
-                                      requirement_label: e.target.value,
-                                    },
-                                  })
-                                }
-                                placeholder="e.g. Target Course & Grade"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">
-                                Event / Booking Label
-                              </label>
-                              <input
-                                type="text"
-                                value={settingsForm.taxonomy?.event_label ?? currentTaxonomy.event_label}
-                                onChange={(e) =>
-                                  setSettingsForm({
-                                    ...settingsForm,
-                                    taxonomy: {
-                                      ...(settingsForm.taxonomy || currentTaxonomy),
-                                      event_label: e.target.value,
-                                    },
-                                  })
-                                }
-                                placeholder="e.g. Demo Class / Counseling"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Regional & Localization */}
-                        <div className="p-4 bg-surface rounded-md border border-border space-y-3 pt-3">
-                          <div className="flex items-center gap-2 pb-2 border-b border-border">
-                            <Globe className="w-4 h-4 text-text-secondary stroke-[1.5]" />
-                            <div>
-                              <h5 className="font-medium text-xs text-text-primary">Regional & localization settings</h5>
-                              <p className="text-xs text-text-muted">Configure timezone, currency, and dialing code for your clients.</p>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div>
-                              <label className="block text-xs font-medium text-text-primary mb-1">
-                                Business timezone
-                              </label>
-                              <select
-                                value={settingsForm.timezone || 'Asia/Kolkata'}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, timezone: e.target.value })}
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
-                              >
-                                {TIMEZONE_LIST.map((tz) => (
-                                  <option key={tz.value} value={tz.value}>
-                                    {tz.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="block text-xs font-medium text-text-primary mb-1">
-                                Default calling code
-                              </label>
-                              <select
-                                value={settingsForm.country_code || '+91'}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, country_code: e.target.value })}
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
-                              >
-                                {COUNTRY_CODES.map((c) => (
-                                  <option key={c.code} value={c.code}>
-                                    {c.country}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="block text-xs font-medium text-text-primary mb-1">
-                                Display currency
-                              </label>
-                              <select
-                                value={settingsForm.currency || 'INR'}
-                                onChange={(e) => {
-                                  const sel = CURRENCY_LIST.find((c) => c.code === e.target.value);
-                                  setSettingsForm({
-                                    ...settingsForm,
-                                    currency: e.target.value,
-                                    currency_symbol: sel ? sel.symbol : settingsForm.currency_symbol || '₹',
-                                  });
-                                }}
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
-                              >
-                                {CURRENCY_LIST.map((c) => (
-                                  <option key={c.code} value={c.code}>
-                                    {c.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 3 BYOK Keys */}
-                      <div className="space-y-3 pt-4 border-t border-border">
-                        <h5 className="font-semibold text-xs text-text-primary uppercase tracking-wider">API keys vault (BYOK)</h5>
-                        <div>
-                          <div className="flex justify-between items-center mb-1">
-                            <label className="text-xs font-medium text-text-primary">1. Google Gemini API key</label>
-                            {settingsForm.has_gemini_key && (
-                              <span className="text-xs text-status-success font-medium bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
-                                Key saved
-                              </span>
-                            )}
-                          </div>
-                          <input
-                            type="password"
-                            placeholder="AIzaSy... (Leave empty to keep existing key)"
-                            value={settingsForm.gemini_api_key || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, gemini_api_key: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                        </div>
-
-                        <div>
-                          <div className="flex justify-between items-center mb-1">
-                            <label className="text-xs font-medium text-text-primary">2. Groq Cloud API key</label>
-                            {settingsForm.has_groq_key && (
-                              <span className="text-xs text-status-success font-medium bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
-                                Key saved
-                              </span>
-                            )}
-                          </div>
-                          <input
-                            type="password"
-                            placeholder="gsk_... (Leave empty to keep existing key)"
-                            value={settingsForm.groq_api_key || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, groq_api_key: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div>
-                            <div className="flex justify-between items-center mb-1">
-                              <label className="text-xs font-medium text-text-primary">3. OpenCode / OpenAI key</label>
-                              {settingsForm.has_opencode_key && (
-                                <span className="text-xs text-status-success font-medium bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
-                                  Key saved
-                                </span>
-                              )}
-                            </div>
-                            <input
-                              type="password"
-                              placeholder="sk-... (Leave empty to keep existing)"
-                              value={settingsForm.opencode_api_key || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, opencode_api_key: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">Base URL</label>
-                            <input
-                              type="text"
-                              placeholder="https://api.openai.com/v1"
-                              value={settingsForm.opencode_base_url || 'https://api.openai.com/v1'}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, opencode_base_url: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ── 2. META WHATSAPP API CREDENTIALS ─────────────────────── */}
-                  {settingsTab === 'whatsapp' && (
-                    <div className="space-y-4 bg-surface p-5 rounded-md border border-border">
-                      <div className="pb-2 border-b border-border">
-                        <h4 className="font-semibold text-xs text-text-primary">Meta WhatsApp Cloud API configuration</h4>
-                        <p className="text-xs text-text-muted">Configure your Meta App webhook callback and permanent system user token.</p>
-                      </div>
-
-                      {/* Callback URL Box */}
-                      <div className="bg-surface-subtle border border-border p-3.5 rounded-sm space-y-2">
-                        <div className="flex justify-between items-center">
-                          <label className="text-xs font-medium text-text-primary">Webhook callback URL</label>
-                          <button
-                            type="button"
-                            onClick={() => copyToClipboard(settingsForm.webhook_url || '', 'webhook')}
-                            className="text-xs font-medium text-accent hover:text-accent-hover flex items-center gap-1 cursor-pointer"
-                          >
-                            {copiedKey === 'webhook' ? <Check className="w-3.5 h-3.5 stroke-[1.5]" /> : <Copy className="w-3.5 h-3.5 stroke-[1.5]" />}
-                            <span>{copiedKey === 'webhook' ? 'Copied' : 'Copy URL'}</span>
-                          </button>
-                        </div>
-                        <p className="font-mono text-xs text-text-secondary break-all select-all">
-                          {settingsForm.webhook_url || `https://whatsapp-automation-system-eta.vercel.app/webhooks/whatsapp/${settingsForm.slug || 'boldlabs'}`}
+                        <p className="text-xs text-text-muted">
+                          Automatically shared with customers in WhatsApp booking confirmations and calendar invites.
                         </p>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">Webhook verify token</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. my_secure_verify_token_123"
-                            value={settingsForm.verify_token || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, verify_token: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">Meta phone number ID</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. 102938475610293"
-                            value={settingsForm.meta_phone_id || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, meta_phone_id: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">WhatsApp Business Account ID (WABA ID)</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. 987654321098765"
-                            value={settingsForm.meta_waba_id || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, meta_waba_id: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                        </div>
-
-                        <div>
-                          <div className="flex justify-between items-center mb-1">
-                            <label className="text-xs font-medium text-text-primary">Meta App secret (HMAC validation)</label>
-                            {settingsForm.has_app_secret && (
-                              <span className="text-xs text-status-success font-medium bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
-                                Configured
-                              </span>
-                            )}
-                          </div>
-                          <input
-                            type="password"
-                            placeholder="App secret (Leave empty to keep existing)"
-                            value={settingsForm.meta_app_secret || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, meta_app_secret: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-xs font-medium text-text-primary">Meta system user access token</label>
-                          {settingsForm.has_access_token && (
-                            <span className="text-xs text-status-success font-medium bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
-                              Token configured
-                            </span>
-                          )}
-                        </div>
-                        <input
-                          type="password"
-                          placeholder="EAAB... (Leave empty to keep existing token)"
-                          value={settingsForm.meta_access_token || ''}
-                          onChange={(e) => setSettingsForm({ ...settingsForm, meta_access_token: e.target.value })}
-                          className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                        <textarea
+                          rows={2}
+                          placeholder="e.g. 123 Innovation Tower, Anna Nagar, Chennai. Maps: https://maps.app.goo.gl/xyz"
+                          value={settingsForm.full_location_text || ''}
+                          onChange={(e) => setSettingsForm({ ...settingsForm, full_location_text: e.target.value })}
+                          className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans resize-none transition-colors duration-150"
                         />
                       </div>
-                    </div>
-                  )}
 
-                  {/* ── 3. LIFECYCLE MESSAGE TEMPLATES ───────────────────────── */}
-                  {settingsTab === 'templates' && (
-                    <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
-                      <div className="pb-2 border-b border-border flex items-center justify-between">
-                        <div>
-                          <h4 className="font-semibold text-xs text-text-primary">WhatsApp message template identifiers</h4>
-                          <p className="text-xs text-text-muted">
-                            Meta WhatsApp approved templates used for confirmations, 2-hr reminders, 15-min reviews, no-show nudges, and admin alerts.
-                          </p>
-                        </div>
-                        <span className="text-xs font-medium text-status-success bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
-                          Automated lifecycles
-                        </span>
-                      </div>
-
-                      {/* Google Review URL Card */}
+                      {/* Google Review Link */}
                       <div className="p-4 bg-surface rounded-md border border-border space-y-2">
                         <div className="flex items-center gap-2">
                           <Star className="w-4 h-4 text-accent stroke-[1.5]" />
                           <label className="text-xs font-medium text-text-primary">
-                            Google review link (automated 15-min review request)
+                            Google Review Link (Post-Attendance Feedback)
                           </label>
                         </div>
                         <p className="text-xs text-text-muted">
-                          When an appointment is marked as Attended, the system will send this review request link to the customer after 15 minutes.
+                          When an appointment is marked as Attended, the system will automatically send this review link to the customer 15 minutes later.
                         </p>
                         <input
                           type="text"
@@ -7030,442 +7660,325 @@ export default function DashboardPage() {
                           className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                         />
                       </div>
-
-                      {/* Customer Automation Templates */}
-                      <div className="space-y-3">
-                        <h5 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-                          Customer lifecycle templates
-                        </h5>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">1. Client booking confirmation</label>
-                            <input
-                              type="text"
-                              placeholder="booking_confirmationn"
-                              value={settingsForm.template_booking_confirmation || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, template_booking_confirmation: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted mt-1">Dispatched upon appointment confirmation.</p>
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">2. Client reschedule confirmation</label>
-                            <input
-                              type="text"
-                              placeholder="booking_confirmationn"
-                              value={settingsForm.template_reschedule_confirmation || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, template_reschedule_confirmation: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted mt-1">Dispatched when customer reschedules slot.</p>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">3. Client cancellation notice</label>
-                            <input
-                              type="text"
-                              placeholder="cancellation_confirmation"
-                              value={settingsForm.template_cancellation_confirmation || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, template_cancellation_confirmation: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted mt-1">Dispatched when booking is cancelled.</p>
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">4. 2-Hour appointment reminder</label>
-                            <input
-                              type="text"
-                              placeholder="appointment_ramainder"
-                              value={settingsForm.template_appointment_reminder || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, template_appointment_reminder: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted mt-1">Sent 2 hours before start time.</p>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">5. 15-Min post-attendance review</label>
-                            <input
-                              type="text"
-                              placeholder="review_request"
-                              value={settingsForm.template_review_request || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, template_review_request: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted mt-1">Sent 15 mins after marked Attended.</p>
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">6. 15-Min no-show reschedule nudge</label>
-                            <input
-                              type="text"
-                              placeholder="reschedule_nudge"
-                              value={settingsForm.template_reschedule_nudge || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, template_reschedule_nudge: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted mt-1">Sent 15 mins after marked No Show.</p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Admin & Staff Templates */}
-                      <div className="space-y-3 pt-3 border-t border-border">
-                        <h5 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-                          Admin & staff notification templates
-                        </h5>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">7. Admin booking alert</label>
-                            <input
-                              type="text"
-                              placeholder="admin_notification"
-                              value={settingsForm.template_admin_notification || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, template_admin_notification: e.target.value })}
-                              className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">8. Admin cancellation alert</label>
-                            <input
-                              type="text"
-                              placeholder="admin_cancellation_notice"
-                              value={settingsForm.template_admin_cancellation_notice || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, template_admin_cancellation_notice: e.target.value })}
-                              className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">9. Staff takeover alert</label>
-                            <input
-                              type="text"
-                              placeholder="admin_human_request"
-                              value={settingsForm.template_admin_human_request || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, template_admin_human_request: e.target.value })}
-                              className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">10. Daily morning digest</label>
-                            <input
-                              type="text"
-                              placeholder="admin_daily_digest"
-                              value={settingsForm.template_admin_daily_digest || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, template_admin_daily_digest: e.target.value })}
-                              className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                          </div>
-                        </div>
-                      </div>
                     </div>
                   )}
 
-                  {/* ── 4. BRANDING & LOCALIZATION ──────────────────────────── */}
-                  {settingsTab === 'location' && (
+                  {/* ── 2. ALERT CHANNELS & NOTIFICATIONS ───────────────────── */}
+                  {settingsTab === 'notifications' && (
                     <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
-                      <div className="pb-2 border-b border-border flex items-center justify-between">
-                        <div>
-                          <h4 className="font-semibold text-xs text-text-primary">Brand identity & localization</h4>
-                          <p className="text-xs text-text-muted">Configure your dashboard brand name, company title, and regional defaults.</p>
-                        </div>
-                      </div>
-
-                      {/* Live Brand Preview Card */}
-                      <div className="p-4 bg-surface rounded-md border border-border space-y-2">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-medium text-text-muted uppercase tracking-wider">
-                            Header preview
-                          </label>
-                          <span className="text-xs font-medium text-status-success bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
-                            Instant sync
-                          </span>
-                        </div>
-
-                        <div className="p-3 bg-surface-subtle rounded-sm border border-border flex items-center gap-2.5">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-[17px] text-text-primary tracking-tight">
-                              {settingsForm.name || 'WhatsApp CRM'}
-                            </span>
-                            <span className="text-[13px] font-medium text-text-muted">
-                              / Overview
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium text-text-primary mb-1">Company / Brand name</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Boldlabs CRM / Acme Studio"
-                          value={settingsForm.name || ''}
-                          onChange={(e) => setSettingsForm({ ...settingsForm, name: e.target.value })}
-                          className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                        />
-                        <p className="text-xs text-text-muted mt-1">Appears across header, email notifications, and customer templates.</p>
-                      </div>
-
-                      {/* Regional & Currency Localization Card */}
-                      <div className="p-4 bg-surface rounded-md border border-border space-y-3">
-                        <div className="flex items-center gap-2 pb-2 border-b border-border">
-                          <Globe className="w-4 h-4 text-text-secondary stroke-[1.5]" />
-                          <div>
-                            <h5 className="font-medium text-xs text-text-primary">Regional localization</h5>
-                            <p className="text-xs text-text-muted">Configure timezone, currency, and dialing code for your business and clients worldwide.</p>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
-                          {/* Timezone */}
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">
-                              Business timezone
-                            </label>
-                            <select
-                              value={settingsForm.timezone || 'Asia/Kolkata'}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, timezone: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
-                            >
-                              {TIMEZONE_LIST.map((tz) => (
-                                <option key={tz.value} value={tz.value}>
-                                  {tz.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {/* Country Code */}
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">
-                              Default country code
-                            </label>
-                            <select
-                              value={settingsForm.country_code || '+91'}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, country_code: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
-                            >
-                              {COUNTRY_CODES.map((c) => (
-                                <option key={c.code} value={c.code}>
-                                  {c.country}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {/* Currency Selection */}
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">
-                              Display currency
-                            </label>
-                            <select
-                              value={settingsForm.currency || 'INR'}
-                              onChange={(e) => {
-                                const sel = CURRENCY_LIST.find((c) => c.code === e.target.value);
-                                setSettingsForm({
-                                  ...settingsForm,
-                                  currency: e.target.value,
-                                  currency_symbol: sel ? sel.symbol : settingsForm.currency_symbol || '₹',
-                                });
-                              }}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
-                            >
-                              {CURRENCY_LIST.map((c) => (
-                                <option key={c.code} value={c.code}>
-                                  {c.name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium text-text-primary mb-1">Business address & Google Maps link</label>
-                        <textarea
-                          rows={2}
-                          placeholder="e.g. Suite 400, Innovation Tower, City Center. Maps: https://maps.app.goo.gl/..."
-                          value={settingsForm.full_location_text || ''}
-                          onChange={(e) => setSettingsForm({ ...settingsForm, full_location_text: e.target.value })}
-                          className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent resize-none transition-colors duration-150"
-                        />
+                      <div className="pb-2 border-b border-border">
+                        <h4 className="font-semibold text-xs text-text-primary">Staff Alert Channels</h4>
+                        <p className="text-xs text-text-muted">Receive real-time WhatsApp and email alerts when appointments are booked or changed.</p>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">Admin WhatsApp alert phone</label>
+                        <div className="p-4 bg-surface rounded-md border border-border space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Phone className="w-4 h-4 text-text-secondary stroke-[1.5]" />
+                            <label className="block text-xs font-medium text-text-primary">
+                              Staff WhatsApp Phone (Instant Alerts)
+                            </label>
+                          </div>
                           <input
                             type="text"
-                            placeholder="+919876543210"
+                            placeholder="e.g. +917603807215"
                             value={settingsForm.admin_whatsapp_number || ''}
                             onChange={(e) => setSettingsForm({ ...settingsForm, admin_whatsapp_number: e.target.value })}
                             className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                           />
+                          <p className="text-xs text-text-muted">
+                            Receives instant WhatsApp notification templates whenever a customer books, cancels, or reschedules.
+                          </p>
                         </div>
 
-                        <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">Notification email</label>
+                        <div className="p-4 bg-surface rounded-md border border-border space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Mail className="w-4 h-4 text-text-secondary stroke-[1.5]" />
+                            <label className="block text-xs font-medium text-text-primary">
+                              Notification Email
+                            </label>
+                          </div>
                           <input
                             type="email"
-                            placeholder="admin@business.com"
+                            placeholder="e.g. contact@business.com"
                             value={settingsForm.notification_email || ''}
                             onChange={(e) => setSettingsForm({ ...settingsForm, notification_email: e.target.value })}
                             className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                           />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ── 5. GOOGLE CALENDAR SYNC ─────────────────────────────── */}
-                  {settingsTab === 'calendar' && (
-                    <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
-                      <div className="flex items-center justify-between pb-2 border-b border-border">
-                        <div>
-                          <h4 className="font-semibold text-xs text-text-primary">Google Calendar 2-way synchronization</h4>
-                          <p className="text-xs text-text-muted">Sync WhatsApp bookings directly to Google Calendar schedules with 1-Click Sign in.</p>
-                        </div>
-                        {settingsForm.google_calendar_configured ? (
-                          <span className="text-xs text-status-success font-medium bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border flex items-center gap-1.5">
-                            <CheckCircle2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                            <span>Connected & synced</span>
-                          </span>
-                        ) : (
-                          <span className="text-xs text-text-muted font-medium bg-surface-subtle px-2 py-0.5 rounded-sm border border-border">
-                            Not connected
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Step 1: Authorized Redirect URI Box */}
-                      <div className="bg-surface rounded-md border border-border p-4 space-y-2">
-                        <div className="flex justify-between items-center">
-                          <label className="text-xs font-medium text-text-primary">
-                            Authorized redirect URI
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => copyToClipboard('https://whatsapp-automation-system-eta.vercel.app/api/v1/crm/oauth/google/callback', 'gcal_redirect')}
-                            className="text-xs font-medium text-accent hover:text-accent-hover flex items-center gap-1 cursor-pointer"
-                          >
-                            {copiedKey === 'gcal_redirect' ? <Check className="w-3.5 h-3.5 stroke-[1.5]" /> : <Copy className="w-3.5 h-3.5 stroke-[1.5]" />}
-                            <span>{copiedKey === 'gcal_redirect' ? 'Copied' : 'Copy URI'}</span>
-                          </button>
-                        </div>
-                        <p className="font-mono text-xs text-text-secondary break-all select-all bg-surface-subtle p-2.5 rounded-sm border border-border">
-                          https://whatsapp-automation-system-eta.vercel.app/api/v1/crm/oauth/google/callback
-                        </p>
-                      </div>
-
-                      {/* Step 2: Client ID & Secret Inputs */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">Google OAuth Client ID</label>
-                          <input
-                            type="text"
-                            placeholder="...apps.googleusercontent.com"
-                            value={settingsForm.google_client_id || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, google_client_id: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">Google OAuth Client Secret</label>
-                          <input
-                            type="password"
-                            placeholder="GOCSPX-..."
-                            value={settingsForm.google_client_secret || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, google_client_secret: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Step 3: Action Button */}
-                      <div className="p-4 bg-surface rounded-md border border-border flex items-center justify-between flex-wrap gap-3">
-                        <div>
-                          <p className="text-xs font-medium text-text-primary">1-Click Google Calendar authorization</p>
-                          <p className="text-xs text-text-muted mt-0.5">
-                            {settingsForm.google_calendar_configured
-                              ? `Linked to: ${settingsForm.notification_email || 'Google Account'}`
-                              : 'Authorize and automatically fetch refresh token.'}
+                          <p className="text-xs text-text-muted">
+                            Receives email booking receipts, daily digest reports, and Google Calendar event invites.
                           </p>
                         </div>
-
-                        <div className="flex items-center gap-2">
-                          {settingsForm.google_calendar_configured && (
-                            <button
-                              type="button"
-                              onClick={handleDisconnectGoogle}
-                              disabled={disconnectingGoogle}
-                              className="px-3 py-1.5 text-xs font-medium text-status-error hover:bg-status-error-bg border border-status-error-border rounded-sm transition-colors duration-150 cursor-pointer"
-                            >
-                              {disconnectingGoogle ? 'Disconnecting...' : 'Disconnect'}
-                            </button>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={handleConnectGoogle}
-                            disabled={connectingGoogle}
-                            className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                          >
-                            <Calendar className="w-3.5 h-3.5 stroke-[1.5]" />
-                            <span>
-                              {connectingGoogle
-                                ? 'Redirecting...'
-                                : settingsForm.google_calendar_configured
-                                ? 'Reconnect account'
-                                : 'Sign in with Google'}
-                            </span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Calendar ID Config */}
-                      <div>
-                        <label className="block text-xs font-medium text-text-primary mb-1">Target Google Calendar ID</label>
-                        <input
-                          type="text"
-                          placeholder="primary"
-                          value={settingsForm.google_calendar_id || 'primary'}
-                          onChange={(e) => setSettingsForm({ ...settingsForm, google_calendar_id: e.target.value })}
-                          className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                        />
-                        <p className="text-xs text-text-muted mt-1">Leave as <code>primary</code> to sync with your main calendar.</p>
                       </div>
                     </div>
                   )}
 
-                  {/* ── 6. ACCOUNT & LOGOUT ───────────────────────────────── */}
+                  {/* ── 3. REGIONAL & LOCALIZATION ──────────────────────────── */}
+                  {settingsTab === 'localization' && (
+                    <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
+                      <div className="pb-2 border-b border-border">
+                        <h4 className="font-semibold text-xs text-text-primary">Regional Localization & Currency</h4>
+                        <p className="text-xs text-text-muted">Configure timezone, currency symbols, and country dialing prefixes.</p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-text-primary mb-1">
+                            Business Timezone
+                          </label>
+                          <select
+                            value={settingsForm.timezone || 'Asia/Kolkata'}
+                            onChange={(e) => setSettingsForm({ ...settingsForm, timezone: e.target.value })}
+                            className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
+                          >
+                            {TIMEZONE_LIST.map((tz) => (
+                              <option key={tz.value} value={tz.value}>
+                                {tz.label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-text-muted mt-1">Controls booking slot hours and customer timestamps.</p>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-text-primary mb-1">
+                            Default Calling Code
+                          </label>
+                          <select
+                            value={settingsForm.country_code || '+91'}
+                            onChange={(e) => setSettingsForm({ ...settingsForm, country_code: e.target.value })}
+                            className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
+                          >
+                            {COUNTRY_CODES.map((c) => (
+                              <option key={c.code} value={c.code}>
+                                {c.country}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-text-muted mt-1">Default prefix for new phone numbers entered without country code.</p>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-text-primary mb-1">
+                            Display Currency
+                          </label>
+                          <select
+                            value={settingsForm.currency || 'INR'}
+                            onChange={(e) => {
+                              const sel = CURRENCY_LIST.find((c) => c.code === e.target.value);
+                              setSettingsForm({
+                                ...settingsForm,
+                                currency: e.target.value,
+                                currency_symbol: sel ? sel.symbol : settingsForm.currency_symbol || '₹',
+                              });
+                            }}
+                            className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
+                          >
+                            {CURRENCY_LIST.map((c) => (
+                              <option key={c.code} value={c.code}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-text-muted mt-1">Currency symbol shown across payments and service catalog.</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── 4. CRM INDUSTRY & DYNAMIC TERMINOLOGY ────────────────── */}
+                  {settingsTab === 'terminology' && (
+                    <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
+                      <div className="pb-2 border-b border-border flex items-center justify-between">
+                        <div>
+                          <h4 className="font-semibold text-xs text-text-primary">Business Industry & CRM Terminology</h4>
+                          <p className="text-xs text-text-muted">Adapt labels across tables, dialogs, and filters to match your business terminology.</p>
+                        </div>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/20">
+                          {INDUSTRY_PRESETS.find((p) => p.id === (settingsForm.industry || 'clinic'))?.name || 'Custom'}
+                        </span>
+                      </div>
+
+                      {/* Preset Dropdown */}
+                      <div>
+                        <label className="block text-xs font-medium text-text-primary mb-1">
+                          Industry Preset (Select to auto-fill CRM labels)
+                        </label>
+                        <select
+                          value={settingsForm.industry || 'clinic'}
+                          onChange={(e) => {
+                            const selectedPreset = INDUSTRY_PRESETS.find((p) => p.id === e.target.value);
+                            setSettingsForm({
+                              ...settingsForm,
+                              industry: e.target.value,
+                              taxonomy: selectedPreset ? { ...selectedPreset.taxonomy, requirement_presets: [...(selectedPreset.taxonomy.requirement_presets || [])] } : settingsForm.taxonomy,
+                            });
+                          }}
+                          className="w-full px-2.5 py-2 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer font-medium"
+                        >
+                          {INDUSTRY_PRESETS.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* 4 Customizable Label Fields */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                        <div>
+                          <label className="block text-[11px] font-medium text-text-muted mb-1">
+                            Staff / Specialist Label
+                          </label>
+                          <input
+                            type="text"
+                            value={settingsForm.taxonomy?.staff_label ?? currentTaxonomy.staff_label}
+                            onChange={(e) =>
+                              setSettingsForm({
+                                ...settingsForm,
+                                taxonomy: {
+                                  ...(settingsForm.taxonomy || currentTaxonomy),
+                                  staff_label: e.target.value,
+                                },
+                              })
+                            }
+                            placeholder="e.g. Tutor / Counselor"
+                            className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-text-muted mb-1">
+                            Customer / Client Label
+                          </label>
+                          <input
+                            type="text"
+                            value={settingsForm.taxonomy?.client_label ?? currentTaxonomy.client_label}
+                            onChange={(e) =>
+                              setSettingsForm({
+                                ...settingsForm,
+                                taxonomy: {
+                                  ...(settingsForm.taxonomy || currentTaxonomy),
+                                  client_label: e.target.value,
+                                },
+                              })
+                            }
+                            placeholder="e.g. Student / Parent"
+                            className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-text-muted mb-1">
+                            Requirement / Notes Label
+                          </label>
+                          <input
+                            type="text"
+                            value={settingsForm.taxonomy?.requirement_label ?? currentTaxonomy.requirement_label}
+                            onChange={(e) =>
+                              setSettingsForm({
+                                ...settingsForm,
+                                taxonomy: {
+                                  ...(settingsForm.taxonomy || currentTaxonomy),
+                                  requirement_label: e.target.value,
+                                },
+                              })
+                            }
+                            placeholder="e.g. Target Course & Grade"
+                            className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-text-muted mb-1">
+                            Event / Booking Label
+                          </label>
+                          <input
+                            type="text"
+                            value={settingsForm.taxonomy?.event_label ?? currentTaxonomy.event_label}
+                            onChange={(e) =>
+                              setSettingsForm({
+                                ...settingsForm,
+                                taxonomy: {
+                                  ...(settingsForm.taxonomy || currentTaxonomy),
+                                  event_label: e.target.value,
+                                },
+                              })
+                            }
+                            placeholder="e.g. Demo Class / Counseling"
+                            className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Quick Concern / Requirement Presets Input */}
+                      <div className="pt-3 border-t border-border space-y-1.5">
+                        <label className="block text-[11px] font-medium text-text-primary">
+                          Quick {settingsForm.taxonomy?.requirement_label || currentTaxonomy.requirement_label || 'Requirement / Concern'} Presets (comma-separated quick-pick chips)
+                        </label>
+                        <input
+                          type="text"
+                          value={(settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                            ? settingsForm.taxonomy.requirement_presets.join(', ')
+                            : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || []).join(', ')
+                          }
+                          onChange={(e) => {
+                            const presets = e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean);
+                            setSettingsForm({
+                              ...settingsForm,
+                              taxonomy: {
+                                ...(settingsForm.taxonomy || currentTaxonomy),
+                                requirement_presets: presets,
+                              },
+                            });
+                          }}
+                          placeholder="e.g. General Consultation, Back Pain & Physio, Dental Checkup & Cleaning"
+                          className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans"
+                        />
+                        <p className="text-[10px] text-text-muted">
+                          These clickable chips appear under the requirement box when adding or editing a client/patient to rapidly assign their concern or inquiry. Selecting an Industry above automatically loads standard presets, or you can freely customize them here.
+                        </p>
+                        <div className="flex flex-wrap items-center gap-1 pt-1">
+                          {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                            ? settingsForm.taxonomy.requirement_presets
+                            : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || [])
+                          ).map((chip: string) => (
+                            <span key={chip} className="px-2 py-0.5 rounded-sm text-[10px] bg-white border border-border text-text-secondary font-medium shadow-2xs">
+                              {chip}
+                            </span>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={openPresetEditor}
+                            title="Edit presets (add or remove)"
+                            className="px-2 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
+                          >
+                            <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
+                            <span>Manage Presets</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── 5. ACCOUNT & SESSION ──────────────────────────────────── */}
                   {settingsTab === 'account' && (
                     <div className="space-y-4 bg-surface p-5 rounded-md border border-border">
                       <div className="flex items-center justify-between pb-2 border-b border-border">
                         <div>
-                          <h4 className="font-semibold text-xs text-text-primary">Account session</h4>
-                          <p className="text-xs text-text-muted">Manage your active CRM credentials and session.</p>
+                          <h4 className="font-semibold text-xs text-text-primary">Active Account & Session</h4>
+                          <p className="text-xs text-text-muted">Manage your active CRM login credentials and session.</p>
                         </div>
                         <span className="px-2 py-0.5 rounded-sm text-xs font-medium bg-status-success-bg text-status-success border border-status-success-border">
-                          Active session
+                          Active Session
                         </span>
                       </div>
 
                       <div className="bg-surface p-4 rounded-md border border-border space-y-4">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-xs font-medium text-text-muted">Signed in account</p>
-                            <p className="font-medium text-sm text-text-primary mt-0.5">{user?.email || 'Logged in account'}</p>
+                            <p className="text-xs font-medium text-text-muted">Signed In Email</p>
+                            <p className="font-medium text-sm text-text-primary mt-0.5">{user?.email || 'Logged in user'}</p>
                           </div>
                           <span className="text-xs font-mono font-medium bg-surface-subtle text-text-secondary px-2.5 py-1 rounded-sm border border-border uppercase">
                             Role: {user?.role || 'Staff'}
@@ -7474,7 +7987,7 @@ export default function DashboardPage() {
 
                         <div className="pt-3 border-t border-border flex items-center justify-between">
                           <div>
-                            <p className="font-medium text-xs text-text-primary">Sign out</p>
+                            <p className="font-medium text-xs text-text-primary">Sign Out</p>
                             <p className="text-xs text-text-muted">End your current session on this device securely.</p>
                           </div>
                           <button
@@ -7491,25 +8004,27 @@ export default function DashboardPage() {
                   )}
 
                   {/* Save Button */}
-                  <div className="pt-2 flex items-center gap-3">
-                    <button
-                      type="submit"
-                      disabled={settingsSaving}
-                      className="px-4 py-2 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-2 disabled:opacity-50"
-                    >
-                      {settingsSaving ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
-                          <span>Saving changes...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Check className="w-3.5 h-3.5 stroke-[1.5]" />
-                          <span>Save all settings</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
+                  {settingsTab !== 'account' && (
+                    <div className="pt-2 flex items-center gap-3">
+                      <button
+                        type="submit"
+                        disabled={settingsSaving}
+                        className="px-4 py-2 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {settingsSaving ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
+                            <span>Saving preferences...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3.5 h-3.5 stroke-[1.5]" />
+                            <span>Save Preferences</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </form>
               </div>
             )}
@@ -7973,21 +8488,74 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Quick WhatsApp Chat Button */}
-                {selectedBookingDetail.contact_phone && (
+                {/* Associate Actions: Chat & CRM Profile */}
+                <div className="grid grid-cols-2 gap-2">
+                  {selectedBookingDetail.contact_phone && (
+                    <button
+                      onClick={() => {
+                        const phone = selectedBookingDetail.contact_phone || '';
+                        setIsBookingDetailModalOpen(false);
+                        setSelectedBookingDetail(null);
+                        openChatForContact(phone);
+                      }}
+                      className="p-2 bg-surface hover:bg-surface-subtle text-text-primary font-medium text-xs rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 border border-border cursor-pointer"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span>WhatsApp Chat</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       const phone = selectedBookingDetail.contact_phone || '';
+                      const name = selectedBookingDetail.contact_name || undefined;
                       setIsBookingDetailModalOpen(false);
                       setSelectedBookingDetail(null);
-                      openChatForContact(phone);
+                      openCustomerProfileByPhone(phone, name);
                     }}
-                    className="w-full p-2 bg-surface hover:bg-surface-subtle text-text-primary font-medium text-xs rounded-sm transition-colors duration-150 flex items-center justify-center gap-2 border border-border cursor-pointer"
+                    className="p-2 bg-accent/10 hover:bg-accent/20 text-accent font-medium text-xs rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 border border-accent/30 cursor-pointer"
                   >
-                    <MessageSquare className="w-3.5 h-3.5 stroke-[1.5]" />
-                    <span>Open WhatsApp chat</span>
+                    <User className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <span>View Client Profile</span>
                   </button>
-                )}
+                </div>
+
+                {/* Interactive Reschedule Slot Section */}
+                <div className="p-3 bg-blue-50/50 rounded-sm border border-blue-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-blue-900 flex items-center gap-1.5">
+                      <CalendarClock className="w-3.5 h-3.5 text-blue-700" />
+                      <span>Reschedule Appointment</span>
+                    </label>
+                    <span className="text-[10px] text-blue-700 font-mono">Triggers WhatsApp & Calendar Sync</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-text-muted font-medium block mb-0.5">New Date</label>
+                      <input
+                        type="date"
+                        value={rescheduleDate}
+                        onChange={(e) => setRescheduleDate(e.target.value)}
+                        className="w-full p-1.5 bg-white border border-border rounded-sm text-xs text-text-primary font-medium focus:border-accent"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-text-muted font-medium block mb-0.5">New Time</label>
+                      <input
+                        type="time"
+                        value={rescheduleTime}
+                        onChange={(e) => setRescheduleTime(e.target.value)}
+                        className="w-full p-1.5 bg-white border border-border rounded-sm text-xs text-text-primary font-medium focus:border-accent"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleRescheduleBooking(selectedBookingDetail.id, rescheduleDate, rescheduleTime)}
+                    disabled={isRescheduling}
+                    className="w-full py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-sm text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors disabled:opacity-50"
+                  >
+                    {isRescheduling ? 'Rescheduling & Syncing...' : '🔄 Confirm Reschedule & Send Confirmation'}
+                  </button>
+                </div>
 
                 {/* Attendance Action Buttons */}
                 <div className="pt-2 border-t border-border space-y-2">
@@ -8570,6 +9138,149 @@ export default function DashboardPage() {
           </div>
         )}
 
+        
+        {/* CUSTOMIZE QUICK PRESETS MODAL */}
+        {presetEditModalOpen && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4" onClick={() => setPresetEditModalOpen(false)}>
+            <div className="w-full max-w-lg bg-surface border border-border rounded-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-border bg-surface-subtle/50">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-sm bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+                    <Pencil className="w-3.5 h-3.5 stroke-[2]" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-text-primary">
+                      Customize Quick Presets
+                    </h3>
+                    <p className="text-[11px] text-text-muted">
+                      Add, remove, or customize one-click {(settingsForm.taxonomy?.requirement_label || 'requirement').toLowerCase()} options.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPresetEditModalOpen(false)}
+                  className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer transition-colors"
+                >
+                  <X className="w-4 h-4 stroke-[1.5]" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {/* Input to Add Preset */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1.5">
+                    Add New Preset
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newPresetInput}
+                      onChange={(e) => setNewPresetInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddPreset();
+                        }
+                      }}
+                      placeholder="Type a new preset option..."
+                      className="flex-1 px-3 py-1.5 text-xs bg-surface-subtle border border-border rounded-sm text-text-primary focus:bg-white focus:border-accent focus:outline-none transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddPreset}
+                      disabled={!newPresetInput.trim()}
+                      className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-40 flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5 stroke-[2]" />
+                      <span>Add</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-text-muted mt-1">
+                    Press Enter or click Add to append to your preset buttons.
+                  </p>
+                </div>
+
+                {/* Active Presets */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
+                      Current Presets ({presetEditList.length})
+                    </label>
+                    <span className="text-[10px] text-text-muted">Click ✕ to remove any preset</span>
+                  </div>
+                  <div className="p-3 bg-surface-subtle border border-border rounded-sm min-h-[90px] max-h-[220px] overflow-y-auto flex flex-wrap gap-1.5 items-start content-start">
+                    {presetEditList.length === 0 ? (
+                      <p className="text-xs text-text-muted italic py-4 text-center w-full">
+                        No presets in list. Add an option above or restore industry defaults below.
+                      </p>
+                    ) : (
+                      presetEditList.map((preset) => (
+                        <span
+                          key={preset}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs bg-white border border-border text-text-primary font-medium shadow-2xs group hover:border-status-error-border transition-colors"
+                        >
+                          <span>{preset}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePreset(preset)}
+                            title={`Remove "${preset}"`}
+                            className="text-text-muted hover:text-status-error transition-colors p-0.5 rounded cursor-pointer"
+                          >
+                            <X className="w-3 h-3 stroke-[2.5]" />
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Restore Defaults button */}
+                <div className="flex justify-between items-center pt-1">
+                  <button
+                    type="button"
+                    onClick={handleResetPresetDefaults}
+                    className="text-[11px] text-accent hover:underline cursor-pointer flex items-center gap-1"
+                  >
+                    <RotateCcw className="w-3 h-3 stroke-[1.8]" />
+                    <span>Reset to {(INDUSTRY_PRESETS.find(p => p.id === (settingsForm.industry || 'clinic'))?.name) || 'Industry'} Defaults</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-5 py-3 bg-surface-subtle/50 border-t border-border flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setPresetEditModalOpen(false)}
+                  className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-secondary border border-border text-xs font-medium rounded-sm transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSavePresetsModal}
+                  disabled={savingPresets}
+                  className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-2xs"
+                >
+                  {savingPresets ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5 stroke-[2]" />
+                      <span>Save & Apply</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+
         {/* QUICK ADD TO CRM MODAL */}
         {showQuickAddCrmModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowQuickAddCrmModal(false)}>
@@ -8606,14 +9317,39 @@ export default function DashboardPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-text-muted block mb-1 font-medium">Health Concern / Primary Treatment</label>
+                  <label className="text-[10px] text-text-muted block mb-1 font-medium">{currentTaxonomy.requirement_label || 'Requirement / Concern'}</label>
                   <input
                     type="text"
                     value={quickCrmConcern}
                     onChange={e => setQuickCrmConcern(e.target.value)}
-                    placeholder="e.g. General Consultation, Dental Checkup"
+                    placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
                     className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
                   />
+                  {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                    ? settingsForm.taxonomy.requirement_presets
+                    : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
+                  ) && (
+                    <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                      {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                        ? settingsForm.taxonomy.requirement_presets
+                        : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
+                      ).map((chip) => (
+                        <button key={chip} type="button" onClick={() => setQuickCrmConcern(chip)}
+                          className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${quickCrmConcern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'}`}>
+                          {chip}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={openPresetEditor}
+                        title="Edit presets (add or remove)"
+                        className="px-1.5 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-text-muted hover:text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
+                      >
+                        <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
+                        <span>Edit</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
