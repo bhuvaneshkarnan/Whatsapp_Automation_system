@@ -2315,7 +2315,7 @@ export default function DashboardPage() {
   return (
     <div className="w-full h-screen bg-canvas flex flex-col overflow-hidden font-sans text-text-body">
       {/* ── Top Header Navigation Bar ───────────────────────────────────────── */}
-      <header className="h-14 px-6 border-b border-border flex items-center justify-between shrink-0 bg-surface">
+      <header className="h-13 sm:h-14 px-3 sm:px-6 border-b border-border flex items-center justify-between shrink-0 bg-surface">
         {/* Logo & Current View Title */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
@@ -2506,7 +2506,7 @@ export default function DashboardPage() {
         </aside>
 
           {/* ── 2. CENTER / MAIN VIEW AREA ───────────────────────────────────── */}
-          <main className="flex-1 flex flex-col overflow-hidden bg-canvas p-3 sm:p-6 space-y-4 sm:space-y-6 pb-20 md:pb-6">
+          <main className="flex-1 flex flex-col overflow-hidden bg-canvas p-3 sm:p-6 space-y-3 sm:space-y-6 pb-20 md:pb-6">
             
             {/* ── VIEW 0: DEDICATED OVERVIEW DASHBOARD ─────────────────────────── */}
             {activeNav === 'overview' && (
@@ -2546,7 +2546,7 @@ export default function DashboardPage() {
 
                 {/* Quick Access Metric Cards */}
                 <div className="space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-4">
                     {/* Card 1: Active Conversations */}
                     <div
                       onClick={() => setActiveNav('inbox')}
@@ -2764,7 +2764,7 @@ export default function DashboardPage() {
             {activeNav === 'bookings' && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-4">
                 {/* Breadcrumb & Action Toolbar */}
-                <div className="flex items-center justify-between pt-1">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
                   <div className="flex items-center gap-2 text-xs text-text-muted">
                     <span>Home</span>
                     <ChevronRight className="w-3 h-3 text-text-muted stroke-[1.5]" />
@@ -2844,7 +2844,7 @@ export default function DashboardPage() {
                       <p className="text-xs text-text-muted">Appointments booked via WhatsApp will appear here automatically.</p>
                     </div>
                   ) : (
-                    <table className="w-full text-left text-xs">
+                    <table className="w-full text-left text-xs min-w-[620px]">
                       <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-xs">
                         <tr>
                           <th className="p-3 pl-4">Client</th>
@@ -2986,7 +2986,7 @@ export default function DashboardPage() {
             {activeNav === 'calendar' && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-3">
                 {/* Calendar Top Controls & Unified Filter Layer */}
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
                   {/* Left: Date Navigation & Title */}
                   <div className="flex items-center gap-3">
                     <h3 className="font-semibold text-sm text-text-primary flex items-center gap-1.5">
@@ -3021,7 +3021,7 @@ export default function DashboardPage() {
                   </div>
 
                   {/* Middle: Unified Layer / Filter Selector (All, Appointments, Follow-ups, Tasks) */}
-                  <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5">
+                  <div className="flex overflow-x-auto gap-1 bg-surface-subtle border border-border rounded-sm p-0.5 max-w-full shrink-0">
                     {[
                       { key: 'all', label: 'All Schedule', icon: LayoutGrid, count: (bookings?.length || 0) + (customers?.filter(c => c.followup_date).length || 0) + (tasks?.filter(t => !t.completed).length || 0) },
                       { key: 'bookings', label: currentTaxonomy.event_label || 'Appointments', icon: Calendar, count: bookings?.length || 0 },
