@@ -683,10 +683,10 @@ export default function SuperAdminClients() {
     }
   }
 
-  async function handleActivateBilling(tenant: ClientTenant) {
+  async function handleActivateBilling(tenant: ClientTenant, force: boolean = false) {
     setActivatingBillingId(tenant.id);
     try {
-      const res = await admin.activateBilling(tenant.id);
+      const res = await admin.activateBilling(tenant.id, force);
       const updatedTenant: ClientTenant = {
         ...tenant,
         org_lifecycle_stage: res.org_lifecycle_stage,
@@ -698,7 +698,7 @@ export default function SuperAdminClients() {
         prev.map((t) => (t.id === tenant.id ? updatedTenant : t))
       );
       setActivePaymentModalTenant(updatedTenant);
-      setActionSuccessNotice(`Billing activated for ${tenant.name}! Razorpay subscription created.`);
+      setActionSuccessNotice(`Billing link updated for ${tenant.name}! Live checkout is ready.`);
       setTimeout(() => setActionSuccessNotice(null), 5000);
     } catch (err: any) {
       alert(`Failed to activate billing: ${err?.message || err}`);
@@ -1349,6 +1349,18 @@ export default function SuperAdminClients() {
                                       <Sparkles className="w-3 h-3" />
                                     )}
                                     <span>Activate Billing</span>
+                                  </button>
+                                )}
+
+                                {/* VIEW PAYMENT LINK MODAL */}
+                                {t.razorpay_short_url && (
+                                  <button
+                                    onClick={() => setActivePaymentModalTenant(t)}
+                                    className="px-2 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/20 rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1 shadow-xs"
+                                    title="Open Payment Link Modal & Test Checkout"
+                                  >
+                                    <CreditCard className="w-3 h-3" />
+                                    <span>Payment Link</span>
                                   </button>
                                 )}
 
@@ -3825,7 +3837,9 @@ export default function SuperAdminClients() {
                     Billing Activated: {activePaymentModalTenant.name}
                   </h3>
                   <p className="text-[10px] text-text-muted">
-                    Razorpay Subscription #{activePaymentModalTenant.razorpay_subscription_id}
+                    {activePaymentModalTenant.razorpay_subscription_id?.startsWith('plink_')
+                      ? `Razorpay Payment Link #${activePaymentModalTenant.razorpay_subscription_id}`
+                      : `Razorpay Subscription #${activePaymentModalTenant.razorpay_subscription_id}`}
                   </p>
                 </div>
               </div>
@@ -3874,17 +3888,29 @@ export default function SuperAdminClients() {
               )}
 
               <div className="pt-3 border-t border-border flex items-center justify-between">
-                {activePaymentModalTenant.razorpay_short_url && (
-                  <a
-                    href={activePaymentModalTenant.razorpay_short_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline font-medium"
+                <div className="flex items-center gap-3">
+                  {activePaymentModalTenant.razorpay_short_url && (
+                    <a
+                      href={activePaymentModalTenant.razorpay_short_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline font-medium"
+                    >
+                      <span>Test Payment Page</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    disabled={activatingBillingId === activePaymentModalTenant.id}
+                    onClick={() => handleActivateBilling(activePaymentModalTenant, true)}
+                    className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-text-primary underline cursor-pointer disabled:opacity-50"
+                    title="Generate a brand new live payment link"
                   >
-                    <span>Test Payment Page</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                )}
+                    <RefreshCw className={`w-3 h-3 ${activatingBillingId === activePaymentModalTenant.id ? 'animate-spin' : ''}`} />
+                    <span>Regenerate Link</span>
+                  </button>
+                </div>
                 <button
                   type="button"
                   onClick={() => setActivePaymentModalTenant(null)}

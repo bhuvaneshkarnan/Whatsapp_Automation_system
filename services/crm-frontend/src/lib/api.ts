@@ -772,7 +772,7 @@ export const admin = {
         body: JSON.stringify(data),
       }
     ),
-  activateBilling: (tenantId: string) =>
+  activateBilling: (tenantId: string, force?: boolean) =>
     request<{
       status: string;
       tenant_id: string;
@@ -781,7 +781,7 @@ export const admin = {
       org_lifecycle_stage: string;
       subscription_status: string;
       message?: string;
-    }>(`/api/v1/crm/admin/tenants/${tenantId}/activate-billing`, {
+    }>(`/api/v1/crm/admin/tenants/${tenantId}/activate-billing${force ? '?force_new=true' : ''}`, {
       method: 'POST',
     }),
   syncBilling: (tenantId: string) =>

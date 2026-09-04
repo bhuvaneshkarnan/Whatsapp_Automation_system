@@ -4416,13 +4416,17 @@ async def dispatch_subscription_reminder(tenant_id: str, reminder_stage: int, pa
 
 
 @app.post("/admin/tenants/{tenant_id}/activate-billing")
-async def activate_tenant_billing(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
+async def activate_tenant_billing(
+    tenant_id: str,
+    force_new: bool = False,
+    admin_user: dict = Depends(verify_super_admin)
+):
     """
     Stage B: Activate & Start Billing.
-    Creates Razorpay Customer and Subscription for the organization,
-    records razorpay_customer_id, razorpay_subscription_id, razorpay_short_url,
+    Generates a live Razorpay Payment Link for ₹3,499/mo,
+    records razorpay_customer_id, razorpay_subscription_id (payment link ID), razorpay_short_url,
     and sets org_lifecycle_stage = 'ready_to_activate'.
-    Note: Automation STILL runs freely in this stage until the first successful payment.
+    Note: Automation STILL runs freely in this stage until the customer completes the first payment.
     """
     async with db_pool.acquire() as conn:
         tenant = await conn.fetchrow(
@@ -4432,19 +4436,22 @@ async def activate_tenant_billing(tenant_id: str, admin_user: dict = Depends(ver
         if not tenant:
             raise HTTPException(404, "Client tenant not found")
         
-        # If already has subscription and short_url, return it
-        if tenant.get("razorpay_subscription_id") and tenant.get("razorpay_short_url"):
+        existing_sub_id = tenant.get("razorpay_subscription_id") or ""
+        existing_short_url = tenant.get("razorpay_short_url") or ""
+        
+        # If already has a valid working payment link (plink_...) and short_url, and not forced, return it
+        if not force_new and existing_sub_id.startswith("plink_") and existing_short_url:
             return {
                 "status": "ready_to_activate",
                 "tenant_id": tenant_id,
-                "subscription_id": tenant["razorpay_subscription_id"],
-                "short_url": tenant["razorpay_short_url"],
+                "subscription_id": existing_sub_id,
+                "short_url": existing_short_url,
                 "org_lifecycle_stage": tenant.get("org_lifecycle_stage") or "ready_to_activate",
                 "subscription_status": tenant.get("subscription_status") or "not_started",
-                "message": "Subscription already generated"
+                "message": "Payment link already active"
             }
 
-        admin_user = await conn.fetchrow(
+        admin_contact = await conn.fetchrow(
             "SELECT email FROM users WHERE tenant_id = $1::uuid AND is_active = true ORDER BY (role = 'admin') DESC, created_at ASC LIMIT 1",
             tenant_id
         )
@@ -4461,7 +4468,7 @@ async def activate_tenant_billing(tenant_id: str, admin_user: dict = Depends(ver
             admin_phone = cd.get("admin_whatsapp_number", "")
 
         customer_name = tenant["name"]
-        customer_email = admin_user["email"] if admin_user else f"{tenant['slug']}@boldlabs.ai"
+        customer_email = admin_contact["email"] if admin_contact else f"{tenant['slug']}@boldlabs.ai"
         
         cust_id = None
         try:
@@ -4470,17 +4477,22 @@ async def activate_tenant_billing(tenant_id: str, admin_user: dict = Depends(ver
         except Exception as ce:
             logger.warning("razorpay_cust_create_warning", error=str(ce))
             
-        sub_res = await razorpay_client.create_subscription(
-            customer_id=cust_id,
-            org_slug=tenant["slug"]
+        plink_res = await razorpay_client.create_payment_link(
+            amount=349900,
+            customer_name=customer_name,
+            customer_email=customer_email,
+            customer_contact=admin_phone,
+            description=f"{customer_name} - Platform Subscription (₹3,499/mo)",
+            org_slug=tenant["slug"],
+            tenant_id=tenant_id
         )
-        sub_id = sub_res.get("id")
-        short_url = sub_res.get("short_url")
+        sub_id = plink_res.get("id")
+        short_url = plink_res.get("short_url")
 
         await conn.execute(
             """
             UPDATE tenants 
-            SET razorpay_customer_id = $1,
+            SET razorpay_customer_id = COALESCE($1, razorpay_customer_id),
                 razorpay_subscription_id = $2,
                 razorpay_short_url = $3,
                 org_lifecycle_stage = 'ready_to_activate',
@@ -4506,7 +4518,7 @@ async def activate_tenant_billing(tenant_id: str, admin_user: dict = Depends(ver
 async def sync_tenant_billing(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
     """
     On-demand reconciliation with Razorpay API.
-    Fetches latest subscription state and invoices, updating local records.
+    Fetches latest payment link / subscription state and invoices, updating local records.
     """
     async with db_pool.acquire() as conn:
         tenant = await conn.fetchrow(
@@ -4517,76 +4529,131 @@ async def sync_tenant_billing(tenant_id: str, admin_user: dict = Depends(verify_
             raise HTTPException(404, "Client tenant not found")
         sub_id = tenant.get("razorpay_subscription_id")
         if not sub_id:
-            raise HTTPException(400, "Organization has no Razorpay subscription attached")
+            raise HTTPException(400, "Organization has no Razorpay payment link or subscription attached")
 
-        sub_data = await razorpay_client.fetch_subscription(sub_id)
-        rzp_status = sub_data.get("status", "")
-        status_map = {
-            "created": "not_started",
-            "authenticated": "active",
-            "active": "active",
-            "pending": "payment_failed",
-            "halted": "paused",
-            "cancelled": "cancelled",
-            "completed": "active",
-            "expired": "paused"
-        }
-        new_sub_status = status_map.get(rzp_status, "active" if rzp_status == "active" else tenant.get("subscription_status") or "not_started")
-        
-        current_end = sub_data.get("current_end")
-        next_charge = datetime.fromtimestamp(current_end, tz=timezone.utc) if current_end else None
-        
-        new_stage = tenant.get("org_lifecycle_stage")
-        if new_sub_status == "active":
-            new_stage = "billing_active"
-
-        await conn.execute(
-            """
-            UPDATE tenants
-            SET subscription_status = $1,
-                org_lifecycle_stage = COALESCE($2, org_lifecycle_stage),
-                next_charge_at = COALESCE($3, next_charge_at),
-                last_payment_status = $4,
-                updated_at = now()
-            WHERE id = $5::uuid
-            """,
-            new_sub_status, new_stage, next_charge, rzp_status, tenant_id
-        )
-
-        invoices = await razorpay_client.fetch_invoices_for_subscription(sub_id)
-        synced_invoices_count = 0
-        for inv in invoices:
-            inv_id = inv.get("id")
-            amount = float(inv.get("amount", 0)) / 100.0
-            currency = inv.get("currency", "INR")
-            inv_status = inv.get("status", "pending")
-            paid_at = datetime.fromtimestamp(inv.get("paid_at"), tz=timezone.utc) if inv.get("paid_at") else None
-            pdf_url = inv.get("short_url") or inv.get("invoice_pdf")
-            payment_id = inv.get("payment_id")
+        if sub_id.startswith("plink_"):
+            plink_data = await razorpay_client.fetch_payment_link(sub_id)
+            plink_status = plink_data.get("status", "")
+            if plink_status == "paid":
+                new_sub_status = "active"
+                new_stage = "billing_active"
+            elif plink_status in ("cancelled", "expired"):
+                new_sub_status = "cancelled"
+                new_stage = tenant.get("org_lifecycle_stage")
+            else:
+                new_sub_status = "not_started"
+                new_stage = tenant.get("org_lifecycle_stage") or "ready_to_activate"
 
             await conn.execute(
                 """
-                INSERT INTO invoices (id, tenant_id, razorpay_invoice_id, razorpay_payment_id, razorpay_subscription_id, amount, currency, status, invoice_pdf_url, paid_at, created_at)
-                VALUES (gen_random_uuid(), $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, now())
-                ON CONFLICT (razorpay_invoice_id) DO UPDATE
-                SET status = EXCLUDED.status,
-                    razorpay_payment_id = COALESCE(EXCLUDED.razorpay_payment_id, invoices.razorpay_payment_id),
-                    invoice_pdf_url = COALESCE(EXCLUDED.invoice_pdf_url, invoices.invoice_pdf_url),
-                    paid_at = COALESCE(EXCLUDED.paid_at, invoices.paid_at)
+                UPDATE tenants
+                SET subscription_status = $1,
+                    org_lifecycle_stage = COALESCE($2, org_lifecycle_stage),
+                    last_payment_status = $3,
+                    updated_at = now()
+                WHERE id = $4::uuid
                 """,
-                tenant_id, inv_id, payment_id, sub_id, amount, currency, inv_status, pdf_url, paid_at
+                new_sub_status, new_stage, plink_status, tenant_id
             )
-            synced_invoices_count += 1
 
-        return {
-            "status": "synced",
-            "tenant_id": tenant_id,
-            "razorpay_status": rzp_status,
-            "subscription_status": new_sub_status,
-            "org_lifecycle_stage": new_stage,
-            "next_charge_at": next_charge.isoformat() if next_charge else None,
-            "invoices_synced": synced_invoices_count
-        }
+            synced_invoices_count = 0
+            payments = plink_data.get("payments", [])
+            for pay in payments:
+                pay_id = pay.get("payment_id") or pay.get("id")
+                pay_amount = float(pay.get("amount", 349900)) / 100.0
+                pay_status = pay.get("status", "captured")
+                if pay_id and pay_status in ("captured", "paid"):
+                    await conn.execute(
+                        """
+                        INSERT INTO invoices (id, tenant_id, razorpay_invoice_id, razorpay_payment_id, razorpay_subscription_id, amount, currency, status, paid_at, created_at)
+                        VALUES (gen_random_uuid(), $1::uuid, $2, $3, $4, $5, 'INR', 'paid', now(), now())
+                        ON CONFLICT (razorpay_invoice_id) DO UPDATE
+                        SET status = 'paid',
+                            razorpay_payment_id = EXCLUDED.razorpay_payment_id,
+                            paid_at = now()
+                        """,
+                        tenant_id, f"inv_{sub_id}_{pay_id}", pay_id, sub_id, pay_amount
+                    )
+                    synced_invoices_count += 1
+
+            return {
+                "status": "synced",
+                "tenant_id": tenant_id,
+                "razorpay_status": plink_status,
+                "subscription_status": new_sub_status,
+                "org_lifecycle_stage": new_stage,
+                "next_charge_at": None,
+                "invoices_synced": synced_invoices_count
+            }
+        else:
+            sub_data = await razorpay_client.fetch_subscription(sub_id)
+            rzp_status = sub_data.get("status", "")
+            status_map = {
+                "created": "not_started",
+                "authenticated": "active",
+                "active": "active",
+                "pending": "payment_failed",
+                "halted": "paused",
+                "cancelled": "cancelled",
+                "completed": "active",
+                "expired": "paused"
+            }
+            new_sub_status = status_map.get(rzp_status, "active" if rzp_status == "active" else tenant.get("subscription_status") or "not_started")
+            
+            current_end = sub_data.get("current_end")
+            next_charge = datetime.fromtimestamp(current_end, tz=timezone.utc) if current_end else None
+            
+            new_stage = tenant.get("org_lifecycle_stage")
+            if new_sub_status == "active":
+                new_stage = "billing_active"
+
+            await conn.execute(
+                """
+                UPDATE tenants
+                SET subscription_status = $1,
+                    org_lifecycle_stage = COALESCE($2, org_lifecycle_stage),
+                    next_charge_at = COALESCE($3, next_charge_at),
+                    last_payment_status = $4,
+                    updated_at = now()
+                WHERE id = $5::uuid
+                """,
+                new_sub_status, new_stage, next_charge, rzp_status, tenant_id
+            )
+
+            invoices = await razorpay_client.fetch_invoices_for_subscription(sub_id)
+            synced_invoices_count = 0
+            for inv in invoices:
+                inv_id = inv.get("id")
+                amount = float(inv.get("amount", 0)) / 100.0
+                currency = inv.get("currency", "INR")
+                inv_status = inv.get("status", "pending")
+                paid_at = datetime.fromtimestamp(inv.get("paid_at"), tz=timezone.utc) if inv.get("paid_at") else None
+                pdf_url = inv.get("short_url") or inv.get("invoice_pdf")
+                payment_id = inv.get("payment_id")
+
+                await conn.execute(
+                    """
+                    INSERT INTO invoices (id, tenant_id, razorpay_invoice_id, razorpay_payment_id, razorpay_subscription_id, amount, currency, status, invoice_pdf_url, paid_at, created_at)
+                    VALUES (gen_random_uuid(), $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, now())
+                    ON CONFLICT (razorpay_invoice_id) DO UPDATE
+                    SET status = EXCLUDED.status,
+                        razorpay_payment_id = COALESCE(EXCLUDED.razorpay_payment_id, invoices.razorpay_payment_id),
+                        invoice_pdf_url = COALESCE(EXCLUDED.invoice_pdf_url, invoices.invoice_pdf_url),
+                        paid_at = COALESCE(EXCLUDED.paid_at, invoices.paid_at)
+                    """,
+                    tenant_id, inv_id, payment_id, sub_id, amount, currency, inv_status, pdf_url, paid_at
+                )
+                synced_invoices_count += 1
+
+            return {
+                "status": "synced",
+                "tenant_id": tenant_id,
+                "razorpay_status": rzp_status,
+                "subscription_status": new_sub_status,
+                "org_lifecycle_stage": new_stage,
+                "next_charge_at": next_charge.isoformat() if next_charge else None,
+                "invoices_synced": synced_invoices_count
+            }
 
 
 @app.get("/admin/tenants/{tenant_id}/invoices")
@@ -4649,19 +4716,47 @@ async def handle_razorpay_webhook(
     sub_entity = payload.get("subscription", {}).get("entity", {})
     payment_entity = payload.get("payment", {}).get("entity", {})
     invoice_entity = payload.get("invoice", {}).get("entity", {})
+    plink_entity = payload.get("payment_link", {}).get("entity", {})
 
-    sub_id = sub_entity.get("id") or invoice_entity.get("subscription_id") or payment_entity.get("description")
+    sub_id = (
+        plink_entity.get("id")
+        or sub_entity.get("id")
+        or invoice_entity.get("subscription_id")
+        or payment_entity.get("description")
+    )
 
     async with db_pool.acquire() as conn:
         tenant = None
-        if sub_id:
+        
+        # 1. Match by tenant_id note
+        t_id_note = (
+            plink_entity.get("notes", {}).get("tenant_id")
+            or payment_entity.get("notes", {}).get("tenant_id")
+        )
+        if t_id_note:
+            try:
+                tenant = await conn.fetchrow(
+                    "SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_short_url FROM tenants WHERE id = $1::uuid",
+                    t_id_note
+                )
+            except Exception:
+                pass
+
+        # 2. Match by razorpay_subscription_id (which holds plink_... or sub_...)
+        if not tenant and sub_id:
             tenant = await conn.fetchrow(
                 "SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_short_url FROM tenants WHERE razorpay_subscription_id = $1",
                 sub_id
             )
         
+        # 3. Match by org_slug in notes
         if not tenant:
-            org_slug = sub_entity.get("notes", {}).get("org_slug") or invoice_entity.get("notes", {}).get("org_slug")
+            org_slug = (
+                plink_entity.get("notes", {}).get("org_slug")
+                or payment_entity.get("notes", {}).get("org_slug")
+                or sub_entity.get("notes", {}).get("org_slug")
+                or invoice_entity.get("notes", {}).get("org_slug")
+            )
             if org_slug:
                 tenant = await conn.fetchrow("SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_short_url FROM tenants WHERE slug = $1", org_slug)
 
@@ -4672,10 +4767,50 @@ async def handle_razorpay_webhook(
         tenant_id = str(tenant["id"])
         short_url = tenant.get("razorpay_short_url") or ""
 
-        if event_type in ("subscription.authenticated", "subscription.activated"):
+        if event_type in ("payment_link.paid", "payment.captured", "order.paid"):
+            pay_id = payment_entity.get("id")
+            if not pay_id and plink_entity.get("payments"):
+                pay_id = plink_entity["payments"][0].get("payment_id")
+            
+            amount_val = plink_entity.get("amount_paid") or payment_entity.get("amount") or 349900
+            amount = float(amount_val) / 100.0 if float(amount_val) > 10000 else float(amount_val)
+            inv_id = f"inv_{sub_id or tenant_id}_{int(time.time())}"
+            pdf_url = plink_entity.get("short_url") or short_url
+
             await conn.execute(
                 """
                 UPDATE tenants
+                SET subscription_status = 'active',
+                    org_lifecycle_stage = 'billing_active',
+                    last_charge_at = now(),
+                    last_payment_status = 'success',
+                    reminder_stage = 0,
+                    is_active = true,
+                    updated_at = now()
+                WHERE id = $1::uuid
+                """,
+                tenant_id
+            )
+
+            if pay_id:
+                await conn.execute(
+                    """
+                    INSERT INTO invoices (id, tenant_id, razorpay_invoice_id, razorpay_payment_id, razorpay_subscription_id, amount, currency, status, invoice_pdf_url, paid_at, created_at)
+                    VALUES (gen_random_uuid(), $1::uuid, $2, $3, $4, $5, 'INR', 'paid', $6, now(), now())
+                    ON CONFLICT (razorpay_invoice_id) DO UPDATE
+                    SET status = 'paid',
+                        razorpay_payment_id = COALESCE(EXCLUDED.razorpay_payment_id, invoices.razorpay_payment_id),
+                        paid_at = now()
+                    """,
+                    tenant_id, inv_id, pay_id, sub_id or "payment_link", amount, pdf_url
+                )
+            logger.info("razorpay_payment_link_paid_recorded", tenant_id=tenant_id, pay_id=pay_id, amount=amount)
+
+        elif event_type in ("subscription.authenticated", "subscription.activated"):
+            await conn.execute(
+                """
+                UPDATE tenants
+
                 SET subscription_status = 'active',
                     org_lifecycle_stage = 'billing_active',
                     last_payment_status = 'authenticated',

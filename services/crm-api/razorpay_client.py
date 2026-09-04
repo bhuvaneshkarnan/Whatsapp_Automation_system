@@ -111,3 +111,66 @@ async def fetch_invoices_for_subscription(subscription_id: str) -> List[Dict[str
             return []
         data = res.json()
         return data.get("items", [])
+
+async def create_payment_link(
+    amount: int = 349900,  # in paise: 349900 = ₹3,499
+    currency: str = "INR",
+    customer_name: Optional[str] = None,
+    customer_email: Optional[str] = None,
+    customer_contact: Optional[str] = None,
+    description: str = "Boldlabs CRM Platform Subscription (₹3,499/month)",
+    org_slug: str = "boldlabs",
+    tenant_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Create a standard Razorpay Payment Link (checkout page) for an organization."""
+    payload: Dict[str, Any] = {
+        "amount": amount,
+        "currency": currency,
+        "accept_partial": False,
+        "description": description,
+        "notify": {
+            "sms": bool(customer_contact),
+            "email": bool(customer_email and "@" in customer_email)
+        },
+        "reminder_enable": True,
+        "notes": {
+            "org_slug": org_slug,
+            "tenant_id": str(tenant_id) if tenant_id else "",
+            "type": "monthly_subscription"
+        }
+    }
+    cust: Dict[str, str] = {}
+    if customer_name:
+        cust["name"] = customer_name
+    if customer_email and "@" in customer_email:
+        cust["email"] = customer_email.strip()
+    if customer_contact:
+        clean_phone = "".join(filter(str.isdigit, customer_contact))
+        if clean_phone:
+            cust["contact"] = clean_phone[-10:] if len(clean_phone) >= 10 else clean_phone
+    if cust:
+        payload["customer"] = cust
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        res = await client.post(
+            f"{BASE_URL}/payment_links",
+            json=payload,
+            auth=get_auth()
+        )
+        if res.status_code not in (200, 201):
+            logger.error("razorpay_payment_link_creation_failed", status=res.status_code, body=res.text)
+            raise Exception(f"Razorpay payment link creation failed: {res.text}")
+        return res.json()
+
+async def fetch_payment_link(payment_link_id: str) -> Dict[str, Any]:
+    """Fetch live status of a Razorpay Payment Link."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        res = await client.get(
+            f"{BASE_URL}/payment_links/{payment_link_id}",
+            auth=get_auth()
+        )
+        if res.status_code != 200:
+            logger.error("razorpay_payment_link_fetch_failed", plink_id=payment_link_id, status=res.status_code, body=res.text)
+            raise Exception(f"Razorpay payment link fetch failed: {res.text}")
+        return res.json()
+
