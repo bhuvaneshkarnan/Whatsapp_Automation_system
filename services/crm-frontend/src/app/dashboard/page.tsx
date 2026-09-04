@@ -3641,7 +3641,7 @@ export default function DashboardPage() {
             {activeNav === 'inbox' && (
               <div className="flex-1 flex overflow-hidden border border-border rounded-md bg-surface">
                 {/* Conversations List */}
-                <div className={`${activeId ? 'hidden md:flex' : 'flex'} w-full md:w-80 bg-surface border-r border-border flex-col shrink-0`}>
+                <div className={`${selectedConv ? 'hidden md:flex' : 'flex'} w-full md:w-80 bg-surface border-r border-border flex-col shrink-0`}>
                   <div className="p-3 border-b border-border space-y-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-text-primary uppercase tracking-wider">Chats</span>
@@ -3825,14 +3825,14 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Chat Stream */}
-                <div className={`${activeId ? 'flex' : 'hidden md:flex'} flex-1 flex-col bg-surface`}>
+                <div className={`${selectedConv ? 'flex' : 'hidden md:flex'} flex-1 flex-col bg-surface`}>
                   {selectedConv ? (
                     <>
                       <div className="h-14 px-4 border-b border-border flex items-center justify-between bg-surface shrink-0">
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => setActiveId(null)}
+                            onClick={() => setSelectedConv(null)}
                             className="md:hidden p-1.5 -ml-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer"
                             title="Back to conversation list"
                           >
