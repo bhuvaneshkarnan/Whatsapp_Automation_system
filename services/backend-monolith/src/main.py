@@ -81,6 +81,28 @@ async def startup():
     booking_mod.db_pool = db_pool
     calendar_mod.db_pool = db_pool
 
+    # Ensure database migrations and customer sync
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_uniq ON customers(tenant_id, phone);
+                INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, created_at, updated_at)
+                SELECT gen_random_uuid(), c.tenant_id, REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), COALESCE(c.name, c.wa_profile_name, 'Customer'), 'new', 'warm', c.created_at, now()
+                FROM contacts c
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM customers cust 
+                    WHERE cust.tenant_id = c.tenant_id 
+                      AND (
+                        cust.phone = REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g')
+                        OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10)
+                      )
+                )
+                ON CONFLICT (tenant_id, phone) DO NOTHING;
+            """)
+            logger.info("monolith_startup", message="Customer contact auto-sync executed")
+    except Exception as e:
+        logger.warning("monolith_schema_sync_failed", error=str(e))
+
     logger.info("monolith_startup", message="Starting core worker background tasks")
     try:
         await core_worker.start()

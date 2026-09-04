@@ -142,6 +142,22 @@ async def lifespan(app: FastAPI):
                     is_read BOOLEAN DEFAULT false,
                     created_at TIMESTAMPTZ DEFAULT now()
                 );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_uniq ON customers(tenant_id, phone);
+
+                -- Ensure all contacts have a corresponding record in customers table
+                INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, created_at, updated_at)
+                SELECT gen_random_uuid(), c.tenant_id, REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), COALESCE(c.name, c.wa_profile_name, 'Customer'), 'new', 'warm', c.created_at, now()
+                FROM contacts c
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM customers cust 
+                    WHERE cust.tenant_id = c.tenant_id 
+                      AND (
+                        cust.phone = REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g')
+                        OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10)
+                      )
+                )
+                ON CONFLICT (tenant_id, phone) DO NOTHING;
             """)
     except Exception as e:
         logger.error("db_lifespan_init_error", error=str(e))
@@ -448,7 +464,7 @@ async def list_customers(
     lead_probability: Optional[str] = None,
     preferred_doctor: Optional[str] = None,
     q: Optional[str] = None,
-    limit: int = Query(100, le=200),
+    limit: int = Query(100, le=1000),
     offset: int = 0
 ):
     """List customer follow-up records with segment filters, chat activity, and notes counts."""
@@ -485,14 +501,35 @@ async def list_customers(
                 c.id, c.tenant_id, c.phone, c.name, c.age, c.location, c.preferred_doctor, c.status,
                 c.health_concern, c.lead_probability, c.converted, c.followup_date,
                 c.followup_time, c.google_task_id, c.google_calendar_event_id, c.last_visited_at, c.last_messaged_at, c.created_at, c.updated_at,
-                (SELECT MAX(b.start_time) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id WHERE ct.phone = c.phone AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS calculated_last_visited,
-                (SELECT ct.wa_profile_name FROM contacts ct WHERE ct.phone = c.phone AND ct.tenant_id = c.tenant_id LIMIT 1) AS wa_profile_name,
+                (SELECT MAX(b.start_time) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                   AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS calculated_last_visited,
+                (SELECT ct.wa_profile_name FROM contacts ct 
+                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                   AND ct.tenant_id = c.tenant_id LIMIT 1) AS wa_profile_name,
                 (SELECT COUNT(*) FROM customer_notes cn WHERE cn.customer_id = c.id) AS notes_count,
                 (SELECT cn2.note_text FROM customer_notes cn2 WHERE cn2.customer_id = c.id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note,
                 (SELECT MAX(m.created_at) FROM messages m 
                  JOIN conversations cv ON m.conversation_id = cv.id 
                  JOIN contacts ct ON cv.contact_id = ct.id 
-                 WHERE ct.phone = c.phone AND cv.tenant_id = c.tenant_id) AS last_chat_at
+                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                   AND cv.tenant_id = c.tenant_id) AS last_chat_at,
+                (SELECT m.body FROM messages m 
+                 JOIN conversations cv ON m.conversation_id = cv.id 
+                 JOIN contacts ct ON cv.contact_id = ct.id 
+                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                   AND cv.tenant_id = c.tenant_id
+                 ORDER BY m.created_at DESC LIMIT 1) AS last_message,
+                (SELECT cv.unread_count FROM conversations cv 
+                 JOIN contacts ct ON cv.contact_id = ct.id 
+                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                   AND cv.tenant_id = c.tenant_id
+                 ORDER BY cv.last_message_at DESC NULLS LAST LIMIT 1) AS unread_count,
+                (SELECT cv.id FROM conversations cv 
+                 JOIN contacts ct ON cv.contact_id = ct.id 
+                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                   AND cv.tenant_id = c.tenant_id
+                 ORDER BY cv.last_message_at DESC NULLS LAST LIMIT 1) AS conversation_id
             FROM customers c
             WHERE {where_clause}
             ORDER BY 
@@ -524,6 +561,9 @@ async def list_customers(
             "notes_count": r["notes_count"] or 0,
             "latest_note": r["latest_note"] or None,
             "last_chat_at": (r["last_chat_at"] or r["last_messaged_at"]).isoformat() if (r["last_chat_at"] or r["last_messaged_at"]) else None,
+            "last_message": r["last_message"] or None,
+            "unread_count": r["unread_count"] or 0,
+            "conversation_id": str(r["conversation_id"]) if r["conversation_id"] else None,
             "created_at": r["created_at"].isoformat() if r["created_at"] else None,
         }
         for r in rows
@@ -940,12 +980,18 @@ async def get_customer_chat_history(
 
         phone = cust["phone"].replace("+", "").replace(" ", "").replace("-", "").strip()
 
-        # Find conversation joined with messages
+        # Find conversation joined with messages using resilient phone matching
         conv = await conn.fetchrow(
             """SELECT c.id, c.status, c.last_message_at, c.unread_count
                FROM conversations c
                JOIN contacts ct ON c.contact_id = ct.id
-               WHERE ct.phone = $1 AND c.tenant_id = $2::uuid""",
+               WHERE c.tenant_id = $2::uuid
+                 AND (
+                   ct.phone = $1 
+                   OR REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g') = $1
+                   OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT($1, 10)
+                 )
+               ORDER BY c.last_message_at DESC NULLS LAST LIMIT 1""",
             phone, tenant_id
         )
 
@@ -953,12 +999,13 @@ async def get_customer_chat_history(
         first_msg_at = None
         last_msg_at = None
         unread_count = 0
+        conv_id = None
 
         if conv:
             conv_id = str(conv["id"])
             unread_count = conv["unread_count"] or 0
             msg_rows = await conn.fetch(
-                """SELECT id, direction, content_type, body, status, created_at
+                """SELECT id, direction, content_type, body, status, ai_model_used, ai_used_fallback, created_at
                    FROM messages
                    WHERE conversation_id = $1::uuid
                    ORDER BY created_at ASC""",
@@ -973,6 +1020,7 @@ async def get_customer_chat_history(
                         "direction": m["direction"],
                         "body": m["body"],
                         "status": m["status"],
+                        "ai_generated": bool(m.get("ai_model_used") or m.get("ai_used_fallback")),
                         "created_at": m["created_at"].isoformat() if m["created_at"] else None,
                     }
                     for m in msg_rows
@@ -980,6 +1028,7 @@ async def get_customer_chat_history(
 
     return {
         "customer_id": customer_id,
+        "conversation_id": conv_id,
         "phone": phone,
         "name": cust["name"],
         "first_message_at": first_msg_at,
@@ -5001,12 +5050,22 @@ async def _dispatch_single_marketing_wa(
             except Exception as e:
                 logger.error("marketing_text_error", phone=clean_p, error=str(e))
 
-        # Record in conversation & messages if contact exists
+        # Record in conversation & messages
         try:
             c_row = await conn.fetchrow(
-                "SELECT id FROM contacts WHERE tenant_id = $1::uuid AND phone = $2",
+                """SELECT id FROM contacts 
+                   WHERE tenant_id = $1::uuid 
+                     AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($2, 10))""",
                 tenant_id, clean_p
             )
+            if not c_row:
+                c_row = await conn.fetchrow(
+                    """INSERT INTO contacts (id, tenant_id, phone, name)
+                       VALUES (gen_random_uuid(), $1::uuid, $2, 'Customer')
+                       ON CONFLICT (tenant_id, phone) DO UPDATE SET phone = EXCLUDED.phone
+                       RETURNING id""",
+                    tenant_id, clean_p
+                )
             if c_row:
                 contact_id = str(c_row["id"])
                 conv_row = await conn.fetchrow(
@@ -5029,6 +5088,11 @@ async def _dispatch_single_marketing_wa(
                     msg_id, conv_id, tenant_id, msg_body_recorded, 'sent' if sent_ok else 'failed'
                 )
                 await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+                await conn.execute(
+                    """UPDATE customers SET last_messaged_at = now(), updated_at = now()
+                       WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($2, 10))""",
+                    tenant_id, clean_p
+                )
         except Exception as ex:
             logger.warning("marketing_msg_record_warn", error=str(ex))
 

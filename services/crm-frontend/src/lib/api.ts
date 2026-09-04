@@ -150,6 +150,9 @@ export interface Customer {
   notes_count?: number;
   latest_note?: string | null;
   last_chat_at?: string | null;
+  last_message?: string | null;
+  unread_count?: number;
+  conversation_id?: string | null;
   created_at?: string;
 }
 
@@ -168,6 +171,7 @@ export interface CustomerNote {
 
 export interface CustomerChatHistory {
   customer_id: string;
+  conversation_id?: string | null;
   phone: string;
   name?: string | null;
   first_message_at?: string | null;

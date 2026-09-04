@@ -1451,7 +1451,12 @@ export default function DashboardPage() {
     selectedConvRef.current = selectedConv;
   }, [selectedConv]);
 
-  // Real-time live polling engine: fast 1.2s live sync for Inbox, gentle 5s sync for background tabs
+  const selectedCustomerRef = useRef<Customer | null>(null);
+  useEffect(() => {
+    selectedCustomerRef.current = selectedCustomer;
+  }, [selectedCustomer]);
+
+  // Real-time live polling engine: fast 1.2s live sync for Inbox, 3s sync for Customers/Followup, gentle 5s sync for background tabs
   const isPollingRef = useRef(false);
   useEffect(() => {
     let isMounted = true;
@@ -1508,30 +1513,77 @@ export default function DashboardPage() {
                     prev[idx].last_message_at !== c.last_message_at ||
                     prev[idx].last_message !== c.last_message
                 );
-              if (isDiff) {
-                // Silently refresh customers if a new chat arrived
-                if (activeNav === 'customers' || activeNav === 'followup') {
-                  crm.getCustomers().then(fresh => {
-                    if (isMounted && Array.isArray(fresh)) {
-                      setCustomers(fresh);
-                    }
-                  }).catch(() => {});
-                }
-                return convs;
-              }
-              return prev;
+              return isDiff ? convs : prev;
             });
           }
         } catch {
           // silent
+        }
+
+        // 3. Real-time Customers directory automatic live sync (when on customers or followup tab)
+        if (activeNav === 'customers' || activeNav === 'followup') {
+          try {
+            const fresh = await crm.getCustomers({
+              status: followupStatusFilter,
+              lead_probability: followupProbabilityFilter,
+              preferred_doctor: followupDoctorFilter,
+              q: followupSearch,
+            });
+            if (isMounted && Array.isArray(fresh)) {
+              setCustomers((prev) => {
+                const isDiff =
+                  fresh.length !== prev.length ||
+                  fresh.some(
+                    (c, idx) =>
+                      !prev[idx] ||
+                      prev[idx].id !== c.id ||
+                      prev[idx].last_message !== c.last_message ||
+                      prev[idx].last_chat_at !== c.last_chat_at ||
+                      prev[idx].unread_count !== c.unread_count ||
+                      prev[idx].status !== c.status ||
+                      prev[idx].lead_probability !== c.lead_probability ||
+                      prev[idx].name !== c.name
+                  );
+                return isDiff ? fresh : prev;
+              });
+            }
+          } catch {
+            // silent
+          }
+        }
+
+        // 4. Real-time live customer drawer chat polling (if drawer is open)
+        const currentCustId = selectedCustomerRef.current?.id;
+        if (currentCustId && (activeNav === 'customers' || activeNav === 'followup')) {
+          try {
+            const freshChat = await crm.getCustomerChat(currentCustId);
+            if (isMounted && freshChat && selectedCustomerRef.current?.id === currentCustId) {
+              setCustomerChat((prevChat) => {
+                const prevMsgs = prevChat?.messages || [];
+                const freshMsgs = freshChat.messages || [];
+                const isDiff =
+                  prevMsgs.length !== freshMsgs.length ||
+                  freshMsgs.some(
+                    (m, idx) =>
+                      !prevMsgs[idx] ||
+                      prevMsgs[idx].id !== m.id ||
+                      prevMsgs[idx].status !== m.status ||
+                      prevMsgs[idx].body !== m.body
+                  );
+                return isDiff ? freshChat : prevChat;
+              });
+            }
+          } catch {
+            // silent
+          }
         }
       } finally {
         isPollingRef.current = false;
       }
     };
 
-    // Fast 1200ms polling for live Inbox, 5000ms for other sections
-    const pollIntervalMs = activeNav === 'inbox' ? 1200 : 5000;
+    // Fast 1200ms polling for live Inbox, 3000ms for Customers tab, 5000ms for other sections
+    const pollIntervalMs = activeNav === 'inbox' ? 1200 : (activeNav === 'customers' || activeNav === 'followup' ? 3000 : 5000);
     const interval = setInterval(poll, pollIntervalMs);
 
     // Instant poll on tab focus / visibility restore
@@ -1547,7 +1599,7 @@ export default function DashboardPage() {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [activeNav]);
+  }, [activeNav, followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupSearch]);
 
   async function loadBookings(limit = 200) {
     setLoadingBookings(true);
@@ -2573,17 +2625,39 @@ export default function DashboardPage() {
     }
   }
 
-  function openChatForContact(phone: string) {
+  async function openChatForContact(phone: string) {
+    if (!phone) return;
     setIsBookingDetailModalOpen(false);
     setSelectedBookingDetail(null);
-    const existing = conversations.find((c) => (c.contact_phone || c.phone || '').includes(phone));
-    if (existing) {
-      setSelectedConv(existing);
-      selectConversation(existing);
-      setActiveNav('inbox');
-    } else {
-      setActiveNav('inbox');
+    const cleanTarget = phone.replace(/[^0-9]/g, '');
+
+    // 1. Search in current state
+    let target = conversations.find((c) => {
+      const cPhone = (c.contact_phone || c.phone || '').replace(/[^0-9]/g, '');
+      return cPhone === cleanTarget || (cleanTarget.length >= 10 && cPhone.endsWith(cleanTarget.slice(-10)));
+    });
+
+    // 2. If not found in state (e.g. user started on Customers tab), fetch latest conversations
+    if (!target) {
+      try {
+        const freshConvs = await crm.getConversations();
+        if (Array.isArray(freshConvs)) {
+          setConversations(freshConvs);
+          target = freshConvs.find((c) => {
+            const cPhone = (c.contact_phone || c.phone || '').replace(/[^0-9]/g, '');
+            return cPhone === cleanTarget || (cleanTarget.length >= 10 && cPhone.endsWith(cleanTarget.slice(-10)));
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load conversations for contact:', err);
+      }
     }
+
+    if (target) {
+      setSelectedConv(target);
+      selectConversation(target);
+    }
+    setActiveNav('inbox');
   }
 
   function handleLogout() {
@@ -5278,6 +5352,7 @@ export default function DashboardPage() {
                               <th className="p-2.5 pl-4">{currentTaxonomy.client_label || 'Customer'}</th>
                               <th className="p-2.5">{currentTaxonomy.staff_label || 'Staff'}</th>
                               <th className="p-2.5">{currentTaxonomy.requirement_label || 'Requirement'}</th>
+                              <th className="p-2.5">Latest WhatsApp Chat</th>
                               <th className="p-2.5">Status</th>
                               <th className="p-2.5">Lead</th>
                               <th className="p-2.5 text-center">Converted</th>
@@ -5289,13 +5364,13 @@ export default function DashboardPage() {
                           <tbody className="divide-y divide-border">
                             {loadingCustomers ? (
                               <tr>
-                                <td colSpan={9} className="p-8 text-center text-text-muted">
+                                <td colSpan={10} className="p-8 text-center text-text-muted">
                                   Loading {(currentTaxonomy.client_plural || 'customers').toLowerCase()}...
                                 </td>
                               </tr>
                             ) : customers.length === 0 ? (
                               <tr>
-                                <td colSpan={9} className="p-8 text-center text-text-muted">
+                                <td colSpan={10} className="p-8 text-center text-text-muted">
                                   No {(currentTaxonomy.client_plural || 'customers').toLowerCase()} match the selected filters.
                                 </td>
                               </tr>
@@ -5339,6 +5414,31 @@ export default function DashboardPage() {
 
                                     <td className="p-2.5 text-text-secondary max-w-[150px] truncate" title={cust.health_concern}>
                                       <span className="text-[11px]">{cust.health_concern || '—'}</span>
+                                    </td>
+
+                                    {/* Latest WhatsApp Chat Column */}
+                                    <td className="p-2.5 max-w-[200px]" onClick={(e) => { e.stopPropagation(); openChatForContact(cust.phone); }}>
+                                      {cust.last_message ? (
+                                        <div className="cursor-pointer group" title={`Click to open full chat in Inbox: ${cust.last_message}`}>
+                                          <div className="flex items-center gap-1.5 text-[11px] font-medium text-text-primary group-hover:text-accent truncate">
+                                            <MessageSquare className="w-3 h-3 text-accent shrink-0 stroke-[1.5]" />
+                                            <span className="truncate">{cust.last_message}</span>
+                                            {cust.unread_count && cust.unread_count > 0 ? (
+                                              <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[9px] font-bold rounded-full shrink-0">
+                                                {cust.unread_count}
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                          {cust.last_chat_at && (
+                                            <div className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1 font-mono">
+                                              <Clock className="w-2.5 h-2.5 shrink-0" />
+                                              <span>{formatRelativeTime(cust.last_chat_at)}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <span className="text-text-muted text-[11px] italic">No chat yet</span>
+                                      )}
                                     </td>
 
                                     {/* Status Selector */}
@@ -5724,11 +5824,22 @@ export default function DashboardPage() {
                                   <MessageSquare className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
                                   <span>WhatsApp Chat History</span>
                                 </span>
-                                {customerChat?.unread_count ? (
-                                  <span className="px-1.5 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-bold">
-                                    {customerChat.unread_count} unread
-                                  </span>
-                                ) : null}
+                                <div className="flex items-center gap-2">
+                                  {customerChat?.unread_count ? (
+                                    <span className="px-1.5 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-bold">
+                                      {customerChat.unread_count} unread
+                                    </span>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    onClick={() => openChatForContact(selectedCustomer.phone)}
+                                    className="text-[11px] text-accent hover:underline flex items-center gap-0.5 font-medium cursor-pointer"
+                                    title="Open full conversation in Inbox"
+                                  >
+                                    <span>Open in Inbox</span>
+                                    <ArrowUpRight className="w-3 h-3 stroke-[2]" />
+                                  </button>
+                                </div>
                               </div>
 
                               <div className="h-44 overflow-y-auto p-2 bg-canvas border border-border rounded-sm space-y-2">
@@ -6221,6 +6332,71 @@ export default function DashboardPage() {
                                 <CalendarCheck className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
                                 <span>{syncingGoogleTasks ? 'Syncing...' : 'Sync with Google Tasks'}</span>
                               </button>
+                            </div>
+
+                            {/* WhatsApp Chat History & Reply */}
+                            <div className="space-y-2 border-t border-border pt-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                                  <MessageSquare className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                                  <span>WhatsApp Chat History</span>
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  {customerChat?.unread_count ? (
+                                    <span className="px-1.5 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-bold">
+                                      {customerChat.unread_count} unread
+                                    </span>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    onClick={() => openChatForContact(selectedCustomer.phone)}
+                                    className="text-[11px] text-accent hover:underline flex items-center gap-0.5 font-medium cursor-pointer"
+                                    title="Open full conversation in Inbox"
+                                  >
+                                    <span>Open in Inbox</span>
+                                    <ArrowUpRight className="w-3 h-3 stroke-[2]" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="h-44 overflow-y-auto p-2 bg-canvas border border-border rounded-sm space-y-2">
+                                {loadingCustomerChat ? (
+                                  <p className="text-[11px] text-text-muted text-center py-6">Loading chat history...</p>
+                                ) : !customerChat || !customerChat.messages || customerChat.messages.length === 0 ? (
+                                  <p className="text-[11px] text-text-muted text-center py-6">No WhatsApp messages yet.</p>
+                                ) : (
+                                  customerChat.messages.map((msg) => {
+                                    const isInbound = msg.direction === 'inbound';
+                                    return (
+                                      <div key={msg.id} className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
+                                        <div className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${isInbound ? 'bg-surface text-text-body border border-border' : 'bg-accent text-white'}`}>
+                                          <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
+                                          <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}>
+                                            <span>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+
+                              <form onSubmit={handleSendCustomerReply} className="flex gap-1.5 pt-1">
+                                <input
+                                  type="text"
+                                  value={customerReplyText}
+                                  onChange={(e) => setCustomerReplyText(e.target.value)}
+                                  placeholder="Type WhatsApp follow-up reply..."
+                                  className="flex-1 px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                />
+                                <button
+                                  type="submit"
+                                  disabled={!customerReplyText.trim() || sendingCustomerReply}
+                                  className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  <Send className="w-3.5 h-3.5 stroke-[1.5]" />
+                                </button>
+                              </form>
                             </div>
 
                             {/* Customer Data Full History Button */}

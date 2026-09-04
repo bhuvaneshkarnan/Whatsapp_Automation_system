@@ -502,13 +502,15 @@ class CoreWorker:
             )
 
             # ── 1b. Automatically ensure customer record exists in Customers tab ──
+            clean_from = re.sub(r'\D', '', str(fields.get("from", "")))
             try:
                 await self.db_pool.execute(
                     """
-                    INSERT INTO customers (tenant_id, phone, name, status, lead_probability, followup_date, followup_time, health_concern, preferred_doctor, created_at, updated_at)
-                    VALUES ($1::uuid, $2, $3, 'new', 'warm', NULL, NULL, NULL, NULL, NOW(), NOW())
+                    INSERT INTO customers (tenant_id, phone, name, status, lead_probability, followup_date, followup_time, health_concern, preferred_doctor, last_messaged_at, created_at, updated_at)
+                    VALUES ($1::uuid, $2, $3, 'new', 'warm', NULL, NULL, NULL, NULL, NOW(), NOW(), NOW())
                     ON CONFLICT (tenant_id, phone) DO UPDATE
                     SET updated_at = NOW(),
+                        last_messaged_at = NOW(),
                         name = CASE 
                             WHEN customers.name IS NULL OR customers.name = '' OR customers.name = 'Customer'
                             THEN COALESCE(EXCLUDED.name, customers.name)
@@ -516,7 +518,7 @@ class CoreWorker:
                         END
                     """,
                     tenant_id,
-                    fields["from"],
+                    clean_from or fields["from"],
                     fields.get("contactName") or "Customer",
                 )
             except Exception as cust_err:
@@ -1049,6 +1051,19 @@ class CoreWorker:
                RETURNING id""",
             str(uuid.uuid4()), conv_id, tenant_id, response_text, provider_used, ai_used_fallback,
         )
+        try:
+            await self.db_pool.execute(
+                "UPDATE conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1::uuid",
+                conv_id
+            )
+            clean_cp = re.sub(r'\D', '', str(contact_phone))
+            await self.db_pool.execute(
+                """UPDATE customers SET last_messaged_at = NOW(), updated_at = NOW()
+                   WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($2, 10))""",
+                tenant_id, clean_cp or contact_phone
+            )
+        except Exception as e:
+            logger.warning("outbound_conversation_update_failed", error=str(e))
 
         # Send via WhatsApp using client's own phone number
         if creds and creds.get("phone_number_id") and creds.get("access_token"):
@@ -2267,6 +2282,23 @@ class CoreWorker:
             str(uuid.uuid4()), conversation_id, tenant_id, wa_message_id,
             direction, content_type, body,
         )
+        try:
+            if direction == "inbound":
+                await self.db_pool.execute(
+                    """UPDATE conversations 
+                       SET last_message_at = NOW(), unread_count = COALESCE(unread_count, 0) + 1, updated_at = NOW() 
+                       WHERE id = $1::uuid""",
+                    conversation_id
+                )
+            else:
+                await self.db_pool.execute(
+                    """UPDATE conversations 
+                       SET last_message_at = NOW(), updated_at = NOW() 
+                       WHERE id = $1::uuid""",
+                    conversation_id
+                )
+        except Exception as e:
+            logger.warning("update_conversation_timestamp_failed", conv_id=conversation_id, error=str(e))
 
     async def _get_tenant_whatsapp_creds(self, tenant_id: str) -> Optional[dict]:
         row = await self.db_pool.fetchrow(
