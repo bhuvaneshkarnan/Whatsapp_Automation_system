@@ -6506,6 +6506,24 @@ def build_industry_template_specs(industry: str = "clinic") -> dict:
                     }
                 }
             ]
+        },
+        "client_followup_checkin": {
+            "name": "client_followup_checkin",
+            "category": "MARKETING",
+            "language": "en",
+            "label": "24h Customer Re-engagement Follow-up",
+            "description": "Auto-sent to re-open the WhatsApp 24h conversation window when customer messaging window expires",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": "Hi {{1}}, this is {{2}} from {{3}}. It has been a while since we last connected. Just wanted to check in and see how you have been. Happy to help whenever you are ready.",
+                    "example": {
+                        "body_text": [
+                            ["John", "Bhuvanesh", "Boldlabs"]
+                        ]
+                    }
+                }
+            ]
         }
     }
 
