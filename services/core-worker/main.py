@@ -82,6 +82,42 @@ def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_bo
         return None
 
 
+def sanitize_and_fix_email(email: Optional[str]) -> Optional[str]:
+    """Sanitizes email and automatically corrects common mobile-keyboard domain typos."""
+    if not email or not isinstance(email, str):
+        return None
+    e = email.strip().lower()
+    if "@" not in e:
+        return None
+    
+    # Common domain typos made on mobile keyboards
+    typo_map = {
+        "@gmai.com": "@gmail.com",
+        "@gamil.com": "@gmail.com",
+        "@gmial.com": "@gmail.com",
+        "@gmaill.com": "@gmail.com",
+        "@gmaik.com": "@gmail.com",
+        "@gmal.com": "@gmail.com",
+        "@gmai.co": "@gmail.com",
+        "@gmail.co": "@gmail.com",
+        "@yaho.com": "@yahoo.com",
+        "@yahooo.com": "@yahoo.com",
+        "@hotmial.com": "@hotmail.com",
+        "@hotmai.com": "@hotmail.com",
+        "@outlok.com": "@outlook.com",
+        "@outloo.com": "@outlook.com",
+        "@iclud.com": "@icloud.com",
+    }
+    for typo, fixed in typo_map.items():
+        if e.endswith(typo):
+            e = e[:-len(typo)] + fixed
+            break
+    
+    if re.match(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$', e):
+        return e
+    return None
+
+
 def build_booking_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str, notes: str, full_location: str) -> str:
     loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
     notes_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Notes</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{notes}</td></tr>""" if notes and notes != "None" else ""
@@ -575,6 +611,22 @@ class CoreWorker:
                 body=body_text,
                 content_type=msg_type,
             )
+
+            # ── 5b. Auto-detect & persist customer email if mentioned in message ───
+            if body_text and "@" in body_text:
+                found_emails = re.findall(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', body_text)
+                for cand in found_emails:
+                    clean_em = sanitize_and_fix_email(cand)
+                    if clean_em:
+                        try:
+                            await self.db_pool.execute(
+                                "UPDATE contacts SET metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{email}', to_jsonb($1::text)) WHERE id = $2::uuid",
+                                clean_em, contact_id
+                            )
+                            logger.info("customer_email_auto_extracted", email=clean_em, contact_id=contact_id)
+                            break
+                        except Exception as em_err:
+                            logger.warning("persist_extracted_email_failed", error=str(em_err))
 
             # ── 6. Route to AI or skip (human mode, paused automation, or subscription delinquent) ─────
             # Strict Gating: Orgs in 'setup' or 'ready_to_activate' run freely!
@@ -1229,7 +1281,7 @@ class CoreWorker:
             time_str = booking_data.get("time") or "10:00"
             notes = booking_data.get("notes") or "Booked via WhatsApp AI Assistant"
             name = booking_data.get("name") or customer_name or "Valued Customer"
-            customer_email = (booking_data.get("email") or "").strip()
+            customer_email = sanitize_and_fix_email(booking_data.get("email"))
 
             # Parse start and end time
             try:
@@ -1245,9 +1297,24 @@ class CoreWorker:
                 "SELECT contact_id FROM conversations WHERE id = $1::uuid", conv_id
             )
 
-            # Save customer email and name if provided (with strict validation)
+            # If email not in booking action, check contact metadata
+            if not customer_email and contact_id:
+                c_meta = await self.db_pool.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid", contact_id)
+                if c_meta:
+                    if isinstance(c_meta, str):
+                        try: c_meta = json.loads(c_meta)
+                        except: c_meta = {}
+                    customer_email = sanitize_and_fix_email(c_meta.get("email"))
+            if not customer_email:
+                c_em = await self.db_pool.fetchval(
+                    "SELECT metadata->>'email' FROM contacts WHERE tenant_id = $1::uuid AND (phone = $2 OR phone LIKE $3) LIMIT 1",
+                    tenant_id, contact_phone, f"%{contact_phone[-10:]}%"
+                )
+                customer_email = sanitize_and_fix_email(c_em)
+
+            # Save customer email and name if provided
             if contact_id:
-                if customer_email and re.match(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$', customer_email):
+                if customer_email:
                     try:
                         await self.db_pool.execute(
                             "UPDATE contacts SET metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{email}', to_jsonb($1::text)) WHERE id = $2::uuid",
@@ -1504,7 +1571,7 @@ class CoreWorker:
 
                         if admin_notif_email and "@" in admin_notif_email:
                             attendees.append({"email": admin_notif_email.strip()})
-                        if customer_email and re.match(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$', customer_email) and customer_email.strip() != (admin_notif_email or "").strip():
+                        if customer_email and "@" in customer_email:
                             attendees.append({"email": customer_email.strip()})
                         
                         if attendees:
@@ -1535,7 +1602,7 @@ class CoreWorker:
                             send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
                         
                         # Send tailored copy to Customer
-                        if customer_email and "@" in customer_email and customer_email != (admin_notif_email or "").strip():
+                        if customer_email and "@" in customer_email:
                             customer_email_html = build_booking_customer_email_html(
                                 service_name=service_name,
                                 formatted_date=formatted_date,
@@ -1546,6 +1613,7 @@ class CoreWorker:
                             )
                             customer_subject = f"Booking Confirmed: Your {service_name} Appointment on {formatted_date} at {formatted_time}"
                             send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
+                            logger.info("booking_confirmation_email_sent_to_customer", to=customer_email, booking_id=booking_id)
 
                     except Exception as e:
                         logger.error("google_calendar_sync_error", error=str(e), booking_id=booking_id)
@@ -1901,8 +1969,10 @@ class CoreWorker:
                             admin_subject = f"[Admin Notice] Booking Cancelled: {service_name} - {name} ({formatted_date} at {formatted_time})"
                             send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
 
+                        customer_email = sanitize_and_fix_email(customer_email)
+
                         # Send tailored copy to Customer
-                        if customer_email and "@" in customer_email and customer_email != (admin_notif_email or "").strip():
+                        if customer_email and "@" in customer_email:
                             customer_email_html = build_cancellation_customer_email_html(
                                 service_name=service_name,
                                 formatted_date=formatted_date,
@@ -1911,6 +1981,7 @@ class CoreWorker:
                             )
                             customer_subject = f"Appointment Cancelled: {service_name} on {formatted_date}"
                             send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
+                            logger.info("cancellation_email_sent_to_customer", to=customer_email)
                 except Exception as ge:
                     logger.warning("gmail_cancellation_dispatch_failed", error=str(ge))
 
@@ -2183,8 +2254,10 @@ class CoreWorker:
                             send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
                             logger.info("reschedule_email_sent_to_admin", to=admin_notif_email)
 
+                        customer_email = sanitize_and_fix_email(customer_email)
+
                         # Send tailored copy to Customer
-                        if customer_email and "@" in customer_email and customer_email != (admin_notif_email or "").strip():
+                        if customer_email and "@" in customer_email:
                             customer_email_html = build_reschedule_customer_email_html(
                                 service_name=service_name,
                                 formatted_date=formatted_date,

@@ -214,6 +214,106 @@ def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_bo
         return None
 
 
+def sanitize_and_fix_email(email: Optional[str]) -> Optional[str]:
+    """Sanitizes email and automatically corrects common mobile-keyboard domain typos."""
+    if not email or not isinstance(email, str):
+        return None
+    e = email.strip().lower()
+    if "@" not in e:
+        return None
+    
+    # Common domain typos made on mobile keyboards
+    typo_map = {
+        "@gmai.com": "@gmail.com",
+        "@gamil.com": "@gmail.com",
+        "@gmial.com": "@gmail.com",
+        "@gmaill.com": "@gmail.com",
+        "@gmaik.com": "@gmail.com",
+        "@gmal.com": "@gmail.com",
+        "@gmai.co": "@gmail.com",
+        "@gmail.co": "@gmail.com",
+        "@yaho.com": "@yahoo.com",
+        "@yahooo.com": "@yahoo.com",
+        "@hotmial.com": "@hotmail.com",
+        "@hotmai.com": "@hotmail.com",
+        "@outlok.com": "@outlook.com",
+        "@outloo.com": "@outlook.com",
+        "@iclud.com": "@icloud.com",
+    }
+    for typo, fixed in typo_map.items():
+        if e.endswith(typo):
+            e = e[:-len(typo)] + fixed
+            break
+    
+    if re.match(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$', e):
+        return e
+    return None
+
+
+def build_booking_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str, notes: str, full_location: str) -> str:
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    notes_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Notes</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{notes}</td></tr>""" if notes and notes != "None" else ""
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; background-color: #f1f5f9; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Admin Notice</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">New Booking Received</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Scheduled via CRM Dashboard</p>
+  </div>
+  
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not provided'}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      {loc_html}
+      {notes_html}
+    </table>
+  </div>
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    This appointment has been synced to Google Calendar and recorded in your CRM dashboard.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Boldlabs CRM
+  </div>
+</div>
+"""
+
+
+def build_booking_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, full_location: str) -> str:
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #047857; background-color: #ecfdf5; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Confirmed</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Confirmed</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, your appointment has been scheduled.</p>
+  </div>
+
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      {loc_html}
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone on File</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+    </table>
+  </div>
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    Need to reschedule or make adjustments? Reply directly to our WhatsApp chat anytime.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Thank you for choosing our business.
+  </div>
+</div>
+"""
+
+
 def build_cancellation_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
@@ -2108,6 +2208,35 @@ async def create_booking(
                                 event["id"], booking_id
                             )
                             logger.info("google_calendar_event_created_from_crm", event_id=event["id"], booking_id=booking_id)
+
+                        # Direct Gmail API Confirmation Email to Admin & Customer from CRM
+                        cust_email = sanitize_and_fix_email(cust_email)
+                        if notif_email and "@" in notif_email:
+                            admin_email_html = build_booking_admin_email_html(
+                                service_name=payload.service.strip(),
+                                formatted_date=date_str,
+                                formatted_time=clock_str,
+                                name=clean_name,
+                                contact_phone=clean_phone,
+                                customer_email=cust_email,
+                                notes=payload.notes or "",
+                                full_location=full_location,
+                            )
+                            admin_subject = f"[Admin Alert] New Booking: {payload.service.strip()} - {clean_name} ({date_str} at {clock_str})"
+                            send_gmail_direct_notification(g_creds, notif_email, admin_subject, admin_email_html)
+
+                        if cust_email and "@" in cust_email:
+                            customer_email_html = build_booking_customer_email_html(
+                                service_name=payload.service.strip(),
+                                formatted_date=date_str,
+                                formatted_time=clock_str,
+                                name=clean_name,
+                                contact_phone=clean_phone,
+                                full_location=full_location,
+                            )
+                            customer_subject = f"Booking Confirmed: Your {payload.service.strip()} Appointment on {date_str} at {clock_str}"
+                            send_gmail_direct_notification(g_creds, cust_email, customer_subject, customer_email_html)
+                            logger.info("crm_booking_confirmation_email_sent_to_customer", to=cust_email, booking_id=booking_id)
                     except Exception as e:
                         logger.error("google_calendar_sync_error_from_crm", error=str(e), booking_id=booking_id)
         except Exception as e:
@@ -2687,8 +2816,10 @@ async def update_booking_status(
                                 admin_subject = f"[Admin Notice] Booking Cancelled: {service_name} - {patient_name} ({date_str} at {clock_str})"
                                 send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
 
+                            customer_email = sanitize_and_fix_email(customer_email)
+
                             # Send tailored copy to Customer
-                            if customer_email and "@" in customer_email and customer_email != (admin_notif_email or "").strip():
+                            if customer_email and "@" in customer_email:
                                 customer_email_html = build_cancellation_customer_email_html(
                                     service_name=service_name,
                                     formatted_date=date_str or "Scheduled Date",
@@ -2697,6 +2828,7 @@ async def update_booking_status(
                                 )
                                 customer_subject = f"Appointment Cancelled: {service_name} on {date_str}"
                                 send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
+                                logger.info("crm_cancellation_email_sent_to_customer", to=customer_email)
                 except Exception as e:
                     logger.warning("google_calendar_cancellation_sync_failed", error=str(e))
 
@@ -2809,7 +2941,9 @@ async def update_booking_status(
                                 except:
                                     pass
 
-                        if customer_email and "@" in customer_email and customer_email != (admin_notif_email or "").strip():
+                        customer_email = sanitize_and_fix_email(customer_email)
+
+                        if customer_email and "@" in customer_email:
                             customer_email_html = build_reschedule_customer_email_html(
                                 service_name=service_name,
                                 formatted_date=date_str or "Rescheduled Date",
