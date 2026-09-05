@@ -22,6 +22,8 @@ import {
   TenantSettingsUpdate,
   notificationsApi,
   CrmNotification,
+  StaffPermissions,
+  StaffUser,
 } from '@/lib/api';
 import {
   MessageSquare,
@@ -484,12 +486,12 @@ export default function DashboardPage() {
   const router = useRouter();
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
   
-  // Navigation: overview | inbox | bookings | calendar | customers | followup | marketing | settings
-  const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'followup' | 'marketing' | 'settings'>(() => {
+  // Navigation: overview | inbox | bookings | calendar | customers | followup | marketing | settings | team
+  const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'followup' | 'marketing' | 'settings' | 'team'>(() => {
     if (typeof window !== 'undefined') {
       try {
         const hash = window.location.hash.replace('#', '');
-        const validTabs = ['overview', 'inbox', 'bookings', 'calendar', 'customers', 'followup', 'marketing', 'settings'];
+        const validTabs = ['overview', 'inbox', 'bookings', 'calendar', 'customers', 'followup', 'marketing', 'settings', 'team'];
         if (hash && validTabs.includes(hash)) {
           return hash as any;
         }
@@ -502,7 +504,7 @@ export default function DashboardPage() {
     return 'overview';
   });
   const [sidebarFilter, setSidebarFilter] = useState<'all' | 'recent' | 'favorites' | 'active'>('all');
-  const [settingsTab, setSettingsTab] = useState<'branding' | 'notifications' | 'localization' | 'terminology' | 'account'>('branding');
+  const [settingsTab, setSettingsTab] = useState<'branding' | 'notifications' | 'localization' | 'terminology' | 'account' | 'team'>('branding');
 
   // Customer Follow-up & Task Calendar State
   const [followupView, setFollowupView] = useState<'list' | 'database' | 'tasks' | 'notes'>(() => {
@@ -1044,7 +1046,18 @@ export default function DashboardPage() {
   const [broadcastSuccessNotice, setBroadcastSuccessNotice] = useState<string | null>(null);
 
   // User state
-  const [user, setUser] = useState<{ id?: string; tenant_id?: string; email?: string; role: string; name?: string } | null>(null);
+  const [user, setUser] = useState<{ id?: string; tenant_id?: string; email?: string; role: string; name?: string; display_name?: string; permissions?: StaffPermissions } | null>(null);
+
+  // Granular role-based permissions derived from logged-in user
+  const perms = user?.permissions;
+  const canViewInbox = perms ? perms.can_view_inbox !== false : true;
+  const canSendMessages = perms ? perms.can_send_messages !== false : true;
+  const canManageBookings = perms ? perms.can_manage_bookings !== false : true;
+  const canViewCalendar = perms ? perms.can_view_calendar !== false : true;
+  const canManageCustomers = perms ? perms.can_manage_customers !== false : true;
+  const canViewAnalytics = perms ? perms.can_view_analytics !== false : true;
+  const canManageSettings = perms ? perms.can_manage_settings !== false : true;
+  const canManageBilling = perms ? perms.can_manage_billing !== false : true;
 
   // Conversations & Chat State
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -1301,6 +1314,239 @@ export default function DashboardPage() {
     }
   }
 
+  // ── Team & Sales Credentials Management (Client / Tenant) ───────────────────
+  const [teamList, setTeamList] = useState<StaffUser[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamSaving, setTeamSaving] = useState(false);
+  const [teamError, setTeamError] = useState('');
+  const [showTeamModal, setShowTeamModal] = useState(false);
+  const [editingTeamMember, setEditingTeamMember] = useState<StaffUser | null>(null);
+  const [copiedLoginUrl, setCopiedLoginUrl] = useState(false);
+  const [teamForm, setTeamForm] = useState<{
+    email: string;
+    password: string;
+    display_name: string;
+    role: string;
+    is_active: boolean;
+    permissions: StaffPermissions;
+  }>({
+    email: '',
+    password: '',
+    display_name: '',
+    role: 'sales',
+    is_active: true,
+    permissions: {
+      can_view_inbox: true,
+      can_send_messages: true,
+      can_manage_bookings: true,
+      can_view_calendar: true,
+      can_manage_customers: true,
+      can_view_analytics: false,
+      can_manage_settings: false,
+      can_manage_billing: false,
+      assigned_doctor: '',
+    },
+  });
+
+  function getClientRoleDefaultPermissions(role: string, assignedDoctor: string = ''): StaffPermissions {
+    switch (role) {
+      case 'admin':
+        return {
+          can_view_inbox: true,
+          can_send_messages: true,
+          can_manage_bookings: true,
+          can_view_calendar: true,
+          can_manage_customers: true,
+          can_view_analytics: true,
+          can_manage_settings: true,
+          can_manage_billing: true,
+          assigned_doctor: '',
+        };
+      case 'sales':
+        return {
+          can_view_inbox: true,
+          can_send_messages: true,
+          can_manage_bookings: true,
+          can_view_calendar: true,
+          can_manage_customers: true,
+          can_view_analytics: false,
+          can_manage_settings: false,
+          can_manage_billing: false,
+          assigned_doctor: '',
+        };
+      case 'doctor':
+        return {
+          can_view_inbox: true,
+          can_send_messages: true,
+          can_manage_bookings: true,
+          can_view_calendar: true,
+          can_manage_customers: true,
+          can_view_analytics: false,
+          can_manage_settings: false,
+          can_manage_billing: false,
+          assigned_doctor: assignedDoctor || '',
+        };
+      case 'receptionist':
+        return {
+          can_view_inbox: true,
+          can_send_messages: true,
+          can_manage_bookings: true,
+          can_view_calendar: true,
+          can_manage_customers: true,
+          can_view_analytics: false,
+          can_manage_settings: false,
+          can_manage_billing: false,
+          assigned_doctor: '',
+        };
+      case 'agent':
+        return {
+          can_view_inbox: true,
+          can_send_messages: true,
+          can_manage_bookings: false,
+          can_view_calendar: false,
+          can_manage_customers: false,
+          can_view_analytics: false,
+          can_manage_settings: false,
+          can_manage_billing: false,
+          assigned_doctor: '',
+        };
+      case 'viewer':
+        return {
+          can_view_inbox: true,
+          can_send_messages: false,
+          can_manage_bookings: false,
+          can_view_calendar: true,
+          can_manage_customers: false,
+          can_view_analytics: false,
+          can_manage_settings: false,
+          can_manage_billing: false,
+          assigned_doctor: '',
+        };
+      default:
+        return {
+          can_view_inbox: true,
+          can_send_messages: false,
+          can_manage_bookings: false,
+          can_view_calendar: false,
+          can_manage_customers: false,
+          can_view_analytics: false,
+          can_manage_settings: false,
+          can_manage_billing: false,
+          assigned_doctor: '',
+        };
+    }
+  }
+
+  async function loadTeamList() {
+    setTeamLoading(true);
+    setTeamError('');
+    try {
+      const list = await crm.listStaff();
+      setTeamList(Array.isArray(list) ? list : []);
+    } catch (err: any) {
+      setTeamError(err?.message || 'Failed to load organization team credentials.');
+    } finally {
+      setTeamLoading(false);
+    }
+  }
+
+  function handleOpenCreateTeam() {
+    setEditingTeamMember(null);
+    setTeamForm({
+      email: '',
+      password: '',
+      display_name: '',
+      role: 'sales',
+      is_active: true,
+      permissions: getClientRoleDefaultPermissions('sales'),
+    });
+    setTeamError('');
+    setShowTeamModal(true);
+  }
+
+  function handleOpenEditTeam(member: StaffUser) {
+    setEditingTeamMember(member);
+    setTeamForm({
+      email: member.email,
+      password: '',
+      display_name: member.display_name || '',
+      role: member.role,
+      is_active: member.is_active,
+      permissions: {
+        can_view_inbox: member.permissions?.can_view_inbox ?? true,
+        can_send_messages: member.permissions?.can_send_messages ?? true,
+        can_manage_bookings: member.permissions?.can_manage_bookings ?? true,
+        can_view_calendar: member.permissions?.can_view_calendar ?? true,
+        can_manage_customers: member.permissions?.can_manage_customers ?? false,
+        can_view_analytics: member.permissions?.can_view_analytics ?? false,
+        can_manage_settings: member.permissions?.can_manage_settings ?? false,
+        can_manage_billing: member.permissions?.can_manage_billing ?? false,
+        assigned_doctor: member.permissions?.assigned_doctor || '',
+      },
+    });
+    setTeamError('');
+    setShowTeamModal(true);
+  }
+
+  async function handleSaveTeam(e: React.FormEvent) {
+    e.preventDefault();
+    if (!teamForm.email.trim()) {
+      alert('Email address is required.');
+      return;
+    }
+    if (!editingTeamMember && !teamForm.password.trim()) {
+      alert('Password is required when creating a new team member.');
+      return;
+    }
+    setTeamSaving(true);
+    setTeamError('');
+    try {
+      if (editingTeamMember) {
+        await crm.updateStaff(editingTeamMember.id, {
+          display_name: teamForm.display_name.trim(),
+          role: teamForm.role,
+          permissions: teamForm.permissions,
+          is_active: teamForm.is_active,
+          ...(teamForm.password.trim() ? { password: teamForm.password.trim() } : {}),
+        });
+      } else {
+        await crm.createStaff({
+          email: teamForm.email.trim(),
+          password: teamForm.password.trim(),
+          display_name: teamForm.display_name.trim(),
+          role: teamForm.role,
+          permissions: teamForm.permissions,
+        });
+      }
+      setShowTeamModal(false);
+      setEditingTeamMember(null);
+      await loadTeamList();
+      setActionNotice('Team member credentials saved successfully.');
+      setTimeout(() => setActionNotice(null), 3000);
+    } catch (err: any) {
+      setTeamError(err?.message || 'Failed to save team member credentials.');
+    } finally {
+      setTeamSaving(false);
+    }
+  }
+
+  async function handleDeleteTeam(userId: string, email: string) {
+    if (!confirm(`Are you sure you want to remove login access for ${email}? This action cannot be undone.`)) {
+      return;
+    }
+    setTeamLoading(true);
+    try {
+      await crm.deleteStaff(userId);
+      await loadTeamList();
+      setActionNotice(`Removed access for ${email}`);
+      setTimeout(() => setActionNotice(null), 3000);
+    } catch (err: any) {
+      alert(err?.message || 'Failed to delete team member');
+    } finally {
+      setTeamLoading(false);
+    }
+  }
+
   const handleConnectGoogle = async () => {
     if (!settingsForm.google_client_id?.trim() || !settingsForm.google_client_secret?.trim()) {
       alert('Please enter your Google OAuth Client ID and Client Secret first.');
@@ -1498,6 +1744,18 @@ export default function DashboardPage() {
             window.history.replaceState(null, '', `/${storedSlug}${window.location.hash || ''}`);
           }
         }
+        if (data.permissions) {
+          const p = data.permissions;
+          if (p.assigned_doctor) {
+            setFollowupDoctorFilter(p.assigned_doctor);
+          }
+          if (p.can_view_analytics === false && activeNav === 'overview') {
+            if (p.can_view_inbox !== false) setActiveNav('inbox');
+            else if (p.can_manage_bookings !== false) setActiveNav('bookings');
+            else if (p.can_view_calendar !== false) setActiveNav('calendar');
+            else if (p.can_manage_customers !== false) setActiveNav('customers');
+          }
+        }
         loadConversations();
         loadBookings();
         loadContacts();
@@ -1632,8 +1890,16 @@ export default function DashboardPage() {
         .then((data) => setTriggers(Array.isArray(data) ? data : []))
         .catch(() => {})
         .finally(() => setLoadingTriggers(false));
+    } else if (activeNav === 'team') {
+      loadTeamList();
     }
   }, [activeNav]);
+
+  useEffect(() => {
+    if (activeNav === 'settings' && settingsTab === 'team') {
+      loadTeamList();
+    }
+  }, [activeNav, settingsTab]);
 
   // Refetch customers when filter state changes (Instant responsive filtering)
   useEffect(() => {
@@ -2801,7 +3067,7 @@ export default function DashboardPage() {
     }
   }
 
-  function navigateTo(tab: 'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'followup' | 'marketing' | 'settings') {
+  function navigateTo(tab: 'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'followup' | 'marketing' | 'settings' | 'team') {
     setActiveNav(tab);
     if (typeof window !== 'undefined') {
       try {
@@ -3433,6 +3699,330 @@ export default function DashboardPage() {
     );
   }
 
+  function renderTeamManagementView() {
+    const loginPortalUrl = typeof window !== 'undefined' ? `${window.location.origin}/login` : 'https://crm.goboldlabs.com/login';
+    const salesCount = teamList.filter((m) => m.role === 'sales').length;
+    const doctorCount = teamList.filter((m) => m.role === 'doctor').length;
+    const adminCount = teamList.filter((m) => m.role === 'admin' || m.role === 'super_admin').length;
+    const otherCount = Math.max(0, teamList.length - salesCount - doctorCount - adminCount);
+
+    return (
+      <div className="space-y-6">
+        {/* Header & Quick Action Card */}
+        <div className="bg-surface p-5 rounded-md border border-border space-y-4 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/20 mt-0.5">
+                <Users className="w-5 h-5 stroke-[1.5]" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-sm text-text-primary flex items-center gap-2">
+                  <span>Team & Sales Access</span>
+                  <span className="text-[11px] font-mono text-text-muted bg-surface-subtle px-2 py-0.5 rounded-sm border border-border">
+                    {teamList.length} members
+                  </span>
+                </h3>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Create and manage dedicated logins for your Sales Executives, Doctors, Receptionists, and Support Staff with customized permissions.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                    navigator.clipboard.writeText(loginPortalUrl);
+                    setCopiedLoginUrl(true);
+                    setTimeout(() => setCopiedLoginUrl(false), 2500);
+                  }
+                }}
+                className="px-3 py-1.5 bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary text-xs font-medium rounded-sm transition-colors cursor-pointer flex items-center gap-1.5"
+                title="Copy portal login link for team members"
+              >
+                {copiedLoginUrl ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                    <span className="text-emerald-500 font-semibold">Link Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <span>Copy Login Portal</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={loadTeamList}
+                disabled={teamLoading}
+                className="p-1.5 bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary rounded-sm transition-colors cursor-pointer disabled:opacity-50"
+                title="Refresh team list"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${teamLoading ? 'animate-spin' : ''}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenCreateTeam}
+                className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Add Team Member</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Metrics Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+            <div className="bg-surface-subtle/60 p-3 rounded-md border border-border">
+              <span className="text-[11px] text-text-muted block font-medium">Sales Team</span>
+              <div className="flex items-baseline gap-1.5 mt-0.5">
+                <span className="text-lg font-bold text-amber-600 dark:text-amber-400">{salesCount}</span>
+                <span className="text-[10px] text-text-muted">executives</span>
+              </div>
+            </div>
+            <div className="bg-surface-subtle/60 p-3 rounded-md border border-border">
+              <span className="text-[11px] text-text-muted block font-medium">Doctors / Specialists</span>
+              <div className="flex items-baseline gap-1.5 mt-0.5">
+                <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{doctorCount}</span>
+                <span className="text-[10px] text-text-muted">practitioners</span>
+              </div>
+            </div>
+            <div className="bg-surface-subtle/60 p-3 rounded-md border border-border">
+              <span className="text-[11px] text-text-muted block font-medium">Admins</span>
+              <div className="flex items-baseline gap-1.5 mt-0.5">
+                <span className="text-lg font-bold text-text-primary">{adminCount}</span>
+                <span className="text-[10px] text-text-muted">full access</span>
+              </div>
+            </div>
+            <div className="bg-surface-subtle/60 p-3 rounded-md border border-border">
+              <span className="text-[11px] text-text-muted block font-medium">Support / Reception</span>
+              <div className="flex items-baseline gap-1.5 mt-0.5">
+                <span className="text-lg font-bold text-text-secondary">{otherCount}</span>
+                <span className="text-[10px] text-text-muted">staff</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Error Alert */}
+        {teamError && (
+          <div className="p-3.5 bg-red-500/10 border border-red-500/30 rounded-md text-xs text-red-400 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{teamError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setTeamError('')}
+              className="text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Team Members List / Table */}
+        <div className="bg-surface rounded-md border border-border overflow-hidden shadow-xs">
+          <div className="px-4 py-3 border-b border-border bg-surface-subtle/40 flex items-center justify-between">
+            <h4 className="text-xs font-semibold text-text-primary flex items-center gap-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+              <span>Active Team Accounts & Credentials</span>
+            </h4>
+            <span className="text-[11px] text-text-muted">
+              Login Portal: <code className="bg-surface px-1.5 py-0.5 rounded border border-border font-mono text-[10px]">{loginPortalUrl}</code>
+            </span>
+          </div>
+
+          {teamLoading ? (
+            <div className="p-12 flex flex-col items-center justify-center gap-3 text-text-muted">
+              <RefreshCw className="w-6 h-6 animate-spin text-accent" />
+              <p className="text-xs font-medium">Loading organization team accounts...</p>
+            </div>
+          ) : teamList.length === 0 ? (
+            <div className="p-12 flex flex-col items-center justify-center text-center space-y-3">
+              <div className="w-12 h-12 rounded-full bg-surface-subtle border border-border flex items-center justify-center text-text-muted">
+                <Users className="w-6 h-6 stroke-[1.5]" />
+              </div>
+              <div className="max-w-sm space-y-1">
+                <h4 className="font-semibold text-sm text-text-primary">No team accounts yet</h4>
+                <p className="text-xs text-text-muted">
+                  Create accounts for your Sales Executives, Doctors, or Support Agents so they can log in directly at the CRM portal.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenCreateTeam}
+                className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-colors cursor-pointer flex items-center gap-1.5 mt-2 shadow-xs"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Add Your First Team Member</span>
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-border bg-surface-subtle/60 text-[11px] font-semibold text-text-muted uppercase tracking-wider">
+                    <th className="py-2.5 px-4">Staff Member</th>
+                    <th className="py-2.5 px-3">Role</th>
+                    <th className="py-2.5 px-3">Doctor / Assignment</th>
+                    <th className="py-2.5 px-3">Permitted Modules</th>
+                    <th className="py-2.5 px-3">Status</th>
+                    <th className="py-2.5 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border text-xs">
+                  {teamList.map((member) => {
+                    const isSales = member.role === 'sales';
+                    const isDoctor = member.role === 'doctor';
+                    const isAdmin = member.role === 'admin' || member.role === 'super_admin';
+                    const isReceptionist = member.role === 'receptionist';
+                    const p = member.permissions || {};
+
+                    return (
+                      <tr key={member.id} className="hover:bg-surface-subtle/40 transition-colors">
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+                              isSales ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30' :
+                              isDoctor ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' :
+                              isAdmin ? 'bg-accent/15 text-accent border border-accent/30' :
+                              'bg-surface-subtle text-text-secondary border border-border'
+                            }`}>
+                              {(member.display_name || member.email || 'U').charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="font-semibold text-text-primary text-xs flex items-center gap-1.5">
+                                <span>{member.display_name || 'Staff User'}</span>
+                                {member.id === user?.id && (
+                                  <span className="text-[9px] px-1 py-0.2 bg-accent/10 text-accent rounded font-medium">You</span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-text-muted font-mono mt-0.5 flex items-center gap-1">
+                                <Mail className="w-3 h-3 stroke-[1.5]" />
+                                <span>{member.email}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-3 whitespace-nowrap">
+                          {isSales ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                              <Zap className="w-3 h-3" />
+                              <span>Sales Executive</span>
+                            </span>
+                          ) : isDoctor ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                              <Stethoscope className="w-3 h-3" />
+                              <span>Doctor</span>
+                            </span>
+                          ) : isAdmin ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-accent/10 text-accent border border-accent/25">
+                              <ShieldCheck className="w-3 h-3" />
+                              <span>Admin</span>
+                            </span>
+                          ) : isReceptionist ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/25">
+                              <span>Receptionist</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-surface-subtle text-text-secondary border border-border capitalize">
+                              {member.role}
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3 text-xs">
+                          {p.assigned_doctor ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 font-medium">
+                              <Stethoscope className="w-3 h-3" />
+                              <span>{p.assigned_doctor}</span>
+                            </span>
+                          ) : isDoctor ? (
+                            <span className="text-text-muted text-[11px] italic">All Doctor Records</span>
+                          ) : (
+                            <span className="text-text-muted text-xs">—</span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <div className="flex flex-wrap gap-1 max-w-xs">
+                            {p.can_view_inbox !== false && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-surface-subtle border border-border text-text-secondary font-medium">Inbox</span>
+                            )}
+                            {p.can_send_messages !== false && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-surface-subtle border border-border text-text-secondary font-medium">Send</span>
+                            )}
+                            {p.can_manage_bookings !== false && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-surface-subtle border border-border text-text-secondary font-medium">Bookings</span>
+                            )}
+                            {p.can_view_calendar !== false && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-surface-subtle border border-border text-text-secondary font-medium">Calendar</span>
+                            )}
+                            {p.can_manage_customers !== false && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-surface-subtle border border-border text-text-secondary font-medium">CRM</span>
+                            )}
+                            {p.can_view_analytics && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-accent/10 border border-accent/20 text-accent font-medium">Analytics</span>
+                            )}
+                            {p.can_manage_settings && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-accent/10 border border-accent/20 text-accent font-medium">Settings</span>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-3 whitespace-nowrap">
+                          {member.is_active ? (
+                            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              <span>Active</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-text-muted">
+                              <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
+                              <span>Inactive</span>
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditTeam(member)}
+                              className="p-1.5 rounded hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-transparent hover:border-border transition-colors cursor-pointer"
+                              title="Edit role & permissions"
+                            >
+                              <Edit2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                            </button>
+                            {member.role !== 'super_admin' && member.id !== user?.id && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTeam(member.id, member.email)}
+                                className="p-1.5 rounded hover:bg-red-500/10 text-text-muted hover:text-red-500 border border-transparent hover:border-red-500/20 transition-colors cursor-pointer"
+                                title="Remove team account"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full h-screen bg-canvas flex flex-col overflow-hidden font-sans text-text-body">
@@ -3448,7 +4038,7 @@ export default function DashboardPage() {
 
           <div className="hidden sm:flex items-center gap-2 pl-4 border-l border-border">
             <span className="text-[13px] font-medium text-text-muted">
-              / {activeNav === 'overview' ? 'Overview' : activeNav === 'inbox' ? 'Chats' : activeNav === 'bookings' ? 'Bookings' : activeNav === 'calendar' ? 'Calendar schedule' : activeNav === 'customers' ? 'Customer directory' : activeNav === 'followup' ? 'Customer Followup' : activeNav === 'marketing' ? 'Marketing' : 'Settings'}
+              / {activeNav === 'overview' ? 'Overview' : activeNav === 'inbox' ? 'Chats' : activeNav === 'bookings' ? 'Bookings' : activeNav === 'calendar' ? 'Calendar schedule' : activeNav === 'customers' ? 'Customer directory' : activeNav === 'followup' ? 'Customer Followup' : activeNav === 'marketing' ? 'Marketing' : activeNav === 'team' ? 'Team & Sales' : 'Settings'}
             </span>
           </div>
         </div>
@@ -3696,6 +4286,25 @@ export default function DashboardPage() {
               </>
             )}
           </div>
+
+          {/* User Profile & Logout */}
+          <div className="flex items-center gap-2 pl-2 border-l border-border">
+            <div className="hidden sm:flex flex-col text-right">
+              <span className="text-xs font-semibold text-text-primary leading-none">
+                {user?.display_name || user?.email?.split('@')[0] || 'Staff'}
+              </span>
+              <span className="text-[10px] text-text-muted capitalize">
+                {user?.permissions?.assigned_doctor ? user.permissions.assigned_doctor : (user?.role || 'Staff')}
+              </span>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="p-1.5 text-text-muted hover:text-rose-500 hover:bg-rose-500/10 rounded-sm transition-colors duration-150 cursor-pointer"
+              title="Log out of session"
+            >
+              <LogOut className="w-4 h-4 stroke-[1.5]" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -3720,77 +4329,103 @@ export default function DashboardPage() {
           <div className="space-y-1">
             {/* Sidebar Menu Items */}
             <nav className="space-y-0.5">
-              <button
-                onClick={() => navigateTo('overview')}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
-                  activeNav === 'overview'
-                    ? 'bg-surface-subtle text-text-primary font-semibold'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
-                }`}
-              >
-                <LayoutGrid className="w-4 h-4 stroke-[1.5] shrink-0" />
-                <span>Overview</span>
-              </button>
+              {canViewAnalytics && (
+                <button
+                  onClick={() => navigateTo('overview')}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                    activeNav === 'overview'
+                      ? 'bg-surface-subtle text-text-primary font-semibold'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                  }`}
+                >
+                  <LayoutGrid className="w-4 h-4 stroke-[1.5] shrink-0" />
+                  <span>Overview</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => navigateTo('inbox')}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
-                  activeNav === 'inbox'
-                    ? 'bg-surface-subtle text-text-primary font-semibold'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
-                }`}
-              >
-                <MessageSquare className="w-4 h-4 stroke-[1.5] shrink-0" />
-                <span>Chats</span>
-              </button>
+              {canViewInbox && (
+                <button
+                  onClick={() => navigateTo('inbox')}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                    activeNav === 'inbox'
+                      ? 'bg-surface-subtle text-text-primary font-semibold'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4 stroke-[1.5] shrink-0" />
+                  <span>Chats</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => navigateTo('customers')}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
-                  activeNav === 'customers' || activeNav === 'followup'
-                    ? 'bg-surface-subtle text-text-primary font-semibold'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
-                }`}
-              >
-                <Users className="w-4 h-4 stroke-[1.5] shrink-0" />
-                <span>{currentTaxonomy.client_plural || 'Customers'}</span>
-              </button>
+              {canManageCustomers && (
+                <button
+                  onClick={() => navigateTo('customers')}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                    activeNav === 'customers' || activeNav === 'followup'
+                      ? 'bg-surface-subtle text-text-primary font-semibold'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                  }`}
+                >
+                  <Users className="w-4 h-4 stroke-[1.5] shrink-0" />
+                  <span>{currentTaxonomy.client_plural || 'Customers'}</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => navigateTo('bookings')}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
-                  activeNav === 'bookings'
-                    ? 'bg-surface-subtle text-text-primary font-semibold'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
-                }`}
-              >
-                <CalendarDays className="w-4 h-4 stroke-[1.5] shrink-0" />
-                <span>Bookings</span>
-              </button>
+              {canManageBookings && (
+                <button
+                  onClick={() => navigateTo('bookings')}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                    activeNav === 'bookings'
+                      ? 'bg-surface-subtle text-text-primary font-semibold'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                  }`}
+                >
+                  <CalendarDays className="w-4 h-4 stroke-[1.5] shrink-0" />
+                  <span>Bookings</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => navigateTo('calendar')}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
-                  activeNav === 'calendar'
-                    ? 'bg-surface-subtle text-text-primary font-semibold'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
-                }`}
-              >
-                <Calendar className="w-4 h-4 stroke-[1.5] shrink-0" />
-                <span>Calendar schedule</span>
-              </button>
+              {canViewCalendar && (
+                <button
+                  onClick={() => navigateTo('calendar')}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                    activeNav === 'calendar'
+                      ? 'bg-surface-subtle text-text-primary font-semibold'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                  }`}
+                >
+                  <Calendar className="w-4 h-4 stroke-[1.5] shrink-0" />
+                  <span>Calendar schedule</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => navigateTo('marketing')}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
-                  activeNav === 'marketing'
-                    ? 'bg-surface-subtle text-text-primary font-semibold'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
-                }`}
-              >
-                <Megaphone className="w-4 h-4 stroke-[1.5] shrink-0" />
-                <span>Marketing</span>
-              </button>
+              {(canViewAnalytics || canManageSettings) && (
+                <button
+                  onClick={() => navigateTo('marketing')}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                    activeNav === 'marketing'
+                      ? 'bg-surface-subtle text-text-primary font-semibold'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                  }`}
+                >
+                  <Megaphone className="w-4 h-4 stroke-[1.5] shrink-0" />
+                  <span>Marketing</span>
+                </button>
+              )}
+
+              {(user?.role === 'admin' || user?.role === 'super_admin' || canManageSettings) && (
+                <button
+                  onClick={() => navigateTo('team')}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                    activeNav === 'team'
+                      ? 'bg-surface-subtle text-text-primary font-semibold'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                  }`}
+                >
+                  <Users className="w-4 h-4 stroke-[1.5] shrink-0" />
+                  <span>Team & Sales</span>
+                </button>
+              )}
             </nav>
           </div>
 
@@ -3811,23 +4446,25 @@ export default function DashboardPage() {
               <ArrowUpRight className="w-3 h-3 text-text-muted group-hover:text-accent transition-colors stroke-[1.5]" />
             </a>
 
-            <button
-              onClick={() => navigateTo('settings')}
-              className={`w-full text-left p-2 rounded-sm border transition-colors duration-150 cursor-pointer flex items-center justify-between ${
-                activeNav === 'settings'
-                  ? 'bg-surface-subtle border-border-strong text-text-primary font-semibold'
-                  : 'bg-surface border-border hover:bg-surface-subtle text-text-secondary font-medium'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Sliders className="w-4 h-4 stroke-[1.5] text-text-secondary" />
-                <div>
-                  <p className="text-xs font-medium text-text-primary">Preferences</p>
-                  <p className="text-[11px] text-text-muted">Workspace & Branding</p>
+            {canManageSettings && (
+              <button
+                onClick={() => navigateTo('settings')}
+                className={`w-full text-left p-2 rounded-sm border transition-colors duration-150 cursor-pointer flex items-center justify-between ${
+                  activeNav === 'settings'
+                    ? 'bg-surface-subtle border-border-strong text-text-primary font-semibold'
+                    : 'bg-surface border-border hover:bg-surface-subtle text-text-secondary font-medium'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Sliders className="w-4 h-4 stroke-[1.5] text-text-secondary" />
+                  <div>
+                    <p className="text-xs font-medium text-text-primary">Preferences</p>
+                    <p className="text-[11px] text-text-muted">Workspace & Branding</p>
+                  </div>
                 </div>
-              </div>
-              <ChevronRight className="w-3.5 h-3.5 stroke-[1.5] text-text-muted" />
-            </button>
+                <ChevronRight className="w-3.5 h-3.5 stroke-[1.5] text-text-muted" />
+              </button>
+            )}
           </div>
         </aside>
 
@@ -5657,22 +6294,29 @@ export default function DashboardPage() {
                       </div>
 
                       {/* Chat Input */}
-                      <form onSubmit={handleSendMessage} className="p-2 sm:p-3 border-t border-border flex items-center gap-2 bg-surface shrink-0">
-                        <input
-                          type="text"
-                          placeholder="Type WhatsApp reply..."
-                          value={newMessage}
-                          onChange={(e) => setNewMessage(e.target.value)}
-                          className="flex-1 px-3.5 py-2 bg-surface-subtle border border-border rounded-full text-xs text-text-primary focus:outline-none focus:bg-white focus:border-accent font-sans transition-colors duration-150"
-                        />
-                        <button
-                          type="submit"
-                          disabled={!newMessage.trim() || sendingMessage}
-                          className="w-8 h-8 rounded-full bg-accent hover:bg-accent-hover text-white font-medium flex items-center justify-center transition-colors duration-150 cursor-pointer disabled:opacity-50 shrink-0 shadow-xs"
-                        >
-                          <Send className="w-3.5 h-3.5 stroke-[1.8]" />
-                        </button>
-                      </form>
+                      {canSendMessages ? (
+                        <form onSubmit={handleSendMessage} className="p-2 sm:p-3 border-t border-border flex items-center gap-2 bg-surface shrink-0">
+                          <input
+                            type="text"
+                            placeholder="Type WhatsApp reply..."
+                            value={newMessage}
+                            onChange={(e) => setNewMessage(e.target.value)}
+                            className="flex-1 px-3.5 py-2 bg-surface-subtle border border-border rounded-full text-xs text-text-primary focus:outline-none focus:bg-white focus:border-accent font-sans transition-colors duration-150"
+                          />
+                          <button
+                            type="submit"
+                            disabled={!newMessage.trim() || sendingMessage}
+                            className="w-8 h-8 rounded-full bg-accent hover:bg-accent-hover text-white font-medium flex items-center justify-center transition-colors duration-150 cursor-pointer disabled:opacity-50 shrink-0 shadow-xs"
+                          >
+                            <Send className="w-3.5 h-3.5 stroke-[1.8]" />
+                          </button>
+                        </form>
+                      ) : (
+                        <div className="p-3 border-t border-border bg-surface-subtle text-text-muted text-xs text-center flex items-center justify-center gap-2 shrink-0">
+                          <Lock className="w-3.5 h-3.5 text-text-muted" />
+                          <span>Read-only access: outbound messaging is restricted for your role.</span>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div className="flex-1 flex flex-col items-center justify-center text-center p-8 space-y-2 bg-surface-subtle/30">
@@ -8425,6 +9069,7 @@ export default function DashboardPage() {
                     { id: 'notifications', label: 'Alert Channels', icon: Bell },
                     { id: 'localization', label: 'Regional & Currency', icon: Globe },
                     { id: 'terminology', label: 'CRM Terminology', icon: Sliders },
+                    { id: 'team', label: 'Team & Roles', icon: Users },
                     { id: 'account', label: 'Account & Session', icon: LogOut },
                   ].map((tab) => {
                     const Icon = tab.icon;
@@ -8998,8 +9643,11 @@ export default function DashboardPage() {
                     </div>
                   )}
 
+                  {/* ── 5. TEAM & ROLES SUBTAB ─────────────────────────────────── */}
+                  {settingsTab === 'team' && renderTeamManagementView()}
+
                   {/* Save Button */}
-                  {settingsTab !== 'account' && (
+                  {settingsTab !== 'account' && settingsTab !== 'team' && (
                     <div className="pt-2 flex items-center gap-3">
                       <button
                         type="submit"
@@ -9021,6 +9669,13 @@ export default function DashboardPage() {
                     </div>
                   )}
                 </form>
+              </div>
+            )}
+
+            {/* ── VIEW 6: TEAM & SALES CREDENTIALS (DIRECT NAVIGATION) ────────── */}
+            {activeNav === 'team' && (
+              <div className="flex-1 overflow-y-auto space-y-6 max-w-5xl">
+                {renderTeamManagementView()}
               </div>
             )}
           </main>
@@ -10710,92 +11365,349 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+
+        {/* ── CLIENT TEAM MEMBER / SALES ACCOUNT MODAL ─────────────────────────── */}
+        {showTeamModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 overflow-y-auto"
+            onClick={() => setShowTeamModal(false)}
+          >
+            <div
+              className="w-full max-w-lg bg-surface border border-border rounded-md shadow-2xl overflow-hidden my-6 flex flex-col max-h-[90vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-border bg-surface-subtle/50 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/20">
+                    <UserPlus className="w-4 h-4 stroke-[1.5]" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-sm text-text-primary">
+                      {editingTeamMember ? 'Edit Team Member' : 'Add Team Member / Sales'}
+                    </h3>
+                    <p className="text-[11px] text-text-muted">
+                      {editingTeamMember
+                        ? `Update permissions & credentials for ${editingTeamMember.email}`
+                        : 'Create direct login credentials and assign role permissions'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowTeamModal(false)}
+                  className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4 stroke-[1.5]" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveTeam} className="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+                {teamError && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-md text-red-500 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{teamError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block font-medium text-text-primary mb-1">
+                    Display Name <span className="text-text-muted font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Rahul Sharma (Sales Executive)"
+                    value={teamForm.display_name}
+                    onChange={(e) => setTeamForm({ ...teamForm, display_name: e.target.value })}
+                    className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-medium text-text-primary mb-1">
+                    Login Email Address <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="e.g. sales@yourdomain.com"
+                    value={teamForm.email}
+                    disabled={!!editingTeamMember}
+                    onChange={(e) => setTeamForm({ ...teamForm, email: e.target.value })}
+                    className={`w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent transition-colors ${
+                      editingTeamMember ? 'opacity-60 cursor-not-allowed bg-surface' : ''
+                    }`}
+                  />
+                  {editingTeamMember && (
+                    <p className="text-[10px] text-text-muted mt-1">
+                      Login email address cannot be modified once created.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block font-medium text-text-primary mb-1">
+                    {editingTeamMember ? 'Update Password' : 'Login Password'}{' '}
+                    {!editingTeamMember && <span className="text-red-500">*</span>}
+                  </label>
+                  <input
+                    type="password"
+                    required={!editingTeamMember}
+                    placeholder={
+                      editingTeamMember
+                        ? 'Leave blank to retain current password'
+                        : 'Minimum 6 characters'
+                    }
+                    value={teamForm.password}
+                    onChange={(e) => setTeamForm({ ...teamForm, password: e.target.value })}
+                    className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-medium text-text-primary mb-1">Role Preset</label>
+                  <select
+                    value={teamForm.role}
+                    onChange={(e) => {
+                      const newRole = e.target.value;
+                      const defaultPerms = getClientRoleDefaultPermissions(
+                        newRole,
+                        teamForm.permissions.assigned_doctor
+                      );
+                      setTeamForm({
+                        ...teamForm,
+                        role: newRole,
+                        permissions: defaultPerms,
+                      });
+                    }}
+                    className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent transition-colors cursor-pointer"
+                  >
+                    <option value="sales">Sales Executive (Full CRM, Chats, Bookings & Followups)</option>
+                    <option value="doctor">Doctor / Practitioner (Assigned Patients & Appointments)</option>
+                    <option value="receptionist">Receptionist (Front Desk, Bookings & Customers)</option>
+                    <option value="agent">Support Agent (Live Chats & Customer Inquiries)</option>
+                    <option value="viewer">Viewer (Read-Only Calendar & Records)</option>
+                    <option value="admin">Administrator (Full Workspace Permissions)</option>
+                  </select>
+                  <p className="text-[10px] text-text-muted mt-1">
+                    Selecting a role preset updates the recommended permission checkboxes below.
+                  </p>
+                </div>
+
+                {(teamForm.role === 'doctor' || teamForm.permissions.assigned_doctor) && (
+                  <div>
+                    <label className="block font-medium text-text-primary mb-1">
+                      Doctor Name Filter <span className="text-text-muted font-normal">(Optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Dr. Jane Smith"
+                      value={teamForm.permissions.assigned_doctor || ''}
+                      onChange={(e) =>
+                        setTeamForm({
+                          ...teamForm,
+                          permissions: { ...teamForm.permissions, assigned_doctor: e.target.value },
+                        })
+                      }
+                      className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent transition-colors"
+                    />
+                    <p className="text-[10px] text-text-muted mt-1">
+                      Limits visible appointments and records to this doctor. Leave blank to show all.
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block font-medium text-text-primary mb-1.5">
+                    Granular Access Permissions
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-surface-subtle/50 p-3 rounded-md border border-border">
+                    {[
+                      { key: 'can_view_inbox', label: 'View Inbox & Chats' },
+                      { key: 'can_send_messages', label: 'Send Live Messages' },
+                      { key: 'can_manage_bookings', label: 'Manage Bookings' },
+                      { key: 'can_view_calendar', label: 'View Calendar' },
+                      { key: 'can_manage_customers', label: 'Customer Directory' },
+                      { key: 'can_view_analytics', label: 'View Analytics & Revenue' },
+                      { key: 'can_manage_settings', label: 'Workspace Preferences' },
+                      { key: 'can_manage_billing', label: 'Billing & Invoices' },
+                    ].map((item) => {
+                      const isChecked = (teamForm.permissions as any)[item.key] !== false;
+                      return (
+                        <label
+                          key={item.key}
+                          className="flex items-center gap-2 p-1.5 rounded hover:bg-surface cursor-pointer text-xs select-none transition-colors"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) =>
+                              setTeamForm({
+                                ...teamForm,
+                                permissions: {
+                                  ...teamForm.permissions,
+                                  [item.key]: e.target.checked,
+                                },
+                              })
+                            }
+                            className="w-3.5 h-3.5 rounded text-accent focus:ring-accent accent-accent cursor-pointer"
+                          />
+                          <span className="text-text-primary text-[11px] font-medium">{item.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {editingTeamMember && (
+                  <div className="flex items-center justify-between p-2.5 bg-surface-subtle/40 rounded-md border border-border">
+                    <div>
+                      <span className="text-xs font-medium text-text-primary block">Active Account Status</span>
+                      <span className="text-[10px] text-text-muted">Disable to temporarily suspend login</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTeamForm({ ...teamForm, is_active: !teamForm.is_active })}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer ${
+                        teamForm.is_active ? 'bg-accent' : 'bg-zinc-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                          teamForm.is_active ? 'translate-x-4.5' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-border shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowTeamModal(false)}
+                    className="px-4 py-2 border border-border text-text-secondary hover:text-text-primary hover:bg-surface-subtle rounded-sm text-xs font-medium transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={teamSaving}
+                    className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-xs"
+                  >
+                    {teamSaving ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving credentials...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{editingTeamMember ? 'Save Changes' : 'Create Team Account'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       {/* ── Mobile Bottom Navigation Bar (md:hidden) ────────────────────────── */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-border flex items-center justify-around h-14 px-1 safe-area-pb shadow-lg">
-        <button
-          type="button"
-          onClick={() => navigateTo('overview')}
-          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
-            activeNav === 'overview'
-              ? 'text-accent font-semibold'
-              : 'text-text-muted hover:text-text-primary'
-          }`}
-        >
-          <LayoutGrid className="w-5 h-5 stroke-[1.5]" />
-          <span className="text-[10px] mt-0.5 tracking-tight">Overview</span>
-        </button>
+        {canViewAnalytics && (
+          <button
+            type="button"
+            onClick={() => navigateTo('overview')}
+            className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+              activeNav === 'overview'
+                ? 'text-accent font-semibold'
+                : 'text-text-muted hover:text-text-primary'
+            }`}
+          >
+            <LayoutGrid className="w-5 h-5 stroke-[1.5]" />
+            <span className="text-[10px] mt-0.5 tracking-tight">Overview</span>
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={() => navigateTo('inbox')}
-          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer relative ${
-            activeNav === 'inbox'
-              ? 'text-accent font-semibold'
-              : 'text-text-muted hover:text-text-primary'
-          }`}
-        >
-          <div className="relative">
-            <MessageSquare className="w-5 h-5 stroke-[1.5]" />
-            {conversations.filter(c => (c.unread_count || 0) > 0).length > 0 && (
-              <span className="absolute -top-1 -right-2 w-3.5 h-3.5 bg-accent text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                {conversations.filter(c => (c.unread_count || 0) > 0).length}
-              </span>
-            )}
-          </div>
-          <span className="text-[10px] mt-0.5 tracking-tight">Chats</span>
-        </button>
+        {canViewInbox && (
+          <button
+            type="button"
+            onClick={() => navigateTo('inbox')}
+            className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer relative ${
+              activeNav === 'inbox'
+                ? 'text-accent font-semibold'
+                : 'text-text-muted hover:text-text-primary'
+            }`}
+          >
+            <div className="relative">
+              <MessageSquare className="w-5 h-5 stroke-[1.5]" />
+              {conversations.filter(c => (c.unread_count || 0) > 0).length > 0 && (
+                <span className="absolute -top-1 -right-2 w-3.5 h-3.5 bg-accent text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                  {conversations.filter(c => (c.unread_count || 0) > 0).length}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] mt-0.5 tracking-tight">Chats</span>
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={() => navigateTo('customers')}
-          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
-            activeNav === 'customers' || activeNav === 'followup'
-              ? 'text-accent font-semibold'
-              : 'text-text-muted hover:text-text-primary'
-          }`}
-        >
-          <Users className="w-5 h-5 stroke-[1.5]" />
-          <span className="text-[10px] mt-0.5 tracking-tight truncate max-w-[64px]">{currentTaxonomy.client_plural || 'Customers'}</span>
-        </button>
+        {canManageCustomers && (
+          <button
+            type="button"
+            onClick={() => navigateTo('customers')}
+            className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+              activeNav === 'customers' || activeNav === 'followup'
+                ? 'text-accent font-semibold'
+                : 'text-text-muted hover:text-text-primary'
+            }`}
+          >
+            <Users className="w-5 h-5 stroke-[1.5]" />
+            <span className="text-[10px] mt-0.5 tracking-tight truncate max-w-[64px]">{currentTaxonomy.client_plural || 'Customers'}</span>
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={() => navigateTo('bookings')}
-          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
-            activeNav === 'bookings'
-              ? 'text-accent font-semibold'
-              : 'text-text-muted hover:text-text-primary'
-          }`}
-        >
-          <CalendarDays className="w-5 h-5 stroke-[1.5]" />
-          <span className="text-[10px] mt-0.5 tracking-tight">Bookings</span>
-        </button>
+        {canManageBookings && (
+          <button
+            type="button"
+            onClick={() => navigateTo('bookings')}
+            className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+              activeNav === 'bookings'
+                ? 'text-accent font-semibold'
+                : 'text-text-muted hover:text-text-primary'
+            }`}
+          >
+            <CalendarDays className="w-5 h-5 stroke-[1.5]" />
+            <span className="text-[10px] mt-0.5 tracking-tight">Bookings</span>
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={() => navigateTo('calendar')}
-          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
-            activeNav === 'calendar'
-              ? 'text-accent font-semibold'
-              : 'text-text-muted hover:text-text-primary'
-          }`}
-        >
-          <Calendar className="w-5 h-5 stroke-[1.5]" />
-          <span className="text-[10px] mt-0.5 tracking-tight">Calendar</span>
-        </button>
+        {canViewCalendar && (
+          <button
+            type="button"
+            onClick={() => navigateTo('calendar')}
+            className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+              activeNav === 'calendar'
+                ? 'text-accent font-semibold'
+                : 'text-text-muted hover:text-text-primary'
+            }`}
+          >
+            <Calendar className="w-5 h-5 stroke-[1.5]" />
+            <span className="text-[10px] mt-0.5 tracking-tight">Calendar</span>
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={() => navigateTo('settings')}
-          className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
-            activeNav === 'settings'
-              ? 'text-accent font-semibold'
-              : 'text-text-muted hover:text-text-primary'
-          }`}
-        >
-          <Sliders className="w-5 h-5 stroke-[1.5]" />
-          <span className="text-[10px] mt-0.5 tracking-tight">Settings</span>
-        </button>
+        {canManageSettings && (
+          <button
+            type="button"
+            onClick={() => navigateTo('settings')}
+            className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+              activeNav === 'settings'
+                ? 'text-accent font-semibold'
+                : 'text-text-muted hover:text-text-primary'
+            }`}
+          >
+            <Sliders className="w-5 h-5 stroke-[1.5]" />
+            <span className="text-[10px] mt-0.5 tracking-tight">Settings</span>
+          </button>
+        )}
       </nav>
 
       </div>

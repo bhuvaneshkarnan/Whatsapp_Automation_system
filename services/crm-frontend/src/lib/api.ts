@@ -95,7 +95,7 @@ export const auth = {
     }
     return res.json() as Promise<{ access_token: string; token_type: string; tenant_id: string }>;
   },
-  me: () => request<{ id: string; tenant_id: string; role: string }>('/api/v1/auth/users/me'),
+  me: () => request<{ id: string; tenant_id: string; role: string; email?: string; display_name?: string; permissions?: StaffPermissions }>('/api/v1/auth/users/me'),
   createUser: (data: { tenant_id: string; email: string; password: string; display_name?: string }) =>
     request<{ id: string; email: string }>('/api/v1/auth/users', {
       method: 'POST',
@@ -567,6 +567,15 @@ export const crm = {
       `/api/v1/crm/customers/${customerId}/google-tasks`,
       { method: 'POST' }
     ),
+
+  // ── Tenant Staff & Roles ───────────────────────────────────
+  listStaff: () => request<StaffUser[]>('/api/v1/crm/staff'),
+  createStaff: (data: { email: string; password: string; display_name: string; role: string; permissions?: Record<string, any> }) =>
+    request<StaffUser>('/api/v1/crm/staff', { method: 'POST', body: JSON.stringify(data) }),
+  updateStaff: (userId: string, data: { display_name?: string; role?: string; permissions?: Record<string, any>; password?: string; is_active?: boolean }) =>
+    request<{ status: string; id: string }>(`/api/v1/crm/staff/${userId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteStaff: (userId: string) =>
+    request<{ status: string; id: string }>(`/api/v1/crm/staff/${userId}`, { method: 'DELETE' }),
 };
 
 export interface TenantSettingsResponse {
@@ -706,6 +715,51 @@ export interface ClientTenant {
   next_renewal_date?: string;
   billing_method?: string;
   admin_whatsapp_number?: string;
+}
+
+export interface StaffPermissions {
+  can_view_inbox?: boolean;
+  can_send_messages?: boolean;
+  can_manage_bookings?: boolean;
+  can_view_calendar?: boolean;
+  can_manage_customers?: boolean;
+  can_view_analytics?: boolean;
+  can_manage_settings?: boolean;
+  can_manage_billing?: boolean;
+  assigned_doctor?: string;
+  [key: string]: any;
+}
+
+export interface StaffUser {
+  id: string;
+  tenant_id: string;
+  email: string;
+  display_name: string;
+  role: 'super_admin' | 'admin' | 'doctor' | 'receptionist' | 'agent' | 'viewer' | string;
+  permissions: StaffPermissions;
+  is_active: boolean;
+  last_login_at?: string;
+  created_at?: string;
+}
+
+export interface PublicBookingInfo {
+  name: string;
+  slug: string;
+  industry: string;
+  currency: string;
+  currency_symbol: string;
+  logo_url?: string;
+  full_location_text?: string;
+  doctor_label: string;
+  concern_label: string;
+  doctors: string[];
+  health_concerns: string[];
+  business_hours: {
+    open: string;
+    close: string;
+    slot_duration_minutes: number;
+  };
+  bot_phone?: string;
 }
 
 export interface ClientCreatePayload {
@@ -865,6 +919,32 @@ export const admin = {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
+  // Staff Roles & Granular Permissions
+  listStaff: (tenantId: string) =>
+    request<StaffUser[]>(`/api/v1/crm/admin/tenants/${tenantId}/staff`),
+  createStaff: (tenantId: string, data: { email: string; password: string; display_name: string; role: string; permissions?: Record<string, any> }) =>
+    request<{ status: string; id: string; email: string; display_name: string; role: string; permissions: any }>(
+      `/api/v1/crm/admin/tenants/${tenantId}/staff`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    ),
+  updateStaff: (tenantId: string, userId: string, data: { display_name?: string; role?: string; permissions?: Record<string, any>; password?: string; is_active?: boolean }) =>
+    request<{ status: string; id: string }>(
+      `/api/v1/crm/admin/tenants/${tenantId}/staff/${userId}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }
+    ),
+  deleteStaff: (tenantId: string, userId: string) =>
+    request<{ status: string; id: string }>(
+      `/api/v1/crm/admin/tenants/${tenantId}/staff/${userId}`,
+      {
+        method: 'DELETE',
+      }
+    ),
 };
 
 // ── Marketing / Broadcast Campaigns & Automations ───────────────────────────
@@ -1144,6 +1224,38 @@ export const metaTemplatesApi = {
       }
     ),
 };
+
+// ── Public Web Booking API (No Auth Required) ─────────────────────────────────
+export const publicBooking = {
+  getInfo: (slug: string) =>
+    request<PublicBookingInfo>(`/api/v1/crm/public/${slug}/booking-info`),
+
+  createBooking: (slug: string, data: {
+    patient_name: string;
+    patient_phone: string;
+    patient_email?: string;
+    doctor_name: string;
+    health_concern: string;
+    booking_date: string;
+    booking_time: string;
+    notes?: string;
+  }) =>
+    request<{
+      status: string;
+      booking_id: string;
+      doctor_name: string;
+      health_concern: string;
+      appointment_date: string;
+      appointment_time: string;
+      patient_name: string;
+      patient_phone: string;
+      message: string;
+    }>(`/api/v1/crm/public/${slug}/book`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+};
+
 
 
 

@@ -70,6 +70,8 @@ import {
   Invoice,
   metaTemplatesApi,
   MetaTemplatesSyncResponse,
+  StaffUser,
+  StaffPermissions,
 } from '@/lib/api';
 
 
@@ -388,12 +390,243 @@ export default function SuperAdminClients() {
 
   // ── TENANT FULL CONFIGURATION MODAL / DRAWER STATE ──────────────────────────
   const [editingConfigTenant, setEditingConfigTenant] = useState<ClientTenant | null>(null);
-  const [configTab, setConfigTab] = useState<'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'billing'>('ai');
+  const [configTab, setConfigTab] = useState<'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'billing' | 'team'>('ai');
   const [configForm, setConfigForm] = useState<TenantSettingsUpdate>({});
   const [configLoading, setConfigLoading] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState('');
   const [configSavedNotice, setConfigSavedNotice] = useState(false);
+
+  // ── STAFF & ROLES PERMISSIONS STATE ──────────────────────────
+  const [staffList, setStaffList] = useState<StaffUser[]>([]);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [staffSaving, setStaffSaving] = useState(false);
+  const [staffError, setStaffError] = useState('');
+  const [showStaffModal, setShowStaffModal] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<StaffUser | null>(null);
+  const [staffForm, setStaffForm] = useState<{
+    email: string;
+    password: string;
+    display_name: string;
+    role: string;
+    is_active: boolean;
+    permissions: StaffPermissions;
+  }>({
+    email: '',
+    password: '',
+    display_name: '',
+    role: 'receptionist',
+    is_active: true,
+    permissions: {
+      can_view_inbox: true,
+      can_send_messages: true,
+      can_manage_bookings: true,
+      can_view_calendar: true,
+      can_manage_customers: true,
+      can_view_analytics: false,
+      can_manage_settings: false,
+      can_manage_billing: false,
+      assigned_doctor: '',
+    }
+  });
+
+  async function loadTenantStaff(tenantId: string) {
+    if (!tenantId) return;
+    setStaffLoading(true);
+    setStaffError('');
+    try {
+      const list = await admin.listStaff(tenantId);
+      setStaffList(list);
+    } catch (err: any) {
+      setStaffError(err?.message || 'Failed to load staff list');
+    } finally {
+      setStaffLoading(false);
+    }
+  }
+
+  function getRoleDefaultPermissions(role: string, assignedDoctor: string = ''): StaffPermissions {
+    switch (role) {
+      case 'admin':
+        return {
+          can_view_inbox: true,
+          can_send_messages: true,
+          can_manage_bookings: true,
+          can_view_calendar: true,
+          can_manage_customers: true,
+          can_view_analytics: true,
+          can_manage_settings: true,
+          can_manage_billing: true,
+          assigned_doctor: '',
+        };
+      case 'sales':
+        return {
+          can_view_inbox: true,
+          can_send_messages: true,
+          can_manage_bookings: true,
+          can_view_calendar: true,
+          can_manage_customers: true,
+          can_view_analytics: false,
+          can_manage_settings: false,
+          can_manage_billing: false,
+          assigned_doctor: '',
+        };
+      case 'doctor':
+        return {
+          can_view_inbox: true,
+          can_send_messages: true,
+          can_manage_bookings: true,
+          can_view_calendar: true,
+          can_manage_customers: true,
+          can_view_analytics: false,
+          can_manage_settings: false,
+          can_manage_billing: false,
+          assigned_doctor: assignedDoctor || '',
+        };
+      case 'receptionist':
+        return {
+          can_view_inbox: true,
+          can_send_messages: true,
+          can_manage_bookings: true,
+          can_view_calendar: true,
+          can_manage_customers: true,
+          can_view_analytics: false,
+          can_manage_settings: false,
+          can_manage_billing: false,
+          assigned_doctor: '',
+        };
+      case 'agent':
+        return {
+          can_view_inbox: true,
+          can_send_messages: true,
+          can_manage_bookings: false,
+          can_view_calendar: false,
+          can_manage_customers: false,
+          can_view_analytics: false,
+          can_manage_settings: false,
+          can_manage_billing: false,
+          assigned_doctor: '',
+        };
+      case 'viewer':
+        return {
+          can_view_inbox: true,
+          can_send_messages: false,
+          can_manage_bookings: false,
+          can_view_calendar: true,
+          can_manage_customers: false,
+          can_view_analytics: false,
+          can_manage_settings: false,
+          can_manage_billing: false,
+          assigned_doctor: '',
+        };
+      default:
+        return {
+          can_view_inbox: true,
+          can_send_messages: false,
+          can_manage_bookings: false,
+          can_view_calendar: false,
+          can_manage_customers: false,
+          can_view_analytics: false,
+          can_manage_settings: false,
+          can_manage_billing: false,
+          assigned_doctor: '',
+        };
+    }
+  }
+
+  function handleOpenCreateStaff() {
+    setEditingStaff(null);
+    setStaffForm({
+      email: '',
+      password: '',
+      display_name: '',
+      role: 'receptionist',
+      is_active: true,
+      permissions: getRoleDefaultPermissions('receptionist'),
+    });
+    setStaffError('');
+    setShowStaffModal(true);
+  }
+
+  function handleOpenEditStaff(member: StaffUser) {
+    setEditingStaff(member);
+    setStaffForm({
+      email: member.email,
+      password: '',
+      display_name: member.display_name || '',
+      role: member.role,
+      is_active: member.is_active,
+      permissions: {
+        can_view_inbox: member.permissions?.can_view_inbox ?? true,
+        can_send_messages: member.permissions?.can_send_messages ?? true,
+        can_manage_bookings: member.permissions?.can_manage_bookings ?? true,
+        can_view_calendar: member.permissions?.can_view_calendar ?? true,
+        can_manage_customers: member.permissions?.can_manage_customers ?? false,
+        can_view_analytics: member.permissions?.can_view_analytics ?? false,
+        can_manage_settings: member.permissions?.can_manage_settings ?? false,
+        can_manage_billing: member.permissions?.can_manage_billing ?? false,
+        assigned_doctor: member.permissions?.assigned_doctor || '',
+      },
+    });
+    setStaffError('');
+    setShowStaffModal(true);
+  }
+
+  async function handleSaveStaff(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingConfigTenant) return;
+    if (!staffForm.email.trim()) {
+      alert('Email address is required.');
+      return;
+    }
+    if (!editingStaff && !staffForm.password.trim()) {
+      alert('Password is required when creating a new staff credential.');
+      return;
+    }
+    setStaffSaving(true);
+    setStaffError('');
+    try {
+      if (editingStaff) {
+        await admin.updateStaff(editingConfigTenant.id, editingStaff.id, {
+          display_name: staffForm.display_name.trim(),
+          role: staffForm.role,
+          permissions: staffForm.permissions,
+          is_active: staffForm.is_active,
+          ...(staffForm.password.trim() ? { password: staffForm.password.trim() } : {}),
+        });
+      } else {
+        await admin.createStaff(editingConfigTenant.id, {
+          email: staffForm.email.trim(),
+          password: staffForm.password.trim(),
+          display_name: staffForm.display_name.trim(),
+          role: staffForm.role,
+          permissions: staffForm.permissions,
+        });
+      }
+      setShowStaffModal(false);
+      setEditingStaff(null);
+      await loadTenantStaff(editingConfigTenant.id);
+    } catch (err: any) {
+      setStaffError(err?.message || 'Failed to save staff credentials.');
+    } finally {
+      setStaffSaving(false);
+    }
+  }
+
+  async function handleDeleteStaff(userId: string, memberEmail: string) {
+    if (!editingConfigTenant) return;
+    if (!confirm(`Are you sure you want to delete staff account ${memberEmail}? This will permanently revoke their CRM login.`)) {
+      return;
+    }
+    setStaffLoading(true);
+    try {
+      await admin.deleteStaff(editingConfigTenant.id, userId);
+      await loadTenantStaff(editingConfigTenant.id);
+    } catch (err: any) {
+      alert(err?.message || 'Failed to delete staff member');
+    } finally {
+      setStaffLoading(false);
+    }
+  }
 
   // Meta Templates Sync state & Live Meta Status
   const [isSyncingMetaTemplates, setIsSyncingMetaTemplates] = useState(false);
@@ -732,13 +965,16 @@ export default function SuperAdminClients() {
   }
 
   // ── Open & Save Tenant Configuration ───────────────────────────────────────
-  async function handleOpenConfig(tenant: ClientTenant, initialTab: 'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'billing' = 'ai') {
+  async function handleOpenConfig(tenant: ClientTenant, initialTab: 'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'billing' | 'team' = 'ai') {
     setEditingConfigTenant(tenant);
     setConfigTab(initialTab);
     setConfigLoading(true);
     setConfigError('');
     setConfigSavedNotice(false);
     loadAdminMetaTemplatesStatus(tenant.id);
+    if (initialTab === 'team') {
+      loadTenantStaff(tenant.id);
+    }
     try {
       const data = await admin.getTenantSettings(tenant.id);
       setConfigForm(data);
@@ -752,6 +988,9 @@ export default function SuperAdminClients() {
   useEffect(() => {
     if (configTab === 'templates' && editingConfigTenant?.id) {
       loadAdminMetaTemplatesStatus(editingConfigTenant.id);
+    }
+    if (configTab === 'team' && editingConfigTenant?.id) {
+      loadTenantStaff(editingConfigTenant.id);
     }
   }, [configTab, editingConfigTenant?.id]);
 
@@ -1489,6 +1728,16 @@ export default function SuperAdminClients() {
                                   <span className="font-semibold text-emerald-950">Sync Meta</span>
                                 </button>
 
+                                {/* Staff & Sales Accounts Management */}
+                                <button
+                                  onClick={() => handleOpenConfig(t, 'team')}
+                                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300 rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                                  title="Manage Sales Accounts, Doctors & Staff Permissions"
+                                >
+                                  <Users className="w-3.5 h-3.5 text-amber-800 stroke-[1.5]" />
+                                  <span>Sales & Staff</span>
+                                </button>
+
                                 {/* Configure Central Settings */}
                                 <button
                                   onClick={() => handleOpenConfig(t)}
@@ -1508,6 +1757,18 @@ export default function SuperAdminClients() {
                                   <ExternalLink className="w-3 h-3 stroke-[1.5]" />
                                   <span>Open CRM</span>
                                 </button>
+
+                                {/* Public Booking Page Link */}
+                                <a
+                                  href={`/${t.slug}/book`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-2 py-1 bg-surface hover:bg-surface-subtle text-indigo-400 hover:text-indigo-300 border border-border hover:border-indigo-500/40 rounded text-xs font-medium transition-colors flex items-center gap-1 shadow-xs"
+                                  title={`Open ${t.name} Public Web Booking Page`}
+                                >
+                                  <Calendar className="w-3 h-3 stroke-[1.5]" />
+                                  <span>Booking</span>
+                                </a>
 
                                 {/* Secondary Action Icon Buttons */}
                                 <div className="inline-flex items-center gap-1 border-l border-border pl-1.5 ml-0.5">
@@ -2563,6 +2824,17 @@ export default function SuperAdminClients() {
               </div>
 
               <div className="flex items-center gap-2">
+                <a
+                  href={`/${editingConfigTenant.slug}/book`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 text-xs font-medium text-indigo-400 hover:text-indigo-300 hover:bg-surface-subtle border border-border hover:border-indigo-500/40 rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer"
+                  title="Open Public Web Booking Page in new tab"
+                >
+                  <Calendar className="w-3 h-3 stroke-[1.5]" />
+                  <span>Booking Page</span>
+                </a>
+
                 <button
                   type="button"
                   onClick={() => handleImpersonateTenant(editingConfigTenant.id)}
@@ -2582,7 +2854,7 @@ export default function SuperAdminClients() {
               </div>
             </div>
 
-            {/* Subtabs Bar (Exact Same Subtabs as Original Settings) */}
+            {/* Subtabs Bar */}
             <div className="px-6 border-b border-border bg-surface-subtle flex items-center gap-1 overflow-x-auto shrink-0">
               {[
                 { id: 'ai', label: 'AI Intelligence & BYOK', icon: Bot },
@@ -2591,6 +2863,7 @@ export default function SuperAdminClients() {
                 { id: 'location', label: 'Branding & Localization', icon: Building2 },
                 { id: 'calendar', label: 'Google Calendar', icon: CalendarDays },
                 { id: 'billing', label: 'Billing & Access', icon: CreditCard },
+                { id: 'team', label: 'Team & Permissions', icon: Users },
               ].map((tab) => {
                 const Icon = tab.icon;
                 const active = configTab === tab.id;
@@ -3707,6 +3980,161 @@ export default function SuperAdminClients() {
                     </div>
                   )}
 
+                  {configTab === 'team' && (
+                    <div className="space-y-6">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-surface-subtle border border-border rounded-sm">
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                            <Shield className="w-3.5 h-3.5 text-accent" />
+                            <span>Sales & Staff Credentials & Granular Access Control</span>
+                          </h4>
+                          <p className="text-[11px] text-text-muted">
+                            Create login credentials for Sales Executives, Doctors, Receptionists, and Staff. Configure exactly what tabs and actions each role can access.
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleOpenCreateStaff}
+                          className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 self-start sm:self-auto"
+                        >
+                          <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
+                          <span>Add Staff / Sales Account</span>
+                        </button>
+                      </div>
+
+                      {staffError && (
+                        <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-sm flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 shrink-0 stroke-[1.5]" />
+                          <span>{staffError}</span>
+                        </div>
+                      )}
+
+                      {/* Staff Table */}
+                      {staffLoading ? (
+                        <div className="py-12 text-center space-y-2">
+                          <RefreshCw className="w-5 h-5 animate-spin text-accent mx-auto stroke-[1.5]" />
+                          <p className="text-xs text-text-muted">Loading team credentials...</p>
+                        </div>
+                      ) : staffList.length === 0 ? (
+                        <div className="py-12 text-center border border-dashed border-border rounded-sm space-y-2">
+                          <Users className="w-8 h-8 text-text-muted mx-auto stroke-[1.5]" />
+                          <p className="text-xs font-medium text-text-primary">No staff members created yet</p>
+                          <p className="text-[11px] text-text-muted">Click &quot;Add Staff Member&quot; to issue doctor or receptionist logins for this clinic.</p>
+                        </div>
+                      ) : (
+                        <div className="border border-border rounded-sm overflow-hidden">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-surface-subtle border-b border-border text-text-muted text-[11px] uppercase tracking-wider">
+                                <th className="py-2.5 px-3 font-semibold">User</th>
+                                <th className="py-2.5 px-3 font-semibold">Role</th>
+                                <th className="py-2.5 px-3 font-semibold">Assigned Doctor</th>
+                                <th className="py-2.5 px-3 font-semibold">Allowed Permissions</th>
+                                <th className="py-2.5 px-3 font-semibold">Status</th>
+                                <th className="py-2.5 px-3 font-semibold text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border">
+                              {staffList.map((member) => {
+                                const perms = member.permissions || {};
+                                const activeCount = [
+                                  perms.can_view_inbox,
+                                  perms.can_send_messages,
+                                  perms.can_manage_bookings,
+                                  perms.can_view_calendar,
+                                  perms.can_manage_customers,
+                                  perms.can_view_analytics,
+                                  perms.can_manage_settings,
+                                  perms.can_manage_billing,
+                                ].filter(Boolean).length;
+
+                                return (
+                                  <tr key={member.id} className="hover:bg-surface-subtle/50 transition-colors">
+                                    <td className="py-2.5 px-3">
+                                      <div className="font-semibold text-text-primary">{member.display_name || member.email}</div>
+                                      <div className="text-[11px] text-text-muted font-mono">{member.email}</div>
+                                    </td>
+                                    <td className="py-2.5 px-3">
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider border ${
+                                        member.role === 'admin'
+                                          ? 'bg-purple-500/10 text-purple-700 border-purple-300'
+                                          : member.role === 'sales'
+                                          ? 'bg-amber-500/15 text-amber-800 border-amber-400 font-bold'
+                                          : member.role === 'doctor'
+                                          ? 'bg-blue-500/10 text-blue-700 border-blue-300'
+                                          : member.role === 'receptionist'
+                                          ? 'bg-emerald-500/10 text-emerald-700 border-emerald-300'
+                                          : member.role === 'agent'
+                                          ? 'bg-cyan-500/10 text-cyan-700 border-cyan-300'
+                                          : 'bg-surface-subtle text-text-muted border-border'
+                                      }`}>
+                                        {member.role === 'sales' ? 'Sales Executive' : member.role}
+                                      </span>
+                                    </td>
+                                    <td className="py-2.5 px-3">
+                                      {perms.assigned_doctor ? (
+                                        <span className="text-text-primary font-medium text-xs flex items-center gap-1">
+                                          <Stethoscope className="w-3 h-3 text-indigo-400 shrink-0" />
+                                          <span>{perms.assigned_doctor}</span>
+                                        </span>
+                                      ) : (
+                                        <span className="text-text-muted text-[11px]">All doctors / clinic-wide</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2.5 px-3">
+                                      <div className="flex flex-wrap gap-1 max-w-xs">
+                                        {perms.can_view_inbox && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Inbox</span>}
+                                        {perms.can_send_messages && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Send</span>}
+                                        {perms.can_manage_bookings && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Bookings</span>}
+                                        {perms.can_view_calendar && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Calendar</span>}
+                                        {perms.can_manage_customers && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Customers</span>}
+                                        {perms.can_view_analytics && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Analytics</span>}
+                                        {perms.can_manage_settings && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Settings</span>}
+                                        {perms.can_manage_billing && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Billing</span>}
+                                        {activeCount === 0 && <span className="text-text-muted text-[10px]">None</span>}
+                                      </div>
+                                    </td>
+                                    <td className="py-2.5 px-3">
+                                      <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${
+                                        member.is_active ? 'text-emerald-400' : 'text-rose-400'
+                                      }`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${member.is_active ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                                        <span>{member.is_active ? 'Active' : 'Disabled'}</span>
+                                      </span>
+                                    </td>
+                                    <td className="py-2.5 px-3 text-right">
+                                      <div className="inline-flex items-center gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenEditStaff(member)}
+                                          className="p-1 text-text-muted hover:text-text-primary hover:bg-surface rounded transition-colors cursor-pointer"
+                                          title="Edit Roles & Permissions"
+                                        >
+                                          <SlidersHorizontal className="w-3.5 h-3.5 stroke-[1.5]" />
+                                        </button>
+                                        {member.role !== 'super_admin' && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteStaff(member.id, member.email)}
+                                            className="p-1 text-text-muted hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors cursor-pointer"
+                                            title="Delete staff credentials"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Drawer Bottom Actions */}
                   <div className="pt-3 border-t border-border flex items-center justify-between">
                     <button
@@ -3717,23 +4145,25 @@ export default function SuperAdminClients() {
                       Cancel
                     </button>
 
-                    <button
-                      type="submit"
-                      disabled={configSaving}
-                      className="px-5 py-2 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-2 disabled:opacity-50"
-                    >
-                      {configSaving ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
-                          <span>Saving configurations...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Check className="w-3.5 h-3.5 stroke-[1.5]" />
-                          <span>Save & Apply Settings</span>
-                        </>
-                      )}
-                    </button>
+                    {configTab !== 'team' && (
+                      <button
+                        type="submit"
+                        disabled={configSaving}
+                        className="px-5 py-2 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {configSaving ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
+                            <span>Saving configurations...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3.5 h-3.5 stroke-[1.5]" />
+                            <span>Save Configurations</span>
+                          </>
+                        )}
+                      </button>
+                    )}
                   </div>
                 </form>
               )}
@@ -4424,6 +4854,286 @@ export default function SuperAdminClients() {
                 </table>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── CREATE / EDIT STAFF MEMBER MODAL ── */}
+      {showStaffModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-surface border border-border rounded-lg shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-border flex items-center justify-between bg-surface-subtle">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-accent" />
+                <h3 className="text-sm font-semibold text-text-primary">
+                  {editingStaff ? 'Edit Staff / Sales Credentials & Access' : 'Create Staff / Sales Credential'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowStaffModal(false)}
+                className="text-text-muted hover:text-text-primary p-1 rounded transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveStaff} className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
+              {staffError && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{staffError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-text-secondary font-medium mb-1">
+                    Display Name <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={staffForm.display_name}
+                    onChange={(e) => setStaffForm({ ...staffForm, display_name: e.target.value })}
+                    placeholder="e.g. Dr. Sarah Mitchell / Priya"
+                    className="w-full px-3 py-1.5 bg-surface border border-border rounded text-text-primary focus:border-accent focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-text-secondary font-medium mb-1">
+                    Login Email <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    disabled={!!editingStaff}
+                    value={staffForm.email}
+                    onChange={(e) => setStaffForm({ ...staffForm, email: e.target.value })}
+                    placeholder="staff@clinic.com"
+                    className="w-full px-3 py-1.5 bg-surface border border-border rounded text-text-primary focus:border-accent focus:outline-none disabled:opacity-60 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-text-secondary font-medium mb-1">
+                  {editingStaff ? 'New Password (leave blank to keep unchanged)' : 'Initial Password'} <span className={editingStaff ? 'text-text-muted' : 'text-rose-400'}>{editingStaff ? '' : '*'}</span>
+                </label>
+                <input
+                  type="password"
+                  required={!editingStaff}
+                  value={staffForm.password}
+                  onChange={(e) => setStaffForm({ ...staffForm, password: e.target.value })}
+                  placeholder={editingStaff ? 'Leave blank to keep existing password' : '••••••••'}
+                  className="w-full px-3 py-1.5 bg-surface border border-border rounded text-text-primary focus:border-accent focus:outline-none font-mono"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-text-secondary font-medium mb-1">
+                    Assigned Role Preset
+                  </label>
+                  <select
+                    value={staffForm.role}
+                    onChange={(e) => {
+                      const newRole = e.target.value;
+                      setStaffForm({
+                        ...staffForm,
+                        role: newRole,
+                        permissions: getRoleDefaultPermissions(newRole, staffForm.permissions.assigned_doctor),
+                      });
+                    }}
+                    className="w-full px-3 py-1.5 bg-surface border border-border rounded text-text-primary focus:border-accent focus:outline-none"
+                  >
+                    <option value="admin">Administrator (Full Access)</option>
+                    <option value="sales">Sales Executive / Business Consultant</option>
+                    <option value="doctor">Doctor / Practitioner</option>
+                    <option value="receptionist">Receptionist / Front Desk</option>
+                    <option value="agent">Support Agent (Chats Only)</option>
+                    <option value="viewer">Viewer (Read-Only)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-text-secondary font-medium mb-1">
+                    Assigned Doctor Filter
+                  </label>
+                  <select
+                    value={staffForm.permissions.assigned_doctor || ''}
+                    onChange={(e) => {
+                      setStaffForm({
+                        ...staffForm,
+                        permissions: {
+                          ...staffForm.permissions,
+                          assigned_doctor: e.target.value,
+                        }
+                      });
+                    }}
+                    className="w-full px-3 py-1.5 bg-surface border border-border rounded text-text-primary focus:border-accent focus:outline-none"
+                  >
+                    <option value="">None / Clinic-wide (All Doctors)</option>
+                    {(configForm.doctors || []).map((doc) => (
+                      <option key={doc} value={doc}>{doc}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Granular Permissions Section */}
+              <div className="pt-2 border-t border-border space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-text-primary font-semibold uppercase tracking-wider text-[11px]">
+                    Granular Permission Controls
+                  </span>
+                  <span className="text-text-muted text-[10px]">What this user can and cannot access</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-surface-subtle/60 p-3 rounded border border-border">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={staffForm.permissions.can_view_inbox ?? true}
+                      onChange={(e) => setStaffForm({
+                        ...staffForm,
+                        permissions: { ...staffForm.permissions, can_view_inbox: e.target.checked }
+                      })}
+                      className="rounded border-border text-accent focus:ring-0"
+                    />
+                    <span className="text-text-primary font-medium">View Inbox & Chats</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={staffForm.permissions.can_send_messages ?? true}
+                      onChange={(e) => setStaffForm({
+                        ...staffForm,
+                        permissions: { ...staffForm.permissions, can_send_messages: e.target.checked }
+                      })}
+                      className="rounded border-border text-accent focus:ring-0"
+                    />
+                    <span className="text-text-primary font-medium">Send Outbound Messages</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={staffForm.permissions.can_manage_bookings ?? true}
+                      onChange={(e) => setStaffForm({
+                        ...staffForm,
+                        permissions: { ...staffForm.permissions, can_manage_bookings: e.target.checked }
+                      })}
+                      className="rounded border-border text-accent focus:ring-0"
+                    />
+                    <span className="text-text-primary font-medium">Manage Bookings</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={staffForm.permissions.can_view_calendar ?? true}
+                      onChange={(e) => setStaffForm({
+                        ...staffForm,
+                        permissions: { ...staffForm.permissions, can_view_calendar: e.target.checked }
+                      })}
+                      className="rounded border-border text-accent focus:ring-0"
+                    />
+                    <span className="text-text-primary font-medium">View Calendar & Schedules</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={staffForm.permissions.can_manage_customers ?? false}
+                      onChange={(e) => setStaffForm({
+                        ...staffForm,
+                        permissions: { ...staffForm.permissions, can_manage_customers: e.target.checked }
+                      })}
+                      className="rounded border-border text-accent focus:ring-0"
+                    />
+                    <span className="text-text-primary font-medium">Manage Customer Directory</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={staffForm.permissions.can_view_analytics ?? false}
+                      onChange={(e) => setStaffForm({
+                        ...staffForm,
+                        permissions: { ...staffForm.permissions, can_view_analytics: e.target.checked }
+                      })}
+                      className="rounded border-border text-accent focus:ring-0"
+                    />
+                    <span className="text-text-primary font-medium">View Analytics & Overview</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={staffForm.permissions.can_manage_settings ?? false}
+                      onChange={(e) => setStaffForm({
+                        ...staffForm,
+                        permissions: { ...staffForm.permissions, can_manage_settings: e.target.checked }
+                      })}
+                      className="rounded border-border text-accent focus:ring-0"
+                    />
+                    <span className="text-text-primary font-medium">Manage Clinic Settings</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={staffForm.permissions.can_manage_billing ?? false}
+                      onChange={(e) => setStaffForm({
+                        ...staffForm,
+                        permissions: { ...staffForm.permissions, can_manage_billing: e.target.checked }
+                      })}
+                      className="rounded border-border text-accent focus:ring-0"
+                    />
+                    <span className="text-text-primary font-medium">Manage Billing & Invoices</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Status Toggle */}
+              <div className="pt-2 border-t border-border flex items-center justify-between">
+                <div>
+                  <span className="text-text-primary font-medium">Login Access Active</span>
+                  <p className="text-[11px] text-text-muted">Disable to temporarily revoke this member&apos;s ability to log in.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStaffForm({ ...staffForm, is_active: !staffForm.is_active })}
+                  className={`w-10 h-5 flex items-center rounded-full p-0.5 transition-colors cursor-pointer ${
+                    staffForm.is_active ? 'bg-emerald-600 justify-end' : 'bg-surface-subtle border border-border justify-start'
+                  }`}
+                >
+                  <span className="w-4 h-4 bg-white rounded-full shadow-xs block" />
+                </button>
+              </div>
+
+              {/* Actions */}
+              <div className="pt-3 border-t border-border flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowStaffModal(false)}
+                  className="px-3 py-1.5 text-xs text-text-muted hover:text-text-primary border border-border rounded transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={staffSaving}
+                  className="px-4 py-1.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white font-semibold text-xs rounded transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  {staffSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{editingStaff ? 'Save Changes' : 'Create Staff / Sales Account'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

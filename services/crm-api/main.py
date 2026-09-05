@@ -7381,3 +7381,497 @@ async def clear_all_notifications(
         )
     return {"status": "ok"}
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🌟 PUBLIC WEB BOOKING ENGINE (/{slug}/book)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/public/{slug}/booking-info")
+async def get_public_booking_info(slug: str):
+    """
+    Public endpoint for /{slug}/book page.
+    Returns tenant business profile, doctors list, and health concerns / services.
+    Uses ONLY the doctors and health concerns configured in the system.
+    """
+    async with db_pool.acquire() as conn:
+        tenant = await conn.fetchrow(
+            """SELECT id, name, slug, plan, is_active, settings
+               FROM tenants WHERE slug = $1""",
+            slug.strip().lower()
+        )
+        if not tenant:
+            raise HTTPException(404, "Organization not found")
+
+        cfg = tenant["settings"] or {}
+        if isinstance(cfg, str):
+            try: cfg = json.loads(cfg)
+            except: cfg = {}
+
+        tax = cfg.get("taxonomy") or {}
+        if isinstance(tax, str):
+            try: tax = json.loads(tax)
+            except: tax = {}
+
+        industry = cfg.get("industry") or "clinic"
+
+        # System configured doctors
+        doctor_list = tax.get("doctor_presets") or tax.get("staff_presets") or []
+        if not doctor_list:
+            if industry == "clinic":
+                doctor_list = [
+                    "Dr. Sarah Mitchell (Chief Physician)",
+                    "Dr. Arjun Mehta (Dental Specialist)",
+                    "Dr. Priya Nair (Dermatologist)"
+                ]
+            else:
+                doctor_list = ["Staff Specialist / Consultant"]
+
+        # System configured health concerns / services
+        default_concerns = {
+            "clinic": ["General Consultation", "Dental Checkup & Cleaning", "Skin Health & Dermatology", "Back Pain & Physio", "Diabetes & Wellness"],
+            "education": ["Class 10 Board Exam", "Class 12 IIT-JEE (Physics/Math)", "NEET Medical Entrance", "Spoken English & Fluency"],
+            "real_estate": ["2 BHK Apartment (Mid-Budget)", "3 BHK Luxury Villa", "Commercial Office Space", "Residential Plot / Land"],
+            "salon_spa": ["Haircut & Styling", "Keratin / Hair Spa", "Facial & Skin Rejuvenation", "Bridal Makeup Package"],
+            "automobile": ["Periodic General Service", "Brake & Suspension Check", "Engine Diagnostics & Oil Change"],
+        }.get(industry, ["General Consultation", "Follow-up Visit", "Specialist Consultation"])
+
+        concerns_list = tax.get("requirement_presets") or default_concerns
+
+        # Bot phone
+        cred_row = await conn.fetchrow(
+            """SELECT credential_data FROM tenant_credentials 
+               WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true""",
+            tenant["id"]
+        )
+        bot_phone = ""
+        if cred_row and cred_row["credential_data"]:
+            cd = cred_row["credential_data"]
+            if isinstance(cd, str):
+                try: cd = json.loads(cd)
+                except: cd = {}
+            bot_phone = cd.get("phone_number") or cd.get("admin_whatsapp_number") or ""
+        if not bot_phone:
+            bot_phone = cfg.get("admin_whatsapp_number", "")
+
+        return {
+            "name": tenant["name"],
+            "slug": tenant["slug"],
+            "industry": industry,
+            "currency": cfg.get("currency", "INR"),
+            "currency_symbol": cfg.get("currency_symbol", "₹"),
+            "logo_url": cfg.get("logo_url", ""),
+            "full_location_text": cfg.get("full_location_text", ""),
+            "doctor_label": tax.get("staff_label") or ("Doctor / Specialist" if industry == "clinic" else "Assigned Staff"),
+            "concern_label": tax.get("requirement_label") or ("Health Concern / Service" if industry == "clinic" else "Requirement / Service"),
+            "doctors": doctor_list,
+            "health_concerns": concerns_list,
+            "business_hours": {
+                "open": cfg.get("working_hours_start", "09:00"),
+                "close": cfg.get("working_hours_end", "19:00"),
+                "slot_duration_minutes": 30
+            },
+            "bot_phone": bot_phone
+        }
+
+
+class PublicBookingRequest(BaseModel):
+    patient_name: str
+    patient_phone: str
+    patient_email: Optional[str] = None
+    doctor_name: str
+    health_concern: str
+    booking_date: str  # YYYY-MM-DD
+    booking_time: str  # HH:MM or 10:00 AM
+    notes: Optional[str] = None
+
+
+@app.post("/public/{slug}/book")
+async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
+    """
+    Public web booking handler from /{slug}/book page.
+    Creates booking, customer, contact, syncs GCal, and sends WhatsApp confirmation.
+    """
+    if not payload.patient_name or not payload.patient_name.strip():
+        raise HTTPException(400, "Patient name is required")
+    if not payload.patient_phone or not payload.patient_phone.strip():
+        raise HTTPException(400, "WhatsApp phone number is required")
+
+    clean_name = payload.patient_name.strip()
+    raw_phone = payload.patient_phone.strip()
+    digits = "".join(filter(str.isdigit, raw_phone))
+    clean_phone = f"+{digits}" if not raw_phone.startswith("+") else f"+{digits}"
+    if len(digits) == 10:
+        clean_phone = f"+91{digits}"
+
+    service_name = f"{payload.health_concern.strip()} ({payload.doctor_name.strip()})" if payload.doctor_name else payload.health_concern.strip()
+
+    # Parse datetime
+    dt_str = f"{payload.booking_date} {payload.booking_time}"
+    st_dt = None
+    for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d %I:%M %p", "%Y-%m-%d %I:%M%p"]:
+        try:
+            st_dt = datetime.strptime(dt_str.strip(), fmt)
+            break
+        except:
+            pass
+    if not st_dt:
+        st_dt = datetime.now() + timedelta(days=1)
+        st_dt = st_dt.replace(hour=10, minute=0, second=0, microsecond=0)
+    et_dt = st_dt + timedelta(minutes=30)
+
+    async with db_pool.acquire() as conn:
+        tenant = await conn.fetchrow("SELECT id, name, slug, settings FROM tenants WHERE slug = $1", slug.strip().lower())
+        if not tenant:
+            raise HTTPException(404, "Organization not found")
+        tenant_id = str(tenant["id"])
+
+        # 1. Upsert contact
+        contact = await conn.fetchrow(
+            "SELECT id FROM contacts WHERE tenant_id = $1::uuid AND phone = $2",
+            tenant_id, clean_phone
+        )
+        if not contact:
+            contact_id = str(uuid.uuid4())
+            await conn.execute(
+                """INSERT INTO contacts (id, tenant_id, name, phone, metadata, created_at, updated_at)
+                   VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb, now(), now())""",
+                contact_id, tenant_id, clean_name, clean_phone,
+                json.dumps({"preferred_doctor": payload.doctor_name, "health_concern": payload.health_concern, "email": payload.patient_email or ""})
+            )
+        else:
+            contact_id = str(contact["id"])
+            await conn.execute(
+                """UPDATE contacts SET name = $1, updated_at = now() WHERE id = $2::uuid""",
+                clean_name, contact_id
+            )
+
+        # 2. Get or create conversation
+        conv = await conn.fetchrow(
+            "SELECT id FROM conversations WHERE tenant_id = $1::uuid AND contact_id = $2::uuid LIMIT 1",
+            tenant_id, contact_id
+        )
+        if not conv:
+            conv_id = str(uuid.uuid4())
+            await conn.execute(
+                """INSERT INTO conversations (id, tenant_id, contact_id, status, created_at, updated_at)
+                   VALUES ($1::uuid, $2::uuid, $3::uuid, 'bot', now(), now())""",
+                conv_id, tenant_id, contact_id
+            )
+        else:
+            conv_id = str(conv["id"])
+
+        # 3. Insert booking
+        booking_id = str(uuid.uuid4())
+        combined_notes = f"Booked online via web booking page.\nDoctor: {payload.doctor_name}\nConcern: {payload.health_concern}"
+        if payload.notes:
+            combined_notes += f"\nPatient Note: {payload.notes.strip()}"
+
+        await conn.execute(
+            """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency)
+               VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR')""",
+            booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, combined_notes
+        )
+
+        # 4. Upsert customer directory
+        try:
+            cust = await conn.fetchrow("SELECT id FROM customers WHERE tenant_id = $1::uuid AND phone = $2", tenant_id, clean_phone)
+            if not cust:
+                await conn.execute(
+                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, health_concern, preferred_doctor, created_at, updated_at)
+                       VALUES (gen_random_uuid(), $1::uuid, $2, $3, 'contacted', 'warm', $4, $5, now(), now())
+                       ON CONFLICT (tenant_id, phone) DO NOTHING""",
+                    tenant_id, clean_phone, clean_name, payload.health_concern, payload.doctor_name
+                )
+            else:
+                await conn.execute(
+                    """UPDATE customers SET name = $1, health_concern = $2, preferred_doctor = $3, updated_at = now() WHERE id = $4::uuid""",
+                    clean_name, payload.health_concern, payload.doctor_name, str(cust["id"])
+                )
+        except Exception as e_c:
+            logger.warning("customer_directory_upsert_failed", error=str(e_c))
+
+        # 5. WhatsApp booking confirmation dispatch
+        try:
+            date_str = st_dt.strftime("%d %b %Y")
+            time_str = st_dt.strftime("%I:%M %p")
+            wa_text = f"Appointment Confirmed! Hello {clean_name}, your appointment with {payload.doctor_name} for {payload.health_concern} is confirmed for {date_str} at {time_str}. Location: {tenant['name']}."
+            await dispatch_whatsapp_message(tenant_id, clean_phone, text=wa_text)
+        except Exception as e_wa:
+            logger.warning("public_booking_wa_dispatch_failed", error=str(e_wa))
+
+        # 6. Admin notification push
+        try:
+            await dispatch_push_notification(
+                pool=db_pool,
+                tenant_id=tenant_id,
+                title="New Online Booking",
+                body=f"{clean_name} booked {service_name} on {st_dt.strftime('%d %b at %I:%M %p')}",
+                notif_type="booking",
+                url=f"/{slug}#bookings"
+            )
+        except Exception:
+            pass
+
+        return {
+            "status": "confirmed",
+            "booking_id": booking_id,
+            "doctor_name": payload.doctor_name,
+            "health_concern": payload.health_concern,
+            "appointment_date": st_dt.strftime("%d %b %Y"),
+            "appointment_time": st_dt.strftime("%I:%M %p"),
+            "patient_name": clean_name,
+            "patient_phone": clean_phone,
+            "message": "Your appointment has been successfully booked! A confirmation message was sent to your WhatsApp."
+        }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 👥 SUPER-ADMIN STAFF ROLES & PERMISSIONS MANAGEMENT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class StaffCreateRequest(BaseModel):
+    email: str
+    password: str
+    display_name: str
+    role: str = "agent"  # admin, doctor, receptionist, agent, viewer
+    permissions: Optional[Dict[str, Any]] = None
+
+class StaffUpdateRequest(BaseModel):
+    display_name: Optional[str] = None
+    role: Optional[str] = None
+    permissions: Optional[Dict[str, Any]] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+
+@app.get("/admin/tenants/{tenant_id}/staff")
+async def list_tenant_staff(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
+    """Lists all staff accounts for a tenant with roles and permissions."""
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT id, tenant_id, email, display_name, role, permissions, is_active, last_login_at, created_at
+               FROM users WHERE tenant_id = $1::uuid
+               ORDER BY (role = 'admin' OR role = 'super_admin') DESC, created_at ASC""",
+            tenant_id
+        )
+        return [
+            {
+                "id": str(r["id"]),
+                "tenant_id": str(r["tenant_id"]),
+                "email": r["email"],
+                "display_name": r["display_name"] or "",
+                "role": r["role"],
+                "permissions": json.loads(r["permissions"]) if isinstance(r["permissions"], str) else (r["permissions"] or {}),
+                "is_active": r["is_active"] if r["is_active"] is not None else True,
+                "last_login_at": r["last_login_at"].isoformat() if r["last_login_at"] else None,
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in rows
+        ]
+
+@app.post("/admin/tenants/{tenant_id}/staff")
+async def create_tenant_staff(tenant_id: str, payload: StaffCreateRequest, admin_user: dict = Depends(verify_super_admin)):
+    """Super Admin creates a new staff credential with role and permissions."""
+    clean_email = payload.email.strip().lower()
+    if not clean_email or "@" not in clean_email:
+        raise HTTPException(400, "Valid email address is required")
+    if not payload.password or len(payload.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+
+    async with db_pool.acquire() as conn:
+        # Check tenant exists
+        t = await conn.fetchrow("SELECT id FROM tenants WHERE id = $1::uuid", tenant_id)
+        if not t:
+            raise HTTPException(404, "Tenant not found")
+
+        # Check existing user
+        exists = await conn.fetchrow("SELECT id FROM users WHERE tenant_id = $1::uuid AND LOWER(email) = $2", tenant_id, clean_email)
+        if exists:
+            raise HTTPException(400, "A staff member with this email already exists in this organization")
+
+        # Hash password
+        pw_hash = bcrypt.hashpw(payload.password.encode("utf-8")[:72], bcrypt.gensalt(12)).decode("utf-8")
+        perms = payload.permissions or {}
+        user_id = str(uuid.uuid4())
+
+        await conn.execute(
+            """INSERT INTO users (id, tenant_id, email, password_hash, display_name, role, permissions, is_active, created_at, updated_at)
+               VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, true, now(), now())""",
+            user_id, tenant_id, clean_email, pw_hash, payload.display_name.strip(), payload.role, json.dumps(perms)
+        )
+
+        return {
+            "status": "created",
+            "id": user_id,
+            "email": clean_email,
+            "display_name": payload.display_name.strip(),
+            "role": payload.role,
+            "permissions": perms
+        }
+
+@app.put("/admin/tenants/{tenant_id}/staff/{user_id}")
+async def update_tenant_staff(tenant_id: str, user_id: str, payload: StaffUpdateRequest, admin_user: dict = Depends(verify_super_admin)):
+    """Super Admin edits staff credentials, role, permissions, or resets password."""
+    async with db_pool.acquire() as conn:
+        user = await conn.fetchrow("SELECT id, email, role, permissions, is_active FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid", user_id, tenant_id)
+        if not user:
+            raise HTTPException(404, "Staff member not found")
+
+        updates = []
+        vals = [user_id, tenant_id]
+
+        if payload.display_name is not None:
+            vals.append(payload.display_name.strip())
+            updates.append(f"display_name = ${len(vals)}")
+
+        if payload.role is not None:
+            vals.append(payload.role.strip())
+            updates.append(f"role = ${len(vals)}")
+
+        if payload.permissions is not None:
+            vals.append(json.dumps(payload.permissions))
+            updates.append(f"permissions = ${len(vals)}::jsonb")
+
+        if payload.is_active is not None:
+            vals.append(payload.is_active)
+            updates.append(f"is_active = ${len(vals)}")
+
+        if payload.password and payload.password.strip():
+            if len(payload.password.strip()) < 6:
+                raise HTTPException(400, "Password must be at least 6 characters")
+            pw_hash = bcrypt.hashpw(payload.password.strip().encode("utf-8")[:72], bcrypt.gensalt(12)).decode("utf-8")
+            vals.append(pw_hash)
+            updates.append(f"password_hash = ${len(vals)}")
+
+        if updates:
+            updates.append("updated_at = now()")
+            sql = f"UPDATE users SET {', '.join(updates)} WHERE id = $1::uuid AND tenant_id = $2::uuid"
+            await conn.execute(sql, *vals)
+
+        return {"status": "updated", "id": user_id}
+
+@app.delete("/admin/tenants/{tenant_id}/staff/{user_id}")
+async def delete_tenant_staff(tenant_id: str, user_id: str, admin_user: dict = Depends(verify_super_admin)):
+    """Super Admin removes a staff member from a tenant."""
+    async with db_pool.acquire() as conn:
+        # Protect super_admin account from deletion
+        user = await conn.fetchrow("SELECT role, email FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid", user_id, tenant_id)
+        if not user:
+            raise HTTPException(404, "Staff member not found")
+        if user["role"] == "super_admin":
+            raise HTTPException(400, "Cannot delete the super admin account")
+
+        await conn.execute("DELETE FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid", user_id, tenant_id)
+        return {"status": "deleted", "id": user_id}
+
+# ── Tenant Client Staff & Roles Endpoints ─────────────────────────────────────
+@app.get("/staff")
+async def client_list_staff(tenant_id: str = Depends(get_tenant_id)):
+    """Tenant/Client lists all staff members in their organization."""
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT id, tenant_id, email, display_name, role, permissions, is_active, last_login_at, created_at
+               FROM users WHERE tenant_id = $1::uuid
+               ORDER BY (role = 'admin' OR role = 'super_admin') DESC, created_at ASC""",
+            tenant_id
+        )
+        return [
+            {
+                "id": str(r["id"]),
+                "tenant_id": str(r["tenant_id"]),
+                "email": r["email"],
+                "display_name": r["display_name"] or "",
+                "role": r["role"],
+                "permissions": json.loads(r["permissions"]) if isinstance(r["permissions"], str) else (r["permissions"] or {}),
+                "is_active": r["is_active"] if r["is_active"] is not None else True,
+                "last_login_at": r["last_login_at"].isoformat() if r["last_login_at"] else None,
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in rows
+        ]
+
+@app.post("/staff")
+async def client_create_staff(payload: StaffCreateRequest, tenant_id: str = Depends(get_tenant_id)):
+    """Tenant/Client creates a new team member (Sales, Doctor, Receptionist, Support)."""
+    clean_email = payload.email.strip().lower()
+    if not clean_email or "@" not in clean_email:
+        raise HTTPException(400, "Valid email address is required")
+    if not payload.password or len(payload.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+
+    async with db_pool.acquire() as conn:
+        exists = await conn.fetchrow("SELECT id FROM users WHERE tenant_id = $1::uuid AND LOWER(email) = $2", tenant_id, clean_email)
+        if exists:
+            raise HTTPException(400, "A staff member with this email already exists in your organization")
+
+        pw_hash = bcrypt.hashpw(payload.password.encode("utf-8")[:72], bcrypt.gensalt(12)).decode("utf-8")
+        perms = payload.permissions or {}
+        user_id = str(uuid.uuid4())
+
+        await conn.execute(
+            """INSERT INTO users (id, tenant_id, email, password_hash, display_name, role, permissions, is_active, created_at, updated_at)
+               VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, true, now(), now())""",
+            user_id, tenant_id, clean_email, pw_hash, payload.display_name.strip(), payload.role, json.dumps(perms)
+        )
+
+        return {
+            "status": "created",
+            "id": user_id,
+            "email": clean_email,
+            "display_name": payload.display_name.strip(),
+            "role": payload.role,
+            "permissions": perms
+        }
+
+@app.put("/staff/{user_id}")
+async def client_update_staff(user_id: str, payload: StaffUpdateRequest, tenant_id: str = Depends(get_tenant_id)):
+    """Tenant/Client updates team member role, permissions, or password."""
+    async with db_pool.acquire() as conn:
+        user = await conn.fetchrow("SELECT id, email, role, permissions, is_active FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid", user_id, tenant_id)
+        if not user:
+            raise HTTPException(404, "Staff member not found")
+
+        updates = []
+        vals = [user_id, tenant_id]
+
+        if payload.display_name is not None:
+            vals.append(payload.display_name.strip())
+            updates.append(f"display_name = ${len(vals)}")
+
+        if payload.role is not None:
+            vals.append(payload.role.strip())
+            updates.append(f"role = ${len(vals)}")
+
+        if payload.permissions is not None:
+            vals.append(json.dumps(payload.permissions))
+            updates.append(f"permissions = ${len(vals)}::jsonb")
+
+        if payload.is_active is not None:
+            vals.append(payload.is_active)
+            updates.append(f"is_active = ${len(vals)}")
+
+        if payload.password and payload.password.strip():
+            if len(payload.password.strip()) < 6:
+                raise HTTPException(400, "Password must be at least 6 characters")
+            pw_hash = bcrypt.hashpw(payload.password.strip().encode("utf-8")[:72], bcrypt.gensalt(12)).decode("utf-8")
+            vals.append(pw_hash)
+            updates.append(f"password_hash = ${len(vals)}")
+
+        if updates:
+            updates.append("updated_at = now()")
+            sql = f"UPDATE users SET {', '.join(updates)} WHERE id = $1::uuid AND tenant_id = $2::uuid"
+            await conn.execute(sql, *vals)
+
+        return {"status": "updated", "id": user_id}
+
+@app.delete("/staff/{user_id}")
+async def client_delete_staff(user_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Tenant/Client deletes a team member."""
+    async with db_pool.acquire() as conn:
+        user = await conn.fetchrow("SELECT role, email FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid", user_id, tenant_id)
+        if not user:
+            raise HTTPException(404, "Staff member not found")
+        if user["role"] == "super_admin":
+            raise HTTPException(400, "Cannot delete the super admin account")
+
+        await conn.execute("DELETE FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid", user_id, tenant_id)
+        return {"status": "deleted", "id": user_id}

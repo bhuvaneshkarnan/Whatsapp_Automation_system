@@ -97,7 +97,7 @@ async def login_for_access_token(
     username_clean = (form_data.username or "").strip().lower()
     async with db_pool.acquire() as conn:
         user = await conn.fetchrow(
-            "SELECT id, tenant_id, password_hash, role, is_active FROM users WHERE LOWER(TRIM(email)) = $1",
+            "SELECT id, tenant_id, password_hash, role, display_name, permissions, is_active FROM users WHERE LOWER(TRIM(email)) = $1",
             username_clean
         )
 
@@ -157,8 +157,23 @@ async def login_for_access_token(
 
         # 30 days if remember_me else 24 hours
         access_token_expires = timedelta(days=30) if remember_me else timedelta(hours=24)
+        
+        user_perms = user.get("permissions") or {}
+        if isinstance(user_perms, str):
+            try:
+                import json
+                user_perms = json.loads(user_perms)
+            except Exception:
+                user_perms = {}
+
         access_token = create_access_token(
-            data={"sub": str(user["id"]), "tenant_id": str(user["tenant_id"]), "role": user["role"]},
+            data={
+                "sub": str(user["id"]), 
+                "tenant_id": str(user["tenant_id"]), 
+                "role": user["role"],
+                "display_name": user.get("display_name") or "",
+                "permissions": user_perms
+            },
             expires_delta=access_token_expires
         )
         
@@ -190,6 +205,12 @@ async def read_users_me(token: str = Depends(oauth2_scheme)):
                     if token_iat and datetime.fromtimestamp(token_iat, tz=timezone.utc) < tenant_inv:
                         raise HTTPException(status_code=401, detail="Session expired due to account status change. Please log in again.")
 
-        return {"id": user_id, "tenant_id": tenant_id, "role": role}
+        return {
+            "id": user_id, 
+            "tenant_id": tenant_id, 
+            "role": role,
+            "display_name": payload.get("display_name") or "",
+            "permissions": payload.get("permissions") or {}
+        }
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
