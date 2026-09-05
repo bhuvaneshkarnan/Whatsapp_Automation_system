@@ -116,6 +116,10 @@ import {
   BarChart2,
   Save,
   Settings2,
+  CreditCard,
+  AlertTriangle,
+  ExternalLink,
+  Lock,
 } from 'lucide-react';
 
 const COUNTRY_CODES = [
@@ -761,7 +765,7 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchNotifications();
     checkPushStatus();
-    const interval = setInterval(fetchNotifications, 20000);
+    const interval = setInterval(fetchNotifications, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -864,7 +868,7 @@ export default function DashboardPage() {
   const [quickCrmPhone, setQuickCrmPhone] = useState('');
   const [quickCrmConcern, setQuickCrmConcern] = useState('General Consultation');
   const [quickCrmLead, setQuickCrmLead] = useState<'hot' | 'warm' | 'cold'>('warm');
-  const [quickCrmDoctor, setQuickCrmDoctor] = useState('Dr. Sarah Mitchell');
+  const [quickCrmDoctor, setQuickCrmDoctor] = useState('');
   const [savingQuickCrm, setSavingQuickCrm] = useState(false);
 
   // Google Tasks Sync State
@@ -1137,7 +1141,7 @@ export default function DashboardPage() {
     gemini_api_key: '',
     groq_api_key: '',
     opencode_api_key: '',
-    opencode_base_url: 'https://api.openai.com/v1',
+    opencode_base_url: 'https://opencode.ai/zen/v1',
     assistant_name: 'Rakshaya',
     bot_goal: '',
     services_text: '',
@@ -1195,10 +1199,10 @@ export default function DashboardPage() {
   const [newDoctorInput, setNewDoctorInput] = useState('');
   const [savingDoctors, setSavingDoctors] = useState(false);
 
-  const defaultDoctorList = ['Dr. Sarah Mitchell', 'Dr. Rajesh Kumar', 'Dr. Emily Stone'];
-  const configuredDoctors = (settingsForm.taxonomy?.doctor_presets && settingsForm.taxonomy.doctor_presets.length > 0)
+  const defaultDoctorList: string[] = [];
+  const configuredDoctors = Array.isArray(settingsForm.taxonomy?.doctor_presets)
     ? settingsForm.taxonomy.doctor_presets
-    : (settingsForm.taxonomy?.staff_presets && settingsForm.taxonomy.staff_presets.length > 0)
+    : Array.isArray(settingsForm.taxonomy?.staff_presets)
     ? settingsForm.taxonomy.staff_presets
     : defaultDoctorList;
 
@@ -1241,16 +1245,14 @@ export default function DashboardPage() {
         doctor_presets: doctorEditList,
         staff_presets: doctorEditList,
       };
-      const updatedForm = {
-        ...settingsForm,
+      // Send clean, focused payload to guarantee update without interference
+      await crm.updateSettings({
         taxonomy: updatedTaxonomy,
-      };
-      const res = await crm.updateSettings(updatedForm);
-      if (res && res.taxonomy) {
-        setSettingsForm(res);
-      } else {
-        setSettingsForm(updatedForm);
-      }
+      });
+      setSettingsForm((prev) => ({
+        ...prev,
+        taxonomy: updatedTaxonomy,
+      }));
       setDoctorEditModalOpen(false);
       setActionNotice('Preferred doctors list updated successfully.');
       setTimeout(() => setActionNotice(null), 2500);
@@ -1586,10 +1588,39 @@ export default function DashboardPage() {
   useEffect(() => {
     if (activeNav === 'marketing' && marketingSubTab === 'analytics') {
       setLoadingAnalytics(true);
+      const timer = setTimeout(() => {
+        setLoadingAnalytics(false);
+      }, 5000);
       marketing.getAnalytics()
-        .then((data) => setAnalyticsData(data))
-        .catch(() => {})
-        .finally(() => setLoadingAnalytics(false));
+        .then((data) => {
+          clearTimeout(timer);
+          setAnalyticsData(data);
+        })
+        .catch((err) => {
+          clearTimeout(timer);
+          console.error('Failed to load marketing analytics:', err);
+          setAnalyticsData({
+            summary: {
+              total_broadcasts: 0,
+              total_sent: 0,
+              total_delivered: 0,
+              delivery_rate: 0,
+              total_read: 0,
+              read_rate: 0,
+              total_replied: 0,
+              reply_rate: 0,
+              total_converted: 0,
+              conversion_rate: 0,
+              attributed_revenue: 0,
+              average_ticket_size: 0,
+            },
+            campaigns: [],
+          });
+        })
+        .finally(() => {
+          clearTimeout(timer);
+          setLoadingAnalytics(false);
+        });
     }
   }, [activeNav, marketingSubTab]);
 
@@ -1724,13 +1755,71 @@ export default function DashboardPage() {
             // silent
           }
         }
+
+        // 5. Real-time Bookings directory automatic live sync (when on bookings tab)
+        if (activeNav === 'bookings') {
+          try {
+            const freshBookings = await crm.getBookings(undefined, 200);
+            if (isMounted && Array.isArray(freshBookings)) {
+              setBookings((prev) => {
+                const isDiff =
+                  freshBookings.length !== prev.length ||
+                  freshBookings.some(
+                    (b, idx) =>
+                      !prev[idx] ||
+                      prev[idx].id !== b.id ||
+                      prev[idx].status !== b.status ||
+                      prev[idx].start_time !== b.start_time ||
+                      prev[idx].end_time !== b.end_time ||
+                      prev[idx].service !== b.service ||
+                      prev[idx].customer_name !== b.customer_name ||
+                      prev[idx].staff_member !== b.staff_member
+                  );
+                return isDiff ? freshBookings : prev;
+              });
+            }
+          } catch {
+            // silent
+          }
+        }
+
+        // 6. Real-time Calendar sync (when on calendar tab)
+        if (activeNav === 'calendar') {
+          try {
+            const [bData, cData, tData] = await Promise.all([
+              crm.getBookings(undefined, 500).catch(() => []),
+              crm.getCustomers({ limit: 500 }).catch(() => []),
+              crm.getTasks('all').catch(() => []),
+            ]);
+            if (isMounted) {
+              if (Array.isArray(bData)) {
+                setBookings((prev) => {
+                  const isDiff =
+                    bData.length !== prev.length ||
+                    bData.some(
+                      (b, idx) =>
+                        !prev[idx] ||
+                        prev[idx].id !== b.id ||
+                        prev[idx].status !== b.status ||
+                        prev[idx].start_time !== b.start_time
+                    );
+                  return isDiff ? bData : prev;
+                });
+              }
+              if (Array.isArray(cData)) setCustomers(cData);
+              if (Array.isArray(tData)) setTasks(tData);
+            }
+          } catch {
+            // silent
+          }
+        }
       } finally {
         isPollingRef.current = false;
       }
     };
 
-    // Fast 1200ms polling for live Inbox, 3000ms for Customers tab, 5000ms for other sections
-    const pollIntervalMs = activeNav === 'inbox' ? 1200 : (activeNav === 'customers' || activeNav === 'followup' ? 3000 : 5000);
+    // Fast 1200ms polling for live Inbox, 2500ms for Bookings / Calendar / Customers tabs, 5000ms for other sections
+    const pollIntervalMs = activeNav === 'inbox' ? 1200 : (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'bookings' || activeNav === 'calendar' ? 2500 : 5000);
     const interval = setInterval(poll, pollIntervalMs);
 
     // Instant poll on tab focus / visibility restore
@@ -1914,7 +2003,7 @@ export default function DashboardPage() {
       setQuickCrmName(defaultName || '');
       setQuickCrmConcern('General Consultation');
       setQuickCrmLead('warm');
-      setQuickCrmDoctor('Dr. Sarah Mitchell');
+      setQuickCrmDoctor(availableDoctors[0] || '');
       setShowQuickAddCrmModal(true);
     }
   }
@@ -1929,7 +2018,7 @@ export default function DashboardPage() {
         name: quickCrmName.trim() || 'Customer',
         health_concern: quickCrmConcern.trim() || 'General Consultation',
         lead_probability: quickCrmLead,
-        preferred_doctor: quickCrmDoctor.trim() || 'Dr. Sarah Mitchell',
+        preferred_doctor: quickCrmDoctor.trim() || undefined,
         status: 'contacted',
       });
       setShowQuickAddCrmModal(false);
@@ -3151,6 +3240,79 @@ export default function DashboardPage() {
         <div className="flex flex-col items-center gap-1 text-center">
           <span className="text-sm font-semibold text-white tracking-wide">Boldlabs CRM</span>
           <span className="text-xs text-slate-400">Verifying authorized access...</span>
+        </div>
+      </div>
+    );
+  }
+
+  const isWorkspaceLocked =
+    user?.role !== 'superadmin' &&
+    Boolean(
+      settingsForm.subscription_status === 'payment_failed' ||
+      settingsForm.subscription_status === 'paused' ||
+      settingsForm.subscription_status === 'cancelled' ||
+      settingsForm.org_lifecycle_stage === 'payment_failed' ||
+      settingsForm.org_lifecycle_stage === 'paused'
+    );
+
+  if (isWorkspaceLocked) {
+    return (
+      <div className="min-h-screen bg-[#090d16] text-text-primary flex flex-col justify-center items-center px-4 font-sans select-none">
+        <div className="w-full max-w-md bg-surface border border-amber-500/30 rounded-xl p-6 shadow-2xl space-y-5 text-center">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 mx-auto">
+            <CreditCard className="w-7 h-7 stroke-[1.5]" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-text-primary">
+              Workspace Access Paused
+            </h1>
+            <p className="text-xs text-text-muted mt-1">
+              Organization: <span className="text-amber-400 font-semibold">{settingsForm.name || 'Boldlabs CRM'}</span>
+            </p>
+          </div>
+
+          <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg text-left text-xs space-y-2">
+            <div className="flex items-center gap-2 text-amber-400 font-semibold">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>Subscription Payment Required</span>
+            </div>
+            <p className="text-text-secondary leading-relaxed">
+              Your monthly subscription for this workspace has an outstanding or pending payment. Your customer records, chat histories, and configurations remain completely secure.
+            </p>
+          </div>
+
+          <div className="space-y-3 pt-2">
+            {settingsForm.razorpay_short_url ? (
+              <a
+                href={settingsForm.razorpay_short_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm rounded-lg transition-colors duration-150 flex items-center justify-center gap-2 shadow-lg hover:shadow-emerald-600/20"
+              >
+                <CreditCard className="w-4 h-4" />
+                <span>Complete Payment via Razorpay</span>
+                <ExternalLink className="w-4 h-4" />
+              </a>
+            ) : (
+              <div className="p-3 bg-white/5 border border-border rounded-lg text-xs text-text-muted">
+                Please contact support or your account manager to renew access.
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  localStorage.removeItem('auth_token');
+                  window.location.replace('/login');
+                }
+              }}
+              className="w-full py-2.5 px-4 bg-transparent hover:bg-surface-hover text-text-secondary hover:text-text-primary text-xs rounded-lg transition-colors duration-150 flex items-center justify-center gap-2 border border-border"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sign out of account</span>
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -7997,9 +8159,9 @@ export default function DashboardPage() {
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                           {[
                             { label: 'Total Sent', value: analyticsData?.summary?.total_sent ?? campaigns.reduce((a, c) => a + (c.sent_count || 0), 0), suffix: '', Icon: SendHorizontal, color: 'text-text-primary' },
-                            { label: 'Delivery Rate', value: analyticsData?.summary?.delivery_rate ?? 98.2, suffix: '%', Icon: CheckCircle, color: 'text-emerald-700' },
-                            { label: 'Read Rate', value: analyticsData?.summary?.read_rate ?? 82.5, suffix: '%', Icon: Eye, color: 'text-blue-700' },
-                            { label: 'Reply Rate', value: analyticsData?.summary?.reply_rate ?? 38.0, suffix: '%', Icon: MessageSquare, color: 'text-purple-700' },
+                            { label: 'Delivery Rate', value: analyticsData?.summary?.delivery_rate ?? 0, suffix: '%', Icon: CheckCircle, color: 'text-emerald-700' },
+                            { label: 'Read Rate', value: analyticsData?.summary?.read_rate ?? 0, suffix: '%', Icon: Eye, color: 'text-blue-700' },
+                            { label: 'Reply Rate', value: analyticsData?.summary?.reply_rate ?? 0, suffix: '%', Icon: MessageSquare, color: 'text-purple-700' },
                             { label: 'Conversions', value: analyticsData?.summary?.total_converted ?? 0, suffix: '', Icon: TrendingUp, color: 'text-orange-700' },
                             { label: 'Revenue', value: analyticsData?.summary?.attributed_revenue ?? 0, suffix: '', prefix: currentCurrencySymbol, Icon: Coins, color: 'text-emerald-700' },
                           ].map((kpi) => (
@@ -8044,10 +8206,10 @@ export default function DashboardPage() {
                                 ) : (
                                   (analyticsData?.campaigns ?? campaigns).map((cmp) => {
                                     const sent = cmp.sent_count || cmp.total_recipients || 0;
-                                    const deliv = cmp.delivered_count || Math.round(sent * 0.98);
-                                    const read = cmp.read_count || Math.round(deliv * 0.82);
-                                    const replied = cmp.replied_count || Math.round(read * 0.38);
-                                    const converted = cmp.converted_count || Math.round(sent * 0.18);
+                                    const deliv = cmp.delivered_count || 0;
+                                    const read = cmp.read_count || 0;
+                                    const replied = cmp.replied_count || 0;
+                                    const converted = cmp.converted_count || 0;
                                     const delivPct = sent > 0 ? Math.round(deliv / sent * 100) : 0;
                                     const readPct = deliv > 0 ? Math.round(read / deliv * 100) : 0;
                                     return (
@@ -9953,7 +10115,7 @@ export default function DashboardPage() {
                     type="text"
                     value={overallNoteAuthor}
                     onChange={e => setOverallNoteAuthor(e.target.value)}
-                    placeholder="e.g. Staff, Dr. Sarah Mitchell"
+                    placeholder="e.g. Staff Name"
                     className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
                   />
                 </div>

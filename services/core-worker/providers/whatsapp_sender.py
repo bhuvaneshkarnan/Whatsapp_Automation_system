@@ -2,6 +2,7 @@
 WhatsApp sender — sends messages using the client's own phone number ID and access token.
 Each client has their own official WhatsApp Business number.
 """
+import re
 import httpx
 import structlog
 
@@ -35,10 +36,13 @@ async def send_text(
     Returns:
         wa_message_id of the sent message
     """
+    clean_to = re.sub(r'[^0-9]', '', str(to))
+    if len(clean_to) == 10:
+        clean_to = f"91{clean_to}"
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
-        "to": to,
+        "to": clean_to,
         "type": "text",
         "text": {"preview_url": False, "body": body},
     }
@@ -60,13 +64,21 @@ async def send_template(
     Required for reaching customers outside the 24-hour session window.
     Automatically adapts parameter count if Meta template expects 2, 3, or 4 parameters.
     """
-    clean_to = to.replace("+", "").replace(" ", "").replace("-", "").strip()
+    clean_to = re.sub(r'[^0-9]', '', str(to))
+    if len(clean_to) == 10:
+        clean_to = f"91{clean_to}"
+
+    # If template is admin_reschedule_notice (currently pending review on Meta), fallback to admin_notification immediately
+    active_template = template_name
+    if active_template == "admin_reschedule_notice":
+        active_template = "admin_notification"
+
     payload = {
         "messaging_product": "whatsapp",
         "to": clean_to,
         "type": "template",
         "template": {
-            "name": template_name,
+            "name": active_template,
             "language": {"code": language_code},
             "components": components,
         },
@@ -76,12 +88,20 @@ async def send_template(
         return await _send(phone_number_id, access_token, payload, timeout)
     except WhatsAppSendError as e:
         err_str = str(e)
+        # If admin_reschedule_notice failed because pending/not approved in Meta, fallback to admin_notification
+        if ("132001" in err_str or "does not exist" in err_str) and active_template != "admin_notification" and "reschedule" in active_template:
+            logger.info("reschedule_template_pending_meta_fallback_to_admin_notification", to=clean_to)
+            payload["template"]["name"] = "admin_notification"
+            try:
+                return await _send(phone_number_id, access_token, payload, timeout)
+            except Exception:
+                pass
+
         if "132000" in err_str and "expected number of params" in err_str:
-            import re
             m = re.search(r'expected number of params \((\d+)\)', err_str)
             if m:
                 expected_count = int(m.group(1))
-                logger.info("retrying_template_with_adapted_param_count", template=template_name, expected=expected_count)
+                logger.info("retrying_template_with_adapted_param_count", template=active_template, expected=expected_count)
                 if components and len(components) > 0 and "parameters" in components[0]:
                     current_params = components[0]["parameters"]
                     if expected_count < len(current_params):

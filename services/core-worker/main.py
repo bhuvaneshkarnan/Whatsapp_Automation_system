@@ -83,73 +83,64 @@ def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_bo
 
 
 def build_booking_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str, notes: str, full_location: str) -> str:
-    loc_html = f"""<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">📍 Location:</td><td style="padding: 10px 0; color: #0f172a;">{full_location}</td></tr>""" if full_location else ""
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    notes_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Notes</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{notes}</td></tr>""" if notes and notes != "None" else ""
     return f"""
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
-  <div style="background-color: #0f172a; background: linear-gradient(135deg, #0f172a, #1e293b); padding: 24px 20px; border-radius: 8px; text-align: center;">
-    <span style="display: inline-block; background: rgba(255,255,255,0.15); color: #ffffff !important; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase;">Admin Notification</span>
-    <h2 style="margin: 10px 0 4px 0; font-size: 22px; font-weight: bold; color: #ffffff !important; text-shadow: 0 1px 2px rgba(0,0,0,0.4);">🚨 New Booking Received</h2>
-    <p style="margin: 0; font-size: 13px; color: #cbd5e1 !important;">Scheduled via WhatsApp AI Assistant</p>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; background-color: #f1f5f9; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Admin Notice</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">New Booking Received</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Scheduled via WhatsApp Assistant</p>
   </div>
-  <div style="padding: 24px 0;">
-    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hello <strong>Admin & Team</strong>,</p>
-    <p style="font-size: 14px; line-height: 1.5; color: #475569;">A new appointment has been scheduled by a client. Here are the client and booking details:</p>
-    
-    <div style="margin: 18px 0; padding: 16px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-      <h4 style="margin: 0 0 12px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: #0f172a;">👤 Client Information</h4>
-      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-        <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; color: #64748b; font-weight: 600; width: 35%;">Client Name:</td><td style="padding: 8px 0; color: #0f172a; font-weight: bold;">{name}</td></tr>
-        <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; color: #64748b; font-weight: 600;">WhatsApp Phone:</td><td style="padding: 8px 0; color: #0f172a;">{contact_phone}</td></tr>
-        <tr><td style="padding: 8px 0; color: #64748b; font-weight: 600;">Client Email:</td><td style="padding: 8px 0; color: #0f172a;">{customer_email or 'Not provided'}</td></tr>
-      </table>
-    </div>
+  
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not provided'}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      {loc_html}
+      {notes_html}
+    </table>
+  </div>
 
-    <div style="margin: 18px 0; padding: 16px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-      <h4 style="margin: 0 0 12px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: #0f172a;">📅 Appointment Schedule</h4>
-      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-        <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; color: #64748b; font-weight: 600; width: 35%;">Service:</td><td style="padding: 8px 0; color: #0f172a; font-weight: bold;">{service_name}</td></tr>
-        <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; color: #64748b; font-weight: 600;">Date & Time:</td><td style="padding: 8px 0; color: #0f172a; font-weight: bold;">{formatted_date} at {formatted_time}</td></tr>
-        {loc_html}
-        <tr><td style="padding: 8px 0; color: #64748b; font-weight: 600;">Notes:</td><td style="padding: 8px 0; color: #0f172a;">{notes}</td></tr>
-      </table>
-    </div>
-    
-    <div style="margin-top: 20px; padding: 12px 16px; background-color: #ecfdf5; border-left: 4px solid #10b981; border-radius: 4px; font-size: 13px; color: #065f46;">
-      ✅ <strong>Calendar Synced:</strong> This event has been added to your Google Calendar. You can manage or contact the client directly from your CRM dashboard.
-    </div>
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    This appointment has been synced to Google Calendar and recorded in your CRM dashboard.
   </div>
-  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
-    Boldlabs AI WhatsApp CRM Platform • Admin Alert Dispatch
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Boldlabs CRM
   </div>
 </div>
 """
 
 
 def build_booking_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, full_location: str) -> str:
-    loc_html = f"""<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">📍 Location:</td><td style="padding: 10px 0; color: #0f172a;">{full_location}</td></tr>""" if full_location else ""
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
     return f"""
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
-  <div style="background-color: #059669; background: linear-gradient(135deg, #10b981, #059669); padding: 24px 20px; border-radius: 8px; text-align: center;">
-    <h2 style="margin: 0; font-size: 22px; font-weight: bold; color: #ffffff !important; text-shadow: 0 1px 2px rgba(0,0,0,0.2);">✅ Your Booking is Confirmed!</h2>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #ecfdf5 !important;">We look forward to seeing you</p>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #047857; background-color: #ecfdf5; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Confirmed</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Confirmed</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, your appointment has been scheduled.</p>
   </div>
-  <div style="padding: 24px 0;">
-    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hi <strong>{name}</strong>,</p>
-    <p style="font-size: 14px; line-height: 1.5; color: #475569;">Thank you for booking with us! Your appointment has been confirmed. Below are your scheduled details:</p>
-    
-    <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 12px 16px; color: #64748b; font-weight: 600; width: 35%;">Service:</td><td style="padding: 12px 16px; color: #0f172a; font-weight: bold;">{service_name}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 12px 16px; color: #64748b; font-weight: 600;">Date & Time:</td><td style="padding: 12px 16px; color: #0f172a; font-weight: bold;">📅 {formatted_date} at ⏰ {formatted_time}</td></tr>
-      {loc_html}
-      <tr><td style="padding: 12px 16px; color: #64748b; font-weight: 600;">Phone on File:</td><td style="padding: 12px 16px; color: #0f172a;">{contact_phone}</td></tr>
-    </table>
 
-    <div style="margin-top: 20px; padding: 14px 16px; background-color: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px; font-size: 13px; color: #1e40af;">
-      💬 <strong>Need to reschedule or cancel?</strong><br>Simply reply to our WhatsApp chat or send us a message anytime. We are happy to help!
-    </div>
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      {loc_html}
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone on File</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+    </table>
   </div>
-  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
-    Thank you for choosing our business!
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    Need to reschedule or make adjustments? Reply directly to our WhatsApp chat anytime.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Thank you for choosing our business.
   </div>
 </div>
 """
@@ -157,30 +148,29 @@ def build_booking_customer_email_html(service_name: str, formatted_date: str, fo
 
 def build_cancellation_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
     return f"""
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
-  <div style="background-color: #dc2626; background: linear-gradient(135deg, #ef4444, #b91c1c); padding: 24px 20px; border-radius: 8px; text-align: center;">
-    <span style="display: inline-block; background: rgba(255,255,255,0.2); color: #ffffff !important; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase;">Admin Notification</span>
-    <h2 style="margin: 10px 0 4px 0; font-size: 22px; font-weight: bold; color: #ffffff !important; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">❌ Client Cancelled Appointment</h2>
-    <p style="margin: 0; font-size: 13px; color: #fee2e2 !important;">Booking removed from schedule</p>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #b91c1c; background-color: #fef2f2; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Cancelled</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Cancelled</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">The client cancelled this appointment. The slot has been released.</p>
   </div>
-  <div style="padding: 24px 0;">
-    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hello <strong>Admin & Team</strong>,</p>
-    <p style="font-size: 14px; line-height: 1.5; color: #475569;">A client has cancelled their appointment. The slot has been released:</p>
-    
-    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600; width: 35%;">Client Name:</td><td style="padding: 10px 16px; color: #0f172a; font-weight: bold;">{name}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Client Phone:</td><td style="padding: 10px 16px; color: #0f172a;">{contact_phone}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Client Email:</td><td style="padding: 10px 16px; color: #0f172a;">{customer_email or 'Not provided'}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Service:</td><td style="padding: 10px 16px; color: #0f172a;">{service_name}</td></tr>
-      <tr><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Cancelled Slot:</td><td style="padding: 10px 16px; color: #ef4444; font-weight: bold;">{formatted_date} at {formatted_time}</td></tr>
-    </table>
 
-    <div style="margin-top: 16px; padding: 12px 16px; background-color: #fef2f2; border-left: 4px solid #ef4444; border-radius: 4px; font-size: 13px; color: #991b1b;">
-      🗑️ <strong>Calendar Updated:</strong> The Google Calendar event has been automatically deleted and the CRM booking is marked 'cancelled'.
-    </div>
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not provided'}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Cancelled Slot</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{formatted_date} at {formatted_time}</td></tr>
+    </table>
   </div>
-  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
-    Boldlabs AI WhatsApp CRM Platform • Admin Alert Dispatch
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    The calendar event has been removed and the CRM booking is marked cancelled.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Boldlabs CRM
   </div>
 </div>
 """
@@ -188,24 +178,26 @@ def build_cancellation_admin_email_html(service_name: str, formatted_date: str, 
 
 def build_cancellation_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str) -> str:
     return f"""
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
-  <div style="background-color: #475569; background: linear-gradient(135deg, #64748b, #475569); padding: 24px 20px; border-radius: 8px; text-align: center;">
-    <h2 style="margin: 0; font-size: 22px; font-weight: bold; color: #ffffff !important;">❌ Appointment Cancelled</h2>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #f1f5f9 !important;">Confirmation of your cancellation</p>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; background-color: #f1f5f9; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Cancelled</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Cancellation</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, your appointment has been cancelled as requested.</p>
   </div>
-  <div style="padding: 24px 0;">
-    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hi <strong>{name}</strong>,</p>
-    <p style="font-size: 14px; line-height: 1.5; color: #475569;">As requested, your scheduled appointment has been cancelled:</p>
-    
-    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 12px 16px; color: #64748b; font-weight: 600; width: 35%;">Service:</td><td style="padding: 12px 16px; color: #0f172a;">{service_name}</td></tr>
-      <tr><td style="padding: 12px 16px; color: #64748b; font-weight: 600;">Cancelled Slot:</td><td style="padding: 12px 16px; color: #64748b;">{formatted_date} at {formatted_time}</td></tr>
-    </table>
 
-    <p style="font-size: 14px; color: #475569; line-height: 1.5;">If you would like to pick a new date or time in the future, simply message us back on WhatsApp anytime. We are always here to help!</p>
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Cancelled Slot</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{formatted_date} at {formatted_time}</td></tr>
+    </table>
   </div>
-  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
-    Thank you!
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    Whenever you would like to book a new appointment, simply message us on WhatsApp anytime.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Thank you.
   </div>
 </div>
 """
@@ -213,57 +205,58 @@ def build_cancellation_customer_email_html(service_name: str, formatted_date: st
 
 def build_reschedule_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
     return f"""
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
-  <div style="background-color: #1d4ed8; background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 24px 20px; border-radius: 8px; text-align: center;">
-    <span style="display: inline-block; background: rgba(255,255,255,0.2); color: #ffffff !important; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase;">Admin Notification</span>
-    <h2 style="margin: 10px 0 4px 0; font-size: 22px; font-weight: bold; color: #ffffff !important;">🔄 Booking Rescheduled by Client</h2>
-    <p style="margin: 0; font-size: 13px; color: #dbeafe !important;">Updated appointment schedule</p>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #1d4ed8; background-color: #eff6ff; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Rescheduled</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Rescheduled</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">The client has rescheduled to a new date and time.</p>
   </div>
-  <div style="padding: 24px 0;">
-    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hello <strong>Admin & Team</strong>,</p>
-    <p style="font-size: 14px; line-height: 1.5; color: #475569;">The client has rescheduled their appointment to a new date and time:</p>
-    
-    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600; width: 35%;">Client Name:</td><td style="padding: 10px 16px; color: #0f172a; font-weight: bold;">{name}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Client Phone:</td><td style="padding: 10px 16px; color: #0f172a;">{contact_phone}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Client Email:</td><td style="padding: 10px 16px; color: #0f172a;">{customer_email or 'Not provided'}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Service:</td><td style="padding: 10px 16px; color: #0f172a;">{service_name}</td></tr>
-      <tr><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">New Date & Time:</td><td style="padding: 10px 16px; color: #2563eb; font-weight: bold;">📅 {formatted_date} at ⏰ {formatted_time}</td></tr>
-    </table>
 
-    <div style="margin-top: 16px; padding: 12px 16px; background-color: #eff6ff; border-left: 4px solid #2563eb; border-radius: 4px; font-size: 13px; color: #1e40af;">
-      🔄 <strong>Calendar Updated:</strong> The Google Calendar event has been moved to the new time slot automatically.
-    </div>
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not provided'}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">New Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+    </table>
   </div>
-  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
-    Boldlabs AI WhatsApp CRM Platform • Admin Alert Dispatch
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    Google Calendar and CRM have been updated with the new slot.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Boldlabs CRM
   </div>
 </div>
 """
 
 
 def build_reschedule_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, full_location: str) -> str:
-    loc_html = f"""<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">📍 Location:</td><td style="padding: 10px 0; color: #0f172a;">{full_location}</td></tr>""" if full_location else ""
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
     return f"""
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
-  <div style="background-color: #4f46e5; background: linear-gradient(135deg, #6366f1, #4f46e5); padding: 24px 20px; border-radius: 8px; text-align: center;">
-    <h2 style="margin: 0; font-size: 22px; font-weight: bold; color: #ffffff !important;">🔄 Your Appointment is Rescheduled</h2>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #e0e7ff !important;">Updated appointment schedule</p>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #1d4ed8; background-color: #eff6ff; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Rescheduled</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Rescheduled</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, your appointment has been updated to the new time slot.</p>
   </div>
-  <div style="padding: 24px 0;">
-    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hi <strong>{name}</strong>,</p>
-    <p style="font-size: 14px; line-height: 1.5; color: #475569;">Your appointment has been successfully rescheduled to your new requested time:</p>
-    
-    <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 12px 16px; color: #64748b; font-weight: 600; width: 35%;">Service:</td><td style="padding: 12px 16px; color: #0f172a; font-weight: bold;">{service_name}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 12px 16px; color: #64748b; font-weight: 600;">New Date & Time:</td><td style="padding: 12px 16px; color: #4f46e5; font-weight: bold;">📅 {formatted_date} at ⏰ {formatted_time}</td></tr>
+
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">New Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
       {loc_html}
     </table>
-
-    <p style="font-size: 14px; color: #475569; line-height: 1.5;">Your calendar invite has been updated. Reply directly to our WhatsApp chat anytime if you need any further assistance!</p>
   </div>
-  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
-    Thank you!
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    Your calendar invite has been updated. Reply to our WhatsApp chat if you need further changes.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Thank you.
   </div>
 </div>
 """
@@ -582,26 +575,6 @@ class CoreWorker:
                 body=body_text,
                 content_type=msg_type,
             )
-
-            # ── 5b. Dispatch Real Background Web Push Notification ────────────
-            try:
-                sender_name = fields.get("contactName") or fields.get("from")
-                preview = body_text if body_text else (f"[{msg_type} message]" if msg_type else "New message")
-                if len(preview) > 120:
-                    preview = preview[:117] + "..."
-                asyncio.create_task(
-                    dispatch_push_notification(
-                        pool=self.db_pool,
-                        tenant_id=tenant_id,
-                        title=f"💬 {sender_name}",
-                        body=preview,
-                        notif_type="message",
-                        url="/boldlabs#inbox",
-                        data={"phone": fields.get("from"), "conversation_id": conv_id}
-                    )
-                )
-            except Exception as push_err:
-                logger.warning("inbound_push_notification_failed", error=str(push_err))
 
             # ── 6. Route to AI or skip (human mode, paused automation, or subscription delinquent) ─────
             # Strict Gating: Orgs in 'setup' or 'ready_to_activate' run freely!
@@ -1558,7 +1531,7 @@ class CoreWorker:
                                 notes=notes,
                                 full_location=full_location,
                             )
-                            admin_subject = f"🚨 [Admin Alert] New Booking: {service_name} - {name} ({formatted_date} at {formatted_time})"
+                            admin_subject = f"[Admin Alert] New Booking: {service_name} - {name} ({formatted_date} at {formatted_time})"
                             send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
                         
                         # Send tailored copy to Customer
@@ -1571,7 +1544,7 @@ class CoreWorker:
                                 contact_phone=contact_phone,
                                 full_location=full_location,
                             )
-                            customer_subject = f"✅ Booking Confirmed: Your {service_name} Appointment on {formatted_date} at {formatted_time}"
+                            customer_subject = f"Booking Confirmed: Your {service_name} Appointment on {formatted_date} at {formatted_time}"
                             send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
 
                     except Exception as e:
@@ -1720,11 +1693,14 @@ class CoreWorker:
 
             # Find active booking
             booking = await self.db_pool.fetchrow(
-                """SELECT id, service, start_time, google_event_id
-                   FROM bookings
-                   WHERE tenant_id = $1::uuid AND contact_id = $2::uuid AND status = 'confirmed'
-                   ORDER BY start_time DESC LIMIT 1""",
-                tenant_id, contact_id
+                """SELECT b.id, b.service, b.start_time, b.google_event_id
+                   FROM bookings b
+                   LEFT JOIN contacts c ON c.id = b.contact_id
+                   WHERE b.tenant_id = $1::uuid 
+                     AND (b.contact_id = $2::uuid OR b.conversation_id = $3::uuid OR c.phone = $4 OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($4, '[^0-9]', '', 'g'), 10))
+                     AND b.status = 'confirmed'
+                   ORDER BY b.start_time DESC LIMIT 1""",
+                tenant_id, contact_id, conv_id, contact_phone
             )
             if not booking:
                 logger.info("no_active_booking_to_cancel", contact_id=contact_id)
@@ -1743,6 +1719,22 @@ class CoreWorker:
                 booking_id
             )
             logger.info("ai_booking_cancelled", booking_id=booking_id)
+
+            # Dispatch Web Push Notification for Cancellation
+            try:
+                asyncio.create_task(
+                    dispatch_push_notification(
+                        pool=self.db_pool,
+                        tenant_id=tenant_id,
+                        title=f"❌ Booking Cancelled: {name}",
+                        body=f"{service_name} on {formatted_date} at {formatted_time} was cancelled.",
+                        notif_type="booking_cancelled",
+                        url="/boldlabs#bookings",
+                        data={"contact_phone": contact_phone, "booking_id": booking_id}
+                    )
+                )
+            except Exception as pe:
+                logger.warning("cancellation_push_failed", error=str(pe))
 
             # 2. Cancel from Google Calendar
             if booking.get("google_event_id"):
@@ -1906,7 +1898,7 @@ class CoreWorker:
                                 contact_phone=contact_phone,
                                 customer_email=customer_email,
                             )
-                            admin_subject = f"❌ [Admin Notice] Booking Cancelled: {service_name} - {name} ({formatted_date} at {formatted_time})"
+                            admin_subject = f"[Admin Notice] Booking Cancelled: {service_name} - {name} ({formatted_date} at {formatted_time})"
                             send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
 
                         # Send tailored copy to Customer
@@ -1917,7 +1909,7 @@ class CoreWorker:
                                 formatted_time=formatted_time,
                                 name=name,
                             )
-                            customer_subject = f"❌ Appointment Cancelled: {service_name} on {formatted_date}"
+                            customer_subject = f"Appointment Cancelled: {service_name} on {formatted_date}"
                             send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
                 except Exception as ge:
                     logger.warning("gmail_cancellation_dispatch_failed", error=str(ge))
@@ -1936,6 +1928,23 @@ class CoreWorker:
         """Sends instant WhatsApp alert and Meta template to Admin when human takeover is requested."""
         try:
             name = customer_name or "A customer"
+
+            # Dispatch Web Push Notification for Human Takeover Request
+            try:
+                asyncio.create_task(
+                    dispatch_push_notification(
+                        pool=self.db_pool,
+                        tenant_id=tenant_id,
+                        title=f"🚨 Staff Takeover Requested: {name}",
+                        body=f"{contact_phone} requested to speak with a human team member.",
+                        notif_type="human_request",
+                        url="/boldlabs#inbox",
+                        data={"contact_phone": contact_phone, "conversation_id": conv_id}
+                    )
+                )
+            except Exception as pe:
+                logger.warning("human_alert_push_failed", error=str(pe))
+
             admin_phone = (creds.get("admin_whatsapp_number") or "").strip() if creds else ""
             if not admin_phone:
                 tenant_st_row = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
@@ -2032,11 +2041,14 @@ class CoreWorker:
 
             # Find existing confirmed booking
             old_booking = await self.db_pool.fetchrow(
-                """SELECT id, service, google_event_id
-                   FROM bookings
-                   WHERE tenant_id = $1::uuid AND contact_id = $2::uuid AND status = 'confirmed'
-                   ORDER BY start_time DESC LIMIT 1""",
-                tenant_id, contact_id
+                """SELECT b.id, b.service, b.google_event_id
+                   FROM bookings b
+                   LEFT JOIN contacts c ON c.id = b.contact_id
+                   WHERE b.tenant_id = $1::uuid
+                     AND (b.contact_id = $2::uuid OR b.conversation_id = $3::uuid OR c.phone = $4 OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($4, '[^0-9]', '', 'g'), 10))
+                     AND b.status = 'confirmed'
+                   ORDER BY b.start_time DESC LIMIT 1""",
+                tenant_id, contact_id, conv_id, contact_phone
             )
 
             service_name = booking_data.get("service") or (old_booking["service"] if old_booking else "Consultation / Demo")
@@ -2072,6 +2084,22 @@ class CoreWorker:
                     booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, notes
                 )
                 logger.info("ai_booking_rescheduled_new_row", booking_id=booking_id, start_time=str(st_dt))
+
+            # Dispatch Web Push Notification for Reschedule
+            try:
+                asyncio.create_task(
+                    dispatch_push_notification(
+                        pool=self.db_pool,
+                        tenant_id=tenant_id,
+                        title=f"🔄 Booking Rescheduled: {name}",
+                        body=f"{service_name} moved to {formatted_date} at {formatted_time}.",
+                        notif_type="booking_rescheduled",
+                        url="/boldlabs#bookings",
+                        data={"contact_phone": contact_phone, "booking_id": booking_id}
+                    )
+                )
+            except Exception as pe:
+                logger.warning("reschedule_push_failed", error=str(pe))
 
             # Update in Google Calendar
             gcal_row = await self.db_pool.fetchrow(
@@ -2151,7 +2179,7 @@ class CoreWorker:
                                 contact_phone=contact_phone,
                                 customer_email=customer_email,
                             )
-                            admin_subject = f"🔄 [Admin Notice] Booking Rescheduled: {service_name} - {name} to {formatted_date} at {formatted_time}"
+                            admin_subject = f"[Admin Notice] Booking Rescheduled: {service_name} - {name} to {formatted_date} at {formatted_time}"
                             send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
                             logger.info("reschedule_email_sent_to_admin", to=admin_notif_email)
 
@@ -2164,7 +2192,7 @@ class CoreWorker:
                                 name=name,
                                 full_location=full_location,
                             )
-                            customer_subject = f"🔄 Reschedule Confirmed: Your {service_name} is now on {formatted_date} at {formatted_time}"
+                            customer_subject = f"Reschedule Confirmed: Your {service_name} is now on {formatted_date} at {formatted_time}"
                             send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
                             logger.info("reschedule_email_sent_to_customer", to=customer_email)
 
@@ -2459,8 +2487,10 @@ class CoreWorker:
                     data = json.loads(data)
                 except Exception:
                     data = {}
-            return data.get("api_key"), data.get("base_url", "https://api.openai.com/v1")
-        return os.getenv("OPENCODE_API_KEY") or None, "https://api.openai.com/v1"
+            api_key = data.get("api_key")
+            base_url = data.get("base_url") or "https://opencode.ai/zen/v1"
+            return api_key, base_url
+        return os.getenv("OPENCODE_API_KEY") or None, "https://opencode.ai/zen/v1"
 
     async def _get_ai_config(self, tenant_id: str) -> dict:
         row = await self.db_pool.fetchrow(

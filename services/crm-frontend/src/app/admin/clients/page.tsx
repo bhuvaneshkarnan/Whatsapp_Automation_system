@@ -459,7 +459,7 @@ export default function SuperAdminClients() {
     gemini_api_key: '',
     groq_api_key: '',
     opencode_api_key: '',
-    opencode_base_url: 'https://api.openai.com/v1',
+    opencode_base_url: 'https://opencode.ai/zen/v1',
     assistant_name: 'Rakshaya',
     bot_goal: '',
     services_text: '',
@@ -2828,8 +2828,8 @@ export default function SuperAdminClients() {
                             <label className="block text-xs font-medium text-text-primary mb-1">Base URL</label>
                             <input
                               type="text"
-                              placeholder="https://api.openai.com/v1"
-                              value={configForm.opencode_base_url || 'https://api.openai.com/v1'}
+                              placeholder="https://opencode.ai/zen/v1"
+                              value={configForm.opencode_base_url || 'https://opencode.ai/zen/v1'}
                               onChange={(e) => setConfigForm({ ...configForm, opencode_base_url: e.target.value })}
                               className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                             />

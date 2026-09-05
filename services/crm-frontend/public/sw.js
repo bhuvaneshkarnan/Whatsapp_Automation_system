@@ -29,8 +29,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Boldlabs CRM Alert';
   const options = {
     body: data.body || 'You have a new update in your CRM.',
-    icon: data.icon || '/favicon.ico',
-    badge: data.badge || '/favicon.ico',
+    icon: data.icon || '/icon-192.png',
+    badge: data.badge || '/icon-192.png',
     tag: data.tag || `crm-alert-${Date.now()}`,
     renotify: true,
     requireInteraction: true,

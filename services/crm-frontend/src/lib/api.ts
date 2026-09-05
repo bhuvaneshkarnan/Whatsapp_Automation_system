@@ -643,6 +643,15 @@ export interface TenantSettingsResponse {
     doctor_presets?: string[];
     staff_presets?: string[];
   };
+
+  org_lifecycle_stage?: string;
+  subscription_status?: string;
+  razorpay_customer_id?: string;
+  razorpay_subscription_id?: string;
+  razorpay_short_url?: string;
+  next_charge_at?: string;
+  last_payment_status?: string;
+  last_charge_at?: string;
 }
 
 export type TenantSettingsUpdate = Partial<TenantSettingsResponse>;

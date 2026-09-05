@@ -241,8 +241,8 @@ async def call_opencode(
     messages: list[dict],
     api_key: str,
     system_prompt: str,
-    base_url: str = "https://api.openai.com/v1",
-    model: str = "gpt-4o-mini",
+    base_url: str = "https://opencode.ai/zen/v1",
+    model: str = "nemotron-3.5-lightning-free",
     max_tokens: int = 2048,
     temperature: float = 0.3,
     timeout_seconds: float = 10.0,
@@ -250,9 +250,10 @@ async def call_opencode(
 ) -> str:
     """
     Call OpenCode / OpenAI / OpenRouter / DeepSeek compatible endpoint.
+    Supports OpenCode Zen endpoint (https://opencode.ai/zen/v1) and custom OpenAI-compatible endpoints.
     """
     start = time.monotonic()
-    clean_base = base_url.rstrip("/")
+    clean_base = (base_url or "https://opencode.ai/zen/v1").rstrip("/")
     if not clean_base.endswith("/chat/completions"):
         url = f"{clean_base}/chat/completions"
     else:
@@ -262,13 +263,28 @@ async def call_opencode(
     for m in messages:
         formatted_msgs.append({"role": m["role"], "content": m["content"]})
 
-    candidate_models = [
-        model or "gpt-4o-mini",
-        "gpt-4o-mini",
-        "deepseek-chat",
-        "gpt-4o",
-        "qwen/qwen-2.5-72b-instruct",
-    ]
+    # If OpenCode Zen or key starts with sk-PUap
+    if "opencode" in clean_base or (api_key and api_key.startswith("sk-PUap")):
+        if "opencode.ai" not in clean_base:
+            url = "https://opencode.ai/zen/v1/chat/completions"
+        candidate_models = [
+            model,
+            "nemotron-3.5-lightning-free",
+            "mimo-v2.5-free",
+            "gpt-5.4-mini",
+            "gemini-3.5-flash-lite",
+            "claude-haiku-4-5",
+            "deepseek-v4-flash-free",
+        ]
+    else:
+        candidate_models = [
+            model or "gpt-4o-mini",
+            "gpt-4o-mini",
+            "deepseek-chat",
+            "gpt-4o",
+            "qwen/qwen-2.5-72b-instruct",
+        ]
+    candidate_models = [m for m in candidate_models if m]
     candidate_models = list(dict.fromkeys(candidate_models))
 
     last_err = None
@@ -315,7 +331,7 @@ async def call_llm_cascade(
     gemini_key: Optional[str] = None,
     groq_key: Optional[str] = None,
     opencode_key: Optional[str] = None,
-    opencode_base_url: str = "https://api.openai.com/v1",
+    opencode_base_url: str = "https://opencode.ai/zen/v1",
     primary_provider: str = "groq",
     gemini_model: str = "gemini-3.1-flash-lite",
     max_tokens: int = 2048,
@@ -324,16 +340,15 @@ async def call_llm_cascade(
     tenant_id: str = "",
 ) -> Tuple[Optional[str], str]:
     """
-    Ultra-Fast Multi-LLM Cascading Router:
-    1. If both Groq & Gemini keys are available and primary != 'opencode',
-       runs an asynchronous parallel race. Groq typically finishes in ~400-600ms;
-       the winner returns immediately and cancels the slower task.
-       If one fails or is rate-limited, the other seamlessly provides the reply.
-    2. If a specific provider is configured or only 1 key is present, calls in priority order.
-    3. Fast single-turn fallback recovery.
+    Ultra-Fast Multi-LLM Cascading Router with 3-Model Fallback:
+    1. Primary (Groq / Gemini) executes with ultra-fast latency.
+    2. If primary fails or is rate-limited, secondary model seamlessly provides reply.
+    3. If both primary & secondary fail, tertiary 3rd model (OpenCode) executes and replies.
     """
+    racer_ran = False
     # ── Ultra-Fast Racer: Groq & Gemini concurrently ──
     if groq_key and gemini_key and primary_provider != "opencode":
+        racer_ran = True
         effective_max_tokens = min(max_tokens, 350)
 
         async def _run_groq():
@@ -387,12 +402,18 @@ async def call_llm_cascade(
             except Exception as e:
                 logger.warning("racer_remaining_task_failed", tenant_id=tenant_id, error=str(e))
 
-    # Sequential cascade for standalone keys or OpenCode
+    # Sequential cascade for standalone keys, OpenCode primary, or 3rd-tier OpenCode fallback
     providers = []
-    if primary_provider == "groq" or (groq_key and not gemini_key):
+    if primary_provider == "groq":
         providers = [
             ("groq", groq_key),
             ("gemini", gemini_key),
+            ("opencode", opencode_key),
+        ]
+    elif primary_provider == "gemini":
+        providers = [
+            ("gemini", gemini_key),
+            ("groq", groq_key),
             ("opencode", opencode_key),
         ]
     elif primary_provider == "opencode":
@@ -403,13 +424,16 @@ async def call_llm_cascade(
         ]
     else:
         providers = [
-            ("gemini", gemini_key),
             ("groq", groq_key),
+            ("gemini", gemini_key),
             ("opencode", opencode_key),
         ]
 
     for name, key in providers:
         if not key:
+            continue
+        # If racer already tried groq & gemini and both failed, proceed directly to tertiary opencode
+        if racer_ran and name in ["groq", "gemini"]:
             continue
 
         try:
@@ -445,9 +469,9 @@ async def call_llm_cascade(
                 text = await call_opencode(
                     messages=messages,
                     api_key=key,
-                    base_url=opencode_base_url or "https://api.openai.com/v1",
+                    base_url=opencode_base_url or "https://opencode.ai/zen/v1",
                     system_prompt=system_prompt,
-                    model="gpt-4o-mini",
+                    model="nemotron-3.5-lightning-free",
                     max_tokens=max_tokens,
                     temperature=temperature,
                     timeout_seconds=timeout_seconds,

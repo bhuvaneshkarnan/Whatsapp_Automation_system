@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI):
                     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
                     phone TEXT NOT NULL,
                     name TEXT,
-                    preferred_doctor TEXT DEFAULT 'Dr. Sarah Mitchell',
+                    preferred_doctor TEXT DEFAULT NULL,
                     status TEXT DEFAULT 'new',
                     health_concern TEXT DEFAULT 'General Consultation',
                     lead_probability TEXT DEFAULT 'warm',
@@ -216,30 +216,29 @@ def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_bo
 
 def build_cancellation_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
     return f"""
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
-  <div style="background-color: #dc2626; background: linear-gradient(135deg, #ef4444, #b91c1c); padding: 24px 20px; border-radius: 8px; text-align: center;">
-    <span style="display: inline-block; background: rgba(255,255,255,0.2); color: #ffffff !important; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase;">Admin Notification</span>
-    <h2 style="margin: 10px 0 4px 0; font-size: 22px; font-weight: bold; color: #ffffff !important; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">❌ Booking Cancelled in CRM</h2>
-    <p style="margin: 0; font-size: 13px; color: #fee2e2 !important;">Booking removed from schedule</p>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #b91c1c; background-color: #fef2f2; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Cancelled</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Cancelled</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">The client cancelled this appointment. The slot has been released.</p>
   </div>
-  <div style="padding: 24px 0;">
-    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hello <strong>Admin & Team</strong>,</p>
-    <p style="font-size: 14px; line-height: 1.5; color: #475569;">An appointment was marked cancelled in your CRM dashboard:</p>
-    
-    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600; width: 35%;">Client Name:</td><td style="padding: 10px 16px; color: #0f172a; font-weight: bold;">{name}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Client Phone:</td><td style="padding: 10px 16px; color: #0f172a;">{contact_phone}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Client Email:</td><td style="padding: 10px 16px; color: #0f172a;">{customer_email or 'Not provided'}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Service:</td><td style="padding: 10px 16px; color: #0f172a;">{service_name}</td></tr>
-      <tr><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Cancelled Slot:</td><td style="padding: 10px 16px; color: #ef4444; font-weight: bold;">{formatted_date} at {formatted_time}</td></tr>
-    </table>
 
-    <div style="margin-top: 16px; padding: 12px 16px; background-color: #fef2f2; border-left: 4px solid #ef4444; border-radius: 4px; font-size: 13px; color: #991b1b;">
-      🗑️ <strong>Calendar Updated:</strong> Google Calendar event deleted and CRM record updated.
-    </div>
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not provided'}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Cancelled Slot</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{formatted_date} at {formatted_time}</td></tr>
+    </table>
   </div>
-  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
-    Boldlabs AI WhatsApp CRM Platform • Admin Alert Dispatch
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    The calendar event has been removed and the CRM booking is marked cancelled.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Boldlabs CRM
   </div>
 </div>
 """
@@ -247,24 +246,26 @@ def build_cancellation_admin_email_html(service_name: str, formatted_date: str, 
 
 def build_cancellation_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str) -> str:
     return f"""
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
-  <div style="background-color: #475569; background: linear-gradient(135deg, #64748b, #475569); padding: 24px 20px; border-radius: 8px; text-align: center;">
-    <h2 style="margin: 0; font-size: 22px; font-weight: bold; color: #ffffff !important;">❌ Appointment Cancelled</h2>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #f1f5f9 !important;">Confirmation of your cancellation</p>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; background-color: #f1f5f9; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Cancelled</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Cancellation</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, your appointment has been cancelled as requested.</p>
   </div>
-  <div style="padding: 24px 0;">
-    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hi <strong>{name}</strong>,</p>
-    <p style="font-size: 14px; line-height: 1.5; color: #475569;">Your scheduled appointment for *{service_name}* on *{formatted_date} at {formatted_time}* has been cancelled.</p>
-    
-    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 12px 16px; color: #64748b; font-weight: 600; width: 35%;">Service:</td><td style="padding: 12px 16px; color: #0f172a;">{service_name}</td></tr>
-      <tr><td style="padding: 12px 16px; color: #64748b; font-weight: 600;">Cancelled Slot:</td><td style="padding: 12px 16px; color: #64748b;">{formatted_date} at {formatted_time}</td></tr>
-    </table>
 
-    <p style="font-size: 14px; color: #475569; line-height: 1.5;">If you'd like to book a new appointment in the future, simply reply directly on WhatsApp anytime!</p>
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Cancelled Slot</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{formatted_date} at {formatted_time}</td></tr>
+    </table>
   </div>
-  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
-    Thank you!
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    Whenever you would like to book a new appointment, simply message us on WhatsApp anytime.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Thank you.
   </div>
 </div>
 """
@@ -272,57 +273,58 @@ def build_cancellation_customer_email_html(service_name: str, formatted_date: st
 
 def build_reschedule_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
     return f"""
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
-  <div style="background-color: #1d4ed8; background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 24px 20px; border-radius: 8px; text-align: center;">
-    <span style="display: inline-block; background: rgba(255,255,255,0.2); color: #ffffff !important; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase;">Admin Notification</span>
-    <h2 style="margin: 10px 0 4px 0; font-size: 22px; font-weight: bold; color: #ffffff !important;">🔄 Booking Rescheduled in CRM</h2>
-    <p style="margin: 0; font-size: 13px; color: #dbeafe !important;">Updated appointment schedule</p>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #1d4ed8; background-color: #eff6ff; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Rescheduled</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Rescheduled</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">The client has rescheduled to a new date and time.</p>
   </div>
-  <div style="padding: 24px 0;">
-    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hello <strong>Admin & Team</strong>,</p>
-    <p style="font-size: 14px; line-height: 1.5; color: #475569;">The appointment has been rescheduled to a new date and time:</p>
-    
-    <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600; width: 35%;">Client Name:</td><td style="padding: 10px 16px; color: #0f172a; font-weight: bold;">{name}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Client Phone:</td><td style="padding: 10px 16px; color: #0f172a;">{contact_phone}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Client Email:</td><td style="padding: 10px 16px; color: #0f172a;">{customer_email or 'Not provided'}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">Service:</td><td style="padding: 10px 16px; color: #0f172a;">{service_name}</td></tr>
-      <tr><td style="padding: 10px 16px; color: #64748b; font-weight: 600;">New Date & Time:</td><td style="padding: 10px 16px; color: #2563eb; font-weight: bold;">📅 {formatted_date} at ⏰ {formatted_time}</td></tr>
-    </table>
 
-    <div style="margin-top: 16px; padding: 12px 16px; background-color: #eff6ff; border-left: 4px solid #2563eb; border-radius: 4px; font-size: 13px; color: #1e40af;">
-      🔄 <strong>Calendar Updated:</strong> The Google Calendar event has been moved to the new time slot automatically.
-    </div>
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not provided'}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">New Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+    </table>
   </div>
-  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
-    Boldlabs AI WhatsApp CRM Platform • Admin Alert Dispatch
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    Google Calendar and CRM have been updated with the new slot.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Boldlabs CRM
   </div>
 </div>
 """
 
 
 def build_reschedule_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, full_location: str) -> str:
-    loc_html = f"""<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px 0; color: #64748b; font-weight: bold;">📍 Location:</td><td style="padding: 10px 0; color: #0f172a;">{full_location}</td></tr>""" if full_location else ""
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
     return f"""
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
-  <div style="background-color: #4f46e5; background: linear-gradient(135deg, #6366f1, #4f46e5); padding: 24px 20px; border-radius: 8px; text-align: center;">
-    <h2 style="margin: 0; font-size: 22px; font-weight: bold; color: #ffffff !important;">🔄 Your Appointment is Rescheduled</h2>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #e0e7ff !important;">Updated appointment schedule</p>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #1d4ed8; background-color: #eff6ff; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Rescheduled</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Rescheduled</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, your appointment has been updated to the new time slot.</p>
   </div>
-  <div style="padding: 24px 0;">
-    <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-top: 0;">Hi <strong>{name}</strong>,</p>
-    <p style="font-size: 14px; line-height: 1.5; color: #475569;">Your appointment has been successfully rescheduled to your new requested time:</p>
-    
-    <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 12px 16px; color: #64748b; font-weight: 600; width: 35%;">Service:</td><td style="padding: 12px 16px; color: #0f172a; font-weight: bold;">{service_name}</td></tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 12px 16px; color: #64748b; font-weight: 600;">New Date & Time:</td><td style="padding: 12px 16px; color: #4f46e5; font-weight: bold;">📅 {formatted_date} at ⏰ {formatted_time}</td></tr>
+
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">New Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
       {loc_html}
     </table>
-
-    <p style="font-size: 14px; color: #475569; line-height: 1.5;">Your calendar invite has been updated. Reply directly to our WhatsApp chat anytime if you need any further assistance!</p>
   </div>
-  <div style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center;">
-    Thank you!
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    Your calendar invite has been updated. Reply to our WhatsApp chat if you need further changes.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Thank you.
   </div>
 </div>
 """
@@ -413,7 +415,7 @@ class CustomerCreatePayload(BaseModel):
     name: Optional[str] = None
     age: Optional[int] = None
     location: Optional[str] = None
-    preferred_doctor: Optional[str] = "Dr. Sarah Mitchell"
+    preferred_doctor: Optional[str] = None
     status: Optional[str] = "new"
     health_concern: Optional[str] = "General Consultation"
     lead_probability: Optional[str] = "warm"
@@ -585,7 +587,7 @@ async def list_customers(
             "age": r["age"],
             "location": r["location"] or None,
             "wa_profile_name": r["wa_profile_name"] or None,
-            "preferred_doctor": r["preferred_doctor"] or "Dr. Sarah Mitchell",
+            "preferred_doctor": r["preferred_doctor"],
             "status": r["status"] or "new",
             "health_concern": r["health_concern"] or "General Consultation",
             "lead_probability": r["lead_probability"] or "warm",
@@ -965,7 +967,7 @@ async def list_all_customer_notes(
                 "color": r["color"] or "slate",
                 "customer_name": r["customer_name"] or "Customer",
                 "customer_phone": r["customer_phone"],
-                "preferred_doctor": r["preferred_doctor"] or "Dr. Sarah Mitchell",
+                "preferred_doctor": r["preferred_doctor"],
                 "customer_status": r["customer_status"] or "new",
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
             }
@@ -1269,7 +1271,7 @@ async def list_tasks(
             "is_overdue": bool(r["is_overdue"]),
             "customer_name": r["customer_name"] or "Customer",
             "customer_phone": r["customer_phone"],
-            "preferred_doctor": r["preferred_doctor"] or "Dr. Sarah Mitchell",
+            "preferred_doctor": r["preferred_doctor"],
             "health_concern": r["health_concern"],
             "lead_probability": r["lead_probability"] or "warm",
             "created_at": r["created_at"].isoformat() if r["created_at"] else None,
@@ -2212,7 +2214,9 @@ async def dispatch_automated_status_whatsapp(
                     except: d = {}
                 creds = dict(d)
 
-            clean_phone = phone.replace("+", "").replace(" ", "").replace("-", "").strip()
+            clean_phone = re.sub(r'[^0-9]', '', str(phone))
+            if len(clean_phone) == 10:
+                clean_phone = f"91{clean_phone}"
 
             # Dispatch via Meta Graph API
             template_sent = False
@@ -2256,7 +2260,6 @@ async def dispatch_automated_status_whatsapp(
                                     logger.info("automated_status_template_retry_lang_succeeded", template=template_name, phone=clean_phone)
                                 else:
                                     # Adapt parameter count dynamically if mismatch
-                                    import re
                                     m_count = re.search(r'expected number of params \((\d+)\)', res.text) or re.search(r'expected number of params \((\d+)\)', res_retry_lang.text)
                                     if m_count:
                                         exp_c = int(m_count.group(1))
@@ -2373,6 +2376,10 @@ async def dispatch_admin_reschedule_whatsapp(
             t_st.get("template_admin_reschedule_notice") or
             "admin_reschedule_notice"
         )
+        # If admin_reschedule_notice is configured, default immediately to approved admin_notification to prevent 132001 pending error
+        if tpl_name == "admin_reschedule_notice":
+            tpl_name = "admin_notification"
+
         tpl_params = [customer_name or "Client", customer_phone, service_name or "Appointment", formatted_date or "Rescheduled Date", formatted_time or "Rescheduled Time"]
 
         import httpx
@@ -2434,6 +2441,107 @@ async def dispatch_admin_reschedule_whatsapp(
                 logger.info("crm_admin_reschedule_text_fallback_sent", to=clean_admin_phone)
     except Exception as e:
         logger.error("crm_admin_reschedule_wa_failed", error=str(e))
+
+
+async def dispatch_admin_cancellation_whatsapp(
+    tenant_id: str,
+    admin_phone: str,
+    customer_name: str,
+    customer_phone: str,
+    service_name: str,
+    formatted_date: str,
+    formatted_time: str,
+):
+    """
+    Push admin cancellation notification via approved Meta template admin_cancellation_notice (with fallback to text).
+    """
+    try:
+        async with db_pool.acquire() as conn:
+            wa_row = await conn.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+                tenant_id
+            )
+            t_st_val = await conn.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+
+        creds = {}
+        if wa_row and wa_row["credential_data"]:
+            d = wa_row["credential_data"]
+            if isinstance(d, str):
+                try: d = json.loads(d)
+                except: d = {}
+            creds = dict(d)
+
+        t_st = {}
+        if t_st_val:
+            if isinstance(t_st_val, str):
+                try: t_st = json.loads(t_st_val)
+                except: t_st = {}
+            else:
+                t_st = dict(t_st_val)
+
+        if not (creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test")):
+            return
+
+        clean_admin_phone = re.sub(r'[^0-9+]', '', admin_phone)
+        if not clean_admin_phone.startswith("+"):
+            clean_admin_phone = f"+91{clean_admin_phone}" if len(clean_admin_phone) == 10 else f"+{clean_admin_phone}"
+
+        tpl_name = (
+            creds.get("template_admin_cancellation_notice") or
+            t_st.get("template_admin_cancellation_notice") or
+            "admin_cancellation_notice"
+        )
+        tpl_params = [customer_name or "Client", customer_phone, service_name or "Appointment", formatted_date or "Scheduled Date", formatted_time or "Scheduled Time"]
+
+        import httpx
+        headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
+        url = f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages"
+
+        admin_payload_tpl = {
+            "messaging_product": "whatsapp",
+            "to": clean_admin_phone.replace("+", ""),
+            "type": "template",
+            "template": {
+                "name": tpl_name,
+                "language": {"code": "en"},
+                "components": [
+                    {
+                        "type": "body",
+                        "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in tpl_params]
+                    }
+                ]
+            }
+        }
+        admin_sent = False
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(url, headers=headers, json=admin_payload_tpl)
+            logger.info("crm_admin_cancellation_template_response", status=res.status_code, template=tpl_name, body=res.text)
+            if res.status_code in (200, 201):
+                admin_sent = True
+
+            if not admin_sent:
+                admin_cancel_text = (
+                    f"⚠️ *Booking Cancelled Notice!*\n\n"
+                    f"• *Customer:* {customer_name}\n"
+                    f"• *Phone:* {customer_phone}\n"
+                    f"• *Service:* {service_name}\n"
+                    f"• *Cancelled Slot:* {formatted_date} at {formatted_time}\n\n"
+                    f"❌ The booking has been marked cancelled in CRM and removed from Google Calendar."
+                )
+                await client.post(
+                    url,
+                    headers=headers,
+                    json={
+                        "messaging_product": "whatsapp",
+                        "recipient_type": "individual",
+                        "to": clean_admin_phone.replace("+", ""),
+                        "type": "text",
+                        "text": {"body": admin_cancel_text}
+                    }
+                )
+                logger.info("crm_admin_cancellation_text_fallback_sent", to=clean_admin_phone)
+    except Exception as e:
+        logger.error("crm_admin_cancellation_wa_failed", error=str(e))
 
 
 @app.patch("/bookings/{booking_id}/status")
@@ -2576,7 +2684,7 @@ async def update_booking_status(
                                     contact_phone=booking["phone"],
                                     customer_email=customer_email,
                                 )
-                                admin_subject = f"❌ [Admin Notice] Booking Cancelled: {service_name} - {patient_name} ({date_str} at {clock_str})"
+                                admin_subject = f"[Admin Notice] Booking Cancelled: {service_name} - {patient_name} ({date_str} at {clock_str})"
                                 send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
 
                             # Send tailored copy to Customer
@@ -2587,7 +2695,7 @@ async def update_booking_status(
                                     formatted_time=clock_str or "Scheduled Time",
                                     name=patient_name,
                                 )
-                                customer_subject = f"❌ Appointment Cancelled: {service_name} on {date_str}"
+                                customer_subject = f"Appointment Cancelled: {service_name} on {date_str}"
                                 send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
                 except Exception as e:
                     logger.warning("google_calendar_cancellation_sync_failed", error=str(e))
@@ -2684,7 +2792,7 @@ async def update_booking_status(
                                 contact_phone=booking["phone"],
                                 customer_email=customer_email,
                             )
-                            admin_subject = f"🔄 [Admin Notice] Booking Rescheduled: {service_name} - {patient_name} to {date_str} at {clock_str}"
+                            admin_subject = f"[Admin Notice] Booking Rescheduled: {service_name} - {patient_name} to {date_str} at {clock_str}"
                             send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
                             logger.info("crm_reschedule_email_sent_to_admin", to=admin_notif_email)
 
@@ -2709,7 +2817,7 @@ async def update_booking_status(
                                 name=patient_name,
                                 full_location=full_loc,
                             )
-                            customer_subject = f"🔄 Reschedule Confirmed: Your {service_name} is now on {date_str} at {clock_str}"
+                            customer_subject = f"Reschedule Confirmed: Your {service_name} is now on {date_str} at {clock_str}"
                             send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
                             logger.info("crm_reschedule_email_sent_to_customer", to=customer_email)
             except Exception as e_gcal:
@@ -2735,8 +2843,8 @@ async def update_booking_status(
             google_review_link = f"https://search.google.com/local/writereview?placeid={tenant_name.replace(' ', '+')}"
 
         if payload.status in ["completed", "attended"]:
-            # 15 minutes delay (900 seconds) for post-service review request
-            delay_seconds = 900
+            # 10 seconds delay for post-service review request
+            delay_seconds = 10
             review_link_block = f"\n\n⭐ *Leave a quick Google Review here:*\n{google_review_link}" if google_review_link else ""
             automated_text = (
                 f"Hi {patient_name}, thank you for attending your {service_name} session with {tenant_name} today! 😊\n\n"
@@ -2755,8 +2863,8 @@ async def update_booking_status(
             await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid", booking_id)
 
         elif payload.status in ["no_show", "no-show"]:
-            # 15 minutes delay (900 seconds) for reschedule nudge
-            delay_seconds = 900
+            # 10 seconds delay for reschedule nudge
+            delay_seconds = 10
             automated_text = (
                 f"Hi {patient_name}, we missed you today for your scheduled {service_name} appointment with {tenant_name}.\n\n"
                 f"We understand that plans can change unexpectedly! Would you like to reschedule for tomorrow or another time?\n\n"
@@ -2843,12 +2951,23 @@ async def update_booking_status(
                 dispatch_params,
             )
 
-        # Dispatch Admin WhatsApp notification if rescheduled
-        if payload.status == "rescheduled":
-            admin_phone = (wa_data.get("admin_whatsapp_number") or t_settings_dict.get("admin_whatsapp_number") or "").strip()
-            if admin_phone:
+        # Dispatch Admin WhatsApp notification if rescheduled or cancelled
+        admin_phone = (wa_data.get("admin_whatsapp_number") or t_settings_dict.get("admin_whatsapp_number") or "").strip()
+        if admin_phone:
+            if payload.status == "rescheduled":
                 background_tasks.add_task(
                     dispatch_admin_reschedule_whatsapp,
+                    tenant_id,
+                    admin_phone,
+                    patient_name,
+                    booking["phone"],
+                    service_name,
+                    date_str,
+                    clock_str,
+                )
+            elif payload.status == "cancelled":
+                background_tasks.add_task(
+                    dispatch_admin_cancellation_whatsapp,
                     tenant_id,
                     admin_phone,
                     patient_name,
@@ -3357,14 +3476,14 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
             tenant_id
         )
         opencode_key = ""
-        opencode_base = "https://api.openai.com/v1"
+        opencode_base = "https://opencode.ai/zen/v1"
         if opencode_row and opencode_row["credential_data"]:
             d = opencode_row["credential_data"]
             if isinstance(d, str):
                 try: d = json.loads(d)
                 except: d = {}
             opencode_key = d.get("api_key", "")
-            opencode_base = d.get("base_url", "https://api.openai.com/v1")
+            opencode_base = d.get("base_url") or "https://opencode.ai/zen/v1"
 
         gcal_row = await conn.fetchrow(
             "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
@@ -3574,7 +3693,7 @@ async def update_tenant_settings(
         if payload.opencode_api_key is not None and payload.opencode_api_key.strip():
             op_data = {
                 "api_key": payload.opencode_api_key.strip(),
-                "base_url": payload.opencode_base_url.strip() if payload.opencode_base_url else "https://api.openai.com/v1"
+                "base_url": payload.opencode_base_url.strip() if payload.opencode_base_url else "https://opencode.ai/zen/v1"
             }
             op_row = await conn.fetchrow("SELECT id FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'opencode'", tenant_id)
             if op_row:
@@ -5425,15 +5544,45 @@ async def execute_marketing_broadcast(
         )
 
     if not is_sched:
-        async def _run_broadcast_job(t_id: str, phones: List[str], text: Optional[str], t_name: Optional[str], t_params: Optional[List[str]]):
+        async def _run_broadcast_job(t_id: str, phones: List[str], text: Optional[str], t_name: Optional[str], t_params: Optional[List[str]], c_name: str):
+            success_count = 0
             for p in phones:
                 try:
-                    await _dispatch_single_marketing_wa(t_id, p, text, t_name, t_params)
+                    ok = await _dispatch_single_marketing_wa(t_id, p, text, t_name, t_params)
+                    if ok: success_count += 1
                     await asyncio.sleep(0.5)  # 500ms safety interval
                 except Exception as ex:
                     logger.error("marketing_broadcast_item_failed", phone=p, error=str(ex))
 
-        background_tasks.add_task(_run_broadcast_job, tenant_id, clean_phones, data.message_text, data.template_name, data.template_params)
+            try:
+                await dispatch_push_notification(
+                    pool=db_pool,
+                    tenant_id=t_id,
+                    title=f"📢 Campaign Dispatched: {c_name}",
+                    body=f"Broadcast campaign sent to {success_count} recipients.",
+                    notif_type="marketing_completed",
+                    url="/boldlabs#marketing",
+                    data={"campaign_name": c_name}
+                )
+            except Exception as pe:
+                logger.warning("broadcast_completion_push_failed", error=str(pe))
+
+        background_tasks.add_task(_run_broadcast_job, tenant_id, clean_phones, data.message_text, data.template_name, data.template_params, data.campaign_name)
+    else:
+        try:
+            asyncio.create_task(
+                dispatch_push_notification(
+                    pool=db_pool,
+                    tenant_id=tenant_id,
+                    title=f"⏳ Campaign Scheduled: {data.campaign_name}",
+                    body=f"Broadcast scheduled for {scheduled_dt.strftime('%d %b %Y at %I:%M %p')} ({total_count} recipients).",
+                    notif_type="marketing_scheduled",
+                    url="/boldlabs#marketing",
+                    data={"campaign_name": data.campaign_name}
+                )
+            )
+        except Exception as pe:
+            logger.warning("scheduled_campaign_push_failed", error=str(pe))
 
     return {
         "success": True,
@@ -5635,10 +5784,10 @@ async def get_marketing_analytics(tenant_id: str = Depends(get_tenant_id)):
         )
 
         tenant_fee = await conn.fetchval(
-            "SELECT COALESCE(AVG(price), 500) FROM bookings WHERE tenant_id = $1::uuid AND status IN ('completed', 'attended')",
+            "SELECT COALESCE(AVG(price), 0.0) FROM bookings WHERE tenant_id = $1::uuid AND status IN ('completed', 'attended')",
             tenant_id
         )
-        avg_fee = float(tenant_fee or 500.0)
+        avg_fee = float(tenant_fee or 0.0)
 
     total_broadcasts = len(rows)
     total_sent = sum(r["sent_count"] or 0 for r in rows)
@@ -5647,10 +5796,10 @@ async def get_marketing_analytics(tenant_id: str = Depends(get_tenant_id)):
     total_replied = sum(r["replied_count"] or 0 for r in rows)
     total_converted = sum(r["converted_count"] or 0 for r in rows)
 
-    delivery_rate = round((total_delivered / total_sent * 100), 1) if total_sent > 0 else 98.2
-    read_rate = round((total_read / total_delivered * 100), 1) if total_delivered > 0 else 82.5
-    reply_rate = round((total_replied / total_read * 100), 1) if total_read > 0 else 38.0
-    conversion_rate = round((total_converted / total_sent * 100), 1) if total_sent > 0 else 18.5
+    delivery_rate = round((total_delivered / total_sent * 100), 1) if total_sent > 0 else 0.0
+    read_rate = round((total_read / total_delivered * 100), 1) if total_delivered > 0 else 0.0
+    reply_rate = round((total_replied / total_read * 100), 1) if total_read > 0 else 0.0
+    conversion_rate = round((total_converted / total_sent * 100), 1) if total_sent > 0 else 0.0
     attributed_revenue = round(total_converted * avg_fee)
 
     return {
