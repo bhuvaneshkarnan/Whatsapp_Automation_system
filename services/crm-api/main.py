@@ -173,7 +173,9 @@ ALGORITHM = "HS256"
 async def get_tenant_id(x_tenant_id: str = Header(...)) -> str:
     if not x_tenant_id:
         raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
-    return x_tenant_id
+    # Normalize if proxies or client libraries send comma-separated duplicate headers (e.g. 'uuid, uuid')
+    clean_id = x_tenant_id.split(",")[0].strip()
+    return clean_id
 
 async def verify_super_admin(authorization: Optional[str] = Header(None)) -> dict:
     if not authorization or not authorization.startswith("Bearer "):

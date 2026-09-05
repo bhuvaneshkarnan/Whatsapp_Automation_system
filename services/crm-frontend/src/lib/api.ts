@@ -14,13 +14,23 @@ function getAuthHeaders(): Record<string, string> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const mergedHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...getAuthHeaders(),
+  };
+  if (init?.headers) {
+    const custom = init.headers as Record<string, string>;
+    for (const [k, v] of Object.entries(custom)) {
+      if (k.toLowerCase() === 'x-tenant-id') {
+        delete mergedHeaders['X-Tenant-ID'];
+        delete mergedHeaders['x-tenant-id'];
+      }
+      mergedHeaders[k] = v;
+    }
+  }
   const res = await fetch(`${BASE}${path}`, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders(),
-      ...(init?.headers ?? {}),
-    },
+    headers: mergedHeaders,
   });
   if (!res.ok) {
     let errorMsg = `API Error (${res.status})`;
