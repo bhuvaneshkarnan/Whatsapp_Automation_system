@@ -1909,6 +1909,32 @@ class CoreWorker:
                     except Exception as e:
                         logger.error("google_calendar_sync_error", error=str(e), booking_id=booking_id)
 
+            # 4. Queue automatic 24h & 2h reminders and post-session review request in scheduled_jobs
+            try:
+                remind_24h = st_dt - datetime.timedelta(hours=24)
+                if remind_24h > datetime.datetime.now(tz):
+                    await self.db_pool.execute(
+                        """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                           VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
+                        tenant_id, booking_id, remind_24h
+                    )
+                remind_2h = st_dt - datetime.timedelta(hours=2)
+                if remind_2h > datetime.datetime.now(tz):
+                    await self.db_pool.execute(
+                        """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                           VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
+                        tenant_id, booking_id, remind_2h
+                    )
+                review_at = et_dt + datetime.timedelta(hours=1)
+                await self.db_pool.execute(
+                    """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                       VALUES (gen_random_uuid(), $1::uuid, 'review_request', $2::uuid, $3, 'pending', now())""",
+                    tenant_id, booking_id, review_at
+                )
+                logger.info("ai_booking_scheduled_jobs_queued", booking_id=booking_id)
+            except Exception as e_job:
+                logger.warning("ai_booking_scheduled_jobs_failed", error=str(e_job))
+
         except Exception as e:
             logger.error("execute_ai_booking_failed", error=str(e), tenant_id=tenant_id)
 
@@ -2860,7 +2886,7 @@ class CoreWorker:
         )
         if row:
             return dict(row)
-        return {"model": "gemini-1.5-flash", "temperature": 0.3, "max_tokens": 500, "timeout_ms": 8000, "response_style": "short", "methodology": "dogfooding"}
+        return {"model": "gemini-3.1-flash-lite", "temperature": 0.3, "max_tokens": 500, "timeout_ms": 8000, "response_style": "short", "methodology": "dogfooding"}
 
     async def _scheduled_job_loop(self):
         """
@@ -3169,15 +3195,17 @@ class CoreWorker:
             logger.error("process_appointment_reminders_failed", error=str(e))
 
     async def _process_scheduled_jobs(self):
-        """Find due scheduled jobs and send WhatsApp messages."""
+        """Find due scheduled jobs and send WhatsApp messages using approved Meta utility templates."""
         due_jobs = await self.db_pool.fetch(
             """SELECT sj.id, sj.tenant_id, sj.job_type, sj.booking_id,
                       b.contact_id, b.service, b.start_time, b.end_time, b.notes,
                       c.phone, c.name as contact_name,
-                      tc.credential_data as wa_creds
+                      tc.credential_data as wa_creds,
+                      t.settings as tenant_settings
                FROM scheduled_jobs sj
                JOIN bookings b ON b.id = sj.booking_id
                JOIN contacts c ON c.id = b.contact_id
+               JOIN tenants t ON t.id = sj.tenant_id
                JOIN tenant_credentials tc ON tc.tenant_id = sj.tenant_id AND tc.provider = 'whatsapp'
                WHERE sj.status = 'pending'
                  AND sj.scheduled_at <= now()
@@ -3186,15 +3214,106 @@ class CoreWorker:
 
         for job in due_jobs:
             try:
-                creds = dict(job["wa_creds"])
-                message = self._build_scheduled_message(dict(job))
+                creds = dict(job["wa_creds"]) if isinstance(job["wa_creds"], dict) else json.loads(job["wa_creds"])
+                t_st = job["tenant_settings"] if job.get("tenant_settings") else {}
+                if isinstance(t_st, str):
+                    try: t_st = json.loads(t_st)
+                    except: t_st = {}
 
-                await send_text(
-                    phone_number_id=creds["phone_number_id"],
-                    access_token=creds["access_token"],
-                    to=job["phone"],
-                    body=message,
-                )
+                name = job.get("contact_name") or "there"
+                service = job["service"] or "Appointment"
+                start = job["start_time"]
+
+                tz_str = t_st.get("timezone", "Asia/Kolkata")
+                try:
+                    import zoneinfo
+                    tz = zoneinfo.ZoneInfo(tz_str)
+                except Exception:
+                    tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+                if isinstance(start, datetime.datetime):
+                    st_tz = start.astimezone(tz)
+                    date_str = st_tz.strftime("%d-%m-%Y")
+                    time_str = st_tz.strftime("%I:%M %p")
+                    full_time_str = f"{time_str} on {date_str}"
+                else:
+                    full_time_str = str(start)
+
+                sent_via_template = False
+                job_type = job["job_type"]
+
+                # 1. Reminder job: Send approved appointment_ramainder template
+                if job_type == "reminder" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+                    template_name = (
+                        creds.get("template_appointment_reminder") or
+                        t_st.get("template_appointment_reminder") or
+                        "appointment_ramainder"
+                    )
+                    components = [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": name},
+                                {"type": "text", "text": service},
+                                {"type": "text", "text": full_time_str},
+                            ]
+                        }
+                    ]
+                    try:
+                        await send_template(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=job["phone"],
+                            template_name=template_name,
+                            language_code="en",
+                            components=components,
+                        )
+                        sent_via_template = True
+                        logger.info("scheduled_reminder_template_sent", template=template_name, to=job["phone"])
+                    except Exception as te:
+                        logger.warning("scheduled_reminder_template_failed_fallback_text", error=str(te))
+
+                # 2. Review Request job: Send approved review_request template
+                elif job_type == "review_request" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+                    review_link = (t_st.get("google_review_link") or creds.get("google_review_link") or "").strip() or "https://g.page"
+                    template_name = (
+                        creds.get("template_review_request") or
+                        t_st.get("template_review_request") or
+                        "review_request"
+                    )
+                    components = [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": name},
+                                {"type": "text", "text": service},
+                                {"type": "text", "text": review_link},
+                            ]
+                        }
+                    ]
+                    try:
+                        await send_template(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=job["phone"],
+                            template_name=template_name,
+                            language_code="en",
+                            components=components,
+                        )
+                        sent_via_template = True
+                        logger.info("scheduled_review_template_sent", template=template_name, to=job["phone"])
+                    except Exception as te:
+                        logger.warning("scheduled_review_template_failed_fallback_text", error=str(te))
+
+                # 3. Fallback to freeform text if template wasn't sent
+                if not sent_via_template:
+                    message = self._build_scheduled_message(dict(job))
+                    await send_text(
+                        phone_number_id=creds["phone_number_id"],
+                        access_token=creds["access_token"],
+                        to=job["phone"],
+                        body=message,
+                    )
 
                 await self.db_pool.execute(
                     "UPDATE scheduled_jobs SET status = 'sent', sent_at = now() WHERE id = $1",
@@ -3207,10 +3326,11 @@ class CoreWorker:
                         job["contact_id"], job["tenant_id"]
                     )
                     if conv_row:
+                        logged_body = f"Template: {job_type}" if sent_via_template else message
                         await self.db_pool.execute(
                             """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
                                VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
-                            str(uuid.uuid4()), conv_row["id"], job["tenant_id"], message
+                            str(uuid.uuid4()), conv_row["id"], job["tenant_id"], logged_body
                         )
 
                 logger.info("scheduled_job_sent", job_id=str(job["id"]), job_type=job["job_type"])

@@ -1722,9 +1722,13 @@ export default function SuperAdminClients() {
                                     <span>Workspace Paused</span>
                                   </span>
                                 ) : t.subscription_status === 'active' ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
+                                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium ${
+                                    t.razorpay_subscription_id
+                                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25'
+                                      : 'bg-teal-500/10 text-teal-700 dark:text-teal-400 border border-teal-500/25'
+                                  }`}>
                                     <Check className="w-3 h-3 text-emerald-600" />
-                                    <span>Active (Paid)</span>
+                                    <span>{t.razorpay_subscription_id ? 'Active (Paid)' : 'Active (Manual)'}</span>
                                   </span>
                                 ) : t.subscription_status === 'payment_failed' ? (
                                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/25">
