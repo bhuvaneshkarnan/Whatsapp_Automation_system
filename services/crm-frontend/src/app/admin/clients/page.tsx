@@ -395,9 +395,25 @@ export default function SuperAdminClients() {
   const [configError, setConfigError] = useState('');
   const [configSavedNotice, setConfigSavedNotice] = useState(false);
 
-  // Meta Templates Sync state
+  // Meta Templates Sync state & Live Meta Status
   const [isSyncingMetaTemplates, setIsSyncingMetaTemplates] = useState(false);
   const [metaSyncResult, setMetaSyncResult] = useState<MetaTemplatesSyncResponse | null>(null);
+  const [metaTemplatesStatus, setMetaTemplatesStatus] = useState<MetaTemplatesStatusResponse | null>(null);
+  const [loadingMetaTemplates, setLoadingMetaTemplates] = useState(false);
+
+  async function loadAdminMetaTemplatesStatus(tenantId?: string) {
+    const tId = tenantId || editingConfigTenant?.id || viewingDbTenant?.id;
+    if (!tId) return;
+    setLoadingMetaTemplates(true);
+    try {
+      const res = await metaTemplatesApi.getStatus(tId);
+      setMetaTemplatesStatus(res);
+    } catch (err) {
+      console.warn('Failed to load Meta templates status for admin:', err);
+    } finally {
+      setLoadingMetaTemplates(false);
+    }
+  }
 
   async function handleSyncMetaTemplates(tenantId: string) {
     setIsSyncingMetaTemplates(true);
@@ -405,6 +421,7 @@ export default function SuperAdminClients() {
     try {
       const res = await metaTemplatesApi.syncAndProvision(tenantId);
       setMetaSyncResult(res);
+      await loadAdminMetaTemplatesStatus(tenantId);
       if (viewingDbTenant && viewingDbTenant.id === tenantId) {
         admin.getTenantSettings(tenantId).then(setDbTenantSettings).catch(() => {});
       }
@@ -416,6 +433,70 @@ export default function SuperAdminClients() {
     } finally {
       setIsSyncingMetaTemplates(false);
     }
+  }
+
+  function getAdminTemplateStatus(tplName?: string, defaultName?: string) {
+    if (loadingMetaTemplates) {
+      return { status: 'CHECKING', category: 'UTILITY', metaId: null };
+    }
+    const match = metaTemplatesStatus?.templates?.find(
+      (t) => (tplName && t.name === tplName) || (defaultName && t.name === defaultName)
+    );
+    if (match) {
+      return {
+        status: match.status.toUpperCase(),
+        category: match.category || 'UTILITY',
+        metaId: match.meta_id,
+      };
+    }
+    if (metaTemplatesStatus?.templates && metaTemplatesStatus.templates.length > 0) {
+      return { status: 'MISSING', category: 'UTILITY', metaId: null };
+    }
+    return { status: 'READY', category: 'UTILITY', metaId: null };
+  }
+
+  function renderAdminStatusBadge(tplName?: string, defaultName?: string) {
+    const { status, category } = getAdminTemplateStatus(tplName, defaultName);
+
+    let badgeColor = 'bg-slate-100 text-slate-600 border-slate-200';
+    let icon = null;
+    let labelText = status;
+
+    if (status === 'APPROVED') {
+      badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      icon = <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 shrink-0" />;
+      labelText = 'Approved';
+    } else if (status === 'PENDING') {
+      badgeColor = 'bg-amber-50 text-amber-700 border-amber-200';
+      icon = <Clock className="w-2.5 h-2.5 text-amber-600 shrink-0" />;
+      labelText = 'Pending Meta';
+    } else if (status === 'REJECTED') {
+      badgeColor = 'bg-rose-50 text-rose-700 border-rose-200';
+      icon = <AlertCircle className="w-2.5 h-2.5 text-rose-600 shrink-0" />;
+      labelText = 'Rejected';
+    } else if (status === 'CHECKING') {
+      badgeColor = 'bg-blue-50 text-blue-700 border-blue-200';
+      icon = <Loader2 className="w-2.5 h-2.5 text-blue-600 animate-spin shrink-0" />;
+      labelText = 'Checking...';
+    } else if (status === 'MISSING') {
+      badgeColor = 'bg-slate-100 text-slate-500 border-slate-200';
+      labelText = 'Not in Meta';
+    } else if (status === 'READY') {
+      badgeColor = 'bg-surface-subtle text-text-muted border-border';
+      labelText = 'Meta Template';
+    }
+
+    return (
+      <div className="flex items-center gap-1.5 shrink-0">
+        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-subtle text-text-muted border border-border">
+          {category}
+        </span>
+        <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${badgeColor}`}>
+          {icon}
+          <span>{labelText}</span>
+        </span>
+      </div>
+    );
   }
 
   // Edit Client Razorpay Billing Modal
@@ -634,6 +715,7 @@ export default function SuperAdminClients() {
     setDbError('');
     setShowSecrets({});
     setDbSearchQuery('');
+    loadAdminMetaTemplatesStatus(tenant.id);
     try {
       const data = await admin.getTenantSettings(tenant.id);
       setDbTenantSettings(data);
@@ -655,6 +737,7 @@ export default function SuperAdminClients() {
     setConfigLoading(true);
     setConfigError('');
     setConfigSavedNotice(false);
+    loadAdminMetaTemplatesStatus(tenant.id);
     try {
       const data = await admin.getTenantSettings(tenant.id);
       setConfigForm(data);
@@ -664,6 +747,18 @@ export default function SuperAdminClients() {
       setConfigLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (configTab === 'templates' && editingConfigTenant?.id) {
+      loadAdminMetaTemplatesStatus(editingConfigTenant.id);
+    }
+  }, [configTab, editingConfigTenant?.id]);
+
+  useEffect(() => {
+    if (dbViewSubtab === 'templates' && viewingDbTenant?.id) {
+      loadAdminMetaTemplatesStatus(viewingDbTenant.id);
+    }
+  }, [dbViewSubtab, viewingDbTenant?.id]);
 
   async function handleSaveConfig(e: React.FormEvent) {
     e.preventDefault();
@@ -2092,27 +2187,57 @@ export default function SuperAdminClients() {
                   {/* ── SUBTAB 5: MESSAGE TEMPLATES ── */}
                   {(dbViewSubtab === 'templates' || dbSearchQuery) && (
                     <div className="bg-surface border border-border rounded-md p-5 space-y-4 shadow-2xs">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
-                        <div>
-                          <h4 className="font-semibold text-xs text-text-primary flex items-center gap-2">
-                            <FileText className="w-4 h-4 text-accent stroke-[1.5]" />
-                            <span>Meta WhatsApp Template Registry & Automated Triggers</span>
-                          </h4>
-                          <p className="text-[11px] text-text-muted mt-0.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-border">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
+                              <FileText className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                              <span>Meta WhatsApp Template Registry</span>
+                            </h4>
+                            {metaTemplatesStatus?.summary && (
+                              <div className="flex items-center gap-1.5 text-[10px] font-mono">
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold inline-flex items-center gap-1">
+                                  <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                                  {metaTemplatesStatus.summary.approved} Approved
+                                </span>
+                                {(metaTemplatesStatus.summary.pending > 0 || metaTemplatesStatus.summary.missing > 0) && (
+                                  <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-semibold inline-flex items-center gap-1">
+                                    <Clock className="w-2.5 h-2.5 text-amber-600" />
+                                    {metaTemplatesStatus.summary.pending + metaTemplatesStatus.summary.missing} Pending
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-text-muted">
                             Approved Meta WhatsApp template identifiers registered for automated system dispatch.
                           </p>
                         </div>
-                        {viewingDbTenant && (
-                          <button
-                            type="button"
-                            disabled={isSyncingMetaTemplates}
-                            onClick={() => handleSyncMetaTemplates(viewingDbTenant.id)}
-                            className="px-3 py-1.5 bg-accent hover:bg-accent/90 text-white rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer shrink-0 disabled:opacity-50"
-                          >
-                            <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
-                            <span>{isSyncingMetaTemplates ? 'Syncing with Meta...' : '⚡ Auto-Provision in Meta (Utility)'}</span>
-                          </button>
-                        )}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {viewingDbTenant && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={loadingMetaTemplates}
+                                onClick={() => loadAdminMetaTemplatesStatus(viewingDbTenant.id)}
+                                className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary border border-border rounded-sm text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                                title="Refresh live status from Meta"
+                              >
+                                <RefreshCw className={`w-3 h-3 stroke-[1.5] ${loadingMetaTemplates ? 'animate-spin' : ''}`} />
+                                <span>{loadingMetaTemplates ? 'Checking...' : 'Check Status'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isSyncingMetaTemplates}
+                                onClick={() => handleSyncMetaTemplates(viewingDbTenant.id)}
+                                className="px-3 py-1 bg-accent hover:bg-accent/90 text-white rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer shrink-0 disabled:opacity-50"
+                              >
+                                <Sparkles className={`w-3.5 h-3.5 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
+                                <span>{isSyncingMetaTemplates ? 'Syncing...' : '⚡ Sync Meta'}</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
 
                       {metaSyncResult && (
@@ -2134,25 +2259,28 @@ export default function SuperAdminClients() {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {[
-                          { key: 'template_booking_confirmation', label: '1. Customer Booking Confirmation', value: dbTenantSettings.template_booking_confirmation || 'booking_confirmationn' },
-                          { key: 'template_admin_notification', label: '2. Admin Instant Booking Alert', value: dbTenantSettings.template_admin_notification || 'admin_notification' },
-                          { key: 'template_admin_human_request', label: '3. Admin Human Takeover Alert', value: dbTenantSettings.template_admin_human_request || 'admin_human_request' },
-                          { key: 'template_cancellation_confirmation', label: '4. Customer Cancellation Notice', value: dbTenantSettings.template_cancellation_confirmation || 'cancellation_confirmation' },
-                          { key: 'template_admin_cancellation_notice', label: '5. Admin Cancellation Notice', value: dbTenantSettings.template_admin_cancellation_notice || 'admin_cancellation_notice' },
-                          { key: 'template_reschedule_confirmation', label: '6. Customer Reschedule Confirmation', value: dbTenantSettings.template_reschedule_confirmation || 'booking_reschedule_confirmation' },
-                          { key: 'template_admin_reschedule_notice', label: '7. Admin Reschedule Notice', value: dbTenantSettings.template_admin_reschedule_notice || 'admin_reschedule_notice' },
-                          { key: 'template_appointment_reminder', label: '8. 24h Prior Appointment Reminder', value: dbTenantSettings.template_appointment_reminder || 'appointment_ramainder' },
-                          { key: 'template_reschedule_nudge', label: '9. Automated Reschedule Follow-up', value: dbTenantSettings.template_reschedule_nudge || 'reschedule_nudge' },
-                          { key: 'template_review_request', label: '10. Post-Service Review Request', value: dbTenantSettings.template_review_request || 'review_request' },
-                          { key: 'template_admin_daily_digest', label: '11. Daily Admin Performance Digest', value: dbTenantSettings.template_admin_daily_digest || 'admin_daily_digest' },
-                          { key: 'template_client_followup', label: '12. 24h Customer Re-engagement Follow-up', value: dbTenantSettings.template_client_followup || 'client_followup_checkin' },
+                          { key: 'template_booking_confirmation', label: '1. Customer Booking Confirmation', value: dbTenantSettings.template_booking_confirmation || 'booking_confirmationn', defaultName: 'booking_confirmationn' },
+                          { key: 'template_reschedule_confirmation', label: '2. Customer Reschedule Confirmation', value: dbTenantSettings.template_reschedule_confirmation || 'booking_reschedule_confirmation', defaultName: 'booking_reschedule_confirmation' },
+                          { key: 'template_cancellation_confirmation', label: '3. Customer Cancellation Notice', value: dbTenantSettings.template_cancellation_confirmation || 'cancellation_confirmation', defaultName: 'cancellation_confirmation' },
+                          { key: 'template_appointment_reminder', label: '4. 2-Hour Appointment Reminder', value: dbTenantSettings.template_appointment_reminder || 'appointment_ramainder', defaultName: 'appointment_ramainder' },
+                          { key: 'template_review_request', label: '5. Post-Service Review Request', value: dbTenantSettings.template_review_request || 'review_request', defaultName: 'review_request' },
+                          { key: 'template_reschedule_nudge', label: '6. Automated Reschedule Follow-up', value: dbTenantSettings.template_reschedule_nudge || 'reschedule_nudge', defaultName: 'reschedule_nudge' },
+                          { key: 'template_client_followup', label: '7. 24h Customer Re-engagement Follow-up', value: dbTenantSettings.template_client_followup || 'client_followup_checkin', defaultName: 'client_followup_checkin' },
+                          { key: 'template_admin_notification', label: '8. Admin Instant Booking Alert', value: dbTenantSettings.template_admin_notification || 'admin_notification', defaultName: 'admin_notification' },
+                          { key: 'template_admin_reschedule_notice', label: '9. Admin Reschedule Notice', value: dbTenantSettings.template_admin_reschedule_notice || 'admin_reschedule_notice', defaultName: 'admin_reschedule_notice' },
+                          { key: 'template_admin_cancellation_notice', label: '10. Admin Cancellation Notice', value: dbTenantSettings.template_admin_cancellation_notice || 'admin_cancellation_notice', defaultName: 'admin_cancellation_notice' },
+                          { key: 'template_admin_human_request', label: '11. Admin Human Takeover Alert', value: dbTenantSettings.template_admin_human_request || 'admin_human_request', defaultName: 'admin_human_request' },
+                          { key: 'template_admin_daily_digest', label: '12. Daily Admin Performance Digest', value: dbTenantSettings.template_admin_daily_digest || 'admin_daily_digest', defaultName: 'admin_daily_digest' },
                         ]
                           .filter(item => !dbSearchQuery || item.label.toLowerCase().includes(dbSearchQuery.toLowerCase()) || String(item.value).toLowerCase().includes(dbSearchQuery.toLowerCase()))
                           .map((item) => (
                             <div key={item.key} className="p-3 bg-surface-subtle border border-border rounded-sm flex items-center justify-between gap-2">
-                              <div>
-                                <p className="text-[11px] font-medium text-text-muted">{item.label}</p>
-                                <p className="font-mono text-xs font-semibold text-text-primary mt-0.5">{item.value}</p>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <p className="text-[11px] font-medium text-text-muted truncate">{item.label}</p>
+                                  {renderAdminStatusBadge(item.value, item.defaultName)}
+                                </div>
+                                <p className="font-mono text-xs font-semibold text-text-primary truncate">{item.value}</p>
                               </div>
                               <button
                                 onClick={() => copyToClipboard(item.value, `db-tpl-${item.key}`)}
@@ -3031,211 +3159,209 @@ export default function SuperAdminClients() {
                   {/* ── 3. LIFECYCLE MESSAGE TEMPLATES ───────────────────────── */}
                   {configTab === 'templates' && (
                     <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
-                      <div className="pb-2 border-b border-border flex items-center justify-between">
-                        <div>
-                          <h4 className="font-semibold text-xs text-text-primary">WhatsApp message template identifiers</h4>
-                          <p className="text-xs text-text-muted">
-                            Meta WhatsApp approved templates used for confirmations, 2-hr reminders, 15-min reviews, no-show nudges, and admin alerts.
+                      <div className="pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
+                              <FileText className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                              <span>WhatsApp Message Templates</span>
+                            </h4>
+                            {metaTemplatesStatus?.summary && (
+                              <div className="flex items-center gap-1.5 text-[10px] font-mono">
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold inline-flex items-center gap-1">
+                                  <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                                  {metaTemplatesStatus.summary.approved} Approved
+                                </span>
+                                {(metaTemplatesStatus.summary.pending > 0 || metaTemplatesStatus.summary.missing > 0) && (
+                                  <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-semibold inline-flex items-center gap-1">
+                                    <Clock className="w-2.5 h-2.5 text-amber-600" />
+                                    {metaTemplatesStatus.summary.pending + metaTemplatesStatus.summary.missing} Pending
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-text-muted">
+                            Meta WhatsApp approved templates for customer lifecycles and staff notifications ({editingConfigTenant?.name || 'Client'}).
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           {editingConfigTenant && (
-                            <button
-                              type="button"
-                              disabled={isSyncingMetaTemplates}
-                              onClick={() => handleSyncMetaTemplates(editingConfigTenant.id)}
-                              className="px-3 py-1.5 bg-accent hover:bg-accent/90 text-white rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer shrink-0 disabled:opacity-50"
-                            >
-                              <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
-                              <span>{isSyncingMetaTemplates ? 'Syncing...' : '⚡ Auto-Provision Meta Templates (Utility)'}</span>
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                disabled={loadingMetaTemplates}
+                                onClick={() => loadAdminMetaTemplatesStatus(editingConfigTenant.id)}
+                                className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary border border-border rounded-sm text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                                title="Refresh live status from Meta"
+                              >
+                                <RefreshCw className={`w-3 h-3 stroke-[1.5] ${loadingMetaTemplates ? 'animate-spin' : ''}`} />
+                                <span>{loadingMetaTemplates ? 'Checking...' : 'Check Status'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isSyncingMetaTemplates}
+                                onClick={() => handleSyncMetaTemplates(editingConfigTenant.id)}
+                                className="px-3 py-1 bg-accent hover:bg-accent/90 text-white rounded-sm text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer shrink-0 disabled:opacity-50"
+                                title="Provision all missing templates in Meta as UTILITY"
+                              >
+                                <Sparkles className={`w-3 h-3 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
+                                <span>{isSyncingMetaTemplates ? 'Syncing...' : '⚡ Sync Meta'}</span>
+                              </button>
+                            </>
                           )}
-                          <span className="text-xs font-medium text-status-success bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
-                            Automated lifecycles
-                          </span>
                         </div>
                       </div>
 
                       {/* Google Review URL Card */}
-                      <div className="p-4 bg-surface rounded-md border border-border space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Star className="w-4 h-4 text-accent stroke-[1.5]" />
-                          <label className="text-xs font-medium text-text-primary">
-                            Google review link (automated 15-min review request)
-                          </label>
+                      <div className="p-3 bg-surface-subtle rounded-md border border-border space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <Star className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                            <label className="text-xs font-medium text-text-primary">
+                              Google review link (automated 15-min review request)
+                            </label>
+                          </div>
+                          <span className="text-[10px] text-text-muted">Sent 15 mins after marked Attended</span>
                         </div>
-                        <p className="text-xs text-text-muted">
-                          When an appointment is marked as Attended, the system will send this review request link to the customer after 15 minutes.
-                        </p>
                         <input
                           type="text"
                           placeholder="https://g.page/r/your-business-id/review"
                           value={configForm.google_review_link || ''}
                           onChange={(e) => setConfigForm({ ...configForm, google_review_link: e.target.value })}
-                          className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                          className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                         />
                       </div>
 
                       {/* Customer Automation Templates */}
                       <div className="space-y-3">
-                        <h5 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-                          Customer lifecycle templates
-                        </h5>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">1. Client booking confirmation</label>
-                            <input
-                              type="text"
-                              placeholder="booking_confirmationn"
-                              value={configForm.template_booking_confirmation || ''}
-                              onChange={(e) => setConfigForm({ ...configForm, template_booking_confirmation: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted mt-1">Dispatched upon appointment confirmation.</p>
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">2. Client reschedule confirmation</label>
-                            <input
-                              type="text"
-                              placeholder="booking_reschedule_confirmation"
-                              value={configForm.template_reschedule_confirmation || ''}
-                              onChange={(e) => setConfigForm({ ...configForm, template_reschedule_confirmation: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted mt-1">Dispatched when customer reschedules slot.</p>
-                          </div>
+                        <div className="flex items-center justify-between">
+                          <h5 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                            Customer lifecycle templates
+                          </h5>
+                          <span className="text-[10px] text-text-muted">Auto-dispatched to customer WhatsApp</span>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">3. Client cancellation notice</label>
-                            <input
-                              type="text"
-                              placeholder="cancellation_confirmation"
-                              value={configForm.template_cancellation_confirmation || ''}
-                              onChange={(e) => setConfigForm({ ...configForm, template_cancellation_confirmation: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted mt-1">Dispatched when booking is cancelled.</p>
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">4. 2-Hour appointment reminder</label>
-                            <input
-                              type="text"
-                              placeholder="appointment_ramainder"
-                              value={configForm.template_appointment_reminder || ''}
-                              onChange={(e) => setConfigForm({ ...configForm, template_appointment_reminder: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted mt-1">Sent 2 hours before start time.</p>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">5. 15-Min post-attendance review</label>
-                            <input
-                              type="text"
-                              placeholder="review_request"
-                              value={configForm.template_review_request || ''}
-                              onChange={(e) => setConfigForm({ ...configForm, template_review_request: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted mt-1">Sent 15 mins after marked Attended.</p>
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">6. 15-Min no-show reschedule nudge</label>
-                            <input
-                              type="text"
-                              placeholder="reschedule_nudge"
-                              value={configForm.template_reschedule_nudge || ''}
-                              onChange={(e) => setConfigForm({ ...configForm, template_reschedule_nudge: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted mt-1">Sent 15 mins after marked No Show.</p>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">7. Client 24h Re-engagement Follow-up</label>
-                            <input
-                              type="text"
-                              placeholder="client_followup_checkin"
-                              value={configForm.template_client_followup || ''}
-                              onChange={(e) => setConfigForm({ ...configForm, template_client_followup: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                            <p className="text-xs text-text-muted mt-1">Dispatched when following up with a client after the 24h Meta messaging window.</p>
-                          </div>
+                          {[
+                            {
+                              key: 'template_booking_confirmation',
+                              defaultName: 'booking_confirmationn',
+                              label: '1. Client booking confirmation',
+                              desc: 'Dispatched upon appointment confirmation.',
+                            },
+                            {
+                              key: 'template_reschedule_confirmation',
+                              defaultName: 'booking_reschedule_confirmation',
+                              label: '2. Client reschedule confirmation',
+                              desc: 'Dispatched when customer reschedules slot.',
+                            },
+                            {
+                              key: 'template_cancellation_confirmation',
+                              defaultName: 'cancellation_confirmation',
+                              label: '3. Client cancellation notice',
+                              desc: 'Dispatched when booking is cancelled.',
+                            },
+                            {
+                              key: 'template_appointment_reminder',
+                              defaultName: 'appointment_ramainder',
+                              label: '4. 2-Hour appointment reminder',
+                              desc: 'Sent 2 hours before start time.',
+                            },
+                            {
+                              key: 'template_review_request',
+                              defaultName: 'review_request',
+                              label: '5. 15-Min post-attendance review',
+                              desc: 'Sent 15 mins after marked Attended.',
+                            },
+                            {
+                              key: 'template_reschedule_nudge',
+                              defaultName: 'reschedule_nudge',
+                              label: '6. 15-Min no-show reschedule nudge',
+                              desc: 'Sent 15 mins after marked No Show (Quick-reply button).',
+                            },
+                            {
+                              key: 'template_client_followup',
+                              defaultName: 'client_followup_checkin',
+                              label: '7. Client 24h Re-engagement Follow-up',
+                              desc: 'Dispatched when following up with a client after 24h Meta messaging window.',
+                            },
+                          ].map((item) => (
+                            <div key={item.key} className="space-y-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <label className="text-xs font-medium text-text-primary truncate">{item.label}</label>
+                                {renderAdminStatusBadge((configForm as any)[item.key], item.defaultName)}
+                              </div>
+                              <input
+                                type="text"
+                                placeholder={item.defaultName}
+                                value={(configForm as any)[item.key] || ''}
+                                onChange={(e) => setConfigForm({ ...configForm, [item.key]: e.target.value })}
+                                className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                              />
+                              <p className="text-[11px] text-text-muted">{item.desc}</p>
+                            </div>
+                          ))}
                         </div>
                       </div>
 
                       {/* Admin & Staff Templates */}
                       <div className="space-y-3 pt-3 border-t border-border">
-                        <h5 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-                          Admin & staff notification templates
-                        </h5>
+                        <div className="flex items-center justify-between">
+                          <h5 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                            Admin & staff notification templates
+                          </h5>
+                          <span className="text-[10px] text-text-muted">Dispatched to team internal WhatsApp</span>
+                        </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">7. Admin booking alert</label>
-                            <input
-                              type="text"
-                              placeholder="admin_notification"
-                              value={configForm.template_admin_notification || ''}
-                              onChange={(e) => setConfigForm({ ...configForm, template_admin_notification: e.target.value })}
-                              className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">8. Admin reschedule alert</label>
-                            <input
-                              type="text"
-                              placeholder="admin_reschedule_notice"
-                              value={configForm.template_admin_reschedule_notice || ''}
-                              onChange={(e) => setConfigForm({ ...configForm, template_admin_reschedule_notice: e.target.value })}
-                              className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">9. Admin cancellation alert</label>
-                            <input
-                              type="text"
-                              placeholder="admin_cancellation_notice"
-                              value={configForm.template_admin_cancellation_notice || ''}
-                              onChange={(e) => setConfigForm({ ...configForm, template_admin_cancellation_notice: e.target.value })}
-                              className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">10. Staff takeover alert</label>
-                            <input
-                              type="text"
-                              placeholder="admin_human_request"
-                              value={configForm.template_admin_human_request || ''}
-                              onChange={(e) => setConfigForm({ ...configForm, template_admin_human_request: e.target.value })}
-                              className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">11. Daily morning digest</label>
-                            <input
-                              type="text"
-                              placeholder="admin_daily_digest"
-                              value={configForm.template_admin_daily_digest || ''}
-                              onChange={(e) => setConfigForm({ ...configForm, template_admin_daily_digest: e.target.value })}
-                              className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                          </div>
+                          {[
+                            {
+                              key: 'template_admin_notification',
+                              defaultName: 'admin_notification',
+                              label: '8. Admin booking alert',
+                              desc: 'Staff WhatsApp alert on new booking.',
+                            },
+                            {
+                              key: 'template_admin_reschedule_notice',
+                              defaultName: 'admin_reschedule_notice',
+                              label: '9. Admin reschedule alert',
+                              desc: 'Staff WhatsApp alert on reschedule.',
+                            },
+                            {
+                              key: 'template_admin_cancellation_notice',
+                              defaultName: 'admin_cancellation_notice',
+                              label: '10. Admin cancellation alert',
+                              desc: 'Staff WhatsApp alert on cancellation.',
+                            },
+                            {
+                              key: 'template_admin_human_request',
+                              defaultName: 'admin_human_request',
+                              label: '11. Staff takeover alert',
+                              desc: 'Alert when client asks for a human.',
+                            },
+                            {
+                              key: 'template_admin_daily_digest',
+                              defaultName: 'admin_daily_digest',
+                              label: '12. Daily morning digest',
+                              desc: '8:00 AM daily schedule overview.',
+                            },
+                          ].map((item) => (
+                            <div key={item.key} className="space-y-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <label className="text-xs font-medium text-text-primary truncate">{item.label}</label>
+                                {renderAdminStatusBadge((configForm as any)[item.key], item.defaultName)}
+                              </div>
+                              <input
+                                type="text"
+                                placeholder={item.defaultName}
+                                value={(configForm as any)[item.key] || ''}
+                                onChange={(e) => setConfigForm({ ...configForm, [item.key]: e.target.value })}
+                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                              />
+                              <p className="text-[11px] text-text-muted">{item.desc}</p>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     </div>
