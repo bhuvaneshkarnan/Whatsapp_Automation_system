@@ -3166,12 +3166,11 @@ async def update_booking_status(
 
 
         elif payload.status in ["no_show", "no-show"]:
-            # 10 seconds delay for reschedule nudge
-            delay_seconds = 10
+            delay_seconds = 0
             automated_text = (
-                f"Hi {patient_name}, we missed you today for your scheduled {service_name} appointment with {tenant_name}.\n\n"
-                f"We understand that plans can change unexpectedly! Would you like to reschedule for tomorrow or another time?\n\n"
-                f"Simply reply to this message anytime and we'll gladly help you pick a convenient new slot."
+                f"Hi {patient_name}, we missed you for your {service_name} appointment today. No worries, life happens! "
+                f"Whenever you're ready, simply reply to this message and we'll get you rescheduled right away.\n\n"
+                f"Looking forward to seeing you soon!"
             )
             dispatch_template = (
                 t_settings_dict.get("template_reschedule_nudge") or

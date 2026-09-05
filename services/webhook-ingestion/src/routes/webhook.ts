@@ -121,7 +121,7 @@ webhookRouter.post(
           waMessageId:   msg.id,
           from:          msg.from,
           type:          msg.type,
-          body:          msg.text?.body ?? '',
+          body:          msg.text?.body ?? msg.button?.text ?? msg.button?.payload ?? msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? '',
           timestamp:     msg.timestamp,
           contactName:   value.contacts?.[0]?.profile?.name ?? '',
           rawJson:       JSON.stringify(msg),
@@ -209,7 +209,8 @@ interface MetaMessage {
   image?: { id: string; mime_type: string; caption?: string };
   audio?: { id: string; mime_type: string };
   document?: { id: string; mime_type: string; filename?: string };
-  interactive?: { type: string; button_reply?: { id: string; title: string } };
+  interactive?: { type: string; button_reply?: { id: string; title: string }; list_reply?: { id: string; title: string } };
+  button?: { payload?: string; text?: string };
 }
 
 interface MetaStatus {

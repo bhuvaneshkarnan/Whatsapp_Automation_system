@@ -731,6 +731,19 @@ class CoreWorker:
                 except Exception:
                     pass
 
+                # Extract button / quick reply clicks
+                if msg_type == "button" or "button" in raw_data:
+                    btn_obj = raw_data.get("button", {})
+                    body_text = btn_obj.get("text") or btn_obj.get("payload") or body_text
+                    logger.info("button_reply_received", conv_id=conv_id, button_text=body_text)
+                elif msg_type == "interactive" or "interactive" in raw_data:
+                    inter_obj = raw_data.get("interactive", {})
+                    if inter_obj.get("type") == "button_reply":
+                        body_text = inter_obj.get("button_reply", {}).get("title") or inter_obj.get("button_reply", {}).get("id") or body_text
+                    elif inter_obj.get("type") == "list_reply":
+                        body_text = inter_obj.get("list_reply", {}).get("title") or inter_obj.get("list_reply", {}).get("id") or body_text
+                    logger.info("interactive_reply_received", conv_id=conv_id, title=body_text)
+
                 media_id = raw_data.get("audio", {}).get("id") or raw_data.get("voice", {}).get("id")
                 if media_id and creds and creds.get("access_token"):
                     try:
