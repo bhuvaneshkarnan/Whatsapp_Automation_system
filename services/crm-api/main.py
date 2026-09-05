@@ -4259,10 +4259,12 @@ class TenantCreate(BaseModel):
     admin_email: str
     admin_password: str
     plan: Optional[str] = "pro"
+    industry: Optional[str] = "clinic"
     monthly_price: Optional[float] = None
     billing_cycle_day: Optional[int] = None
     razorpay_subscription_id: Optional[str] = None
     meta_phone_id: Optional[str] = ""
+    meta_waba_id: Optional[str] = ""
     meta_access_token: Optional[str] = ""
     meta_app_secret: Optional[str] = ""
     verify_token: Optional[str] = ""
@@ -4434,6 +4436,49 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
                 "- Ask one clear question at a time to qualify their needs and guide them towards booking.\n"
                 "- Reply in the same language the customer uses (English, Tamil, Hindi, etc.)."
             )
+
+            # Industry-specific protocol and safety guardrails
+            ind_choice = (payload.industry or "clinic").strip().lower()
+            if ind_choice in ("clinic", "healthcare", "dental", "medical"):
+                parts.append(
+                    "### MEDICAL & CLINIC PROTOCOL\n"
+                    "- Prioritize patient safety, comfort, and confidentiality.\n"
+                    "- Never diagnose conditions or prescribe medications over chat.\n"
+                    "- In case of severe emergency (chest pain, acute breathlessness, severe trauma), immediately advise the patient to call emergency services (108) or visit the nearest emergency room.\n"
+                    "- Encourage booking an in-person consultation with the doctor for thorough diagnosis."
+                )
+            elif ind_choice in ("real_estate", "realestate"):
+                parts.append(
+                    "### REAL ESTATE CONSULTATION PROTOCOL\n"
+                    "- Qualify buyer preferences (configuration, budget, preferred locality, investment vs self-use).\n"
+                    "- Highlight verified property amenities, RERA approvals, and location advantages.\n"
+                    "- Guide the client to schedule an exclusive on-site property tour with our relationship manager."
+                )
+            elif ind_choice in ("salon_spa", "salon", "spa"):
+                parts.append(
+                    "### SALON & WELLNESS PROTOCOL\n"
+                    "- Recommend personalized grooming, hair, skin, and spa treatments tailored to client requirements.\n"
+                    "- Inquire about stylist preference and communicate treatment duration clearly."
+                )
+            elif ind_choice in ("education", "coaching"):
+                parts.append(
+                    "### ACADEMIC & ADMISSIONS PROTOCOL\n"
+                    "- Understand student academic goals, grade, and competitive exam targets.\n"
+                    "- Highlight batch schedule options, faculty expertise, and free demo class bookings."
+                )
+            elif ind_choice in ("automobile", "automotive"):
+                parts.append(
+                    "### AUTOMOTIVE SERVICE PROTOCOL\n"
+                    "- Identify vehicle make/model and determine if service is periodic maintenance, repair, or new test drive.\n"
+                    "- Offer express service appointment booking with transparent estimate communication."
+                )
+            elif ind_choice in ("consulting", "legal"):
+                parts.append(
+                    "### PROFESSIONAL ADVISORY PROTOCOL\n"
+                    "- Maintain absolute client confidentiality and professional clarity.\n"
+                    "- Clarify advisory scope and guide client to schedule a strategic consultation session."
+                )
+
             compiled_prompt = "\n\n".join(parts)
         else:
             compiled_prompt = payload.ai_prompt.strip() or f"You are {assistant_name}, the official WhatsApp assistant for {payload.name.strip()}. Assist customers politely and accurately."
@@ -4441,7 +4486,9 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
         # Prepare Billing Settings
         m_price = payload.monthly_price if payload.monthly_price is not None else (999.0 if (payload.plan or "").lower() == "starter" else (9999.0 if (payload.plan or "").lower() == "enterprise" else 3499.0))
         b_day = payload.billing_cycle_day or 1
+        ind = (payload.industry or "clinic").strip().lower()
         t_settings = {
+            "industry": ind,
             "monthly_price": float(m_price),
             "billing_cycle_day": int(b_day),
             "razorpay_subscription_id": (payload.razorpay_subscription_id or "").strip(),
@@ -4469,6 +4516,7 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
                 # 3. WhatsApp Credentials & Meta Templates
                 cred_dict = {
                     "phone_number_id": payload.meta_phone_id.strip() if payload.meta_phone_id else "",
+                    "waba_id": payload.meta_waba_id.strip() if payload.meta_waba_id else "",
                     "access_token": payload.meta_access_token.strip() if payload.meta_access_token else "",
                     "app_secret": payload.meta_app_secret.strip() if payload.meta_app_secret else "",
                     "verify_token": payload.verify_token.strip() if payload.verify_token else (slug + "_verify_token"),
