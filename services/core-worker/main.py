@@ -763,13 +763,14 @@ class CoreWorker:
                         body_text = "🎤 [Voice Note received]"
 
             # ── 5. Persist inbound message ────────────────────────────────────
+            safe_content_type = "interactive" if msg_type in ["button", "interactive"] else (msg_type if msg_type in ['text', 'image', 'audio', 'video', 'document', 'template', 'interactive', 'sticker', 'location', 'button'] else 'text')
             await self._persist_message(
                 tenant_id=tenant_id,
                 conversation_id=conv_id,
                 wa_message_id=wa_message_id,
                 direction="inbound",
                 body=body_text,
-                content_type=msg_type,
+                content_type=safe_content_type,
             )
 
             # ── 5b. Auto-detect & persist customer email if mentioned in message ───
