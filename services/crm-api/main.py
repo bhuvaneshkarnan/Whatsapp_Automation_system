@@ -5410,6 +5410,83 @@ async def handle_razorpay_webhook(
                 )
             logger.info("razorpay_payment_link_paid_recorded", tenant_id=tenant_id, pay_id=pay_id, amount=amount)
 
+            # ── Automated Activation Notifications (Email & WhatsApp to Client) ──
+            try:
+                admin_u = await conn.fetchrow(
+                    "SELECT email FROM users WHERE tenant_id = $1::uuid AND is_active = true ORDER BY (role = 'admin') DESC, created_at ASC LIMIT 1",
+                    tenant_id
+                )
+                t_cfg = tenant.get("settings") or {}
+                if isinstance(t_cfg, str):
+                    try: t_cfg = json.loads(t_cfg)
+                    except: t_cfg = {}
+                
+                target_email = admin_u["email"] if admin_u else t_cfg.get("notification_email")
+                target_phone = t_cfg.get("admin_whatsapp_number", "")
+                t_name = tenant.get("name", "Client Organization")
+                t_slug = tenant.get("slug", "dashboard")
+                dash_url = f"https://crm.goboldlabs.com/{t_slug}"
+
+                g_cred_row = await conn.fetchrow(
+                    "SELECT credential_data FROM tenant_credentials WHERE provider = 'google_calendar' AND is_active = true LIMIT 1"
+                )
+                if g_cred_row and g_cred_row["credential_data"] and target_email and "@" in target_email:
+                    gd = json.loads(g_cred_row["credential_data"]) if isinstance(g_cred_row["credential_data"], str) else g_cred_row["credential_data"]
+                    from google.oauth2.credentials import Credentials
+                    g_creds = Credentials(
+                        token=gd.get("access_token"),
+                        refresh_token=gd.get("refresh_token"),
+                        token_uri="https://oauth2.googleapis.com/token",
+                        client_id=gd.get("client_id"),
+                        client_secret=gd.get("client_secret"),
+                    )
+                    email_html = f"""
+                    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
+                      <div style="text-align: center; margin-bottom: 24px;">
+                        <h2 style="color: #0f172a; margin: 0; font-size: 20px;">Payment Confirmed • Workspace Active</h2>
+                        <p style="color: #64748b; font-size: 13px; margin: 6px 0 0 0;">Boldlabs AI WhatsApp Automation Platform</p>
+                      </div>
+                      <p style="color: #334155; font-size: 14px; line-height: 1.6;">Hello <strong>{t_name}</strong>,</p>
+                      <p style="color: #334155; font-size: 14px; line-height: 1.6;">Your monthly subscription payment of <strong>₹{int(amount):,}</strong> has been successfully confirmed. Your AI WhatsApp Automation workspace is now <strong>100% LIVE and ACTIVE</strong>.</p>
+                      
+                      <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 18px; margin: 24px 0;">
+                        <h4 style="margin: 0 0 12px 0; color: #0f172a; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Your CRM Dashboard Access</h4>
+                        <table style="width: 100%; font-size: 13px; color: #334155; border-collapse: collapse;">
+                          <tr><td style="padding: 4px 0; font-weight: 600; width: 130px;">Workspace Link:</td><td><a href="{dash_url}" style="color: #4f46e5; text-decoration: underline; font-weight: 600;">{dash_url}</a></td></tr>
+                          <tr><td style="padding: 4px 0; font-weight: 600;">Login Portal:</td><td><a href="https://crm.goboldlabs.com/login" style="color: #4f46e5;">https://crm.goboldlabs.com/login</a></td></tr>
+                          <tr><td style="padding: 4px 0; font-weight: 600;">Registered Email:</td><td>{target_email}</td></tr>
+                          <tr><td style="padding: 4px 0; font-weight: 600;">Status:</td><td><span style="color: #16a34a; font-weight: 600;">Active • Live Automation</span></td></tr>
+                        </table>
+                      </div>
+
+                      <div style="text-align: center; margin: 24px 0;">
+                        <a href="{dash_url}" style="display: inline-block; background: #4f46e5; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 13px;">Open Your CRM Dashboard &rarr;</a>
+                      </div>
+
+                      <p style="color: #64748b; font-size: 12px; line-height: 1.5; border-top: 1px solid #f1f5f9; padding-top: 16px; margin-top: 24px;">
+                        Need assistance? Reply directly to this email or reach our support team anytime.<br>
+                        &copy; 2026 Boldlabs. All rights reserved.
+                      </p>
+                    </div>
+                    """
+                    send_gmail_direct_notification(
+                        g_creds, target_email,
+                        f"Payment Confirmed: Your WhatsApp Automation Workspace is Active ({t_name})",
+                        email_html
+                    )
+                    logger.info("payment_activation_email_sent", tenant_id=tenant_id, email=target_email)
+
+                if target_phone:
+                    clean_phone = "".join(filter(str.isdigit, target_phone))
+                    if clean_phone:
+                        wa_msg = f"Payment Confirmed! 🎉 Hello {t_name}, your payment of ₹{int(amount):,} has been received. Your WhatsApp Automation workspace is now 100% active. Access your CRM dashboard anytime: {dash_url}"
+                        await dispatch_whatsapp_message(tenant_id, clean_phone, text=wa_msg)
+                        logger.info("payment_activation_whatsapp_sent", tenant_id=tenant_id, phone=clean_phone)
+
+            except Exception as notify_err:
+                logger.warning("payment_activation_notification_failed", tenant_id=tenant_id, error=str(notify_err))
+
+
         elif event_type in ("subscription.authenticated", "subscription.activated"):
             await conn.execute(
                 """
