@@ -710,8 +710,10 @@ class CoreWorker:
             )
             is_active = tenant_info["is_active"] if tenant_info else True
             stage = (tenant_info.get("org_lifecycle_stage") or "setup") if tenant_info else "setup"
-            sub_status = (tenant_info.get("subscription_status") or "not_started") if tenant_info else "not_started"
-            sub_delinquent = (stage == "billing_active" and sub_status != "active")
+            sub_delinquent = (
+                (stage in ("ready_to_activate", "billing_active") and sub_status != "active")
+                or (sub_status in ("payment_failed", "paused", "cancelled"))
+            )
 
             # Only auto-mark as read (blue ticks) if AI is enabled and handling this chat.
             # If in Human Mode or delinquent/paused, keep as delivered (2 grey ticks) until staff opens chat in CRM.
@@ -790,8 +792,7 @@ class CoreWorker:
                             logger.warning("persist_extracted_email_failed", error=str(em_err))
 
             # ── 6. Route to AI or skip (human mode, paused automation, or subscription delinquent) ─────
-            # Strict Gating: Orgs in 'setup' or 'ready_to_activate' run freely!
-            # Only gate if org_lifecycle_stage == 'billing_active' AND subscription_status != 'active'
+            # Strict Gating: If unpaid/delinquent, AI auto-replies are held until payment is completed!
             if sub_delinquent:
                 logger.warn("skipping_ai_subscription_not_active", conv_id=conv_id, tenant_id=tenant_id, stage=stage, sub_status=sub_status)
             elif is_active is False:
