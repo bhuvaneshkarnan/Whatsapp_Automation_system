@@ -3416,7 +3416,7 @@ async def send_manual_message(
     async with db_pool.acquire() as conn:
         # Get conversation and contact details
         conv = await conn.fetchrow(
-            """SELECT c.id, c.status, ct.name as contact_name, ct.phone, t.name as tenant_name
+            """SELECT c.id, c.status, ct.name as contact_name, ct.phone, t.name as tenant_name, t.settings as tenant_settings
                FROM conversations c
                JOIN contacts ct ON ct.id = c.contact_id
                JOIN tenants t ON t.id = c.tenant_id
@@ -3496,7 +3496,14 @@ async def send_manual_message(
                             wa_id = data.get("messages", [{}])[0].get("id")
                         elif "131047" in resp.text:
                             # 24-hour customer window expired: Auto-send approved follow-up template!
-                            f_tpl = creds.get("template_client_followup") or "client_followup_checkin"
+                            t_settings = {}
+                            if conv and conv.get("tenant_settings"):
+                                s = conv["tenant_settings"]
+                                if isinstance(s, str):
+                                    try: s = json.loads(s)
+                                    except: s = {}
+                                t_settings = dict(s)
+                            f_tpl = creds.get("template_client_followup") or t_settings.get("template_client_followup") or "client_followup_checkin"
                             c_name = conv["contact_name"] or "there"
                             b_name = conv["tenant_name"] or "our team"
                             f_params = [c_name, assistant_name, b_name]
