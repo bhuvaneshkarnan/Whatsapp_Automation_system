@@ -705,6 +705,7 @@ export interface ClientTenant {
   last_charge_at?: string;
   next_renewal_date?: string;
   billing_method?: string;
+  admin_whatsapp_number?: string;
 }
 
 export interface ClientCreatePayload {
@@ -805,8 +806,12 @@ export const admin = {
         body: JSON.stringify(data),
       }
     ),
-  activateBilling: (tenantId: string, force?: boolean) =>
-    request<{
+  activateBilling: (tenantId: string, force?: boolean, customPhone?: string) => {
+    const params = new URLSearchParams();
+    if (force) params.set('force_new', 'true');
+    if (customPhone) params.set('custom_phone', customPhone);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request<{
       status: string;
       tenant_id: string;
       subscription_id: string;
@@ -814,9 +819,10 @@ export const admin = {
       org_lifecycle_stage: string;
       subscription_status: string;
       message?: string;
-    }>(`/api/v1/crm/admin/tenants/${tenantId}/activate-billing${force ? '?force_new=true' : ''}`, {
+    }>(`/api/v1/crm/admin/tenants/${tenantId}/activate-billing${qs}`, {
       method: 'POST',
-    }),
+    });
+  },
   syncBilling: (tenantId: string) =>
     request<{
       status: string;

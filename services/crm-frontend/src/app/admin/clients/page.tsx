@@ -521,6 +521,7 @@ export default function SuperAdminClients() {
   const [activatingBillingId, setActivatingBillingId] = useState<string | null>(null);
   const [syncingBillingId, setSyncingBillingId] = useState<string | null>(null);
   const [activePaymentModalTenant, setActivePaymentModalTenant] = useState<ClientTenant | null>(null);
+  const [clientPaymentPhone, setClientPaymentPhone] = useState<string>('');
   const [viewingInvoicesTenant, setViewingInvoicesTenant] = useState<ClientTenant | null>(null);
   const [tenantInvoices, setTenantInvoices] = useState<Invoice[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
@@ -805,21 +806,24 @@ export default function SuperAdminClients() {
     }
   }
 
-  async function handleActivateBilling(tenant: ClientTenant, force: boolean = false) {
+  async function handleActivateBilling(tenant: ClientTenant, force: boolean = false, customPhone?: string) {
     setActivatingBillingId(tenant.id);
     try {
-      const res = await admin.activateBilling(tenant.id, force);
+      const phoneToUse = customPhone !== undefined ? customPhone : (clientPaymentPhone || tenant.admin_whatsapp_number || '');
+      const res = await admin.activateBilling(tenant.id, force, phoneToUse);
       const updatedTenant: ClientTenant = {
         ...tenant,
         org_lifecycle_stage: res.org_lifecycle_stage,
         subscription_status: res.subscription_status,
         razorpay_subscription_id: res.subscription_id,
         razorpay_short_url: res.short_url,
+        admin_whatsapp_number: phoneToUse || tenant.admin_whatsapp_number,
       };
       setTenants((prev) =>
         prev.map((t) => (t.id === tenant.id ? updatedTenant : t))
       );
       setActivePaymentModalTenant(updatedTenant);
+      setClientPaymentPhone(phoneToUse || updatedTenant.admin_whatsapp_number || '');
       setActionSuccessNotice(`Billing link updated for ${tenant.name}! Live checkout is ready.`);
       setTimeout(() => setActionSuccessNotice(null), 5000);
     } catch (err: any) {
@@ -1442,36 +1446,35 @@ export default function SuperAdminClients() {
                             <td className="py-2.5 px-4 text-right whitespace-nowrap">
                               <div className="inline-flex items-center justify-end gap-1.5">
 
-                                {/* STAGE B ACTION: Activate & Start Billing */}
-                                {(!t.org_lifecycle_stage || t.org_lifecycle_stage === 'setup') && (
+                                {/* Send or Generate Payment Link */}
+                                {!t.razorpay_short_url ? (
                                   <button
-                                    onClick={() => handleActivateBilling(t)}
+                                    onClick={() => {
+                                      setClientPaymentPhone(t.admin_whatsapp_number || '');
+                                      handleActivateBilling(t);
+                                    }}
                                     disabled={activatingBillingId === t.id}
-                                    className="px-2 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50"
-                                    title="Create Razorpay Customer & Subscription (₹3,499/mo)"
+                                    className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50"
+                                    title="Generate & Send Razorpay Payment Link to Client"
                                   >
                                     {activatingBillingId === t.id ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                     ) : (
-                                      <Sparkles className="w-3 h-3" />
+                                      <CreditCard className="w-3.5 h-3.5" />
                                     )}
-                                    <span>Activate</span>
+                                    <span>Send Pay Link</span>
                                   </button>
-                                )}
-
-                                {/* Copy Payment Link */}
-                                {t.razorpay_short_url && (
+                                ) : (
                                   <button
-                                    onClick={() => handleCopyPaymentLink(t.razorpay_short_url!, t.id)}
+                                    onClick={() => {
+                                      setActivePaymentModalTenant(t);
+                                      setClientPaymentPhone(t.admin_whatsapp_number || '');
+                                    }}
                                     className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-950 border border-purple-300 rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
-                                    title="Copy Razorpay Payment Link for Client"
+                                    title="View & Send Razorpay Payment Link to Client"
                                   >
-                                    {copiedLink === t.id ? (
-                                      <Check className="w-3.5 h-3.5 text-emerald-700 font-bold" />
-                                    ) : (
-                                      <Copy className="w-3.5 h-3.5 text-purple-900" />
-                                    )}
-                                    <span className="font-semibold text-purple-950">{copiedLink === t.id ? 'Copied' : 'Pay Link'}</span>
+                                    <CreditCard className="w-3.5 h-3.5 text-purple-900" />
+                                    <span className="font-semibold text-purple-950">Pay Link</span>
                                   </button>
                                 )}
 
@@ -4142,7 +4145,7 @@ export default function SuperAdminClients() {
       {/* ── MODAL: RAZORPAY PAYMENT LINK & ACTIVATION ──────────────────────────── */}
       {activePaymentModalTenant && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-lg w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in duration-150">
+          <div className="bg-surface border border-border rounded-lg w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in duration-150">
             <div className="h-14 px-5 border-b border-border flex items-center justify-between bg-surface">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-600 flex items-center justify-center">
@@ -4150,12 +4153,12 @@ export default function SuperAdminClients() {
                 </div>
                 <div>
                   <h3 className="text-xs font-bold text-text-primary">
-                    Billing Activated: {activePaymentModalTenant.name}
+                    Client Subscription & Payment Link: {activePaymentModalTenant.name}
                   </h3>
                   <p className="text-[10px] text-text-muted">
                     {activePaymentModalTenant.razorpay_subscription_id?.startsWith('plink_')
                       ? `Razorpay Payment Link #${activePaymentModalTenant.razorpay_subscription_id}`
-                      : `Razorpay Subscription #${activePaymentModalTenant.razorpay_subscription_id}`}
+                      : `Razorpay Subscription #${activePaymentModalTenant.razorpay_subscription_id || 'Not Generated'}`}
                   </p>
                 </div>
               </div>
@@ -4168,21 +4171,21 @@ export default function SuperAdminClients() {
             </div>
 
             <div className="p-5 space-y-4">
-              <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-md text-xs text-purple-700 dark:text-purple-300 space-y-1">
+              <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-md text-xs text-purple-900 dark:text-purple-300 space-y-1">
                 <p className="font-semibold flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Ready to Activate (₹3,499/mo)</span>
+                  <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Ready for Client Activation (₹{(activePaymentModalTenant.monthly_price || 3499).toLocaleString()}/mo)</span>
                 </p>
                 <p className="text-text-secondary text-[11px] leading-relaxed">
-                  The client organization has been moved to <strong>Ready to Activate</strong>.
-                  Their WhatsApp automation runs freely until the customer completes the first payment.
+                  The client workspace is fully configured. Send this secure checkout link to the client/owner to complete their monthly subscription.
                 </p>
               </div>
 
-              {activePaymentModalTenant.razorpay_short_url && (
+              {/* Payment Link Display */}
+              {activePaymentModalTenant.razorpay_short_url ? (
                 <div className="space-y-1.5">
                   <label className="block text-xs font-medium text-text-primary">
-                    Client Razorpay Payment Link
+                    Live Razorpay Payment Link
                   </label>
                   <div className="flex items-center gap-1.5">
                     <input
@@ -4194,15 +4197,90 @@ export default function SuperAdminClients() {
                     <button
                       type="button"
                       onClick={() => handleCopyPaymentLink(activePaymentModalTenant.razorpay_short_url!, 'modal')}
-                      className="px-3 py-2 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1 shrink-0"
+                      className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1 shrink-0"
                     >
                       {copiedLink === 'modal' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                       <span>{copiedLink === 'modal' ? 'Copied' : 'Copy'}</span>
                     </button>
                   </div>
                 </div>
+              ) : (
+                <div className="p-3 bg-surface-subtle border border-border rounded text-center space-y-2">
+                  <p className="text-xs text-text-muted">No payment link generated yet for this organization.</p>
+                  <button
+                    type="button"
+                    disabled={activatingBillingId === activePaymentModalTenant.id}
+                    onClick={() => handleActivateBilling(activePaymentModalTenant, true, clientPaymentPhone)}
+                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-semibold cursor-pointer"
+                  >
+                    {activatingBillingId === activePaymentModalTenant.id ? 'Generating...' : 'Generate Razorpay Link Now'}
+                  </button>
+                </div>
               )}
 
+              {/* Client Personal Phone Section */}
+              <div className="space-y-2 pt-1 border-t border-border">
+                <label className="block text-xs font-medium text-text-primary flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Smartphone className="w-3.5 h-3.5 text-accent" />
+                    <span>Client Personal WhatsApp Phone (Owner / Doctor)</span>
+                  </span>
+                  <span className="text-[10px] text-text-muted">For Billing & Alerts</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="+919876543210"
+                  value={clientPaymentPhone}
+                  onChange={(e) => setClientPaymentPhone(e.target.value)}
+                  className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary font-mono"
+                />
+                <div className="p-2.5 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 rounded text-[11px] text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                  <Info className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Important distinction:</strong> This is the client/owner&apos;s personal WhatsApp phone to receive invoices and payments. It is <strong>different</strong> from their customer-facing WhatsApp automation bot number.
+                  </span>
+                </div>
+              </div>
+
+              {/* Send Actions */}
+              {activePaymentModalTenant.razorpay_short_url && (
+                <div className="space-y-2 pt-2">
+                  <label className="block text-xs font-medium text-text-primary">
+                    Send Link to Client
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Send via WhatsApp */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cleanPhone = clientPaymentPhone.replace(/\D/g, '');
+                        if (!cleanPhone) {
+                          alert('Please enter the client personal WhatsApp phone number above.');
+                          return;
+                        }
+                        const priceStr = (activePaymentModalTenant.monthly_price || 3499).toLocaleString();
+                        const msg = `Hello ${activePaymentModalTenant.name},\n\nYour AI WhatsApp Automation System with Boldlabs is now fully setup and ready!\n\nYou can review and activate your monthly subscription (${activePaymentModalTenant.plan?.toUpperCase() || 'PRO'} - ₹${priceStr}/month) using your secure Razorpay checkout link below:\n\n👉 ${activePaymentModalTenant.razorpay_short_url}\n\nPlease let us know once completed so we can confirm your live activation. Thank you!`;
+                        window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+                      }}
+                      className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Send via WhatsApp</span>
+                    </button>
+
+                    {/* Send via Email */}
+                    <a
+                      href={`mailto:${activePaymentModalTenant.admin_email || ''}?subject=${encodeURIComponent(`Your AI WhatsApp Automation System is Ready - ${activePaymentModalTenant.name}`)}&body=${encodeURIComponent(`Hello ${activePaymentModalTenant.name},\n\nYour AI WhatsApp Automation System with Boldlabs is now fully setup and ready!\n\nYou can review and activate your monthly subscription (${activePaymentModalTenant.plan?.toUpperCase() || 'PRO'} - ₹${(activePaymentModalTenant.monthly_price || 3499).toLocaleString()}/month) using your secure Razorpay checkout link below:\n\n${activePaymentModalTenant.razorpay_short_url}\n\nPlease let us know once completed so we can confirm your live activation.\n\nBest regards,\nBoldlabs Team`)}`}
+                      className="px-3 py-2 bg-surface hover:bg-surface-subtle text-text-primary border border-border rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs text-center"
+                    >
+                      <Mail className="w-3.5 h-3.5 text-text-muted" />
+                      <span>Send via Email</span>
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal Footer */}
               <div className="pt-3 border-t border-border flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   {activePaymentModalTenant.razorpay_short_url && (
@@ -4212,14 +4290,14 @@ export default function SuperAdminClients() {
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline font-medium"
                     >
-                      <span>Test Payment Page</span>
+                      <span>Test Checkout Page</span>
                       <ExternalLink className="w-3 h-3" />
                     </a>
                   )}
                   <button
                     type="button"
                     disabled={activatingBillingId === activePaymentModalTenant.id}
-                    onClick={() => handleActivateBilling(activePaymentModalTenant, true)}
+                    onClick={() => handleActivateBilling(activePaymentModalTenant, true, clientPaymentPhone)}
                     className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-text-primary underline cursor-pointer disabled:opacity-50"
                     title="Generate a brand new live payment link"
                   >

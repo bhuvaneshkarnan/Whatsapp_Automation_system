@@ -4357,6 +4357,7 @@ async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
         billing_day = int(cfg.get("billing_cycle_day", 1))
         razorpay_sub_id = r["razorpay_subscription_id"] or cfg.get("razorpay_subscription_id", "")
         next_renewal = r["next_charge_at"].strftime("%d %b %Y") if r["next_charge_at"] else cfg.get("next_renewal_date", f"Day {billing_day} of every month")
+        admin_phone = cfg.get("admin_whatsapp_number", "")
         result.append({
             "id": str(r["id"]),
             "name": r["name"],
@@ -4365,6 +4366,7 @@ async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
             "plan": r["plan"],
             "created_at": r["created_at"].isoformat() if r["created_at"] else "",
             "admin_email": r["admin_email"] or "",
+            "admin_whatsapp_number": admin_phone,
             "contact_count": int(r["contact_count"] or 0),
             "conversation_count": int(r["conversation_count"] or 0),
             "message_count": int(r["message_count"] or 0),
@@ -4999,18 +5001,19 @@ async def dispatch_subscription_reminder(tenant_id: str, reminder_stage: int, pa
 async def activate_tenant_billing(
     tenant_id: str,
     force_new: bool = False,
+    custom_phone: Optional[str] = Query(None),
     admin_user: dict = Depends(verify_super_admin)
 ):
     """
     Stage B: Activate & Start Billing.
-    Generates a live Razorpay Payment Link for ₹3,499/mo,
+    Generates a live Razorpay Payment Link for the tenant's monthly subscription,
     records razorpay_customer_id, razorpay_subscription_id (payment link ID), razorpay_short_url,
     and sets org_lifecycle_stage = 'ready_to_activate'.
     Note: Automation STILL runs freely in this stage until the customer completes the first payment.
     """
     async with db_pool.acquire() as conn:
         tenant = await conn.fetchrow(
-            "SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_subscription_id, razorpay_short_url FROM tenants WHERE id = $1::uuid",
+            "SELECT id, name, slug, settings, org_lifecycle_stage, subscription_status, razorpay_subscription_id, razorpay_short_url FROM tenants WHERE id = $1::uuid",
             tenant_id
         )
         if not tenant:
@@ -5040,15 +5043,26 @@ async def activate_tenant_billing(
             tenant_id
         )
         admin_phone = ""
-        if wa_cred and wa_cred["credential_data"]:
+        if custom_phone and custom_phone.strip():
+            admin_phone = custom_phone.strip()
+        elif wa_cred and wa_cred["credential_data"]:
             cd = wa_cred["credential_data"]
             if isinstance(cd, str):
                 try: cd = json.loads(cd)
                 except: cd = {}
             admin_phone = cd.get("admin_whatsapp_number", "")
+        
+        cfg = tenant.get("settings") or {}
+        if isinstance(cfg, str):
+            try: cfg = json.loads(cfg)
+            except: cfg = {}
+        if not admin_phone:
+            admin_phone = cfg.get("admin_whatsapp_number", "")
 
         customer_name = tenant["name"]
         customer_email = admin_contact["email"] if admin_contact else f"{tenant['slug']}@boldlabs.ai"
+        monthly_price = float(cfg.get("monthly_price", 3499.0))
+        amount_paisa = int(monthly_price * 100)
         
         cust_id = None
         try:
@@ -5058,11 +5072,11 @@ async def activate_tenant_billing(
             logger.warning("razorpay_cust_create_warning", error=str(ce))
             
         plink_res = await razorpay_client.create_payment_link(
-            amount=349900,
+            amount=amount_paisa,
             customer_name=customer_name,
             customer_email=customer_email,
             customer_contact=admin_phone,
-            description=f"{customer_name} - Platform Subscription (₹3,499/mo)",
+            description=f"{customer_name} - Platform Subscription (₹{int(monthly_price):,}/mo)",
             org_slug=tenant["slug"],
             tenant_id=tenant_id
         )
@@ -5082,6 +5096,16 @@ async def activate_tenant_billing(
             """,
             cust_id, sub_id, short_url, tenant_id
         )
+
+        if custom_phone and custom_phone.strip():
+            await conn.execute(
+                """
+                UPDATE tenants
+                SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{admin_whatsapp_number}', to_jsonb($1::text), true)
+                WHERE id = $2::uuid
+                """,
+                custom_phone.strip(), tenant_id
+            )
 
         logger.info("tenant_billing_activated", tenant_id=tenant_id, sub_id=sub_id, short_url=short_url)
         return {
