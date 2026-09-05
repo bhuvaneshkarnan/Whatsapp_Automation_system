@@ -978,7 +978,7 @@ export default function DashboardPage() {
   const [savingTask, setSavingTask] = useState(false);
 
   // Marketing Broadcast State
-  const [marketingSubTab, setMarketingSubTab] = useState<'broadcasts' | 'reengagement' | 'analytics'>('broadcasts');
+  const [marketingSubTab, setMarketingSubTab] = useState<'broadcasts' | 'templates' | 'reengagement' | 'analytics'>('broadcasts');
   const [campaigns, setCampaigns] = useState<BroadcastCampaign[]>([]);
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
 
@@ -3470,6 +3470,243 @@ export default function DashboardPage() {
     );
   }
 
+  const renderMetaTemplatesView = () => (
+    <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
+      <div className="pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h4 className="font-semibold text-xs text-text-primary flex items-center gap-2">
+              <FileText className="w-4 h-4 text-accent stroke-[1.5]" />
+              <span>Meta WhatsApp Message Templates</span>
+            </h4>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              100% Utility (Low Cost)
+            </span>
+          </div>
+          <p className="text-xs text-text-muted mt-0.5">
+            Standardized transactional templates for appointment lifecycle, interactive reschedule nudges, reviews, and staff alerts. Auto-tailored to your industry ({settingsForm.industry?.toUpperCase() || 'CLINIC'}).
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            disabled={loadingMetaTemplates}
+            onClick={() => loadMetaTemplatesStatus()}
+            className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-secondary border border-border rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+            title="Refresh template statuses from Meta"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${loadingMetaTemplates ? 'animate-spin' : ''}`} />
+            <span>Check Status</span>
+          </button>
+          <button
+            type="button"
+            disabled={syncingMetaTemplates}
+            onClick={handleAutoSyncMetaTemplates}
+            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-sm text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer shrink-0 disabled:opacity-50"
+          >
+            <Sparkles className={`w-3.5 h-3.5 stroke-[1.5] ${syncingMetaTemplates ? 'animate-spin' : ''}`} />
+            <span>{syncingMetaTemplates ? 'Auto-Provisioning in Meta...' : '⚡ Auto-Provision in Meta (Utility)'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Sync Result Banner */}
+      {metaSyncBanner && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-md text-xs flex items-start gap-3">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+          <div className="flex-1 space-y-1">
+            <p className="font-semibold text-emerald-900">
+              Meta Template Auto-Provision Complete ({metaSyncBanner.industry?.toUpperCase()} Preset)
+            </p>
+            <p className="text-emerald-700 text-xs">
+              ✓ <strong>{metaSyncBanner.already_present_count}</strong> verified active in Meta &bull; <strong>{metaSyncBanner.created_count}</strong> newly provisioned as UTILITY &bull; <strong>{metaSyncBanner.failed_count}</strong> failed.
+            </p>
+            {metaSyncBanner.created_count > 0 && (
+              <p className="text-[11px] font-mono text-emerald-600">
+                Newly Created: {metaSyncBanner.created.map((c) => c.name).join(', ')}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Summary Metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="p-3 bg-surface-subtle border border-border rounded-sm">
+          <span className="text-[11px] font-medium text-text-muted">Total Core Templates</span>
+          <p className="text-lg font-bold text-text-primary mt-0.5">
+            {metaTemplatesStatus?.summary?.total || 11}
+          </p>
+        </div>
+        <div className="p-3 bg-emerald-50/50 border border-emerald-200/80 rounded-sm">
+          <span className="text-[11px] font-medium text-emerald-700">Approved in Meta (Active)</span>
+          <p className="text-lg font-bold text-emerald-700 mt-0.5">
+            {metaTemplatesStatus?.summary?.approved ?? 10}
+          </p>
+        </div>
+        <div className="p-3 bg-amber-50/50 border border-amber-200/80 rounded-sm">
+          <span className="text-[11px] font-medium text-amber-700">Pending / Missing</span>
+          <p className="text-lg font-bold text-amber-700 mt-0.5">
+            {(metaTemplatesStatus?.summary?.pending ?? 1) + (metaTemplatesStatus?.summary?.missing ?? 0)}
+          </p>
+        </div>
+      </div>
+
+      {/* Templates Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+        {[
+          {
+            key: 'template_booking_confirmation',
+            defaultName: 'booking_confirmationn',
+            label: '1. Customer Booking Confirmation',
+            desc: 'Sent immediately when customer books an appointment or slot.',
+            isButton: false,
+          },
+          {
+            key: 'template_reschedule_confirmation',
+            defaultName: 'booking_reschedule_confirmation',
+            label: '2. Customer Reschedule Confirmation',
+            desc: 'Dispatched when customer or staff changes an appointment time.',
+            isButton: false,
+          },
+          {
+            key: 'template_cancellation_confirmation',
+            defaultName: 'cancellation_confirmation',
+            label: '3. Customer Cancellation Notice',
+            desc: 'Sent when an appointment is cancelled.',
+            isButton: false,
+          },
+          {
+            key: 'template_appointment_reminder',
+            defaultName: 'appointment_ramainder',
+            label: '4. 2-Hour Appointment Reminder',
+            desc: 'Automatic reminder sent 2 hours before scheduled slot to prevent no-shows.',
+            isButton: false,
+          },
+          {
+            key: 'template_reschedule_nudge',
+            defaultName: 'reschedule_nudge',
+            label: '5. No-Show Reschedule Nudge',
+            desc: 'Sent if customer misses slot. Features native WhatsApp quick-reply button.',
+            isButton: true,
+            buttonLabel: 'Reschedule Now',
+          },
+          {
+            key: 'template_review_request',
+            defaultName: 'review_request',
+            label: '6. 15-Min Post-Service Review',
+            desc: 'Sent 15 minutes after appointment completion with Google Review link.',
+            isButton: false,
+          },
+          {
+            key: 'template_admin_notification',
+            defaultName: 'admin_notification',
+            label: '7. Staff Instant Booking Alert',
+            desc: 'Dispatched to staff WhatsApp as soon as a new booking is registered.',
+            isButton: false,
+          },
+          {
+            key: 'template_admin_reschedule_notice',
+            defaultName: 'admin_reschedule_notice',
+            label: '8. Staff Reschedule Notice',
+            desc: 'Alerts staff WhatsApp when a customer modifies their time slot.',
+            isButton: false,
+          },
+          {
+            key: 'template_admin_cancellation_notice',
+            defaultName: 'admin_cancellation_notice',
+            label: '9. Staff Cancellation Alert',
+            desc: 'Alerts staff WhatsApp immediately when a customer cancels.',
+            isButton: false,
+          },
+          {
+            key: 'template_admin_human_request',
+            defaultName: 'admin_human_request',
+            label: '10. Staff Human Handover Request',
+            desc: 'Alerts staff when customer requests a human or AI detects urgent assistance.',
+            isButton: false,
+          },
+          {
+            key: 'template_admin_daily_digest',
+            defaultName: 'admin_daily_digest',
+            label: '11. Staff Daily Morning Digest',
+            desc: 'Sent at 8:00 AM with count and schedule of all appointments for the day.',
+            isButton: false,
+          },
+        ].map((item) => {
+          const currentVal = (settingsForm as any)[item.key] || item.defaultName;
+          const metaMatch = metaTemplatesStatus?.templates?.find((t) => t.name === currentVal || t.name === item.defaultName);
+          const status = metaMatch ? metaMatch.status : (currentVal ? 'APPROVED' : 'MISSING');
+
+          return (
+            <div key={item.key} className="p-3.5 bg-surface rounded-md border border-border space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-xs text-text-primary">{item.label}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-xs bg-surface-subtle text-text-muted border border-border">
+                    UTILITY
+                  </span>
+                  <span
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                      status === 'APPROVED'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : status === 'PENDING'
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    {status}
+                  </span>
+                </div>
+              </div>
+              <p className="text-[11px] text-text-muted leading-relaxed">{item.desc}</p>
+              {item.isButton && (
+                <div className="flex items-center gap-1.5 text-[10px] text-accent bg-accent/5 px-2 py-1 rounded-sm border border-accent/20">
+                  <Sparkles className="w-3 h-3 stroke-[1.5]" />
+                  <span>Interactive WhatsApp Button: <strong>[{item.buttonLabel}]</strong></span>
+                </div>
+              )}
+              <div>
+                <label className="block text-[10px] font-mono text-text-muted mb-1">Meta Template Identifier</label>
+                <input
+                  type="text"
+                  value={currentVal}
+                  onChange={(e) => setSettingsForm({ ...settingsForm, [item.key]: e.target.value })}
+                  placeholder={item.defaultName}
+                  className="w-full px-2.5 py-1 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent"
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="pt-3 border-t border-border flex items-center justify-between">
+        <p className="text-[11px] text-text-muted">
+          Templates are linked automatically to the automated lifecycle triggers in your CRM.
+        </p>
+        <button
+          type="button"
+          onClick={() => handleSaveSettings()}
+          disabled={settingsSaving}
+          className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+        >
+          {settingsSaving ? (
+            <>
+              <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
+              <span>Saving templates...</span>
+            </>
+          ) : (
+            <>
+              <Check className="w-3.5 h-3.5 stroke-[1.5]" />
+              <span>Save Template Identifiers</span>
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="w-full h-screen bg-canvas flex flex-col overflow-hidden font-sans text-text-body">
       {/* ── Top Header Navigation Bar ───────────────────────────────────────── */}
@@ -3826,6 +4063,26 @@ export default function DashboardPage() {
               >
                 <Megaphone className="w-4 h-4 stroke-[1.5] shrink-0" />
                 <span>Marketing</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  navigateTo('settings');
+                  setSettingsTab('templates');
+                }}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                  activeNav === 'settings' && settingsTab === 'templates'
+                    ? 'bg-surface-subtle text-text-primary font-semibold'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                }`}
+              >
+                <FileText className="w-4 h-4 stroke-[1.5] shrink-0 text-accent" />
+                <div className="flex items-center justify-between flex-1">
+                  <span>WhatsApp Templates</span>
+                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200">
+                    Utility
+                  </span>
+                </div>
               </button>
             </nav>
           </div>
@@ -7589,6 +7846,7 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5 w-fit">
                   {([
                     { key: 'broadcasts', Icon: Megaphone, label: 'Broadcasts' },
+                    { key: 'templates', Icon: FileText, label: 'WhatsApp Templates (Utility)' },
                     { key: 'reengagement', Icon: RotateCcw, label: 'Re-engagement' },
                     { key: 'analytics', Icon: BarChart2, label: 'Analytics' },
                   ] as const).map((tab) => (
@@ -8117,9 +8375,10 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-                    SUB-TAB 2: RE-ENGAGEMENT TRIGGERS
-                â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+                {/* ── SUB-TAB 1B: WHATSAPP MESSAGE TEMPLATES (UTILITY PRESET) ── */}
+                {marketingSubTab === 'templates' && renderMetaTemplatesView()}
+
+                {/* ── SUB-TAB 2: RE-ENGAGEMENT TRIGGERS ── */}
                 {marketingSubTab === 'reengagement' && (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
@@ -8996,242 +9255,7 @@ export default function DashboardPage() {
                   )}
 
                   {/* ── 4B. META WHATSAPP TEMPLATES (UTILITY PRESET) ──────────── */}
-                  {settingsTab === 'templates' && (
-                    <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
-                      <div className="pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-semibold text-xs text-text-primary flex items-center gap-2">
-                              <FileText className="w-4 h-4 text-accent stroke-[1.5]" />
-                              <span>Meta WhatsApp Message Templates</span>
-                            </h4>
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              100% Utility (Low Cost)
-                            </span>
-                          </div>
-                          <p className="text-xs text-text-muted mt-0.5">
-                            Standardized transactional templates for appointment lifecycle, interactive reschedule nudges, reviews, and staff alerts. Auto-tailored to your industry ({settingsForm.industry?.toUpperCase() || 'CLINIC'}).
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            disabled={loadingMetaTemplates}
-                            onClick={() => loadMetaTemplatesStatus()}
-                            className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-secondary border border-border rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                            title="Refresh template statuses from Meta"
-                          >
-                            <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${loadingMetaTemplates ? 'animate-spin' : ''}`} />
-                            <span>Check Status</span>
-                          </button>
-                          <button
-                            type="button"
-                            disabled={syncingMetaTemplates}
-                            onClick={handleAutoSyncMetaTemplates}
-                            className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-sm text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer shrink-0 disabled:opacity-50"
-                          >
-                            <Sparkles className={`w-3.5 h-3.5 stroke-[1.5] ${syncingMetaTemplates ? 'animate-spin' : ''}`} />
-                            <span>{syncingMetaTemplates ? 'Auto-Provisioning in Meta...' : '⚡ Auto-Provision in Meta (Utility)'}</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Sync Result Banner */}
-                      {metaSyncBanner && (
-                        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-md text-xs flex items-start gap-3">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                          <div className="flex-1 space-y-1">
-                            <p className="font-semibold text-emerald-900">
-                              Meta Template Auto-Provision Complete ({metaSyncBanner.industry?.toUpperCase()} Preset)
-                            </p>
-                            <p className="text-emerald-700 text-xs">
-                              ✓ <strong>{metaSyncBanner.already_present_count}</strong> verified active in Meta &bull; <strong>{metaSyncBanner.created_count}</strong> newly provisioned as UTILITY &bull; <strong>{metaSyncBanner.failed_count}</strong> failed.
-                            </p>
-                            {metaSyncBanner.created_count > 0 && (
-                              <p className="text-[11px] font-mono text-emerald-600">
-                                Newly Created: {metaSyncBanner.created.map((c) => c.name).join(', ')}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Summary Metrics */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="p-3 bg-surface-subtle border border-border rounded-sm">
-                          <span className="text-[11px] font-medium text-text-muted">Total Core Templates</span>
-                          <p className="text-lg font-bold text-text-primary mt-0.5">
-                            {metaTemplatesStatus?.total || 11}
-                          </p>
-                        </div>
-                        <div className="p-3 bg-emerald-50/50 border border-emerald-200/80 rounded-sm">
-                          <span className="text-[11px] font-medium text-emerald-700">Approved in Meta (Active)</span>
-                          <p className="text-lg font-bold text-emerald-700 mt-0.5">
-                            {metaTemplatesStatus?.approved ?? 10}
-                          </p>
-                        </div>
-                        <div className="p-3 bg-amber-50/50 border border-amber-200/80 rounded-sm">
-                          <span className="text-[11px] font-medium text-amber-700">Pending / Missing</span>
-                          <p className="text-lg font-bold text-amber-700 mt-0.5">
-                            {(metaTemplatesStatus?.pending ?? 1) + (metaTemplatesStatus?.missing ?? 0)}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Templates Grid */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                        {[
-                          {
-                            key: 'template_booking_confirmation',
-                            defaultName: 'booking_confirmationn',
-                            label: '1. Customer Booking Confirmation',
-                            desc: 'Sent immediately when customer books an appointment or slot.',
-                            isButton: false,
-                          },
-                          {
-                            key: 'template_reschedule_confirmation',
-                            defaultName: 'booking_reschedule_confirmation',
-                            label: '2. Customer Reschedule Confirmation',
-                            desc: 'Dispatched when customer or staff changes an appointment time.',
-                            isButton: false,
-                          },
-                          {
-                            key: 'template_cancellation_confirmation',
-                            defaultName: 'cancellation_confirmation',
-                            label: '3. Customer Cancellation Notice',
-                            desc: 'Sent when an appointment is cancelled.',
-                            isButton: false,
-                          },
-                          {
-                            key: 'template_appointment_reminder',
-                            defaultName: 'appointment_ramainder',
-                            label: '4. 2-Hour Appointment Reminder',
-                            desc: 'Automatic reminder sent 2 hours before scheduled slot to prevent no-shows.',
-                            isButton: false,
-                          },
-                          {
-                            key: 'template_reschedule_nudge',
-                            defaultName: 'reschedule_nudge',
-                            label: '5. No-Show Reschedule Nudge',
-                            desc: 'Sent if customer misses slot. Features native WhatsApp quick-reply button.',
-                            isButton: true,
-                            buttonLabel: 'Reschedule Now',
-                          },
-                          {
-                            key: 'template_review_request',
-                            defaultName: 'review_request',
-                            label: '6. 15-Min Post-Service Review',
-                            desc: 'Sent 15 minutes after appointment completion with Google Review link.',
-                            isButton: false,
-                          },
-                          {
-                            key: 'template_admin_notification',
-                            defaultName: 'admin_notification',
-                            label: '7. Staff Instant Booking Alert',
-                            desc: 'Dispatched to staff WhatsApp as soon as a new booking is registered.',
-                            isButton: false,
-                          },
-                          {
-                            key: 'template_admin_reschedule_notice',
-                            defaultName: 'admin_reschedule_notice',
-                            label: '8. Staff Reschedule Notice',
-                            desc: 'Alerts staff WhatsApp when a customer modifies their time slot.',
-                            isButton: false,
-                          },
-                          {
-                            key: 'template_admin_cancellation_notice',
-                            defaultName: 'admin_cancellation_notice',
-                            label: '9. Staff Cancellation Alert',
-                            desc: 'Alerts staff WhatsApp immediately when a customer cancels.',
-                            isButton: false,
-                          },
-                          {
-                            key: 'template_admin_human_request',
-                            defaultName: 'admin_human_request',
-                            label: '10. Staff Human Handover Request',
-                            desc: 'Alerts staff when customer requests a human or AI detects urgent assistance.',
-                            isButton: false,
-                          },
-                          {
-                            key: 'template_admin_daily_digest',
-                            defaultName: 'admin_daily_digest',
-                            label: '11. Staff Daily Morning Digest',
-                            desc: 'Sent at 8:00 AM with count and schedule of all appointments for the day.',
-                            isButton: false,
-                          },
-                        ].map((item) => {
-                          const currentVal = (settingsForm as any)[item.key] || item.defaultName;
-                          const metaMatch = metaTemplatesStatus?.templates?.find((t) => t.template_key === item.key || t.name === currentVal);
-                          const status = metaMatch?.status || (currentVal ? 'APPROVED' : 'MISSING');
-
-                          return (
-                            <div key={item.key} className="p-3.5 bg-surface rounded-md border border-border space-y-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="font-semibold text-xs text-text-primary">{item.label}</span>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-xs bg-surface-subtle text-text-muted border border-border">
-                                    UTILITY
-                                  </span>
-                                  <span
-                                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                                      status === 'APPROVED'
-                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                        : status === 'PENDING'
-                                        ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                        : 'bg-slate-100 text-slate-600 border-slate-200'
-                                    }`}
-                                  >
-                                    {status}
-                                  </span>
-                                </div>
-                              </div>
-                              <p className="text-[11px] text-text-muted leading-relaxed">{item.desc}</p>
-                              {item.isButton && (
-                                <div className="flex items-center gap-1.5 text-[10px] text-accent bg-accent/5 px-2 py-1 rounded-sm border border-accent/20">
-                                  <Sparkles className="w-3 h-3 stroke-[1.5]" />
-                                  <span>Interactive WhatsApp Button: <strong>[{item.buttonLabel}]</strong></span>
-                                </div>
-                              )}
-                              <div>
-                                <label className="block text-[10px] font-mono text-text-muted mb-1">Meta Template Identifier</label>
-                                <input
-                                  type="text"
-                                  value={currentVal}
-                                  onChange={(e) => setSettingsForm({ ...settingsForm, [item.key]: e.target.value })}
-                                  placeholder={item.defaultName}
-                                  className="w-full px-2.5 py-1 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent"
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <div className="pt-3 border-t border-border flex items-center justify-between">
-                        <p className="text-[11px] text-text-muted">
-                          Templates are linked automatically to the automated lifecycle triggers in your CRM.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => handleSaveSettings()}
-                          disabled={settingsSaving}
-                          className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                        >
-                          {settingsSaving ? (
-                            <>
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
-                              <span>Saving templates...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Check className="w-3.5 h-3.5 stroke-[1.5]" />
-                              <span>Save Template Identifiers</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  {settingsTab === 'templates' && renderMetaTemplatesView()}
 
                   {/* ── 5. ACCOUNT & SESSION ──────────────────────────────────── */}
                   {settingsTab === 'account' && (

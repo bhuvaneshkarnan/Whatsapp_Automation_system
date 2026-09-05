@@ -6269,27 +6269,33 @@ def build_industry_template_specs(industry: str = "clinic") -> dict:
 
     service_noun = "appointment"
     service_example = "Consultation"
-    if ind == "education":
+    if ind in ("education", "coaching"):
         service_noun = "session"
         service_example = "Demo Class"
-    elif ind == "salon_spa":
-        service_noun = "appointment"
-        service_example = "Hair Styling"
-    elif ind == "real_estate":
+    elif ind in ("salon_spa", "salon", "spa"):
+        service_noun = "service session"
+        service_example = "Styling / Treatment"
+    elif ind in ("real_estate", "realestate"):
         service_noun = "property visit"
         service_example = "Site Tour"
-    elif ind == "automobile":
-        service_noun = "service appointment"
-        service_example = "Vehicle Inspection"
-    elif ind == "consulting":
+    elif ind in ("automobile", "automotive"):
+        service_noun = "service slot"
+        service_example = "Test Drive / Inspection"
+    elif ind in ("consulting", "legal"):
         service_noun = "consultation"
         service_example = "Strategy Session"
-    elif ind == "gym_fitness":
-        service_noun = "training session"
-        service_example = "Fitness Assessment"
-    elif ind == "restaurant":
+    elif ind in ("gym_fitness", "gym", "fitness"):
+        service_noun = "workout slot"
+        service_example = "Personal Training"
+    elif ind in ("restaurant", "dining"):
         service_noun = "table reservation"
-        service_example = "Dinner Table"
+        service_example = "Dining Experience"
+    elif ind in ("custom", "other"):
+        service_noun = "scheduled booking"
+        service_example = "Requested Service"
+    else: # clinic / healthcare
+        service_noun = "appointment"
+        service_example = "Consultation"
 
     return {
         "booking_confirmationn": {

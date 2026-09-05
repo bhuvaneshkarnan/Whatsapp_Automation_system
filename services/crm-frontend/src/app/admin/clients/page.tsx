@@ -985,6 +985,18 @@ export default function SuperAdminClients() {
               <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${loading ? 'animate-spin' : ''}`} />
             </button>
 
+            {tenants.length > 0 && (
+              <button
+                onClick={() => handleSyncMetaTemplates(tenants[0].id)}
+                disabled={isSyncingMetaTemplates}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                title="Auto-Provision All 11 Meta Templates as 100% Utility"
+              >
+                <Sparkles className={`w-3.5 h-3.5 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
+                <span>{isSyncingMetaTemplates ? 'Syncing Meta...' : '⚡ Sync Meta Templates'}</span>
+              </button>
+            )}
+
             <button
               onClick={() => setShowCreateModal(true)}
               className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -1368,6 +1380,17 @@ export default function SuperAdminClients() {
                                   </button>
                                 )}
 
+                                 {/* Auto-Sync Meta Templates */}
+                                 <button
+                                   onClick={() => handleSyncMetaTemplates(t.id)}
+                                   disabled={isSyncingMetaTemplates}
+                                   className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/40 rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50"
+                                   title="Auto-Provision All 11 Meta Templates as 100% Utility"
+                                 >
+                                   <RefreshCw className={`w-3 h-3 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
+                                   <span>Sync Meta</span>
+                                 </button>
+
                                 {/* Configure Central Settings */}
                                 <button
                                   onClick={() => handleOpenConfig(t)}
@@ -1699,6 +1722,18 @@ export default function SuperAdminClients() {
                     <span>{copiedField === 'full-db-json' ? 'Copied JSON!' : 'Copy Full JSON'}</span>
                   </button>
                 )}
+
+                {/* Auto-Provision Meta Templates (Utility) */}
+                <button
+                  type="button"
+                  disabled={isSyncingMetaTemplates}
+                  onClick={() => handleSyncMetaTemplates(viewingDbTenant.id)}
+                  className="px-2.5 py-1 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                  title="Auto-Provision All 11 Meta Templates as 100% Utility"
+                >
+                  <Sparkles className={`w-3.5 h-3.5 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
+                  <span>{isSyncingMetaTemplates ? 'Syncing...' : '⚡ Auto-Provision Meta (Utility)'}</span>
+                </button>
 
                 {/* Edit in Configure Drawer */}
                 <button
