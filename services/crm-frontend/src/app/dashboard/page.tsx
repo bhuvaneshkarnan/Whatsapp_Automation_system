@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 import {
   crm,
   marketing,
@@ -1449,6 +1451,33 @@ export default function DashboardPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const messagesCacheRef = useRef<Record<string, Message[]>>({});
+  const activeConvIdRef = useRef<string | null>(null);
+  const lastSelectedConvIdRef = useRef<string | null>(null);
+
+  // Instant scroll to bottom before browser paint when switching chats or receiving messages
+  useIsomorphicLayoutEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el || !selectedConv) return;
+
+    el.style.scrollBehavior = 'auto';
+    const isConvChange = lastSelectedConvIdRef.current !== selectedConv.id;
+    lastSelectedConvIdRef.current = selectedConv.id;
+
+    if (isConvChange) {
+      // Switched chats: ALWAYS instantly jump straight to newest message at the bottom
+      el.scrollTop = el.scrollHeight;
+      requestAnimationFrame(() => {
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    } else {
+      // Stream update in same conversation: stay at bottom if already near bottom (within 200px)
+      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
+      if (isNearBottom) {
+        el.scrollTop = el.scrollHeight;
+      }
+    }
+  }, [selectedConv?.id, messages]);
 
   // Initial Auth & Load
   useEffect(() => {
@@ -1688,6 +1717,7 @@ export default function DashboardPage() {
           try {
             const msgs = await crm.getMessages(activeId);
             if (isMounted && Array.isArray(msgs) && selectedConvRef.current?.id === activeId) {
+              messagesCacheRef.current[activeId] = msgs;
               setMessages((prev) => {
                 const isDiff =
                   msgs.length !== prev.length ||
@@ -1698,15 +1728,7 @@ export default function DashboardPage() {
                       prev[idx].status !== m.status ||
                       prev[idx].body !== m.body
                   );
-                if (isDiff) {
-                  setTimeout(() => {
-                    if (messagesContainerRef.current) {
-                      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-                    }
-                  }, 50);
-                  return msgs;
-                }
-                return prev;
+                return isDiff ? msgs : prev;
               });
             }
           } catch {
@@ -2534,27 +2556,45 @@ export default function DashboardPage() {
   async function selectConversation(conv: Conversation) {
     const updatedConv = { ...conv, unread_count: 0 };
     setSelectedConv(updatedConv);
+    activeConvIdRef.current = conv.id;
+
+    // Immediately clear unread badge in conversation list
     setConversations((prev) =>
       prev.map((c) => (c.id === conv.id ? { ...c, unread_count: 0 } : c))
     );
-    setLoadingMessages(true);
+
+    // Instant switch: if messages were already loaded, show them instantly with 0ms delay and NO loading spinner!
+    const cached = messagesCacheRef.current[conv.id];
+    if (cached && cached.length > 0) {
+      setMessages(cached);
+      setLoadingMessages(false);
+    } else {
+      setMessages([]);
+      setLoadingMessages(true);
+    }
+
     try {
       const msgs = await crm.getMessages(conv.id);
-      setMessages(Array.isArray(msgs) ? msgs : []);
+      const validMsgs = Array.isArray(msgs) ? msgs : [];
+      if (activeConvIdRef.current === conv.id) {
+        messagesCacheRef.current[conv.id] = validMsgs;
+        setMessages(validMsgs);
+      }
     } catch (err) {
       console.error('Error fetching messages:', err);
     } finally {
-      setLoadingMessages(false);
-      scrollToBottom();
+      if (activeConvIdRef.current === conv.id) {
+        setLoadingMessages(false);
+      }
     }
   }
 
-  function scrollToBottom() {
-    setTimeout(() => {
-      if (messagesContainerRef.current) {
-        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-      }
-    }, 50);
+  function scrollToBottom(instant = true) {
+    if (messagesContainerRef.current) {
+      const el = messagesContainerRef.current;
+      el.style.scrollBehavior = instant ? 'auto' : 'smooth';
+      el.scrollTop = el.scrollHeight;
+    }
   }
 
   async function handleSendMessage(e: React.FormEvent) {
@@ -2567,7 +2607,13 @@ export default function DashboardPage() {
 
     try {
       const sent = await crm.sendMessage(selectedConv.id, text);
-      setMessages((prev) => [...prev, sent]);
+      setMessages((prev) => {
+        const next = [...prev, sent];
+        if (selectedConv) {
+          messagesCacheRef.current[selectedConv.id] = next;
+        }
+        return next;
+      });
       scrollToBottom();
       loadConversations();
     } catch (err) {
@@ -5540,44 +5586,59 @@ export default function DashboardPage() {
                       </div>
 
                       {/* Chat Messages Stream */}
-                      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2.5 bg-canvas/40">
-                        {loadingMessages ? (
-                          <div className="text-center text-xs text-text-muted py-8">Loading history...</div>
-                        ) : messages.map((msg) => {
-                          const isInbound = msg.direction === 'inbound';
-                          const isVoice = msg.body?.startsWith('[Voice Note:');
-                          return (
-                            <div key={msg.id} className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
-                              <div
-                                className={`max-w-[85%] sm:max-w-[70%] rounded-2xl ${isInbound ? 'rounded-tl-xs bg-surface text-text-body border border-border shadow-xs' : 'rounded-tr-xs bg-accent text-white shadow-xs'} px-3.5 py-2.5 text-xs`}
-                              >
-                                {isVoice && (
-                                  <div className="flex items-center gap-1 text-accent-light font-mono text-[10px] mb-1">
-                                    <Mic className="w-3 h-3 stroke-[1.5]" />
-                                    <span>Voice note transcribed</span>
-                                  </div>
-                                )}
-                                <p className="leading-relaxed whitespace-pre-wrap font-sans">{msg.body}</p>
-                                <div className={`text-[10px] mt-1 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100/90'}`}>
-                                  <span>{formatTime12(msg.created_at)}</span>
-                                  {!isInbound && (
-                                    <span className="inline-flex items-center ml-0.5" title={msg.status === 'read' ? 'Read (seen)' : msg.status === 'delivered' ? 'Delivered' : msg.status === 'failed' ? 'Failed' : 'Sent'}>
-                                      {msg.status === 'read' ? (
-                                        <CheckCheck className="w-3.5 h-3.5 stroke-[2.2] text-[#53bdeb] shrink-0" />
-                                      ) : msg.status === 'delivered' ? (
-                                        <CheckCheck className="w-3.5 h-3.5 stroke-[2] text-teal-200/80 shrink-0" />
-                                      ) : msg.status === 'failed' ? (
-                                        <AlertCircle className="w-3 h-3 stroke-[2] text-rose-300 shrink-0" />
-                                      ) : (
-                                        <Check className="w-3.5 h-3.5 stroke-[2] text-teal-200/80 shrink-0" />
-                                      )}
-                                    </span>
+                      <div
+                        ref={messagesContainerRef}
+                        style={{ scrollBehavior: 'auto' }}
+                        className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2.5 bg-canvas/40"
+                      >
+                        {loadingMessages && (!messages || messages.length === 0) ? (
+                          <div className="h-full flex items-center justify-center py-12">
+                            <div className="flex items-center gap-2 text-xs text-text-muted bg-surface/80 px-3 py-1.5 rounded-full border border-border shadow-xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                              <span>Loading chat...</span>
+                            </div>
+                          </div>
+                        ) : !loadingMessages && (!messages || messages.length === 0) ? (
+                          <div className="h-full flex items-center justify-center py-12 text-xs text-text-muted">
+                            No messages in this chat yet.
+                          </div>
+                        ) : (
+                          messages.map((msg) => {
+                            const isInbound = msg.direction === 'inbound';
+                            const isVoice = msg.body?.startsWith('[Voice Note:');
+                            return (
+                              <div key={msg.id} className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
+                                <div
+                                  className={`max-w-[85%] sm:max-w-[70%] rounded-2xl ${isInbound ? 'rounded-tl-xs bg-surface text-text-body border border-border shadow-xs' : 'rounded-tr-xs bg-accent text-white shadow-xs'} px-3.5 py-2.5 text-xs`}
+                                >
+                                  {isVoice && (
+                                    <div className="flex items-center gap-1 text-accent-light font-mono text-[10px] mb-1">
+                                      <Mic className="w-3 h-3 stroke-[1.5]" />
+                                      <span>Voice note transcribed</span>
+                                    </div>
                                   )}
+                                  <p className="leading-relaxed whitespace-pre-wrap font-sans">{msg.body}</p>
+                                  <div className={`text-[10px] mt-1 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100/90'}`}>
+                                    <span>{formatTime12(msg.created_at)}</span>
+                                    {!isInbound && (
+                                      <span className="inline-flex items-center ml-0.5" title={msg.status === 'read' ? 'Read (seen)' : msg.status === 'delivered' ? 'Delivered' : msg.status === 'failed' ? 'Failed' : 'Sent'}>
+                                        {msg.status === 'read' ? (
+                                          <CheckCheck className="w-3.5 h-3.5 stroke-[2.2] text-[#53bdeb] shrink-0" />
+                                        ) : msg.status === 'delivered' ? (
+                                          <CheckCheck className="w-3.5 h-3.5 stroke-[2] text-teal-200/80 shrink-0" />
+                                        ) : msg.status === 'failed' ? (
+                                          <AlertCircle className="w-3 h-3 stroke-[2] text-rose-300 shrink-0" />
+                                        ) : (
+                                          <Check className="w-3.5 h-3.5 stroke-[2] text-teal-200/80 shrink-0" />
+                                        )}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })
+                        )}
                         <div ref={messagesEndRef} />
                       </div>
 
