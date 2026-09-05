@@ -1743,6 +1743,7 @@ export default function DashboardPage() {
   const activeConvIdRef = useRef<string | null>(null);
   const lastSelectedConvIdRef = useRef<string | null>(null);
   const convScrolledToBottomRef = useRef<Record<string, boolean>>({});
+  const hasAutoSelectedInitialChatRef = useRef<boolean>(false);
 
   // Instant scroll to bottom when opening/switching chats or receiving messages
   useIsomorphicLayoutEffect(() => {
@@ -2894,14 +2895,16 @@ export default function DashboardPage() {
         });
         setConversations(sanitized);
 
-        // On desktop, if on inbox tab and no conversation selected, auto-select the latest active conversation
+        // On desktop, only on very first load if on inbox tab and no conversation selected, auto-select the latest active conversation once
         if (
+          !hasAutoSelectedInitialChatRef.current &&
           typeof window !== 'undefined' &&
           window.innerWidth >= 768 &&
           !selectedConvRef.current &&
           sanitized.length > 0 &&
           (activeNav === 'inbox' || window.location.hash === '#inbox')
         ) {
+          hasAutoSelectedInitialChatRef.current = true;
           selectConversation(sanitized[0]);
         }
       } else {
@@ -3179,7 +3182,8 @@ export default function DashboardPage() {
     setIsAddBookingOpen(false);
     if (tab === 'inbox') {
       if (typeof window !== 'undefined' && window.innerWidth >= 768) {
-        if (!selectedConvRef.current && conversations.length > 0) {
+        if (!selectedConvRef.current && conversations.length > 0 && !hasAutoSelectedInitialChatRef.current) {
+          hasAutoSelectedInitialChatRef.current = true;
           selectConversation(conversations[0]);
         }
       } else {
@@ -3188,18 +3192,17 @@ export default function DashboardPage() {
     }
   }
 
-  // When inbox is active on desktop and no conversation is selected, auto-select the latest recent conversation
+  // Allow closing the active chat with the Escape key
   useEffect(() => {
-    if (
-      activeNav === 'inbox' &&
-      typeof window !== 'undefined' &&
-      window.innerWidth >= 768 &&
-      !selectedConv &&
-      conversations.length > 0
-    ) {
-      selectConversation(conversations[0]);
-    }
-  }, [activeNav, selectedConv, conversations]);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedConv) {
+        setSelectedConv(null);
+        activeConvIdRef.current = null;
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedConv]);
 
   // Auto-select all contacts when contacts array is loaded
   useEffect(() => {
@@ -4461,7 +4464,14 @@ export default function DashboardPage() {
 
               {canViewInbox && (
                 <button
-                  onClick={() => navigateTo('inbox')}
+                  onClick={() => {
+                    if (activeNav === 'inbox' && selectedConv) {
+                      setSelectedConv(null);
+                      activeConvIdRef.current = null;
+                    } else {
+                      navigateTo('inbox');
+                    }
+                  }}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
                     activeNav === 'inbox'
                       ? 'bg-surface-subtle text-text-primary font-semibold'
@@ -6140,7 +6150,14 @@ export default function DashboardPage() {
                       filteredConversations.map((conv) => (
                         <div
                           key={conv.id}
-                          onClick={() => selectConversation(conv)}
+                          onClick={() => {
+                            if (selectedConv?.id === conv.id) {
+                              setSelectedConv(null);
+                              activeConvIdRef.current = null;
+                            } else {
+                              selectConversation(conv);
+                            }
+                          }}
                           className={`group w-full p-3 text-left transition-colors duration-150 cursor-pointer flex gap-2 items-center justify-between ${
                             selectedConv?.id === conv.id ? 'bg-surface-subtle border-l-2 border-accent' : 'hover:bg-surface-subtle/50'
                           }`}
@@ -6234,11 +6251,14 @@ export default function DashboardPage() {
                         <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
                           <button
                             type="button"
-                            onClick={() => setSelectedConv(null)}
-                            className="md:hidden p-1.5 -ml-1 text-text-secondary hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer shrink-0"
-                            title="Back to conversation list"
+                            onClick={() => {
+                              setSelectedConv(null);
+                              activeConvIdRef.current = null;
+                            }}
+                            className="p-1.5 -ml-1 text-text-secondary hover:text-text-primary rounded-sm hover:bg-surface-subtle cursor-pointer shrink-0"
+                            title="Close chat / Back to list"
                           >
-                            <ArrowLeft className="w-5 h-5 stroke-[1.8]" />
+                            <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5 stroke-[1.8]" />
                           </button>
                           <div className="w-8 h-8 rounded-full bg-accent text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
                             {selectedConv.contact_name ? selectedConv.contact_name[0].toUpperCase() : 'C'}
@@ -6348,6 +6368,19 @@ export default function DashboardPage() {
                             title="Delete chat"
                           >
                             <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                          </button>
+
+                          {/* Close / Exit Chat */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedConv(null);
+                              activeConvIdRef.current = null;
+                            }}
+                            className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors cursor-pointer"
+                            title="Close chat (Esc)"
+                          >
+                            <X className="w-3.5 h-3.5 stroke-[1.8]" />
                           </button>
                         </div>
                       </div>
@@ -11982,7 +12015,14 @@ export default function DashboardPage() {
         {canViewInbox && (
           <button
             type="button"
-            onClick={() => navigateTo('inbox')}
+            onClick={() => {
+              if (activeNav === 'inbox' && selectedConv) {
+                setSelectedConv(null);
+                activeConvIdRef.current = null;
+              } else {
+                navigateTo('inbox');
+              }
+            }}
             className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer relative ${
               activeNav === 'inbox'
                 ? 'text-accent font-semibold'
