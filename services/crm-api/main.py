@@ -4251,6 +4251,131 @@ async def disconnect_google_calendar(tenant_id: str = Depends(get_tenant_id)):
     return {"status": "disconnected"}
 
 
+@app.get("/calendar/live-availability")
+async def get_live_calendar_availability(
+    target_tenant_id: Optional[str] = None,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """
+    Returns real-time Google Calendar and CRM occupied slots,
+    connection status, target calendar, and verified availability window.
+    Accessible by both workspace users and super admins.
+    """
+    effective_id = (target_tenant_id.strip() if target_tenant_id else None) or tenant_id
+    async with db_pool.acquire() as conn:
+        tenant_st = await conn.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", effective_id)
+        if tenant_st:
+            if isinstance(tenant_st, str):
+                try: tenant_st = json.loads(tenant_st)
+                except: tenant_st = {}
+        else:
+            tenant_st = {}
+        
+        tz_str = tenant_st.get("timezone", "Asia/Kolkata")
+        try:
+            import zoneinfo
+            tenant_tz = zoneinfo.ZoneInfo(tz_str)
+        except Exception:
+            tenant_tz = timezone(timedelta(hours=5, minutes=30))
+
+        now_dt = datetime.now(tenant_tz)
+        min_dt = now_dt - timedelta(hours=2)
+        max_dt = now_dt + timedelta(days=7)
+
+        # 1. CRM Bookings
+        db_rows = await conn.fetch(
+            """SELECT service, start_time, end_time
+               FROM bookings
+               WHERE tenant_id = $1::uuid
+                 AND status = 'confirmed'
+                 AND start_time >= $2
+                 AND start_time <= $3
+               ORDER BY start_time ASC LIMIT 50""",
+            effective_id, min_dt, max_dt
+        )
+        busy_slots = []
+        for r in db_rows:
+            st = r['start_time'].astimezone(tenant_tz) if hasattr(r['start_time'], 'astimezone') else r['start_time']
+            et = r['end_time'].astimezone(tenant_tz) if hasattr(r['end_time'], 'astimezone') else r['end_time']
+            busy_slots.append({
+                "start": st.strftime('%Y-%m-%dT%H:%M:%S%z'),
+                "end": et.strftime('%Y-%m-%dT%H:%M:%S%z'),
+                "start_formatted": st.strftime('%A, %d %b %Y at %I:%M %p'),
+                "end_formatted": et.strftime('%I:%M %p'),
+                "source": "CRM Booking",
+                "desc": r.get('service', 'Booked Appointment')
+            })
+
+        # 2. Google Calendar Free/Busy
+        gcal_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+            effective_id
+        )
+        gcal_connected = False
+        cal_id = "primary"
+        notif_email = ""
+        if gcal_row and gcal_row["credential_data"]:
+            g_data = gcal_row["credential_data"]
+            if isinstance(g_data, str):
+                try: g_data = json.loads(g_data)
+                except: g_data = {}
+            cal_id = g_data.get("calendar_id") or "primary"
+            notif_email = g_data.get("notification_email") or ""
+            if g_data.get("client_id") and g_data.get("refresh_token"):
+                try:
+                    def fetch_gcal():
+                        from google.oauth2.credentials import Credentials
+                        from googleapiclient.discovery import build
+                        g_creds = Credentials(
+                            token=g_data.get("access_token"),
+                            refresh_token=g_data.get("refresh_token"),
+                            token_uri="https://oauth2.googleapis.com/token",
+                            client_id=g_data.get("client_id"),
+                            client_secret=g_data.get("client_secret"),
+                        )
+                        service = build("calendar", "v3", credentials=g_creds, cache_discovery=False)
+                        fb_res = service.freebusy().query(body={
+                            "timeMin": now_dt.isoformat(),
+                            "timeMax": max_dt.isoformat(),
+                            "timeZone": str(tenant_tz),
+                            "items": [{"id": cal_id}]
+                        }).execute()
+                        return fb_res.get("calendars", {}).get(cal_id, {}).get("busy", [])
+
+                    gcal_busy = await asyncio.wait_for(asyncio.to_thread(fetch_gcal), timeout=3.0)
+                    gcal_connected = True
+                    for b in gcal_busy:
+                        try:
+                            st = datetime.fromisoformat(b['start'].replace('Z', '+00:00')).astimezone(tenant_tz)
+                            et = datetime.fromisoformat(b['end'].replace('Z', '+00:00')).astimezone(tenant_tz)
+                            busy_slots.append({
+                                "start": st.strftime('%Y-%m-%dT%H:%M:%S%z'),
+                                "end": et.strftime('%Y-%m-%dT%H:%M:%S%z'),
+                                "start_formatted": st.strftime('%A, %d %b %Y at %I:%M %p'),
+                                "end_formatted": et.strftime('%I:%M %p'),
+                                "source": "Google Calendar",
+                                "desc": "Busy Event on Google Calendar"
+                            })
+                        except Exception:
+                            pass
+                except Exception as ex:
+                    logger.warning("gcal_live_availability_endpoint_error", error=str(ex))
+
+        # Sort chronologically
+        busy_slots.sort(key=lambda x: x["start"])
+        return {
+            "status": "ok",
+            "google_calendar_connected": gcal_connected,
+            "calendar_id": cal_id,
+            "notification_email": notif_email,
+            "timezone": tz_str,
+            "total_occupied_slots": len(busy_slots),
+            "occupied_slots": busy_slots,
+            "operating_hours": "09:00 AM - 08:00 PM",
+            "message": "AI Assistant verifies this schedule in real time and strictly books in open free time without hallucinating occupied slots."
+        }
+
+
 # ── Super Admin Client Management Endpoints ────────────────────────────────────
 
 class TenantCreate(BaseModel):
@@ -4322,8 +4447,90 @@ class TenantUpdate(BaseModel):
     verify_token: Optional[str] = None
 
 
-class PasswordReset(BaseModel):
-    new_password: str
+GLOBAL_DEFAULT_STRICT_RULES = """- CONTINUOUS CONVERSATION & ZERO RE-GREETING: Never say 'Hi again', 'Hello again', or re-greet in an ongoing chat. Greet only on the very first message; thereafter reply directly to what the customer said.
+- GOOGLE CALENDAR AVAILABILITY & FREE-TIME BOOKING: Check live availability from Google Calendar. Propose and book only during verified open free time. Never invent, hallucinate, or state incorrect, wrong, or occupied timeslots.
+- NEVER use em dashes or hyphens connecting clauses. Use a comma or short period instead.
+- Sound 100% human and conversational, like texting a real person on WhatsApp, NOT an AI bot.
+- Keep replies concise (1 to 2 short lines). Connect thoughts smoothly into a single natural sentence or paragraph without awkward line gaps.
+- CUT ALL AI CLICHES: Never say delve into, furthermore, moreover, in conclusion, it is important to note, I understand your concern, thank you for reaching out.
+- Ask only ONE thing at a time. Never stack multiple questions in a single reply.
+- Never use markdown bullet lists or bold numbered headers unless the customer explicitly asked for a list.
+- Use natural contractions (I'll, we'll, you'll, that's) and active voice."""
+
+
+class SyncGlobalRulesPayload(BaseModel):
+    strict_rules: Optional[str] = None
+
+
+@app.get("/admin/global-rules")
+async def get_admin_global_rules(admin_user: dict = Depends(verify_super_admin)):
+    """Retrieve global platform strict rules, Google Calendar scheduling policy, and tenant adoption statistics."""
+    async with db_pool.acquire() as conn:
+        total_tenants = await conn.fetchval("SELECT count(*) FROM tenants") or 0
+        tenants_with_rules = await conn.fetchval("SELECT count(*) FROM ai_config WHERE strict_rules IS NOT NULL AND length(strict_rules) > 10") or 0
+        gcal_connected_count = await conn.fetchval("SELECT count(*) FROM tenant_credentials WHERE provider = 'google_calendar' AND is_active = true") or 0
+        
+        return {
+            "status": "active",
+            "strict_rules": GLOBAL_DEFAULT_STRICT_RULES,
+            "total_tenants": total_tenants,
+            "tenants_with_rules": tenants_with_rules,
+            "gcal_connected_tenants": gcal_connected_count,
+            "rules_summary": [
+                {
+                    "title": "Real-Time Google Calendar Availability & Conflict Prevention",
+                    "description": "Before proposing or confirming an appointment, the AI checks live Free/Busy availability from the organization's Google Calendar and CRM bookings. Proposes and books exclusively during open free hours (09:00 AM - 08:00 PM). Never invents, hallucinates, or quotes wrong/occupied slot data.",
+                    "status": "Enforced Globally"
+                },
+                {
+                    "title": "Continuous Conversation & Zero Re-Greeting",
+                    "description": "The AI recognizes ongoing conversations (turn depth > 1). Strictly prohibits saying 'Hi again', 'Hello again', or re-introducing itself. Enforced both at the LLM prompt level and with a deterministic post-processing code guardrail.",
+                    "status": "Enforced Globally"
+                },
+                {
+                    "title": "12-Hour Time Format Directive",
+                    "description": "All dates and appointment times are quoted in 12-hour format with AM/PM (e.g. 10:00 AM, 06:30 PM). Military / 24-hour time is strictly forbidden.",
+                    "status": "Enforced Globally"
+                },
+                {
+                    "title": "Real Human WhatsApp Texting Style",
+                    "description": "1 to 2 short lines, no awkward line gaps, no corporate clichés ('in conclusion', 'delve into', 'furthermore'), natural contractions, and em dashes (—) stripped.",
+                    "status": "Enforced Globally"
+                }
+            ]
+        }
+
+
+@app.post("/admin/sync-global-rules")
+async def sync_admin_global_rules(
+    payload: Optional[SyncGlobalRulesPayload] = None,
+    admin_user: dict = Depends(verify_super_admin)
+):
+    """Syncs master global strict rules to all tenant organizations in PostgreSQL."""
+    rules_to_apply = (payload.strict_rules.strip() if payload and payload.strict_rules else None) or GLOBAL_DEFAULT_STRICT_RULES
+    async with db_pool.acquire() as conn:
+        tenant_ids = [r['id'] for r in await conn.fetch("SELECT id FROM tenants")]
+        updated_count = 0
+        for tid in tenant_ids:
+            existing = await conn.fetchval("SELECT 1 FROM ai_config WHERE tenant_id = $1::uuid", tid)
+            if existing:
+                await conn.execute(
+                    "UPDATE ai_config SET strict_rules = $1, updated_at = now() WHERE tenant_id = $2::uuid",
+                    rules_to_apply, tid
+                )
+            else:
+                await conn.execute(
+                    """INSERT INTO ai_config (tenant_id, model, system_prompt, assistant_name, bot_goal, services_text, strict_rules, response_style, methodology, temperature, max_tokens)
+                       VALUES ($1::uuid, 'gemini-1.5-flash', 'You are the official assistant.', 'Assistant', 'Assist customers', '', $2, 'short', 'dogfooding', 0.3, 500)""",
+                    tid, rules_to_apply
+                )
+            updated_count += 1
+            
+        return {
+            "status": "success",
+            "message": f"Successfully synced global strict rules to {updated_count} organization(s).",
+            "updated_count": updated_count
+        }
 
 
 @app.get("/admin/tenants")
@@ -4537,11 +4744,11 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
                     str(uuid.uuid4()), tenant_id, json.dumps(cred_dict)
                 )
 
-                # 4. AI Config (Modular + Compiled)
+                # 4. AI Config (Modular + Compiled + Global Strict Rules)
                 await conn.execute(
-                    """INSERT INTO ai_config (tenant_id, model, system_prompt, assistant_name, bot_goal, services_text, temperature, max_tokens) 
-                       VALUES ($1::uuid, $2, $3, $4, $5, $6, 0.3, 500)""",
-                    tenant_id, payload.ai_model or "gemini-1.5-flash", compiled_prompt, assistant_name, bot_goal, services_text
+                    """INSERT INTO ai_config (tenant_id, model, system_prompt, assistant_name, bot_goal, services_text, strict_rules, response_style, methodology, temperature, max_tokens) 
+                       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, 'short', 'dogfooding', 0.3, 500)""",
+                    tenant_id, payload.ai_model or "gemini-1.5-flash", compiled_prompt, assistant_name, bot_goal, services_text, GLOBAL_DEFAULT_STRICT_RULES
                 )
 
                 # 5. Customer Model API Keys (Gemini, Groq, OpenCode)
@@ -4662,6 +4869,10 @@ async def get_admin_tenant_details(tenant_id: str):
             "max_tokens": int(ai_cfg["max_tokens"]) if ai_cfg else 500,
         }
     }
+
+
+class PasswordReset(BaseModel):
+    new_password: str
 
 
 @app.post("/admin/tenants/{tenant_id}/reset-password")
@@ -7770,8 +7981,8 @@ async def client_list_staff(tenant_id: str = Depends(get_tenant_id)):
     async with db_pool.acquire() as conn:
         rows = await conn.fetch(
             """SELECT id, tenant_id, email, display_name, role, permissions, is_active, last_login_at, created_at
-               FROM users WHERE tenant_id = $1::uuid
-               ORDER BY (role = 'admin' OR role = 'super_admin') DESC, created_at ASC""",
+               FROM users WHERE tenant_id = $1::uuid AND role != 'super_admin'
+               ORDER BY (role = 'admin') DESC, created_at ASC""",
             tenant_id
         )
         return [

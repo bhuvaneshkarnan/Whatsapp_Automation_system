@@ -56,6 +56,29 @@ def clean_llm_response(text: str) -> str:
     return cleaned.strip()
 
 
+def strip_repetitive_greetings(text: str) -> str:
+    """
+    In ongoing conversations (turn 2+), strip repetitive, robotic greetings like
+    'Hi again!', 'Hello again!', 'Hey again!', or 'Hi [Name]! Thanks for sharing...'
+    so the assistant dives straight into conversation like a real person.
+    """
+    if not text:
+        return ""
+    # Strip "Hi again!", "Hello again!", "Hey again!"
+    t = re.sub(r'^(hi\s+again|hello\s+again|hey\s+again)[!,\.]*\s*', '', text, flags=re.IGNORECASE)
+    # Strip "Hi Bhuvanesh! Thanks for sharing..." or "Hi! Thanks for sharing..."
+    t = re.sub(
+        r'^(hi|hello|hey)(\s+[a-zA-Z]+)?[!,\.]*\s*(thanks|thank you|got it|makes sense|sorry|sure|absolutely|i understand|do you|are you|can you|how|what|when|where|why|that|we|i\b)',
+        r'\3',
+        t,
+        flags=re.IGNORECASE
+    )
+    t = t.strip()
+    if t and len(t) > 0:
+        t = t[0].upper() + t[1:]
+    return t
+
+
 def sanitize_conversation_history(messages: list[dict]) -> list[dict]:
     """
     Ensures:

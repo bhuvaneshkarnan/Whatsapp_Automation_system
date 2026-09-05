@@ -208,6 +208,38 @@ export interface FollowupTask {
   created_at?: string;
 }
 
+export interface LiveCalendarSlot {
+  start: string;
+  end: string;
+  start_formatted: string;
+  end_formatted: string;
+  source: string;
+  desc: string;
+}
+
+export interface LiveCalendarAvailabilityResponse {
+  google_calendar_connected: boolean;
+  calendar_id: string;
+  notification_email: string;
+  timezone: string;
+  current_time: string;
+  checked_window_days: number;
+  total_occupied_slots: number;
+  crm_slots_count: number;
+  gcal_slots_count: number;
+  occupied_slots: LiveCalendarSlot[];
+}
+
+export interface GlobalRulesResponse {
+  status: string;
+  strict_rules: string;
+  total_tenants: number;
+  tenants_with_rules: number;
+  gcal_connected_tenants: number;
+  rules_summary: Array<{ title: string; description: string; status: string }>;
+}
+
+
 export interface Contact {
   id: string;
   phone: string;
@@ -418,6 +450,11 @@ export const crm = {
     request<{ status: string }>('/api/v1/crm/oauth/google/disconnect', {
       method: 'POST',
     }),
+
+  getLiveCalendarAvailability: (targetTenantId?: string) => {
+    const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
+    return request<LiveCalendarAvailabilityResponse>(`/api/v1/crm/calendar/live-availability${qs}`);
+  },
 
   // Customer Follow-up & Tasks
   getCustomers: async (filters?: {
@@ -723,6 +760,7 @@ export interface StaffPermissions {
   can_manage_bookings?: boolean;
   can_view_calendar?: boolean;
   can_manage_customers?: boolean;
+  can_manage_marketing?: boolean;
   can_view_analytics?: boolean;
   can_manage_settings?: boolean;
   can_manage_billing?: boolean;
@@ -943,6 +981,16 @@ export const admin = {
       `/api/v1/crm/admin/tenants/${tenantId}/staff/${userId}`,
       {
         method: 'DELETE',
+      }
+    ),
+  getGlobalRules: () =>
+    request<GlobalRulesResponse>('/api/v1/crm/admin/global-rules'),
+  syncGlobalRules: (strictRules?: string) =>
+    request<{ status: string; message: string; updated_count: number }>(
+      '/api/v1/crm/admin/sync-global-rules',
+      {
+        method: 'POST',
+        body: JSON.stringify({ strict_rules: strictRules }),
       }
     ),
 };

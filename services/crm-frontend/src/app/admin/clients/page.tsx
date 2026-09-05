@@ -62,6 +62,7 @@ import {
 } from 'lucide-react';
 import {
   admin,
+  crm,
   ClientTenant,
   ClientCreatedResponse,
   PlatformStats,
@@ -72,6 +73,9 @@ import {
   MetaTemplatesSyncResponse,
   StaffUser,
   StaffPermissions,
+  GlobalRulesResponse,
+  LiveCalendarAvailabilityResponse,
+  LiveCalendarSlot,
 } from '@/lib/api';
 
 
@@ -372,8 +376,21 @@ export default function SuperAdminClients() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   // Navigation tabs in Super Admin (Webhooks merged directly into organizations)
-  const [activeTab, setActiveTab] = useState<'organizations' | 'razorpay' | 'admin_config'>('organizations');
+  const [activeTab, setActiveTab] = useState<'organizations' | 'razorpay' | 'global_settings' | 'admin_config'>('organizations');
   const [showWebhooksRegistry, setShowWebhooksRegistry] = useState(false);
+
+  // ── GLOBAL PLATFORM AUTOMATION & RULES STATE ───────────────────────────────
+  const [globalRules, setGlobalRules] = useState<GlobalRulesResponse | null>(null);
+  const [loadingGlobalRules, setLoadingGlobalRules] = useState(false);
+  const [syncingGlobalRules, setSyncingGlobalRules] = useState(false);
+  const [syncResultNotice, setSyncResultNotice] = useState('');
+  const [editedGlobalStrictRules, setEditedGlobalStrictRules] = useState('');
+
+  // Live Google Calendar Slot Tester in Global Settings & Drawer
+  const [testerTenantId, setTesterTenantId] = useState('');
+  const [testerLoading, setTesterLoading] = useState(false);
+  const [testerAvailability, setTesterAvailability] = useState<LiveCalendarAvailabilityResponse | null>(null);
+  const [testerError, setTesterError] = useState('');
 
   // Super Admin WhatsApp Notification Config (stored in localStorage & synced)
   const [superAdminPhone, setSuperAdminPhone] = useState<string>('');
@@ -423,9 +440,9 @@ export default function SuperAdminClients() {
       can_manage_bookings: true,
       can_view_calendar: true,
       can_manage_customers: true,
+      can_manage_marketing: false,
       can_view_analytics: false,
       can_manage_settings: false,
-      can_manage_billing: false,
       assigned_doctor: '',
     }
   });
@@ -453,9 +470,9 @@ export default function SuperAdminClients() {
           can_manage_bookings: true,
           can_view_calendar: true,
           can_manage_customers: true,
+          can_manage_marketing: true,
           can_view_analytics: true,
           can_manage_settings: true,
-          can_manage_billing: true,
           assigned_doctor: '',
         };
       case 'sales':
@@ -465,9 +482,9 @@ export default function SuperAdminClients() {
           can_manage_bookings: true,
           can_view_calendar: true,
           can_manage_customers: true,
+          can_manage_marketing: false,
           can_view_analytics: false,
           can_manage_settings: false,
-          can_manage_billing: false,
           assigned_doctor: '',
         };
       case 'doctor':
@@ -477,9 +494,9 @@ export default function SuperAdminClients() {
           can_manage_bookings: true,
           can_view_calendar: true,
           can_manage_customers: true,
+          can_manage_marketing: false,
           can_view_analytics: false,
           can_manage_settings: false,
-          can_manage_billing: false,
           assigned_doctor: assignedDoctor || '',
         };
       case 'receptionist':
@@ -489,9 +506,21 @@ export default function SuperAdminClients() {
           can_manage_bookings: true,
           can_view_calendar: true,
           can_manage_customers: true,
+          can_manage_marketing: false,
           can_view_analytics: false,
           can_manage_settings: false,
-          can_manage_billing: false,
+          assigned_doctor: '',
+        };
+      case 'marketing':
+        return {
+          can_view_inbox: true,
+          can_send_messages: false,
+          can_manage_bookings: false,
+          can_view_calendar: false,
+          can_manage_customers: true,
+          can_manage_marketing: true,
+          can_view_analytics: true,
+          can_manage_settings: false,
           assigned_doctor: '',
         };
       case 'agent':
@@ -501,9 +530,9 @@ export default function SuperAdminClients() {
           can_manage_bookings: false,
           can_view_calendar: false,
           can_manage_customers: false,
+          can_manage_marketing: false,
           can_view_analytics: false,
           can_manage_settings: false,
-          can_manage_billing: false,
           assigned_doctor: '',
         };
       case 'viewer':
@@ -513,9 +542,9 @@ export default function SuperAdminClients() {
           can_manage_bookings: false,
           can_view_calendar: true,
           can_manage_customers: false,
+          can_manage_marketing: false,
           can_view_analytics: false,
           can_manage_settings: false,
-          can_manage_billing: false,
           assigned_doctor: '',
         };
       default:
@@ -525,9 +554,9 @@ export default function SuperAdminClients() {
           can_manage_bookings: false,
           can_view_calendar: false,
           can_manage_customers: false,
+          can_manage_marketing: false,
           can_view_analytics: false,
           can_manage_settings: false,
-          can_manage_billing: false,
           assigned_doctor: '',
         };
     }
@@ -539,9 +568,9 @@ export default function SuperAdminClients() {
       email: '',
       password: '',
       display_name: '',
-      role: 'receptionist',
+      role: 'sales',
       is_active: true,
-      permissions: getRoleDefaultPermissions('receptionist'),
+      permissions: getRoleDefaultPermissions('sales'),
     });
     setStaffError('');
     setShowStaffModal(true);
@@ -549,6 +578,7 @@ export default function SuperAdminClients() {
 
   function handleOpenEditStaff(member: StaffUser) {
     setEditingStaff(member);
+    const roleDefaults = getRoleDefaultPermissions(member.role, member.permissions?.assigned_doctor);
     setStaffForm({
       email: member.email,
       password: '',
@@ -556,14 +586,14 @@ export default function SuperAdminClients() {
       role: member.role,
       is_active: member.is_active,
       permissions: {
-        can_view_inbox: member.permissions?.can_view_inbox ?? true,
-        can_send_messages: member.permissions?.can_send_messages ?? true,
-        can_manage_bookings: member.permissions?.can_manage_bookings ?? true,
-        can_view_calendar: member.permissions?.can_view_calendar ?? true,
-        can_manage_customers: member.permissions?.can_manage_customers ?? false,
-        can_view_analytics: member.permissions?.can_view_analytics ?? false,
-        can_manage_settings: member.permissions?.can_manage_settings ?? false,
-        can_manage_billing: member.permissions?.can_manage_billing ?? false,
+        can_view_inbox: member.permissions?.can_view_inbox !== undefined ? member.permissions.can_view_inbox : roleDefaults.can_view_inbox,
+        can_send_messages: member.permissions?.can_send_messages !== undefined ? member.permissions.can_send_messages : roleDefaults.can_send_messages,
+        can_manage_bookings: member.permissions?.can_manage_bookings !== undefined ? member.permissions.can_manage_bookings : roleDefaults.can_manage_bookings,
+        can_view_calendar: member.permissions?.can_view_calendar !== undefined ? member.permissions.can_view_calendar : roleDefaults.can_view_calendar,
+        can_manage_customers: member.permissions?.can_manage_customers !== undefined ? member.permissions.can_manage_customers : roleDefaults.can_manage_customers,
+        can_manage_marketing: member.permissions?.can_manage_marketing !== undefined ? member.permissions.can_manage_marketing : roleDefaults.can_manage_marketing,
+        can_view_analytics: member.permissions?.can_view_analytics !== undefined ? member.permissions.can_view_analytics : roleDefaults.can_view_analytics,
+        can_manage_settings: member.permissions?.can_manage_settings !== undefined ? member.permissions.can_manage_settings : roleDefaults.can_manage_settings,
         assigned_doctor: member.permissions?.assigned_doctor || '',
       },
     });
@@ -1000,6 +1030,59 @@ export default function SuperAdminClients() {
     }
   }, [dbViewSubtab, viewingDbTenant?.id]);
 
+  // Global Rules & Calendar Live Testing Functions
+  const loadGlobalRules = async () => {
+    setLoadingGlobalRules(true);
+    try {
+      const res = await admin.getGlobalRules();
+      setGlobalRules(res);
+      setEditedGlobalStrictRules(res.strict_rules || '');
+    } catch (err: any) {
+      console.error('Failed to load global rules:', err);
+    } finally {
+      setLoadingGlobalRules(false);
+    }
+  };
+
+  const handleSyncGlobalRules = async () => {
+    setSyncingGlobalRules(true);
+    setSyncResultNotice('');
+    try {
+      const res = await admin.syncGlobalRules(editedGlobalStrictRules);
+      setSyncResultNotice(res.message || 'Global rules synced successfully.');
+      await loadGlobalRules();
+    } catch (err: any) {
+      setSyncResultNotice('Error: ' + (err?.message || String(err)));
+    } finally {
+      setSyncingGlobalRules(false);
+    }
+  };
+
+  const handleTestLiveCalendar = async (tenantId: string) => {
+    if (!tenantId) return;
+    setTesterLoading(true);
+    setTesterError('');
+    setTesterAvailability(null);
+    try {
+      const res = await crm.getLiveCalendarAvailability(tenantId);
+      setTesterAvailability(res);
+    } catch (err: any) {
+      setTesterError(err?.message || 'Failed to query live Google Calendar.');
+    } finally {
+      setTesterLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'global_settings') {
+      loadGlobalRules();
+      if (!testerTenantId && tenants.length > 0) {
+        setTesterTenantId(tenants[0].id);
+      }
+    }
+  }, [activeTab, tenants]);
+
+
   async function handleSaveConfig(e: React.FormEvent) {
     e.preventDefault();
     if (!editingConfigTenant) return;
@@ -1234,6 +1317,7 @@ export default function SuperAdminClients() {
 
           {[
             { id: 'organizations', label: 'Organizations & Config', icon: Building2 },
+            { id: 'global_settings', label: 'Global AI & Scheduling', icon: Sparkles },
             { id: 'razorpay', label: 'Billing & Renewals', icon: CreditCard },
             { id: 'admin_config', label: 'Admin Notifications', icon: Bell },
           ].map((item) => {
@@ -1286,6 +1370,7 @@ export default function SuperAdminClients() {
             <h2 className="font-semibold text-xs text-text-primary flex items-center gap-2">
               <span>
                 {activeTab === 'organizations' && 'Client Organizations & Centralized Configuration'}
+                {activeTab === 'global_settings' && 'Global AI Intelligence & Google Calendar Scheduling Directives'}
                 {activeTab === 'razorpay' && 'Razorpay Subscriptions & Renewal Alerts'}
                 {activeTab === 'admin_config' && 'Super Admin Notification Settings'}
               </span>
@@ -1295,6 +1380,7 @@ export default function SuperAdminClients() {
             </h2>
             <p className="text-xs text-text-muted">
               {activeTab === 'organizations' && 'Manage client workspaces, inspect live database records, configure AI brains, WhatsApp APIs, templates & billing'}
+              {activeTab === 'global_settings' && 'Real-time Google Calendar availability, free-time booking, zero wrong data mandate, and continuous conversation intelligence enforced across all client bots.'}
               {activeTab === 'razorpay' && 'Inspect client recurring billing statuses, renewal schedules, and WhatsApp alert digests'}
               {activeTab === 'admin_config' && 'Set your phone number for receiving automated system alerts and renewal reminders'}
             </p>
@@ -1323,21 +1409,9 @@ export default function SuperAdminClients() {
               <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${loading ? 'animate-spin' : ''}`} />
             </button>
 
-            {tenants.length > 0 && (
-              <button
-                onClick={() => handleSyncMetaTemplates(tenants[0].id)}
-                disabled={isSyncingMetaTemplates}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-                title="Auto-Provision All 11 Meta Templates as 100% Utility"
-              >
-                <Sparkles className={`w-3.5 h-3.5 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
-                <span>{isSyncingMetaTemplates ? 'Syncing Meta...' : '⚡ Sync Meta Templates'}</span>
-              </button>
-            )}
-
             <button
               onClick={() => setShowCreateModal(true)}
-              className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs"
+              className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
               <span>Onboard organization</span>
@@ -1685,6 +1759,47 @@ export default function SuperAdminClients() {
                             <td className="py-2.5 px-4 text-right whitespace-nowrap">
                               <div className="inline-flex items-center justify-end gap-1.5">
 
+                                {/* Open CRM - PRIMARY ACTION */}
+                                <button
+                                  onClick={() => handleImpersonateTenant(t.id)}
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shadow-xs shrink-0"
+                                  title="Access this Tenant's CRM Workspace"
+                                >
+                                  <ExternalLink className="w-3 h-3 stroke-[1.5]" />
+                                  <span>Open CRM</span>
+                                </button>
+
+                                {/* Configure Central Settings */}
+                                <button
+                                  onClick={() => handleOpenConfig(t)}
+                                  className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary border border-border hover:border-accent rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs shrink-0"
+                                  title="Configure AI Brain, WhatsApp API, Templates, Calendar & Billing"
+                                >
+                                  <Sliders className="w-3.5 h-3.5 text-text-muted" />
+                                  <span>Configure</span>
+                                </button>
+
+                                {/* Staff & Sales Accounts Management */}
+                                <button
+                                  onClick={() => handleOpenConfig(t, 'team')}
+                                  className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/30 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs shrink-0"
+                                  title="Manage Sales Accounts, Doctors & Staff Permissions"
+                                >
+                                  <Users className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 stroke-[1.5]" />
+                                  <span>Sales & Staff</span>
+                                </button>
+
+                                {/* Auto-Sync Meta Templates */}
+                                <button
+                                  onClick={() => handleSyncMetaTemplates(t.id)}
+                                  disabled={isSyncingMetaTemplates}
+                                  className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50 shrink-0"
+                                  title="Auto-Provision All 11 Meta Templates as 100% Utility"
+                                >
+                                  <RefreshCw className={`w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
+                                  <span>Sync Meta</span>
+                                </button>
+
                                 {/* Send or Generate Payment Link */}
                                 {!t.razorpay_short_url ? (
                                   <button
@@ -1693,15 +1808,15 @@ export default function SuperAdminClients() {
                                       handleActivateBilling(t);
                                     }}
                                     disabled={activatingBillingId === t.id}
-                                    className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50"
+                                    className="px-2 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-800 dark:text-purple-300 border border-purple-500/30 rounded text-xs font-medium transition-all cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50 shrink-0"
                                     title="Generate & Send Razorpay Payment Link to Client"
                                   >
                                     {activatingBillingId === t.id ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-700" />
                                     ) : (
-                                      <CreditCard className="w-3.5 h-3.5" />
+                                      <CreditCard className="w-3.5 h-3.5 text-purple-700" />
                                     )}
-                                    <span>Send Pay Link</span>
+                                    <span>Pay Link</span>
                                   </button>
                                 ) : (
                                   <button
@@ -1709,69 +1824,27 @@ export default function SuperAdminClients() {
                                       setActivePaymentModalTenant(t);
                                       setClientPaymentPhone(t.admin_whatsapp_number || '');
                                     }}
-                                    className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-950 border border-purple-300 rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                                    className="px-2 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-800 dark:text-purple-300 border border-purple-500/30 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs shrink-0"
                                     title="View & Send Razorpay Payment Link to Client"
                                   >
-                                    <CreditCard className="w-3.5 h-3.5 text-purple-900" />
-                                    <span className="font-semibold text-purple-950">Pay Link</span>
+                                    <CreditCard className="w-3.5 h-3.5 text-purple-700" />
+                                    <span>Pay Link</span>
                                   </button>
                                 )}
 
-                                {/* Auto-Sync Meta Templates */}
-                                <button
-                                  onClick={() => handleSyncMetaTemplates(t.id)}
-                                  disabled={isSyncingMetaTemplates}
-                                  className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-400 rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50"
-                                  title="Auto-Provision All 11 Meta Templates as 100% Utility"
-                                >
-                                  <RefreshCw className={`w-3.5 h-3.5 text-emerald-900 ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
-                                  <span className="font-semibold text-emerald-950">Sync Meta</span>
-                                </button>
-
-                                {/* Staff & Sales Accounts Management */}
-                                <button
-                                  onClick={() => handleOpenConfig(t, 'team')}
-                                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300 rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
-                                  title="Manage Sales Accounts, Doctors & Staff Permissions"
-                                >
-                                  <Users className="w-3.5 h-3.5 text-amber-800 stroke-[1.5]" />
-                                  <span>Sales & Staff</span>
-                                </button>
-
-                                {/* Configure Central Settings */}
-                                <button
-                                  onClick={() => handleOpenConfig(t)}
-                                  className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary border border-border hover:border-accent rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
-                                  title="Configure AI Brain, WhatsApp API, Templates, Calendar & Billing"
-                                >
-                                  <Sliders className="w-3.5 h-3.5 text-text-muted" />
-                                  <span>Configure</span>
-                                </button>
-
-                                {/* Open CRM */}
-                                <button
-                                  onClick={() => handleImpersonateTenant(t.id)}
-                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
-                                  title="Access this Tenant's CRM Workspace"
-                                >
-                                  <ExternalLink className="w-3 h-3 stroke-[1.5]" />
-                                  <span>Open CRM</span>
-                                </button>
-
-                                {/* Public Booking Page Link */}
-                                <a
-                                  href={`/${t.slug}/book`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="px-2 py-1 bg-surface hover:bg-surface-subtle text-indigo-400 hover:text-indigo-300 border border-border hover:border-indigo-500/40 rounded text-xs font-medium transition-colors flex items-center gap-1 shadow-xs"
-                                  title={`Open ${t.name} Public Web Booking Page`}
-                                >
-                                  <Calendar className="w-3 h-3 stroke-[1.5]" />
-                                  <span>Booking</span>
-                                </a>
-
                                 {/* Secondary Action Icon Buttons */}
-                                <div className="inline-flex items-center gap-1 border-l border-border pl-1.5 ml-0.5">
+                                <div className="inline-flex items-center gap-1 border-l border-border pl-1.5 ml-0.5 shrink-0">
+                                  {/* Public Booking Page Link */}
+                                  <a
+                                    href={`/${t.slug}/book`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1.5 text-text-muted hover:text-indigo-500 hover:bg-indigo-500/10 border border-border hover:border-indigo-500/30 rounded transition-colors"
+                                    title={`Open ${t.name} Public Web Booking Page`}
+                                  >
+                                    <Calendar className="w-3.5 h-3.5" />
+                                  </a>
+
                                   {/* Database Inspector */}
                                   <button
                                     onClick={() => handleOpenDatabaseView(t)}
@@ -1827,12 +1900,11 @@ export default function SuperAdminClients() {
                                   <button
                                     onClick={() => setDeleteTenantTarget(t)}
                                     className="p-1.5 text-text-muted hover:text-red-500 hover:bg-red-500/10 rounded transition-colors cursor-pointer border border-border hover:border-red-500/20"
-                                    title="Delete Organization"
+                                    title="Delete Client Organization"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
-
                               </div>
                             </td>
 
@@ -2003,6 +2075,270 @@ export default function SuperAdminClients() {
                   </button>
                 </div>
               </form>
+            </div>
+          )}
+
+          {/* ── TAB 5: GLOBAL AI & CALENDAR SCHEDULING SETTINGS ───────────────── */}
+          {activeTab === 'global_settings' && (
+            <div className="max-w-5xl space-y-6 animate-in fade-in duration-150">
+              {/* Header Banner */}
+              <div className="bg-surface border border-border rounded-md p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/20 text-accent flex items-center justify-center">
+                      <Sparkles className="w-4 h-4 stroke-[1.5]" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-semibold text-text-primary">
+                        Global Automation, AI Directives & Calendar Scheduling Engine
+                      </h3>
+                      <p className="text-xs text-text-muted mt-0.5">
+                        Universal scheduling policies, live Google Calendar ground truth, and human texting guardrails enforced across all client bots.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-sm flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <span>Universal Ground Truth Active</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={loadGlobalRules}
+                    disabled={loadingGlobalRules}
+                    className="px-2.5 py-1 text-xs rounded-sm bg-surface-subtle hover:bg-surface border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
+                    title="Refresh Global Directives"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${loadingGlobalRules ? 'animate-spin' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Grid: 2 Core Engines */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                
+                {/* Engine 1: Real-Time Google Calendar & Free-Time Booking */}
+                <div className="bg-surface border border-border rounded-md p-5 space-y-4 shadow-xs">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-sm bg-blue-500/10 text-blue-600 border border-blue-500/20 flex items-center justify-center">
+                        <CalendarDays className="w-4 h-4 stroke-[1.5]" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-semibold text-text-primary">
+                          Real-Time Google Calendar Availability & Free-Time Booking
+                        </h4>
+                        <span className="text-[10px] text-text-muted">Zero Wrong Data & Conflict Rejection</span>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-sm bg-status-success-bg text-status-success border border-status-success-border">
+                      Enforced
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-text-body leading-relaxed">
+                    When any customer requests an appointment slot, the AI queries the organization's connected Google Calendar via the <strong>Free/Busy API</strong> and CRM database in real time.
+                  </p>
+
+                  <div className="bg-surface-subtle border border-border rounded-sm p-3.5 space-y-2 text-xs">
+                    <div className="flex items-center gap-1.5 font-medium text-text-primary">
+                      <ShieldCheck className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                      <span>Scheduling Directives Enforced:</span>
+                    </div>
+                    <ul className="text-text-secondary space-y-1 list-disc pl-4 text-[11px]">
+                      <li><strong>Ground Truth Free/Busy:</strong> Pulls occupied events directly from Google Calendar before replying.</li>
+                      <li><strong>Strict Free-Time Only:</strong> Proposes and confirms bookings exclusively during open, unoccupied business hours (09:00 AM - 08:00 PM).</li>
+                      <li><strong>Zero Wrong Data Mandate:</strong> Never invents, guesses, or quotes occupied slots. Refuses conflicts and offers closest open alternatives.</li>
+                      <li><strong>12-Hour Format Strictness:</strong> Communicates exclusively in 12-hour AM/PM format (e.g. 11:00 AM, 06:30 PM).</li>
+                    </ul>
+                  </div>
+
+                  {/* Live Slot Tester Section */}
+                  <div className="pt-2 border-t border-border space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-text-primary flex items-center gap-1.5">
+                        <Activity className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
+                        <span>Live Calendar Availability Tester</span>
+                      </span>
+                      <span className="text-[10px] text-text-muted font-mono">Real-time FreeBusy</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={testerTenantId}
+                        onChange={(e) => setTesterTenantId(e.target.value)}
+                        className="flex-1 px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans transition-colors duration-150"
+                      >
+                        {tenants.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} (/{t.slug})
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => handleTestLiveCalendar(testerTenantId)}
+                        disabled={testerLoading || !testerTenantId}
+                        className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer shadow-xs disabled:opacity-50 whitespace-nowrap flex items-center gap-1.5"
+                      >
+                        {testerLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 stroke-[1.5]" />}
+                        <span>Check Live Slots</span>
+                      </button>
+                    </div>
+
+                    {testerError && (
+                      <p className="text-xs text-status-error bg-status-error-bg p-2 rounded-sm border border-status-error-border">
+                        {testerError}
+                      </p>
+                    )}
+
+                    {testerAvailability && (
+                      <div className="bg-surface-subtle border border-border rounded-sm p-3 space-y-2 text-xs animate-in fade-in duration-150">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-text-primary flex items-center gap-1.5">
+                            {testerAvailability.google_calendar_connected ? (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-status-success" />
+                            ) : (
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                            )}
+                            <span>{testerAvailability.google_calendar_connected ? 'Google Calendar Live Connected' : 'CRM Schedule Active'}</span>
+                          </span>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface border border-border text-text-secondary">
+                            TZ: {testerAvailability.timezone}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] text-text-muted">
+                          <span>Total Occupied Slots (Next 7 Days): <strong>{testerAvailability.total_occupied_slots}</strong></span>
+                          <span>(GCal: {testerAvailability.gcal_slots_count}, CRM: {testerAvailability.crm_slots_count})</span>
+                        </div>
+
+                        {testerAvailability.occupied_slots.length > 0 ? (
+                          <div className="max-h-36 overflow-y-auto space-y-1.5 pt-1">
+                            {testerAvailability.occupied_slots.map((slot, i) => (
+                              <div key={i} className="p-2 bg-surface rounded-sm border border-border flex items-center justify-between text-[11px]">
+                                <div>
+                                  <div className="font-medium text-text-primary">{slot.start_formatted} – {slot.end_formatted}</div>
+                                  <div className="text-text-muted text-[10px]">{slot.desc}</div>
+                                </div>
+                                <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                  {slot.source}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-status-success font-medium bg-status-success-bg p-2 rounded-sm border border-status-success-border">
+                            No occupied slots in the next 7 days. All standard business hours (09:00 AM - 08:00 PM) are completely open!
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Engine 2: Continuous Conversation & Zero Re-Greeting */}
+                <div className="bg-surface border border-border rounded-md p-5 space-y-4 shadow-xs">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-sm bg-purple-500/10 text-purple-600 border border-purple-500/20 flex items-center justify-center">
+                        <MessageSquare className="w-4 h-4 stroke-[1.5]" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-semibold text-text-primary">
+                          Continuous Conversation & Zero Re-Greeting
+                        </h4>
+                        <span className="text-[10px] text-text-muted">Natural WhatsApp Human Texting</span>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-sm bg-status-success-bg text-status-success border border-status-success-border">
+                      Enforced
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-text-body leading-relaxed">
+                    Eliminates repetitive greeting re-introductions (e.g. <em>"Hi again! Thanks for sharing..."</em>) in ongoing chats using both LLM conversation state injection and deterministic code-level stripping.
+                  </p>
+
+                  <div className="bg-surface-subtle border border-border rounded-sm p-3.5 space-y-2.5 text-xs">
+                    <div className="flex items-center gap-1.5 font-medium text-text-primary">
+                      <Bot className="w-3.5 h-3.5 text-purple-600 stroke-[1.5]" />
+                      <span>Natural Human Flow vs Robotic Script:</span>
+                    </div>
+
+                    <div className="space-y-2 text-[11px]">
+                      <div className="p-2 rounded bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300">
+                        <span className="font-semibold block mb-0.5">❌ Blocked (Unnatural / Robotic):</span>
+                        "Hi again! Thanks for sharing. Do you find it harder to fall asleep, stay asleep, or both?"
+                      </div>
+                      <div className="p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                        <span className="font-semibold block mb-0.5">✅ Active Flow (Real Human Style):</span>
+                        "Thanks for sharing that! Do you find it harder to fall asleep, stay asleep, or both?"
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 bg-surface-subtle border border-border rounded-sm space-y-1.5 text-xs">
+                    <span className="font-medium text-text-primary block">Implementation Architecture:</span>
+                    <ul className="text-text-secondary space-y-1 list-disc pl-4 text-[11px]">
+                      <li><strong>Turn Depth Detection:</strong> Checks <code>history.length &gt; 1</code> to identify ongoing multi-turn conversations.</li>
+                      <li><strong>LLM Negative Directive:</strong> Injects strict prohibition against repeating greetings in ongoing dialogue.</li>
+                      <li><strong>Deterministic Regex Guardrail:</strong> Worker post-processor strips any leading "Hi again!", "Hello again!", or repeated greetings before transmission.</li>
+                    </ul>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Master Directives Editor & Broadcast Sync */}
+              <div className="bg-surface border border-border rounded-md p-5 space-y-4 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-border">
+                  <div>
+                    <h4 className="text-xs font-semibold text-text-primary flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-accent stroke-[1.5]" />
+                      <span>Platform Universal Strict Rules (`strict_rules`)</span>
+                    </h4>
+                    <p className="text-xs text-text-muted mt-0.5">
+                      These rules are compiled into the core engine and act as the highest authority negative constraints for all client organizations.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSyncGlobalRules}
+                    disabled={syncingGlobalRules}
+                    className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer shadow-xs disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+                  >
+                    {syncingGlobalRules ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5 stroke-[1.5]" />
+                    )}
+                    <span>Sync Global Rules to All Organizations</span>
+                  </button>
+                </div>
+
+                {syncResultNotice && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs rounded-sm font-medium flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{syncResultNotice}</span>
+                  </div>
+                )}
+
+                <div>
+                  <textarea
+                    rows={11}
+                    value={editedGlobalStrictRules}
+                    onChange={(e) => setEditedGlobalStrictRules(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent leading-relaxed transition-colors duration-150"
+                  />
+                  <p className="text-xs text-text-muted mt-1.5">
+                    Clicking <strong>Sync Global Rules to All Organizations</strong> updates the <code>strict_rules</code> column in the PostgreSQL <code>ai_config</code> table for all registered client organizations platform-wide.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
 
@@ -3874,6 +4210,74 @@ export default function SuperAdminClients() {
                         />
                         <p className="text-xs text-text-muted mt-1">Leave as <code>primary</code> to sync with main calendar.</p>
                       </div>
+
+                      {/* Real-Time Availability & Free-Time Booking Callout */}
+                      <div className="bg-surface-subtle border border-border rounded-md p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 text-accent stroke-[1.5]" />
+                            <h5 className="font-semibold text-xs text-text-primary">
+                              Real-Time Free/Busy Availability & Zero Wrong Data Mandate
+                            </h5>
+                          </div>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-medium">
+                            Live Conflict Prevention
+                          </span>
+                        </div>
+                        <p className="text-xs text-text-secondary leading-relaxed">
+                          When customers text to book an appointment, the AI checks live availability directly from this organization's connected Google Calendar. 
+                          The AI is strictly restricted to proposing and booking during verified open free time. Stating hallucinated or occupied slots is strictly blocked.
+                        </p>
+
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            onClick={() => handleTestLiveCalendar(editingConfigTenant.id)}
+                            disabled={testerLoading}
+                            className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+                          >
+                            {testerLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5 stroke-[1.5]" />}
+                            <span>Verify Live Google Calendar Slots</span>
+                          </button>
+                        </div>
+
+                        {testerAvailability && (
+                          <div className="bg-surface border border-border rounded-sm p-3 space-y-2 text-xs mt-2 animate-in fade-in duration-150">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-text-primary flex items-center gap-1.5">
+                                {testerAvailability.google_calendar_connected ? (
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-status-success" />
+                                ) : (
+                                  <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                                )}
+                                <span>{testerAvailability.google_calendar_connected ? 'Google Calendar Verified (Live Ground Truth)' : 'CRM Internal Schedule Active'}</span>
+                              </span>
+                              <span className="text-[10px] font-mono text-text-muted">
+                                {testerAvailability.timezone}
+                              </span>
+                            </div>
+
+                            <p className="text-[11px] text-text-muted">
+                              Total Occupied Slots: <strong>{testerAvailability.total_occupied_slots}</strong> (Google Calendar: {testerAvailability.gcal_slots_count}, CRM: {testerAvailability.crm_slots_count})
+                            </p>
+
+                            {testerAvailability.occupied_slots.length > 0 ? (
+                              <div className="max-h-32 overflow-y-auto space-y-1 pt-1">
+                                {testerAvailability.occupied_slots.map((slot, i) => (
+                                  <div key={i} className="p-1.5 bg-surface-subtle rounded border border-border flex items-center justify-between text-[10px]">
+                                    <span className="font-medium text-text-primary">{slot.start_formatted} – {slot.end_formatted}</span>
+                                    <span className="font-mono text-amber-600 dark:text-amber-400">{slot.source}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-[11px] text-status-success font-medium bg-status-success-bg p-2 rounded-sm border border-status-success-border">
+                                All operating hours (09:00 AM – 08:00 PM) are open and free for booking!
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -4044,9 +4448,9 @@ export default function SuperAdminClients() {
                                   perms.can_manage_bookings,
                                   perms.can_view_calendar,
                                   perms.can_manage_customers,
+                                  perms.can_manage_marketing,
                                   perms.can_view_analytics,
                                   perms.can_manage_settings,
-                                  perms.can_manage_billing,
                                 ].filter(Boolean).length;
 
                                 return (
@@ -4061,6 +4465,8 @@ export default function SuperAdminClients() {
                                           ? 'bg-purple-500/10 text-purple-700 border-purple-300'
                                           : member.role === 'sales'
                                           ? 'bg-amber-500/15 text-amber-800 border-amber-400 font-bold'
+                                          : member.role === 'marketing'
+                                          ? 'bg-purple-500/10 text-purple-700 border-purple-300'
                                           : member.role === 'doctor'
                                           ? 'bg-blue-500/10 text-blue-700 border-blue-300'
                                           : member.role === 'receptionist'
@@ -4069,7 +4475,7 @@ export default function SuperAdminClients() {
                                           ? 'bg-cyan-500/10 text-cyan-700 border-cyan-300'
                                           : 'bg-surface-subtle text-text-muted border-border'
                                       }`}>
-                                        {member.role === 'sales' ? 'Sales Executive' : member.role}
+                                        {member.role === 'super_admin' ? 'Admin' : member.role === 'sales' ? 'Sales Executive' : member.role === 'marketing' ? 'Marketing' : member.role}
                                       </span>
                                     </td>
                                     <td className="py-2.5 px-3">
@@ -4079,7 +4485,7 @@ export default function SuperAdminClients() {
                                           <span>{perms.assigned_doctor}</span>
                                         </span>
                                       ) : (
-                                        <span className="text-text-muted text-[11px]">All doctors / clinic-wide</span>
+                                        <span className="text-text-muted text-[11px]">All clinic / workspace-wide</span>
                                       )}
                                     </td>
                                     <td className="py-2.5 px-3">
@@ -4089,9 +4495,9 @@ export default function SuperAdminClients() {
                                         {perms.can_manage_bookings && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Bookings</span>}
                                         {perms.can_view_calendar && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Calendar</span>}
                                         {perms.can_manage_customers && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Customers</span>}
-                                        {perms.can_view_analytics && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Analytics</span>}
+                                        {perms.can_manage_marketing && <span className="px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400 text-[10px] font-medium">Marketing</span>}
+                                        {perms.can_view_analytics && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Overview</span>}
                                         {perms.can_manage_settings && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Settings</span>}
-                                        {perms.can_manage_billing && <span className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px] text-text-secondary">Billing</span>}
                                         {activeCount === 0 && <span className="text-text-muted text-[10px]">None</span>}
                                       </div>
                                     </td>
@@ -4988,7 +5394,43 @@ export default function SuperAdminClients() {
                   <span className="text-text-primary font-semibold uppercase tracking-wider text-[11px]">
                     Granular Permission Controls
                   </span>
-                  <span className="text-text-muted text-[10px]">What this user can and cannot access</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStaffForm({
+                          ...staffForm,
+                          permissions: {
+                            ...staffForm.permissions,
+                            can_view_inbox: true,
+                            can_send_messages: true,
+                            can_manage_bookings: true,
+                            can_view_calendar: true,
+                            can_manage_customers: true,
+                            can_manage_marketing: true,
+                            can_view_analytics: true,
+                            can_manage_settings: true,
+                          }
+                        });
+                      }}
+                      className="text-[10px] text-accent hover:underline font-medium cursor-pointer"
+                    >
+                      Select All
+                    </button>
+                    <span className="text-text-muted text-[10px]">&bull;</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStaffForm({
+                          ...staffForm,
+                          permissions: getRoleDefaultPermissions(staffForm.role, staffForm.permissions.assigned_doctor),
+                        });
+                      }}
+                      className="text-[10px] text-text-muted hover:text-text-primary font-medium cursor-pointer"
+                    >
+                      Role Defaults
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-surface-subtle/60 p-3 rounded border border-border">
@@ -5060,6 +5502,19 @@ export default function SuperAdminClients() {
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
+                      checked={staffForm.permissions.can_manage_marketing ?? false}
+                      onChange={(e) => setStaffForm({
+                        ...staffForm,
+                        permissions: { ...staffForm.permissions, can_manage_marketing: e.target.checked }
+                      })}
+                      className="rounded border-border text-accent focus:ring-0"
+                    />
+                    <span className="text-text-primary font-medium">Marketing & Broadcasts</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
                       checked={staffForm.permissions.can_view_analytics ?? false}
                       onChange={(e) => setStaffForm({
                         ...staffForm,
@@ -5067,7 +5522,7 @@ export default function SuperAdminClients() {
                       })}
                       className="rounded border-border text-accent focus:ring-0"
                     />
-                    <span className="text-text-primary font-medium">View Analytics & Overview</span>
+                    <span className="text-text-primary font-medium">View Overview Dashboard</span>
                   </label>
 
                   <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -5080,20 +5535,7 @@ export default function SuperAdminClients() {
                       })}
                       className="rounded border-border text-accent focus:ring-0"
                     />
-                    <span className="text-text-primary font-medium">Manage Clinic Settings</span>
-                  </label>
-
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={staffForm.permissions.can_manage_billing ?? false}
-                      onChange={(e) => setStaffForm({
-                        ...staffForm,
-                        permissions: { ...staffForm.permissions, can_manage_billing: e.target.checked }
-                      })}
-                      className="rounded border-border text-accent focus:ring-0"
-                    />
-                    <span className="text-text-primary font-medium">Manage Billing & Invoices</span>
+                    <span className="text-text-primary font-medium">Manage Workspace Settings</span>
                   </label>
                 </div>
               </div>

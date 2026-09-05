@@ -28,13 +28,13 @@ import uvicorn
 import re
 try:
     from providers.gemini import call_gemini, GeminiError
-    from providers.llm_router import call_llm_cascade, call_groq, call_opencode, LLMError, clean_llm_response
+    from providers.llm_router import call_llm_cascade, call_groq, call_opencode, LLMError, clean_llm_response, strip_repetitive_greetings
     from providers.transcription import transcribe_voice_message, TranscriptionError
     from providers.rule_engine import apply_rule_engine, db_row_to_rule
     from providers.whatsapp_sender import send_text, send_template, mark_as_read, WhatsAppSendError
 except (ImportError, ModuleNotFoundError):
     from core_worker.providers.gemini import call_gemini, GeminiError
-    from core_worker.providers.llm_router import call_llm_cascade, call_groq, call_opencode, LLMError, clean_llm_response
+    from core_worker.providers.llm_router import call_llm_cascade, call_groq, call_opencode, LLMError, clean_llm_response, strip_repetitive_greetings
     from core_worker.providers.transcription import transcribe_voice_message, TranscriptionError
     from core_worker.providers.rule_engine import apply_rule_engine, db_row_to_rule
     from core_worker.providers.whatsapp_sender import send_text, send_template, mark_as_read, WhatsAppSendError
@@ -144,6 +144,17 @@ def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.dateti
     return datetime.datetime.now(tz) + datetime.timedelta(hours=2)
 
 
+GLOBAL_DEFAULT_STRICT_RULES = (
+    "- CONTINUOUS CONVERSATION & ZERO RE-GREETING: Never say 'Hi again', 'Hello again', or re-greet in an ongoing chat. Greet only on the very first message; thereafter reply directly to what the customer said.\n"
+    "- GOOGLE CALENDAR AVAILABILITY & FREE-TIME BOOKING: Check live availability from Google Calendar. Propose and book only during verified open free time. Never invent, hallucinate, or state incorrect, wrong, or occupied timeslots.\n"
+    "- NEVER use em dashes or hyphens connecting clauses. Use a comma or short period instead.\n"
+    "- Sound 100% human and conversational, like texting a real person on WhatsApp, NOT an AI bot.\n"
+    "- Keep replies concise (1 to 2 short lines). Connect thoughts smoothly into a single natural sentence or paragraph without awkward line gaps.\n"
+    "- CUT ALL AI CLICHES: Never say delve into, furthermore, moreover, in conclusion, it is important to note, I understand your concern, thank you for reaching out.\n"
+    "- Ask only ONE thing at a time. Never stack multiple questions in a single reply.\n"
+    "- Never use markdown bullet lists or bold numbered headers unless the customer explicitly asked for a list.\n"
+    "- Use natural contractions (I'll, we'll, you'll, that's) and active voice."
+)
 
 def build_booking_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str, notes: str, full_location: str) -> str:
     loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
@@ -710,6 +721,7 @@ class CoreWorker:
             )
             is_active = tenant_info["is_active"] if tenant_info else True
             stage = (tenant_info.get("org_lifecycle_stage") or "setup") if tenant_info else "setup"
+            sub_status = (tenant_info.get("subscription_status") or "active") if tenant_info else "active"
             sub_delinquent = (
                 (stage in ("ready_to_activate", "billing_active") and sub_status != "active")
                 or (sub_status in ("payment_failed", "paused", "cancelled"))
@@ -826,6 +838,97 @@ class CoreWorker:
             elapsed = time.monotonic() - start
             processing_time.labels(tenant=tenant_id).observe(elapsed)
 
+    async def _get_live_occupied_slots(self, tenant_id: str, tenant_tz) -> tuple[list[dict], bool]:
+        """
+        Retrieves occupied/busy time slots from both local PostgreSQL bookings table
+        AND live Google Calendar (via FreeBusy API) for the next 7 days.
+        Returns (merged_busy_slots, is_gcal_connected).
+        """
+        now_dt = datetime.datetime.now(tenant_tz)
+        min_dt = now_dt - datetime.timedelta(hours=2)
+        max_dt = now_dt + datetime.timedelta(days=7)
+
+        # 1. Query CRM bookings
+        busy_slots = []
+        try:
+            db_rows = await self.db_pool.fetch(
+                """SELECT service, start_time, end_time
+                   FROM bookings
+                   WHERE tenant_id = $1::uuid
+                     AND status = 'confirmed'
+                     AND start_time >= $2
+                     AND start_time <= $3
+                   ORDER BY start_time ASC LIMIT 50""",
+                tenant_id, min_dt, max_dt
+            )
+            for r in db_rows:
+                st = r['start_time'].astimezone(tenant_tz) if hasattr(r['start_time'], 'astimezone') else r['start_time']
+                et = r['end_time'].astimezone(tenant_tz) if hasattr(r['end_time'], 'astimezone') else r['end_time']
+                busy_slots.append({
+                    "start": st,
+                    "end": et,
+                    "source": "CRM Booking",
+                    "desc": r.get('service', 'Booked Appointment')
+                })
+        except Exception as e:
+            logger.warning("db_busy_slots_query_error", error=str(e), tenant_id=tenant_id)
+
+        # 2. Query Google Calendar Free/Busy in real time (non-blocking with strict timeout)
+        gcal_connected = False
+        try:
+            gcal_row = await self.db_pool.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+                tenant_id
+            )
+            if gcal_row and gcal_row["credential_data"]:
+                g_data = gcal_row["credential_data"]
+                if isinstance(g_data, str):
+                    try: g_data = json.loads(g_data)
+                    except: g_data = {}
+
+                if g_data.get("client_id") and g_data.get("refresh_token"):
+                    def fetch_gcal_freebusy():
+                        from google.oauth2.credentials import Credentials
+                        from googleapiclient.discovery import build
+                        g_creds = Credentials(
+                            token=g_data.get("access_token"),
+                            refresh_token=g_data.get("refresh_token"),
+                            token_uri="https://oauth2.googleapis.com/token",
+                            client_id=g_data.get("client_id"),
+                            client_secret=g_data.get("client_secret"),
+                        )
+                        service = build("calendar", "v3", credentials=g_creds, cache_discovery=False)
+                        cal_id = g_data.get("calendar_id") or "primary"
+                        fb_res = service.freebusy().query(body={
+                            "timeMin": now_dt.isoformat(),
+                            "timeMax": max_dt.isoformat(),
+                            "timeZone": str(tenant_tz),
+                            "items": [{"id": cal_id}]
+                        }).execute()
+                        return fb_res.get("calendars", {}).get(cal_id, {}).get("busy", [])
+
+                    gcal_busy = await asyncio.wait_for(asyncio.to_thread(fetch_gcal_freebusy), timeout=2.5)
+                    gcal_connected = True
+                    for b in gcal_busy:
+                        try:
+                            st = datetime.datetime.fromisoformat(b['start'].replace('Z', '+00:00')).astimezone(tenant_tz)
+                            et = datetime.datetime.fromisoformat(b['end'].replace('Z', '+00:00')).astimezone(tenant_tz)
+                            # Deduplicate with existing slots within 60s
+                            if not any(abs((x["start"] - st).total_seconds()) < 60 and abs((x["end"] - et).total_seconds()) < 60 for x in busy_slots):
+                                busy_slots.append({
+                                    "start": st,
+                                    "end": et,
+                                    "source": "Google Calendar",
+                                    "desc": "Busy Event on Google Calendar"
+                                })
+                        except Exception as parse_err:
+                            logger.warning("gcal_slot_parse_error", error=str(parse_err))
+        except Exception as ex:
+            logger.warning("gcal_availability_fetch_warning", error=str(ex), tenant_id=tenant_id)
+
+        busy_slots.sort(key=lambda x: x["start"])
+        return busy_slots, gcal_connected
+
     async def _generate_and_send_reply(
         self,
         tenant_id: str,
@@ -856,6 +959,22 @@ class CoreWorker:
         ]
         if not history or history[-1]["content"] != message_text:
             history.append({"role": "user", "content": message_text})
+
+        # Determine conversation turn depth & ongoing state
+        is_ongoing_conversation = len(history) > 1
+        if is_ongoing_conversation:
+            conversation_state_block = (
+                f"### CONVERSATION STATE: CONTINUOUS ONGOING CONVERSATION (Turn #{len(history)}):\n"
+                "- STRICT PROHIBITION: ABSOLUTELY DO NOT SAY 'Hi', 'Hello', 'Hey', 'Hi again', 'Hello again', OR RE-INTRODUCE YOURSELF.\n"
+                "- The greeting phase is ALREADY FINISHED. You and the customer already greeted each other earlier in this chat.\n"
+                "- A real human texting on WhatsApp NEVER repeatedly greets with 'Hi again!' on every single message. It sounds robotic, unnatural, and irritating.\n"
+                "- Respond DIRECTLY, naturally, and warmly to what the customer just said without any greetings."
+            )
+        else:
+            conversation_state_block = (
+                "### CONVERSATION STATE: FIRST INCOMING MESSAGE:\n"
+                "- This is the first greeting or message from this customer. Greet them warmly, state your name/role naturally, and ask how you can help."
+            )
 
         # 2. Retrieve customer profile & bookings memory
         contact_row = await self.db_pool.fetchrow(
@@ -935,32 +1054,31 @@ class CoreWorker:
             "Use this live timestamp to resolve relative dates (today, tomorrow, next Monday) and know if a time has already passed.\n\n"
         )
 
-        # Retrieve all currently booked/occupied slots for this business (next 7 days) to prevent double bookings
-        tenant_busy_rows = await self.db_pool.fetch(
-            """SELECT service, start_time, end_time
-               FROM bookings
-               WHERE tenant_id = $1::uuid
-                 AND status = 'confirmed'
-                 AND start_time >= now() - INTERVAL '2 hours'
-                 AND start_time <= now() + INTERVAL '7 days'
-               ORDER BY start_time ASC LIMIT 40""",
-            tenant_id,
-        )
-        if tenant_busy_rows:
+        # Retrieve all currently booked/occupied slots for this business (next 7 days) from Google Calendar and CRM
+        busy_slots, gcal_connected = await self._get_live_occupied_slots(tenant_id, tenant_tz)
+        if busy_slots:
             busy_lines = [
-                f"- {r['start_time'].astimezone(tenant_tz).strftime('%A, %d %b %Y: %I:%M %p')} to {r['end_time'].astimezone(tenant_tz).strftime('%I:%M %p')} ({r.get('service', 'Booked')})"
-                for r in tenant_busy_rows
+                f"- {s['start'].strftime('%A, %d %b %Y: %I:%M %p')} to {s['end'].strftime('%I:%M %p')} ({s['source']})"
+                for s in busy_slots
             ]
             busy_slots_block = (
-                "### ALREADY BOOKED & OCCUPIED TIMESLOTS (STRICT CONFLICT PREVENTION):\n"
-                "The following time slots are ALREADY TAKEN by other clients. NO ONE ELSE CAN BOOK THESE TIMES:\n"
+                f"### LIVE CALENDAR AVAILABILITY & OCCUPIED TIMESLOTS ({'GOOGLE CALENDAR LIVE SYNC ACTIVE' if gcal_connected else 'CRM LOCAL SCHEDULE'}):\n"
+                f"- Live Integration Status: {'Google Calendar Connected & Verified (Ground Truth)' if gcal_connected else 'CRM Internal Schedule Active'}\n"
+                "The following time slots are ALREADY OCCUPIED and BUSY on the calendar over the next 7 days. NO ONE CAN BOOK THESE TIMES:\n"
                 + "\n".join(busy_lines)
-                + "\n- If the customer requests any slot listed above, you MUST politely inform them that this time is already taken, and propose the closest available time slot instead."
+                + "\n\n### STRICT AVAILABILITY & FREE-TIME BOOKING DIRECTIVES (ZERO WRONG DATA):\n"
+                "- LIVE CALENDAR GROUND TRUTH: The occupied slots above are the definitive ground truth from Google Calendar and the CRM.\n"
+                "- FREE TIME ONLY: You must STRICTLY and EXCLUSIVELY propose or confirm appointments during open, unoccupied time slots.\n"
+                "- ZERO WRONG OR INCORRECT DATA: NEVER guess, invent, or state inaccurate slot availability. If a customer requests any occupied time slot above, you MUST politely inform them that this slot is already booked on the calendar, and propose the closest open free time instead.\n"
+                "- BUSINESS OPERATING HOURS: Standard business operating hours are strictly 09:00 AM to 08:00 PM. Never propose times outside operating hours or overlapping with occupied slots.\n"
+                "- NO TIME ASSUMPTION: If the customer asks for an appointment without giving a specific time, ask what day and time works best for them. Never assume today at 3pm or create a booking without their explicit confirmation."
             )
         else:
             busy_slots_block = (
-                "### ALREADY BOOKED & OCCUPIED TIMESLOTS:\n"
-                "All standard business hours are currently open and available for booking."
+                f"### LIVE CALENDAR AVAILABILITY ({'GOOGLE CALENDAR LIVE SYNC ACTIVE' if gcal_connected else 'CRM LOCAL SCHEDULE'}):\n"
+                f"- Live Integration Status: {'Google Calendar Connected & Verified (Ground Truth)' if gcal_connected else 'CRM Internal Schedule Active'}\n"
+                "All standard business hours (09:00 AM to 08:00 PM) over the next 7 days are currently open and available for booking.\n"
+                "- Propose and book only during standard business hours upon customer confirmation. Never invent or assume times."
             )
 
         memory_block = (
@@ -982,7 +1100,11 @@ class CoreWorker:
         services_text = ai_cfg.get("services_text") or ""
         response_style = ai_cfg.get("response_style") or "short"
         methodology = ai_cfg.get("methodology") or "dogfooding"
-        strict_rules = ai_cfg.get("strict_rules") or ""
+        strict_rules = (ai_cfg.get("strict_rules") or "").strip() or GLOBAL_DEFAULT_STRICT_RULES
+        if "CONTINUOUS CONVERSATION" not in strict_rules:
+            strict_rules = "- CONTINUOUS CONVERSATION & ZERO RE-GREETING: Never say 'Hi again', 'Hello again', or re-greet in an ongoing chat. Greet only on the very first message; thereafter reply directly to what the customer said.\n" + strict_rules
+        if "GOOGLE CALENDAR AVAILABILITY" not in strict_rules:
+            strict_rules = "- GOOGLE CALENDAR AVAILABILITY & FREE-TIME BOOKING: Check live availability from Google Calendar. Propose and book only during verified open free time. Never invent, hallucinate, or state incorrect, wrong, or occupied timeslots.\n" + strict_rules
         objection_handling = ai_cfg.get("objection_handling") or ""
 
         # Master Global Human Persona & Conversational Intelligence Engine
@@ -990,14 +1112,19 @@ class CoreWorker:
             "### MASTER HUMAN CONVERSATION & TEXTING RULES (MANDATORY FOR EVERY REPLY):\n"
             "You are replying as a REAL PERSON representing the business on WhatsApp, NOT as an AI bot.\n"
             "Always use the business name, tone, services, and verified details given to you in context. Never invent or assume business details on your own.\n\n"
-            "1. Sound Like a Real Person, Not a Script:\n"
+            "1. Continuous Conversation & Zero Re-Greeting Rule (ABSOLUTE MANDATORY):\n"
+            "- NEVER say 'Hi', 'Hello', 'Hey', 'Hi again', 'Hello again', or repeatedly greet the customer in an ongoing chat!\n"
+            "- You only introduce yourself or greet ONCE at the very first message of a brand new conversation.\n"
+            "- Once the customer has replied or the conversation is in progress (from message 2 onwards), DIVE DIRECTLY into the answer or question with empathy.\n"
+            "- Never say 'Hi again! Thanks for sharing...' or 'Hello again!'. Jump straight to: 'Thanks for sharing...' or 'Got it...'.\n\n"
+            "2. Sound Like a Real Person, Not a Script:\n"
             "- Acknowledge what the person just said before moving on to your point, the way someone naturally reacts, rather than jumping straight into an answer.\n"
             "- Small natural reactions are fine here and there (e.g., 'Oh got it', 'Makes total sense', 'Sure thing'), but keep them genuine.\n"
             "- Match their energy and formality: casual gets casual back, while a worried or frustrated message gets genuine warmth and reassurance before a solution.\n"
             "- Mirror the language and tone they wrote in (English, Hinglish, casual phrases, etc.).\n"
             "- Ask ONE thing at a time. NEVER stack two or three questions into one message.\n"
             "- Show real interest with a genuine follow-up instead of rushing them to the next step.\n\n"
-            "2. Natural WhatsApp Texting Style:\n"
+            "3. Natural WhatsApp Texting Style:\n"
             "- Write like you're texting on your phone, not filing a corporate report.\n"
             "- Keep replies concise and punchy (1 to 2 short sentences). Make every word count.\n"
             "- DO NOT insert blank line gaps between short 1-2 sentence replies. Connect them smoothly into a single natural sentence or paragraph (e.g. 'Awesome, I have got that booked for you for today at 07:00 PM.' or 'Thanks for sharing that! Just to quickly check...'). Use a line gap ONLY when providing a list or separating distinct topics.\n"
@@ -1022,11 +1149,13 @@ class CoreWorker:
             "  * Instead, ask what day and time they prefer (and ask for their name/email if not on file), e.g.:\n"
             "    'Sure thing! What day and time works best for you?'\n"
             "    (or 'Sure! What day and time works best for you? Also please share your full name and email for the calendar invite.').\n\n"
-            "3. CONFLICT PREVENTION / ONLY ONE BOOKING AT A TIME:\n"
+            "3. CONFLICT PREVENTION & LIVE CALENDAR FREE-TIME BOOKING (ZERO WRONG DATA):\n"
             "- Only ONE appointment can be booked in any given time slot.\n"
-            "- Check the 'ALREADY BOOKED & OCCUPIED TIMESLOTS' list above before agreeing to any time.\n"
-            "- If a customer asks for a slot that is already booked (e.g. 1:00 AM, 9:00 AM, etc.), NEVER agree to that time. Politely let them know:\n"
-            "  'That slot is already booked. Would [suggest alternate time or day] work for you instead?'\n\n"
+            "- Check the 'LIVE CALENDAR AVAILABILITY & OCCUPIED TIMESLOTS' list above before proposing or agreeing to any time.\n"
+            "- If a customer asks for a slot that is already occupied or busy on Google Calendar (or CRM), NEVER agree to that time.\n"
+            "- NEVER say incorrect, hallucinated, or wrong schedule data. Politely inform them:\n"
+            "  'That slot is already booked on our calendar. Would [suggest an available free time from open hours] work for you instead?'\n"
+            "- Operating hours: strictly within business hours (09:00 AM to 08:00 PM).\n\n"
             "4. INQUIRY ABOUT EXISTING APPOINTMENT ('When is my appointment?', 'What time is my call?', 'Do I have a booking?', 'Check my appointment', 'My appointment status'):\n"
             "- CRITICAL GLOBAL DIRECTIVE: THIS IS AN INFORMATIONAL STATUS INQUIRY ONLY.\n"
             "- The customer is ONLY asking what time or date their existing appointment is. THEY ARE NOT ASKING TO BOOK OR RESCHEDULE!\n"
@@ -1080,6 +1209,7 @@ class CoreWorker:
         prompt_blocks = [
             time_context,
             f"You are {assistant_name or 'the assistant'}, representing this business directly on WhatsApp chat.",
+            conversation_state_block,
             memory_block,
             busy_slots_block,
         ]
@@ -1176,6 +1306,8 @@ class CoreWorker:
 
         if response_text:
             response_text = clean_llm_response(response_text)
+            if is_ongoing_conversation:
+                response_text = strip_repetitive_greetings(response_text)
             
             # 1. Intercept [ACTION:CANCEL_BOOKING] or AI confirmation phrases
             if "[ACTION:CANCEL_BOOKING]" in response_text or any(phrase in response_text.lower() for phrase in ["cancelled your booking", "have cancelled your", "booking has been cancelled", "appointment is cancelled", "appointment has been cancelled", "cancelled your appointment"]):

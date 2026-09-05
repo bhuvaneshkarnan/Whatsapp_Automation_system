@@ -24,6 +24,8 @@ import {
   CrmNotification,
   StaffPermissions,
   StaffUser,
+  LiveCalendarAvailabilityResponse,
+  LiveCalendarSlot,
 } from '@/lib/api';
 import {
   MessageSquare,
@@ -305,6 +307,15 @@ function formatMilitaryTo12(timeStr: string | null | undefined): string {
   return `${h}:${min} ${ampm}`;
 }
 
+function formatRoleName(role?: string): string {
+  if (!role) return 'Staff';
+  const r = role.toLowerCase().trim();
+  if (r === 'super_admin' || r === 'superadmin' || r === 'admin') {
+    return 'Admin';
+  }
+  return role.replace(/_/g, ' ');
+}
+
 const PREBUILT_REQUIREMENTS_BY_INDUSTRY: Record<string, string[]> = {
   clinic: [
     'General Consultation',
@@ -504,7 +515,25 @@ export default function DashboardPage() {
     return 'overview';
   });
   const [sidebarFilter, setSidebarFilter] = useState<'all' | 'recent' | 'favorites' | 'active'>('all');
-  const [settingsTab, setSettingsTab] = useState<'branding' | 'notifications' | 'localization' | 'terminology' | 'account' | 'team'>('branding');
+  const [settingsTab, setSettingsTab] = useState<'branding' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team'>('branding');
+
+  // Live Google Calendar Slot Availability Tester in Dashboard Settings
+  const [dashCalendarLoading, setDashCalendarLoading] = useState(false);
+  const [dashCalendarAvailability, setDashCalendarAvailability] = useState<LiveCalendarAvailabilityResponse | null>(null);
+  const [dashCalendarError, setDashCalendarError] = useState('');
+
+  const handleTestDashCalendar = async () => {
+    setDashCalendarLoading(true);
+    setDashCalendarError('');
+    try {
+      const res = await crm.getLiveCalendarAvailability();
+      setDashCalendarAvailability(res);
+    } catch (err: any) {
+      setDashCalendarError(err?.message || 'Failed to check Google Calendar availability.');
+    } finally {
+      setDashCalendarLoading(false);
+    }
+  };
 
   // Customer Follow-up & Task Calendar State
   const [followupView, setFollowupView] = useState<'list' | 'database' | 'tasks' | 'notes'>(() => {
@@ -1055,9 +1084,9 @@ export default function DashboardPage() {
   const canManageBookings = perms ? perms.can_manage_bookings !== false : true;
   const canViewCalendar = perms ? perms.can_view_calendar !== false : true;
   const canManageCustomers = perms ? perms.can_manage_customers !== false : true;
+  const canManageMarketing = perms ? perms.can_manage_marketing !== false : true;
   const canViewAnalytics = perms ? perms.can_view_analytics !== false : true;
   const canManageSettings = perms ? perms.can_manage_settings !== false : true;
-  const canManageBilling = perms ? perms.can_manage_billing !== false : true;
 
   // Conversations & Chat State
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -1341,9 +1370,9 @@ export default function DashboardPage() {
       can_manage_bookings: true,
       can_view_calendar: true,
       can_manage_customers: true,
+      can_manage_marketing: false,
       can_view_analytics: false,
       can_manage_settings: false,
-      can_manage_billing: false,
       assigned_doctor: '',
     },
   });
@@ -1357,9 +1386,9 @@ export default function DashboardPage() {
           can_manage_bookings: true,
           can_view_calendar: true,
           can_manage_customers: true,
+          can_manage_marketing: true,
           can_view_analytics: true,
           can_manage_settings: true,
-          can_manage_billing: true,
           assigned_doctor: '',
         };
       case 'sales':
@@ -1369,9 +1398,9 @@ export default function DashboardPage() {
           can_manage_bookings: true,
           can_view_calendar: true,
           can_manage_customers: true,
+          can_manage_marketing: false,
           can_view_analytics: false,
           can_manage_settings: false,
-          can_manage_billing: false,
           assigned_doctor: '',
         };
       case 'doctor':
@@ -1381,9 +1410,9 @@ export default function DashboardPage() {
           can_manage_bookings: true,
           can_view_calendar: true,
           can_manage_customers: true,
+          can_manage_marketing: false,
           can_view_analytics: false,
           can_manage_settings: false,
-          can_manage_billing: false,
           assigned_doctor: assignedDoctor || '',
         };
       case 'receptionist':
@@ -1393,9 +1422,21 @@ export default function DashboardPage() {
           can_manage_bookings: true,
           can_view_calendar: true,
           can_manage_customers: true,
+          can_manage_marketing: false,
           can_view_analytics: false,
           can_manage_settings: false,
-          can_manage_billing: false,
+          assigned_doctor: '',
+        };
+      case 'marketing':
+        return {
+          can_view_inbox: true,
+          can_send_messages: false,
+          can_manage_bookings: false,
+          can_view_calendar: false,
+          can_manage_customers: true,
+          can_manage_marketing: true,
+          can_view_analytics: true,
+          can_manage_settings: false,
           assigned_doctor: '',
         };
       case 'agent':
@@ -1405,9 +1446,9 @@ export default function DashboardPage() {
           can_manage_bookings: false,
           can_view_calendar: false,
           can_manage_customers: false,
+          can_manage_marketing: false,
           can_view_analytics: false,
           can_manage_settings: false,
-          can_manage_billing: false,
           assigned_doctor: '',
         };
       case 'viewer':
@@ -1417,9 +1458,9 @@ export default function DashboardPage() {
           can_manage_bookings: false,
           can_view_calendar: true,
           can_manage_customers: false,
+          can_manage_marketing: false,
           can_view_analytics: false,
           can_manage_settings: false,
-          can_manage_billing: false,
           assigned_doctor: '',
         };
       default:
@@ -1429,9 +1470,9 @@ export default function DashboardPage() {
           can_manage_bookings: false,
           can_view_calendar: false,
           can_manage_customers: false,
+          can_manage_marketing: false,
           can_view_analytics: false,
           can_manage_settings: false,
-          can_manage_billing: false,
           assigned_doctor: '',
         };
     }
@@ -1466,6 +1507,7 @@ export default function DashboardPage() {
 
   function handleOpenEditTeam(member: StaffUser) {
     setEditingTeamMember(member);
+    const roleDefaults = getClientRoleDefaultPermissions(member.role, member.permissions?.assigned_doctor);
     setTeamForm({
       email: member.email,
       password: '',
@@ -1473,14 +1515,14 @@ export default function DashboardPage() {
       role: member.role,
       is_active: member.is_active,
       permissions: {
-        can_view_inbox: member.permissions?.can_view_inbox ?? true,
-        can_send_messages: member.permissions?.can_send_messages ?? true,
-        can_manage_bookings: member.permissions?.can_manage_bookings ?? true,
-        can_view_calendar: member.permissions?.can_view_calendar ?? true,
-        can_manage_customers: member.permissions?.can_manage_customers ?? false,
-        can_view_analytics: member.permissions?.can_view_analytics ?? false,
-        can_manage_settings: member.permissions?.can_manage_settings ?? false,
-        can_manage_billing: member.permissions?.can_manage_billing ?? false,
+        can_view_inbox: member.permissions?.can_view_inbox !== undefined ? member.permissions.can_view_inbox : roleDefaults.can_view_inbox,
+        can_send_messages: member.permissions?.can_send_messages !== undefined ? member.permissions.can_send_messages : roleDefaults.can_send_messages,
+        can_manage_bookings: member.permissions?.can_manage_bookings !== undefined ? member.permissions.can_manage_bookings : roleDefaults.can_manage_bookings,
+        can_view_calendar: member.permissions?.can_view_calendar !== undefined ? member.permissions.can_view_calendar : roleDefaults.can_view_calendar,
+        can_manage_customers: member.permissions?.can_manage_customers !== undefined ? member.permissions.can_manage_customers : roleDefaults.can_manage_customers,
+        can_manage_marketing: member.permissions?.can_manage_marketing !== undefined ? member.permissions.can_manage_marketing : roleDefaults.can_manage_marketing,
+        can_view_analytics: member.permissions?.can_view_analytics !== undefined ? member.permissions.can_view_analytics : roleDefaults.can_view_analytics,
+        can_manage_settings: member.permissions?.can_manage_settings !== undefined ? member.permissions.can_manage_settings : roleDefaults.can_manage_settings,
         assigned_doctor: member.permissions?.assigned_doctor || '',
       },
     });
@@ -1700,27 +1742,51 @@ export default function DashboardPage() {
   const messagesCacheRef = useRef<Record<string, Message[]>>({});
   const activeConvIdRef = useRef<string | null>(null);
   const lastSelectedConvIdRef = useRef<string | null>(null);
+  const convScrolledToBottomRef = useRef<Record<string, boolean>>({});
 
-  // Instant scroll to bottom before browser paint when switching chats or receiving messages
+  // Instant scroll to bottom when opening/switching chats or receiving messages
   useIsomorphicLayoutEffect(() => {
     const el = messagesContainerRef.current;
     if (!el || !selectedConv) return;
 
-    el.style.scrollBehavior = 'auto';
-    const isConvChange = lastSelectedConvIdRef.current !== selectedConv.id;
-    lastSelectedConvIdRef.current = selectedConv.id;
-
+    const convId = selectedConv.id;
+    const isConvChange = lastSelectedConvIdRef.current !== convId;
     if (isConvChange) {
-      // Switched chats: ALWAYS instantly jump straight to newest message at the bottom
+      lastSelectedConvIdRef.current = convId;
+    }
+
+    const hasMessages = Array.isArray(messages) && messages.length > 0;
+    const hasScrolledThisConv = !!convScrolledToBottomRef.current[convId];
+
+    const doScrollToBottom = (instant = true) => {
+      if (!el) return;
+      el.style.scrollBehavior = instant ? 'auto' : 'smooth';
       el.scrollTop = el.scrollHeight;
-      requestAnimationFrame(() => {
-        if (el) el.scrollTop = el.scrollHeight;
-      });
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: instant ? 'auto' : 'smooth', block: 'end' });
+      }
+    };
+
+    // If switched chats OR if messages have loaded and haven't scrolled to bottom yet for this chat:
+    if (isConvChange || (hasMessages && !hasScrolledThisConv)) {
+      if (hasMessages) {
+        convScrolledToBottomRef.current[convId] = true;
+      }
+      doScrollToBottom(true);
+      requestAnimationFrame(() => doScrollToBottom(true));
+      const t1 = setTimeout(() => doScrollToBottom(true), 40);
+      const t2 = setTimeout(() => doScrollToBottom(true), 120);
+      const t3 = setTimeout(() => doScrollToBottom(true), 250);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
     } else {
-      // Stream update in same conversation: stay at bottom if already near bottom (within 200px)
-      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
+      // In-stream update within same chat: stay pinned to bottom if user is already near bottom (within 250px)
+      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 250;
       if (isNearBottom) {
-        el.scrollTop = el.scrollHeight;
+        doScrollToBottom(false);
       }
     }
   }, [selectedConv?.id, messages]);
@@ -1754,6 +1820,7 @@ export default function DashboardPage() {
             else if (p.can_manage_bookings !== false) setActiveNav('bookings');
             else if (p.can_view_calendar !== false) setActiveNav('calendar');
             else if (p.can_manage_customers !== false) setActiveNav('customers');
+            else if (p.can_manage_marketing !== false) setActiveNav('marketing');
           }
         }
         loadConversations();
@@ -2820,7 +2887,23 @@ export default function DashboardPage() {
         const sanitized = convs.map((c) =>
           c.id === activeId ? { ...c, unread_count: 0 } : c
         );
+        sanitized.sort((a, b) => {
+          const timeA = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+          const timeB = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+          return timeB - timeA;
+        });
         setConversations(sanitized);
+
+        // On desktop, if on inbox tab and no conversation selected, auto-select the latest active conversation
+        if (
+          typeof window !== 'undefined' &&
+          window.innerWidth >= 768 &&
+          !selectedConvRef.current &&
+          sanitized.length > 0 &&
+          (activeNav === 'inbox' || window.location.hash === '#inbox')
+        ) {
+          selectConversation(sanitized[0]);
+        }
       } else {
         setConversations([]);
       }
@@ -2837,6 +2920,9 @@ export default function DashboardPage() {
     setSelectedConv(updatedConv);
     activeConvIdRef.current = conv.id;
 
+    // Reset scrolled flag so layout effect guarantees scroll to bottom for this conversation
+    convScrolledToBottomRef.current[conv.id] = false;
+
     // Immediately clear unread badge in conversation list
     setConversations((prev) =>
       prev.map((c) => (c.id === conv.id ? { ...c, unread_count: 0 } : c))
@@ -2847,6 +2933,7 @@ export default function DashboardPage() {
     if (cached && cached.length > 0) {
       setMessages(cached);
       setLoadingMessages(false);
+      scrollToBottom(true);
     } else {
       setMessages([]);
       setLoadingMessages(true);
@@ -2858,22 +2945,34 @@ export default function DashboardPage() {
       if (activeConvIdRef.current === conv.id) {
         messagesCacheRef.current[conv.id] = validMsgs;
         setMessages(validMsgs);
+        scrollToBottom(true);
       }
     } catch (err) {
       console.error('Error fetching messages:', err);
     } finally {
       if (activeConvIdRef.current === conv.id) {
         setLoadingMessages(false);
+        scrollToBottom(true);
       }
     }
   }
 
   function scrollToBottom(instant = true) {
-    if (messagesContainerRef.current) {
+    const doScroll = () => {
       const el = messagesContainerRef.current;
-      el.style.scrollBehavior = instant ? 'auto' : 'smooth';
-      el.scrollTop = el.scrollHeight;
-    }
+      if (el) {
+        el.style.scrollBehavior = instant ? 'auto' : 'smooth';
+        el.scrollTop = el.scrollHeight;
+      }
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: instant ? 'auto' : 'smooth', block: 'end' });
+      }
+    };
+    doScroll();
+    requestAnimationFrame(doScroll);
+    setTimeout(doScroll, 40);
+    setTimeout(doScroll, 120);
+    setTimeout(doScroll, 250);
   }
 
   async function handleSendMessage(e: React.FormEvent) {
@@ -3078,8 +3177,29 @@ export default function DashboardPage() {
     setIsBookingDetailModalOpen(false);
     setSelectedBookingDetail(null);
     setIsAddBookingOpen(false);
-    if (tab === 'inbox') setSelectedConv(null);
+    if (tab === 'inbox') {
+      if (typeof window !== 'undefined' && window.innerWidth >= 768) {
+        if (!selectedConvRef.current && conversations.length > 0) {
+          selectConversation(conversations[0]);
+        }
+      } else {
+        setSelectedConv(null);
+      }
+    }
   }
+
+  // When inbox is active on desktop and no conversation is selected, auto-select the latest recent conversation
+  useEffect(() => {
+    if (
+      activeNav === 'inbox' &&
+      typeof window !== 'undefined' &&
+      window.innerWidth >= 768 &&
+      !selectedConv &&
+      conversations.length > 0
+    ) {
+      selectConversation(conversations[0]);
+    }
+  }, [activeNav, selectedConv, conversations]);
 
   // Auto-select all contacts when contacts array is loaded
   useEffect(() => {
@@ -3437,24 +3557,30 @@ export default function DashboardPage() {
   }
 
   // Filtered lists
-  const filteredConversations = (conversations || []).filter((c) => {
-    if (!c) return false;
-    const phone = c.contact_phone || c.phone || '';
-    const name = c.contact_name || c.name || '';
-    const matchesSearch =
-      phone.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      name.toLowerCase().includes(searchQuery.toLowerCase());
-    if (!matchesSearch) return false;
-    if (filter === 'new') {
-      const isUnread = (c.unread_count || 0) > 0;
-      const isRecent = c.last_message_at ? (Date.now() - new Date(c.last_message_at).getTime() < 86400000) : false;
-      return isUnread || isRecent;
-    }
-    if (filter === 'important') {
-      return importantConvIds.includes(c.id);
-    }
-    return true;
-  });
+  const filteredConversations = (conversations || [])
+    .filter((c) => {
+      if (!c) return false;
+      const phone = c.contact_phone || c.phone || '';
+      const name = c.contact_name || c.name || '';
+      const matchesSearch =
+        phone.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        name.toLowerCase().includes(searchQuery.toLowerCase());
+      if (!matchesSearch) return false;
+      if (filter === 'new') {
+        const isUnread = (c.unread_count || 0) > 0;
+        const isRecent = c.last_message_at ? (Date.now() - new Date(c.last_message_at).getTime() < 86400000) : false;
+        return isUnread || isRecent;
+      }
+      if (filter === 'important') {
+        return importantConvIds.includes(c.id);
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const timeA = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+      const timeB = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+      return timeB - timeA;
+    });
 
   const filteredBookings = (bookings || []).filter((b) => {
     if (!b) return false;
@@ -3701,9 +3827,13 @@ export default function DashboardPage() {
 
   function renderTeamManagementView() {
     const loginPortalUrl = typeof window !== 'undefined' ? `${window.location.origin}/login` : 'https://crm.goboldlabs.com/login';
-    const salesCount = teamList.filter((m) => m.role === 'sales').length;
-    const doctorCount = teamList.filter((m) => m.role === 'doctor').length;
-    const adminCount = teamList.filter((m) => m.role === 'admin' || m.role === 'super_admin').length;
+    // Filter out the current admin / platform owner so only team members added by the admin are displayed
+    const addedMembers = teamList.filter((m) => m.id !== user?.id && m.role !== 'super_admin');
+    const salesCount = addedMembers.filter((m) => m.role === 'sales').length;
+    const marketingCount = addedMembers.filter((m) => m.role === 'marketing').length;
+    const doctorCount = addedMembers.filter((m) => m.role === 'doctor').length;
+    const adminCount = addedMembers.filter((m) => m.role === 'admin').length;
+    const staffLabel = currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() : 'Staff';
 
     return (
       <div className="space-y-3">
@@ -3714,7 +3844,7 @@ export default function DashboardPage() {
               <Users className="w-4 h-4 text-accent stroke-[1.5]" />
               <span>Team & Sales Access</span>
               <span className="text-[11px] font-mono text-text-muted bg-surface-subtle px-1.5 py-0.2 rounded border border-border">
-                {teamList.length} {teamList.length === 1 ? 'member' : 'members'}
+                {addedMembers.length} {addedMembers.length === 1 ? 'member' : 'members'}
               </span>
             </h3>
             <p className="text-[11px] text-text-muted mt-0.5">
@@ -3724,19 +3854,30 @@ export default function DashboardPage() {
 
           <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap shrink-0">
             {/* Quick role counts pill */}
-            <div className="hidden md:flex items-center gap-1 mr-1 text-[11px]">
-              <span className="px-2 py-0.5 rounded-sm bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-medium">
-                {salesCount} Sales
-              </span>
-              {doctorCount > 0 && (
-                <span className="px-2 py-0.5 rounded-sm bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-medium">
-                  {doctorCount} {doctorCount === 1 ? 'Doctor' : 'Doctors'}
-                </span>
-              )}
-              <span className="px-2 py-0.5 rounded-sm bg-surface-subtle text-text-muted border border-border font-medium">
-                {adminCount} Admin
-              </span>
-            </div>
+            {addedMembers.length > 0 && (
+              <div className="hidden md:flex items-center gap-1 mr-1 text-[11px]">
+                {salesCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-sm bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-medium">
+                    {salesCount} Sales
+                  </span>
+                )}
+                {marketingCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-sm bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 font-medium">
+                    {marketingCount} Marketing
+                  </span>
+                )}
+                {doctorCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-sm bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-medium">
+                    {doctorCount} {doctorCount === 1 ? staffLabel : `${staffLabel}s`}
+                  </span>
+                )}
+                {adminCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-sm bg-surface-subtle text-text-muted border border-border font-medium">
+                    {adminCount} Admin
+                  </span>
+                )}
+              </div>
+            )}
 
             <button
               type="button"
@@ -3813,7 +3954,7 @@ export default function DashboardPage() {
               <RefreshCw className="w-5 h-5 animate-spin text-accent" />
               <p className="text-xs">Loading team accounts...</p>
             </div>
-          ) : teamList.length === 0 ? (
+          ) : addedMembers.length === 0 ? (
             <div className="p-8 flex flex-col items-center justify-center text-center space-y-2">
               <div className="w-10 h-10 rounded-full bg-surface-subtle border border-border flex items-center justify-center text-text-muted">
                 <Users className="w-5 h-5 stroke-[1.5]" />
@@ -3821,7 +3962,7 @@ export default function DashboardPage() {
               <div>
                 <h4 className="font-semibold text-xs text-text-primary">No team accounts yet</h4>
                 <p className="text-[11px] text-text-muted mt-0.5">
-                  Create accounts for your Sales Executives, Doctors, or Support Agents so they can log in directly.
+                  Create accounts for your Sales Executives, {staffLabel}s, or Support Agents so they can log in directly.
                 </p>
               </div>
               <button
@@ -3847,8 +3988,9 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border text-xs">
-                  {teamList.map((member) => {
+                  {addedMembers.map((member) => {
                     const isSales = member.role === 'sales';
+                    const isMarketing = member.role === 'marketing';
                     const isDoctor = member.role === 'doctor';
                     const isAdmin = member.role === 'admin' || member.role === 'super_admin';
                     const isReceptionist = member.role === 'receptionist';
@@ -3860,6 +4002,7 @@ export default function DashboardPage() {
                           <div className="flex items-center gap-2.5">
                             <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[11px] shrink-0 ${
                               isSales ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30' :
+                              isMarketing ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30' :
                               isDoctor ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' :
                               isAdmin ? 'bg-accent/15 text-accent border border-accent/30' :
                               'bg-surface-subtle text-text-secondary border border-border'
@@ -3869,9 +4012,6 @@ export default function DashboardPage() {
                             <div>
                               <div className="font-medium text-text-primary text-xs flex items-center gap-1.5">
                                 <span>{member.display_name || 'Staff User'}</span>
-                                {member.id === user?.id && (
-                                  <span className="text-[9px] px-1 py-0.2 bg-accent/10 text-accent rounded font-medium">You</span>
-                                )}
                               </div>
                               <div className="text-[11px] text-text-muted font-mono flex items-center gap-1">
                                 <span>{member.email}</span>
@@ -3886,10 +4026,15 @@ export default function DashboardPage() {
                               <Zap className="w-2.5 h-2.5" />
                               <span>Sales Executive</span>
                             </span>
+                          ) : isMarketing ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/25">
+                              <Megaphone className="w-2.5 h-2.5" />
+                              <span>Marketing</span>
+                            </span>
                           ) : isDoctor ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
                               <Stethoscope className="w-2.5 h-2.5" />
-                              <span>Doctor</span>
+                              <span>{staffLabel}</span>
                             </span>
                           ) : isAdmin ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-accent/10 text-accent border border-accent/25">
@@ -3914,7 +4059,7 @@ export default function DashboardPage() {
                               <span>{p.assigned_doctor}</span>
                             </span>
                           ) : isDoctor ? (
-                            <span className="text-text-muted text-[11px] italic">All Doctors</span>
+                            <span className="text-text-muted text-[11px] italic">All {staffLabel}s</span>
                           ) : (
                             <span className="text-text-muted text-xs">—</span>
                           )}
@@ -3937,8 +4082,11 @@ export default function DashboardPage() {
                             {p.can_manage_customers !== false && (
                               <span className="text-[9px] px-1 py-0.2 rounded bg-surface-subtle border border-border text-text-secondary">CRM</span>
                             )}
+                            {p.can_manage_marketing && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400 font-medium">Marketing</span>
+                            )}
                             {p.can_view_analytics && (
-                              <span className="text-[9px] px-1 py-0.2 rounded bg-accent/10 border border-accent/20 text-accent font-medium">Analytics</span>
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-accent/10 border border-accent/20 text-accent font-medium">Overview</span>
                             )}
                             {p.can_manage_settings && (
                               <span className="text-[9px] px-1 py-0.2 rounded bg-accent/10 border border-accent/20 text-accent font-medium">Settings</span>
@@ -3970,16 +4118,14 @@ export default function DashboardPage() {
                             >
                               <Edit2 className="w-3.5 h-3.5 stroke-[1.5]" />
                             </button>
-                            {member.role !== 'super_admin' && member.id !== user?.id && (
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteTeam(member.id, member.email)}
-                                className="p-1 rounded hover:bg-red-500/10 text-text-muted hover:text-red-500 border border-transparent hover:border-red-500/20 transition-colors cursor-pointer"
-                                title="Remove team account"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTeam(member.id, member.email)}
+                              className="p-1 rounded hover:bg-red-500/10 text-text-muted hover:text-red-500 border border-transparent hover:border-red-500/20 transition-colors cursor-pointer"
+                              title="Remove team account"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -4264,7 +4410,7 @@ export default function DashboardPage() {
                 {user?.display_name || user?.email?.split('@')[0] || 'Staff'}
               </span>
               <span className="text-[10px] text-text-muted capitalize">
-                {user?.permissions?.assigned_doctor ? user.permissions.assigned_doctor : (user?.role || 'Staff')}
+                {user?.permissions?.assigned_doctor ? user.permissions.assigned_doctor : formatRoleName(user?.role)}
               </span>
             </div>
             <button
@@ -4369,7 +4515,7 @@ export default function DashboardPage() {
                 </button>
               )}
 
-              {(canViewAnalytics || canManageSettings) && (
+              {canManageMarketing && (
                 <button
                   onClick={() => navigateTo('marketing')}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
@@ -8144,7 +8290,7 @@ export default function DashboardPage() {
             )}
 
 {/* ── VIEW 6: MARKETING HUB ─────────────────────────────────────── */}
-            {activeNav === 'marketing' && (
+            {activeNav === 'marketing' && canManageMarketing && (
               <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-6xl pb-8">
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
@@ -9036,6 +9182,7 @@ export default function DashboardPage() {
                 <div className="flex gap-1 border-b border-border pb-3 flex-wrap">
                   {[
                     { id: 'branding', label: 'Profile & Branding', icon: Building2 },
+                    { id: 'calendar', label: 'Google Calendar & Scheduling', icon: CalendarDays },
                     { id: 'notifications', label: 'Alert Channels', icon: Bell },
                     { id: 'localization', label: 'Regional & Currency', icon: Globe },
                     { id: 'terminology', label: 'CRM Terminology', icon: Sliders },
@@ -9158,6 +9305,206 @@ export default function DashboardPage() {
                           onChange={(e) => setSettingsForm({ ...settingsForm, google_review_link: e.target.value })}
                           className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                         />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── GOOGLE CALENDAR & SCHEDULING SETTINGS ───────────────── */}
+                  {settingsTab === 'calendar' && (
+                    <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
+                      <div className="flex items-center justify-between pb-2 border-b border-border">
+                        <div>
+                          <h4 className="font-semibold text-xs text-text-primary">Google Calendar & Live Scheduling Settings</h4>
+                          <p className="text-xs text-text-muted">Real-time Free/Busy synchronization, free-time only appointment booking, and zero wrong data policy.</p>
+                        </div>
+                        {tenantSettings?.google_calendar_configured ? (
+                          <span className="text-xs text-status-success font-medium bg-status-success-bg px-2.5 py-1 rounded-sm border border-status-success-border flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                            <span>Connected & Active</span>
+                          </span>
+                        ) : (
+                          <span className="text-xs text-text-muted font-medium bg-surface-subtle px-2.5 py-1 rounded-sm border border-border">
+                            Not connected
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 2 Feature Callout Cards */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        
+                        {/* Policy 1: Real-Time Availability & Conflict Prevention */}
+                        <div className="p-4 bg-surface-subtle rounded-md border border-border space-y-2.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-sm bg-blue-500/10 text-blue-600 border border-blue-500/20 flex items-center justify-center">
+                              <CalendarDays className="w-3.5 h-3.5 stroke-[1.5]" />
+                            </div>
+                            <span className="text-xs font-semibold text-text-primary">
+                              Live Google Calendar Availability Engine
+                            </span>
+                          </div>
+                          <p className="text-xs text-text-secondary leading-relaxed">
+                            When customers want to book an appointment, the AI checks live availability directly from your connected Google Calendar.
+                          </p>
+                          <ul className="text-[11px] text-text-muted space-y-1 list-disc pl-4">
+                            <li><strong>Free-Time Booking Only:</strong> The AI proposes and books exclusively during open, unoccupied business hours (09:00 AM – 08:00 PM).</li>
+                            <li><strong>Zero Wrong Data:</strong> Occupied events and existing CRM bookings are strictly rejected. The AI never invents or guesses times.</li>
+                            <li><strong>12-Hour Format:</strong> All dates and times are quoted in 12-hour AM/PM format (e.g. 10:00 AM, 06:30 PM).</li>
+                          </ul>
+                        </div>
+
+                        {/* Policy 2: Continuous Conversation & Zero Re-Greeting */}
+                        <div className="p-4 bg-surface-subtle rounded-md border border-border space-y-2.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-sm bg-purple-500/10 text-purple-600 border border-purple-500/20 flex items-center justify-center">
+                              <MessageSquare className="w-3.5 h-3.5 stroke-[1.5]" />
+                            </div>
+                            <span className="text-xs font-semibold text-text-primary">
+                              Continuous Conversation Intelligence
+                            </span>
+                          </div>
+                          <p className="text-xs text-text-secondary leading-relaxed">
+                            The assistant recognizes multi-turn conversation depth and converses naturally like a real human texting on WhatsApp.
+                          </p>
+                          <ul className="text-[11px] text-text-muted space-y-1 list-disc pl-4">
+                            <li><strong>Zero Re-Greeting:</strong> Once you and the customer have already greeted, the bot will NEVER say <em>"Hi again!"</em> or <em>"Hello again!"</em>.</li>
+                            <li><strong>Direct & Empathetic:</strong> Dives straight into answers or clarifying questions (1–2 concise lines).</li>
+                            <li><strong>Human Texting:</strong> Strips em dashes (—), robotic formatting, and corporate jargon.</li>
+                          </ul>
+                        </div>
+                      </div>
+
+                      {/* Live Google Calendar Free/Busy Checker */}
+                      <div className="p-4 bg-surface rounded-md border border-border space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Activity className="w-4 h-4 text-accent stroke-[1.5]" />
+                            <h5 className="font-semibold text-xs text-text-primary">
+                              Verify Real-Time Google Calendar Free/Busy Slots
+                            </h5>
+                          </div>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-subtle border border-border text-text-secondary">
+                            Live Query
+                          </span>
+                        </div>
+                        <p className="text-xs text-text-secondary">
+                          Test live Google Calendar Free/Busy query right now to see the exact occupied slots the AI sees when checking availability.
+                        </p>
+
+                        <button
+                          type="button"
+                          onClick={handleTestDashCalendar}
+                          disabled={dashCalendarLoading}
+                          className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          {dashCalendarLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 stroke-[1.5]" />}
+                          <span>Check Real-Time Google Calendar Slots</span>
+                        </button>
+
+                        {dashCalendarError && (
+                          <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-sm">
+                            {dashCalendarError}
+                          </div>
+                        )}
+
+                        {dashCalendarAvailability && (
+                          <div className="bg-surface-subtle border border-border rounded-sm p-3.5 space-y-2 text-xs mt-2 animate-in fade-in duration-150">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-text-primary flex items-center gap-1.5">
+                                {dashCalendarAvailability.google_calendar_connected ? (
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-status-success" />
+                                ) : (
+                                  <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                                )}
+                                <span>{dashCalendarAvailability.google_calendar_connected ? 'Google Calendar Live Connected (Ground Truth Active)' : 'CRM Local Schedule Active'}</span>
+                              </span>
+                              <span className="text-[10px] font-mono text-text-muted">
+                                Timezone: {dashCalendarAvailability.timezone}
+                              </span>
+                            </div>
+
+                            <p className="text-[11px] text-text-muted">
+                              Total Occupied Slots (Next 7 Days): <strong>{dashCalendarAvailability.total_occupied_slots}</strong> &bull; Google Calendar: {dashCalendarAvailability.gcal_slots_count}, CRM Bookings: {dashCalendarAvailability.crm_slots_count}
+                            </p>
+
+                            {dashCalendarAvailability.occupied_slots.length > 0 ? (
+                              <div className="max-h-36 overflow-y-auto space-y-1.5 pt-1">
+                                {dashCalendarAvailability.occupied_slots.map((slot, i) => (
+                                  <div key={i} className="p-2 bg-surface rounded-sm border border-border flex items-center justify-between text-[11px]">
+                                    <div>
+                                      <div className="font-medium text-text-primary">{slot.start_formatted} – {slot.end_formatted}</div>
+                                      <div className="text-text-muted text-[10px]">{slot.desc}</div>
+                                    </div>
+                                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-medium">
+                                      {slot.source}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="p-2.5 bg-status-success-bg border border-status-success-border rounded-sm text-status-success text-[11px] font-medium">
+                                All operating hours (09:00 AM – 08:00 PM) over the next 7 days are open and available for booking!
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Google Calendar Credentials Settings */}
+                      <div className="space-y-4 pt-2">
+                        <div className="bg-surface rounded-md border border-border p-4 space-y-2">
+                          <div className="flex justify-between items-center">
+                            <label className="text-xs font-medium text-text-primary">
+                              Authorized redirect URI (for Google Cloud Console)
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard('https://whatsapp-automation-system-eta.vercel.app/api/v1/crm/oauth/google/callback', 'gcal_redirect')}
+                              className="text-xs font-medium text-accent hover:text-accent-hover flex items-center gap-1 cursor-pointer"
+                            >
+                              {copiedField === 'gcal_redirect' ? <Check className="w-3.5 h-3.5 stroke-[1.5]" /> : <Copy className="w-3.5 h-3.5 stroke-[1.5]" />}
+                              <span>{copiedField === 'gcal_redirect' ? 'Copied' : 'Copy URI'}</span>
+                            </button>
+                          </div>
+                          <p className="font-mono text-xs text-text-secondary break-all select-all bg-surface-subtle p-2.5 rounded-sm border border-border">
+                            https://whatsapp-automation-system-eta.vercel.app/api/v1/crm/oauth/google/callback
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-medium text-text-primary mb-1">Google OAuth Client ID</label>
+                            <input
+                              type="text"
+                              placeholder="...apps.googleusercontent.com"
+                              value={settingsForm.google_client_id || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, google_client_id: e.target.value })}
+                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-medium text-text-primary mb-1">Google OAuth Client Secret</label>
+                            <input
+                              type="password"
+                              placeholder="GOCSPX-..."
+                              value={settingsForm.google_client_secret || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, google_client_secret: e.target.value })}
+                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-text-primary mb-1">Target Google Calendar ID</label>
+                          <input
+                            type="text"
+                            placeholder="primary"
+                            value={settingsForm.google_calendar_id || 'primary'}
+                            onChange={(e) => setSettingsForm({ ...settingsForm, google_calendar_id: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                          />
+                          <p className="text-xs text-text-muted mt-1">Leave as <code>primary</code> to sync with your main Google Calendar.</p>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -9590,8 +9937,8 @@ export default function DashboardPage() {
                             <p className="text-xs font-medium text-text-muted">Signed In Email</p>
                             <p className="font-medium text-sm text-text-primary mt-0.5">{user?.email || 'Logged in user'}</p>
                           </div>
-                          <span className="text-xs font-mono font-medium bg-surface-subtle text-text-secondary px-2.5 py-1 rounded-sm border border-border uppercase">
-                            Role: {user?.role || 'Staff'}
+                          <span className="text-xs font-mono font-medium bg-surface-subtle text-text-secondary px-2.5 py-1 rounded-sm border border-border">
+                            Role: {formatRoleName(user?.role)}
                           </span>
                         </div>
 
@@ -11450,10 +11797,11 @@ export default function DashboardPage() {
                     className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs transition-colors cursor-pointer"
                   >
                     <option value="sales">Sales Executive (Full CRM, Chats, Bookings & Followups)</option>
-                    <option value="doctor">Doctor / Practitioner (Assigned Patients & Appointments)</option>
-                    <option value="receptionist">Receptionist (Front Desk, Bookings & Customers)</option>
-                    <option value="agent">Support Agent (Live Chats & Inquiries)</option>
-                    <option value="viewer">Viewer (Read-Only Calendar & Records)</option>
+                    <option value="doctor">{(currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() : 'Staff')} / Consultant (Assigned Bookings)</option>
+                    <option value="receptionist">Front Desk / Receptionist (Bookings & Calendar)</option>
+                    <option value="marketing">Marketing Specialist (Broadcasts & Overview)</option>
+                    <option value="agent">Support Agent (Live Chats & Replies)</option>
+                    <option value="viewer">Viewer (Read-Only Calendar & Schedule)</option>
                     <option value="admin">Administrator (Full Workspace Permissions)</option>
                   </select>
                 </div>
@@ -11461,11 +11809,11 @@ export default function DashboardPage() {
                 {(teamForm.role === 'doctor' || teamForm.permissions.assigned_doctor) && (
                   <div>
                     <label className="block text-[11px] font-medium text-text-primary mb-1">
-                      Doctor Name Filter <span className="text-text-muted font-normal">(Optional)</span>
+                      Assigned {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() : 'Staff'} Filter <span className="text-text-muted font-normal">(Optional)</span>
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. Dr. Jane Smith"
+                      placeholder={`e.g. ${settingsForm.industry === 'education' ? 'Prof. Alan Turing' : 'Dr. Jane Smith'}`}
                       value={teamForm.permissions.assigned_doctor || ''}
                       onChange={(e) =>
                         setTeamForm({
@@ -11476,27 +11824,66 @@ export default function DashboardPage() {
                       className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent text-xs transition-colors"
                     />
                     <p className="text-[10px] text-text-muted mt-0.5">
-                      Limits visible appointments to this doctor. Leave blank for all.
+                      Limits visible appointments and follow-ups to this {(currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() : 'staff member').toLowerCase()}. Leave blank for all.
                     </p>
                   </div>
                 )}
 
                 <div>
-                  <label className="block text-[11px] font-medium text-text-primary mb-1">
-                    Granular Access Permissions
-                  </label>
-                  <div className="grid grid-cols-2 gap-1.5 bg-surface-subtle/50 p-2 rounded-sm border border-border">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-[11px] font-semibold text-text-primary">
+                      Granular Access Permissions
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTeamForm({
+                            ...teamForm,
+                            permissions: {
+                              ...teamForm.permissions,
+                              can_view_inbox: true,
+                              can_send_messages: true,
+                              can_manage_customers: true,
+                              can_manage_bookings: true,
+                              can_view_calendar: true,
+                              can_manage_marketing: true,
+                              can_view_analytics: true,
+                              can_manage_settings: true,
+                            },
+                          });
+                        }}
+                        className="text-[10px] text-accent hover:underline font-medium cursor-pointer"
+                      >
+                        Select All
+                      </button>
+                      <span className="text-text-muted text-[10px]">&bull;</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTeamForm({
+                            ...teamForm,
+                            permissions: getClientRoleDefaultPermissions(teamForm.role, teamForm.permissions.assigned_doctor),
+                          });
+                        }}
+                        className="text-[10px] text-text-muted hover:text-text-primary font-medium cursor-pointer"
+                      >
+                        Role Defaults
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 bg-surface-subtle/50 p-2.5 rounded-sm border border-border">
                     {[
-                      { key: 'can_view_inbox', label: 'Inbox & Chats' },
-                      { key: 'can_send_messages', label: 'Send Messages' },
-                      { key: 'can_manage_bookings', label: 'Manage Bookings' },
-                      { key: 'can_view_calendar', label: 'View Calendar' },
-                      { key: 'can_manage_customers', label: 'CRM Directory' },
-                      { key: 'can_view_analytics', label: 'Analytics' },
-                      { key: 'can_manage_settings', label: 'Settings' },
-                      { key: 'can_manage_billing', label: 'Billing' },
+                      { key: 'can_view_inbox', label: 'Chats & WhatsApp Inbox' },
+                      { key: 'can_send_messages', label: 'Send WhatsApp Replies' },
+                      { key: 'can_manage_customers', label: `${currentTaxonomy.client_plural || 'Customer'} Directory & Follow-ups` },
+                      { key: 'can_manage_bookings', label: 'Bookings & Appointments' },
+                      { key: 'can_view_calendar', label: 'Calendar Schedule' },
+                      { key: 'can_manage_marketing', label: 'Marketing & Broadcasts' },
+                      { key: 'can_view_analytics', label: 'Overview Dashboard' },
+                      { key: 'can_manage_settings', label: 'Workspace Preferences' },
                     ].map((item) => {
-                      const isChecked = (teamForm.permissions as any)[item.key] !== false;
+                      const isChecked = Boolean((teamForm.permissions as any)?.[item.key]);
                       return (
                         <label
                           key={item.key}
@@ -11514,7 +11901,7 @@ export default function DashboardPage() {
                                 },
                               })
                             }
-                            className="w-3 h-3 rounded text-accent focus:ring-accent accent-accent cursor-pointer"
+                            className="w-3.5 h-3.5 rounded text-accent focus:ring-accent accent-accent cursor-pointer"
                           />
                           <span className="text-text-primary text-[10px] font-medium">{item.label}</span>
                         </label>
@@ -11545,7 +11932,7 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                <div className="flex items-center justify-end gap-2 pt-2.5 border-t border-border shrink-0">
+                <div className="sticky bottom-0 bg-surface -mx-4 -mb-4 px-4 py-3 border-t border-border flex items-center justify-end gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={() => setShowTeamModal(false)}
