@@ -118,6 +118,33 @@ def sanitize_and_fix_email(email: Optional[str]) -> Optional[str]:
     return None
 
 
+def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.datetime:
+    """Parses date and time supporting both 12-hour (10:00 AM, 7:30 PM, 08:00PM) and 24-hour (19:30, 09:00)."""
+    clean_d = (date_str or "").strip()
+    clean_t = (time_str or "").strip()
+    
+    formats = [
+        "%Y-%m-%d %I:%M %p",
+        "%Y-%m-%d %I:%M%p",
+        "%Y-%m-%d %I %p",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%d-%m-%Y %I:%M %p",
+        "%d-%m-%Y %I:%M%p",
+        "%d-%m-%Y %H:%M",
+        "%d/%m/%Y %I:%M %p",
+        "%d/%m/%Y %H:%M",
+    ]
+    for fmt in formats:
+        try:
+            dt = datetime.datetime.strptime(f"{clean_d} {clean_t}", fmt)
+            return dt.replace(tzinfo=tz)
+        except ValueError:
+            continue
+    return datetime.datetime.now(tz) + datetime.timedelta(hours=2)
+
+
+
 def build_booking_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str, notes: str, full_location: str) -> str:
     loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
     notes_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Notes</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{notes}</td></tr>""" if notes and notes != "None" else ""
@@ -296,6 +323,126 @@ def build_reschedule_customer_email_html(service_name: str, formatted_date: str,
   </div>
 </div>
 """
+
+
+def build_reminder_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, full_location: str) -> str:
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #0369a1; background-color: #f0f9ff; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Reminder</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Upcoming Appointment Reminder</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, this is a reminder for your upcoming session.</p>
+  </div>
+
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      {loc_html}
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone on File</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+    </table>
+  </div>
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    Please arrive a few minutes early. If you need to reschedule, reply directly to our WhatsApp chat.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Thank you for choosing our business.
+  </div>
+</div>
+"""
+
+
+def build_review_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, full_location: str) -> str:
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #047857; background-color: #ecfdf5; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Completed</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Thank You for Your Visit</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, thank you for attending your appointment.</p>
+  </div>
+
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Completed Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      {loc_html}
+    </table>
+  </div>
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    How was your experience? We would love to hear your feedback—reply directly to our WhatsApp chat anytime.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Thank you for trusting us with your service.
+  </div>
+</div>
+"""
+
+
+def build_takeover_admin_email_html(customer_name: str, contact_phone: str, customer_email: str, reason: str = "Client requested to speak with a staff member") -> str:
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #b45309; background-color: #fffbeb; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Action Required</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Staff Takeover Requested</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">A customer in WhatsApp chat has requested human assistance.</p>
+  </div>
+
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Customer</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{customer_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not on file'}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Reason</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{reason}</td></tr>
+    </table>
+  </div>
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    AI automation is paused for this chat. Please open your CRM dashboard inbox to take over and reply.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Boldlabs CRM Alerts
+  </div>
+</div>
+"""
+
+
+def build_daily_digest_admin_email_html(date_str: str, today_bookings_count: int, upcoming_summary: str = "") -> str:
+    upcoming_html = f"""<div style="margin-top: 16px; font-size: 13px; color: #334155;"><strong>Schedule overview:</strong><br>{upcoming_summary}</div>""" if upcoming_summary else ""
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #4338ca; background-color: #eef2ff; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Daily Digest</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Daily Business Digest</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Performance & appointment summary for {date_str}</p>
+  </div>
+
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 16px 0; margin: 20px 0;">
+    <div style="display: flex; gap: 12px;">
+      <div style="flex: 1; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px;">
+        <div style="font-size: 12px; color: #64748b; font-weight: 500;">Today's Appointments</div>
+        <div style="font-size: 22px; color: #0f172a; font-weight: 700; margin-top: 4px;">{today_bookings_count}</div>
+      </div>
+    </div>
+    {upcoming_html}
+  </div>
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    Open your CRM dashboard to manage today's calendar and follow-ups.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Boldlabs CRM Daily Digest
+  </div>
+</div>
+"""
+
 
 # ── Web Push Notifications ─────────────────────────────────────────────────────
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "BMpihU9a8uXtZIkGtKTSKVJTLzTHzQf8Vz_WolZCxkgTb39GJ_0RajTa6-nI6gCBS7_p7Qk7bPHOKSi-6BwpoZU")
@@ -838,7 +985,7 @@ class CoreWorker:
             "2. Natural WhatsApp Texting Style:\n"
             "- Write like you're texting on your phone, not filing a corporate report.\n"
             "- Keep replies concise and punchy (1 to 2 short sentences). Make every word count.\n"
-            "- DO NOT insert blank line gaps between short 1-2 sentence replies. Connect them smoothly into a single natural sentence or paragraph (e.g. 'Awesome, I have got that booked for you for today at 19:00.' or 'Thanks for sharing that! Just to quickly check...'). Use a line gap ONLY when providing a list or separating distinct topics.\n"
+            "- DO NOT insert blank line gaps between short 1-2 sentence replies. Connect them smoothly into a single natural sentence or paragraph (e.g. 'Awesome, I have got that booked for you for today at 07:00 PM.' or 'Thanks for sharing that! Just to quickly check...'). Use a line gap ONLY when providing a list or separating distinct topics.\n"
             "- NEVER use em dashes (—) or hyphens connecting clauses. Use a comma or short period instead.\n"
             "- CUT ALL AI CLICHÉS and canned customer service lines: 'in conclusion', 'delve into', 'furthermore', 'moreover', 'it's important to note', 'game-changer', 'not just X, but Y', 'I understand your concern', 'thank you for reaching out'.\n"
             "- Mix short and medium sentences. Skip bullet points and headers unless the user explicitly requested a list.\n"
@@ -895,10 +1042,11 @@ class CoreWorker:
             "  * Check that the new slot is not occupied.\n"
             "  * Confirm the new Date & Time politely in 1 short line, and MUST append on a new line:\n"
             "    [ACTION:RESCHEDULE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}]\n\n"
-            "8. 12-HOUR TIME FORMAT DIRECTIVE (ABSOLUTE RULE):\n"
-            "- ALWAYS speak and quote time in 12-HOUR FORMAT with AM/PM (e.g. '08:30 PM', '10:00 AM', '07:00 PM') in all messages to customers.\n"
+            "8. 12-HOUR TIME FORMAT DIRECTIVE (ABSOLUTE MANDATORY RULE):\n"
+            "- The entire business operates strictly in 12-HOUR TIME FORMAT.\n"
+            "- ALWAYS speak, quote, propose, and confirm appointments exclusively in 12-HOUR FORMAT WITH AM/PM (e.g., '10:00 AM', '02:30 PM', '07:00 PM').\n"
             "- NEVER use military or 24-hour time (like 20:30, 19:00, or 14:00) when replying to customers.\n"
-            "- In the JSON action tag [ACTION:CREATE_BOOKING: ...], pass time as 24-hour HH:MM (e.g. '20:30').\n\n"
+            "- In the JSON action tag [ACTION:CREATE_BOOKING: ...] or [ACTION:RESCHEDULE_BOOKING: ...], pass time in either 12-hour format ('07:00 PM') or HH:MM ('19:00').\n\n"
             "9. AUTOMATIC CUSTOMER DETAIL EXTRACTION (AGE & LOCATION):\n"
             "- If the customer mentions their age (e.g. 'I am 26', 'age 32', '24 yrs old') or their location/city/area (e.g. 'from Anna Nagar, Chennai', 'living in Bangalore', 'from Delhi'):\n"
             "  Append this action tag on a new line at the very end of your reply:\n"
@@ -1283,12 +1431,8 @@ class CoreWorker:
             name = booking_data.get("name") or customer_name or "Valued Customer"
             customer_email = sanitize_and_fix_email(booking_data.get("email"))
 
-            # Parse start and end time
-            try:
-                dt_naive = datetime.datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
-                st_dt = dt_naive.replace(tzinfo=tz)
-            except Exception:
-                st_dt = datetime.datetime.now(tz) + datetime.timedelta(hours=2)
+            # Parse start and end time using flexible 12-hr / 24-hr parser
+            st_dt = parse_flexible_datetime(date_str, time_str, tz)
 
             et_dt = st_dt + datetime.timedelta(minutes=30)
 
@@ -2128,11 +2272,8 @@ class CoreWorker:
             notes = booking_data.get("notes") or "Rescheduled via WhatsApp AI Assistant"
             name = booking_data.get("name") or customer_name or "Valued Customer"
 
-            try:
-                dt_naive = datetime.datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
-                st_dt = dt_naive.replace(tzinfo=tz)
-            except Exception:
-                st_dt = datetime.datetime.now(tz) + datetime.timedelta(hours=2)
+            # Parse start and end time using flexible 12-hr / 24-hr parser
+            st_dt = parse_flexible_datetime(date_str, time_str, tz)
 
             et_dt = st_dt + datetime.timedelta(minutes=30)
             formatted_date = st_dt.strftime("%d-%m-%Y")

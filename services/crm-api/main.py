@@ -429,6 +429,126 @@ def build_reschedule_customer_email_html(service_name: str, formatted_date: str,
 </div>
 """
 
+
+def build_reminder_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, full_location: str) -> str:
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #0369a1; background-color: #f0f9ff; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Reminder</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Upcoming Appointment Reminder</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, this is a reminder for your upcoming session.</p>
+  </div>
+
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      {loc_html}
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone on File</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+    </table>
+  </div>
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    Please arrive a few minutes early. If you need to reschedule, reply directly to our WhatsApp chat.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Thank you for choosing our business.
+  </div>
+</div>
+"""
+
+
+def build_review_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, full_location: str) -> str:
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #047857; background-color: #ecfdf5; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Completed</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Thank You for Your Visit</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, thank you for attending your appointment.</p>
+  </div>
+
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Completed Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      {loc_html}
+    </table>
+  </div>
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    How was your experience? We would love to hear your feedback—reply directly to our WhatsApp chat anytime.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Thank you for trusting us with your service.
+  </div>
+</div>
+"""
+
+
+def build_takeover_admin_email_html(customer_name: str, contact_phone: str, customer_email: str, reason: str = "Client requested to speak with a staff member") -> str:
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #b45309; background-color: #fffbeb; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Action Required</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Staff Takeover Requested</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">A customer in WhatsApp chat has requested human assistance.</p>
+  </div>
+
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Customer</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{customer_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not on file'}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Reason</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{reason}</td></tr>
+    </table>
+  </div>
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    AI automation is paused for this chat. Please open your CRM dashboard inbox to take over and reply.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Boldlabs CRM Alerts
+  </div>
+</div>
+"""
+
+
+def build_daily_digest_admin_email_html(date_str: str, today_bookings_count: int, upcoming_summary: str = "") -> str:
+    upcoming_html = f"""<div style="margin-top: 16px; font-size: 13px; color: #334155;"><strong>Schedule overview:</strong><br>{upcoming_summary}</div>""" if upcoming_summary else ""
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
+  <div style="margin-bottom: 20px;">
+    <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #4338ca; background-color: #eef2ff; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Daily Digest</div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Daily Business Digest</h1>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Performance & appointment summary for {date_str}</p>
+  </div>
+
+  <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 16px 0; margin: 20px 0;">
+    <div style="display: flex; gap: 12px;">
+      <div style="flex: 1; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px;">
+        <div style="font-size: 12px; color: #64748b; font-weight: 500;">Today's Appointments</div>
+        <div style="font-size: 22px; color: #0f172a; font-weight: 700; margin-top: 4px;">{today_bookings_count}</div>
+      </div>
+    </div>
+    {upcoming_html}
+  </div>
+
+  <div style="background-color: #f8fafc; border-left: 3px solid #0f172a; padding: 12px 14px; border-radius: 4px; font-size: 13px; color: #334155; line-height: 1.5;">
+    Open your CRM dashboard to manage today's calendar and follow-ups.
+  </div>
+
+  <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
+    Boldlabs CRM Daily Digest
+  </div>
+</div>
+"""
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -1206,7 +1326,17 @@ async def get_customer_chat_history(
 
         if conv:
             conv_id = str(conv["id"])
-            unread_count = conv["unread_count"] or 0
+            unread_count = 0
+            await conn.execute(
+                "UPDATE conversations SET unread_count = 0 WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                conv["id"], tenant_id
+            )
+            await conn.execute(
+                """UPDATE messages SET status = 'read'
+                   WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid
+                     AND direction = 'inbound' AND status != 'read'""",
+                conv["id"], tenant_id
+            )
             msg_rows = await conn.fetch(
                 """SELECT id, direction, content_type, body, status, ai_model_used, ai_used_fallback, created_at
                    FROM messages
@@ -2996,6 +3126,45 @@ async def update_booking_status(
             # Update review_sent_at timestamp
             await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid", booking_id)
 
+            # Direct Review Email to Customer
+            try:
+                c_email = customer_email
+                if not c_email and booking.get("contact_id"):
+                    c_email = await conn.fetchval("SELECT metadata->>'email' FROM contacts WHERE id = $1::uuid", booking["contact_id"])
+                c_email = sanitize_and_fix_email(c_email)
+                if c_email and "@" in c_email:
+                    gcal_row = await conn.fetchrow(
+                        "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+                        tenant_id
+                    )
+                    if gcal_row and gcal_row["credential_data"]:
+                        g_data = gcal_row["credential_data"]
+                        if isinstance(g_data, str):
+                            try: g_data = json.loads(g_data)
+                            except: g_data = {}
+                        if g_data.get("refresh_token") and g_data.get("client_id"):
+                            from google.oauth2.credentials import Credentials
+                            g_creds = Credentials(
+                                token=g_data.get("access_token"),
+                                refresh_token=g_data.get("refresh_token"),
+                                token_uri="https://oauth2.googleapis.com/token",
+                                client_id=g_data.get("client_id"),
+                                client_secret=g_data.get("client_secret"),
+                            )
+                            review_email_html = build_review_customer_email_html(
+                                service_name=service_name,
+                                formatted_date=date_str or "Today",
+                                formatted_time=clock_str or "Scheduled Time",
+                                name=patient_name,
+                                full_location=""
+                            )
+                            review_subject = f"Thank You: Your {service_name} Appointment with {tenant_name}"
+                            send_gmail_direct_notification(g_creds, c_email, review_subject, review_email_html)
+                            logger.info("crm_review_email_sent_to_customer", to=c_email)
+            except Exception as re_err:
+                logger.warning("crm_review_email_dispatch_failed", error=str(re_err))
+
+
         elif payload.status in ["no_show", "no-show"]:
             # 10 seconds delay for reschedule nudge
             delay_seconds = 10
@@ -3175,27 +3344,28 @@ async def get_messages(
     offset: int = 0
 ):
     async with db_pool.acquire() as conn:
-        # Check for unread inbound messages to mark as read on WhatsApp Meta Cloud API
+        # Unconditionally reset conversation unread_count
+        await conn.execute(
+            "UPDATE conversations SET unread_count = 0 WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            conv_id, tenant_id
+        )
+
+        # Unconditionally mark inbound messages as read in database
+        await conn.execute(
+            """UPDATE messages SET status = 'read'
+               WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid
+                 AND direction = 'inbound' AND status != 'read'""",
+            conv_id, tenant_id
+        )
+
+        # Check for unread inbound messages with wa_message_id to dispatch Meta Cloud API read receipts
         unread_rows = await conn.fetch(
             """SELECT wa_message_id FROM messages
                WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid
-                 AND direction = 'inbound' AND status != 'read' AND wa_message_id IS NOT NULL""",
+                 AND direction = 'inbound' AND wa_message_id IS NOT NULL""",
             conv_id, tenant_id
         )
         if unread_rows:
-            # Mark messages as read in database
-            await conn.execute(
-                """UPDATE messages SET status = 'read'
-                   WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid
-                     AND direction = 'inbound' AND status != 'read'""",
-                conv_id, tenant_id
-            )
-            # Reset conversation unread_count
-            await conn.execute(
-                "UPDATE conversations SET unread_count = 0 WHERE id = $1::uuid",
-                conv_id
-            )
-            # Dispatch Meta Cloud API read receipts (turns customer's ticks into 2 Blue Ticks)
             cred_row = await conn.fetchrow(
                 """SELECT credential_data FROM tenant_credentials
                    WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true""",

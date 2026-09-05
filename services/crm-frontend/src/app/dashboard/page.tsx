@@ -266,6 +266,41 @@ function formatRelativeTime(dateStr: string | null | undefined): string {
   }
 }
 
+function formatTime12(dateStrOrObj: string | Date | null | undefined): string {
+  if (!dateStrOrObj) return '';
+  try {
+    const d = typeof dateStrOrObj === 'string' ? new Date(dateStrOrObj) : dateStrOrObj;
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  } catch {
+    return '';
+  }
+}
+
+function formatDateTime12(dateStrOrObj: string | Date | null | undefined): string {
+  if (!dateStrOrObj) return '—';
+  try {
+    const d = typeof dateStrOrObj === 'string' ? new Date(dateStrOrObj) : dateStrOrObj;
+    if (isNaN(d.getTime())) return '—';
+    const datePart = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const timePart = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    return `${datePart}, ${timePart}`;
+  } catch {
+    return '—';
+  }
+}
+
+function formatMilitaryTo12(timeStr: string | null | undefined): string {
+  if (!timeStr) return '';
+  const m = timeStr.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return timeStr;
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 === 0 ? 12 : h % 12;
+  return `${h}:${min} ${ampm}`;
+}
+
 const PREBUILT_REQUIREMENTS_BY_INDUSTRY: Record<string, string[]> = {
   clinic: [
     'General Consultation',
@@ -1413,6 +1448,7 @@ export default function DashboardPage() {
   );
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   // Initial Auth & Load
   useEffect(() => {
@@ -1475,7 +1511,7 @@ export default function DashboardPage() {
     e.preventDefault();
     if (!newNoteText.trim()) return;
     const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeStr = formatTime12(now);
     const newNote = {
       id: `note-${Date.now()}`,
       text: newNoteText.trim(),
@@ -1664,7 +1700,9 @@ export default function DashboardPage() {
                   );
                 if (isDiff) {
                   setTimeout(() => {
-                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                    if (messagesContainerRef.current) {
+                      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+                    }
                   }, 50);
                   return msgs;
                 }
@@ -1680,10 +1718,14 @@ export default function DashboardPage() {
         try {
           const convs = await crm.getConversations();
           if (isMounted && Array.isArray(convs)) {
+            const activeId = selectedConvRef.current?.id;
+            const sanitizedConvs = convs.map((c) =>
+              c.id === activeId ? { ...c, unread_count: 0 } : c
+            );
             setConversations((prev) => {
               const isDiff =
-                convs.length !== prev.length ||
-                convs.some(
+                sanitizedConvs.length !== prev.length ||
+                sanitizedConvs.some(
                   (c, idx) =>
                     !prev[idx] ||
                     prev[idx].id !== c.id ||
@@ -1691,7 +1733,7 @@ export default function DashboardPage() {
                     prev[idx].last_message_at !== c.last_message_at ||
                     prev[idx].last_message !== c.last_message
                 );
-              return isDiff ? convs : prev;
+              return isDiff ? sanitizedConvs : prev;
             });
           }
         } catch {
@@ -2472,7 +2514,15 @@ export default function DashboardPage() {
     setIsRefreshing(true);
     try {
       const convs = await crm.getConversations();
-      setConversations(Array.isArray(convs) ? convs : []);
+      if (Array.isArray(convs)) {
+        const activeId = selectedConvRef.current?.id;
+        const sanitized = convs.map((c) =>
+          c.id === activeId ? { ...c, unread_count: 0 } : c
+        );
+        setConversations(sanitized);
+      } else {
+        setConversations([]);
+      }
     } catch (err) {
       console.error('Error fetching conversations:', err);
     } finally {
@@ -2482,7 +2532,11 @@ export default function DashboardPage() {
   }
 
   async function selectConversation(conv: Conversation) {
-    setSelectedConv(conv);
+    const updatedConv = { ...conv, unread_count: 0 };
+    setSelectedConv(updatedConv);
+    setConversations((prev) =>
+      prev.map((c) => (c.id === conv.id ? { ...c, unread_count: 0 } : c))
+    );
     setLoadingMessages(true);
     try {
       const msgs = await crm.getMessages(conv.id);
@@ -2497,8 +2551,10 @@ export default function DashboardPage() {
 
   function scrollToBottom() {
     setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      }
+    }, 50);
   }
 
   async function handleSendMessage(e: React.FormEvent) {
@@ -2956,7 +3012,7 @@ export default function DashboardPage() {
 
       setBroadcastSuccessNotice(
         res.scheduled_at
-          ? `Campaign "${campaignForm.campaign_name}" scheduled for ${new Date(res.scheduled_at).toLocaleString()}!`
+          ? `Campaign "${campaignForm.campaign_name}" scheduled for ${formatDateTime12(res.scheduled_at)}!`
           : `Campaign "${campaignForm.campaign_name}" launched successfully to ${targetPhones.length} recipients!`
       );
       setTimeout(() => setBroadcastSuccessNotice(null), 6000);
@@ -3949,7 +4005,7 @@ export default function DashboardPage() {
                                   {b.contact_name || b.contact_phone || 'Client'}
                                 </p>
                                 <p className="text-xs text-text-muted">
-                                  {b.service} &bull; {new Date(b.start_time || b.appointment_time || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })} at {new Date(b.start_time || b.appointment_time || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  {b.service} &bull; {new Date(b.start_time || b.appointment_time || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })} at {formatTime12(b.start_time || b.appointment_time || Date.now())}
                                 </p>
                               </div>
 
@@ -4107,7 +4163,7 @@ export default function DashboardPage() {
                               </td>
 
                               <td className="p-3 font-mono text-xs text-text-muted">
-                                {b.start_time ? new Date(b.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                                {formatDateTime12(b.start_time)}
                               </td>
 
                               <td className="p-3 font-mono font-medium text-xs text-text-primary tabular-nums">
@@ -4433,7 +4489,7 @@ export default function DashboardPage() {
                                       }`}
                                       title={`Appointment: ${b.contact_name || b.service} (${b.status})`}
                                     >
-                                      {b.start_time ? new Date(b.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''} · {b.contact_name || b.service}
+                                      {formatTime12(b.start_time)} · {b.contact_name || b.service}
                                     </button>
                                   );
                                 }
@@ -4697,7 +4753,7 @@ export default function DashboardPage() {
                                       >
                                         <div className="flex items-center justify-between gap-1 font-medium">
                                           <span className="truncate">{b.contact_name || 'Client'}</span>
-                                          <span className="font-mono opacity-80">{b.start_time ? new Date(b.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                          <span className="font-mono opacity-80">{formatTime12(b.start_time)}</span>
                                         </div>
                                         <div className="flex items-center justify-between gap-1 mt-0.5">
                                           <p className="truncate opacity-90">{b.service}</p>
@@ -5296,7 +5352,7 @@ export default function DashboardPage() {
                                   })()}
                                 </div>
                                 <span className="text-[11px] text-text-muted font-mono shrink-0">
-                                  {conv.last_message_at ? new Date(conv.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                  {formatTime12(conv.last_message_at)}
                                 </span>
                               </div>
                               <div className="flex items-center justify-between mt-0.5">
@@ -5484,7 +5540,7 @@ export default function DashboardPage() {
                       </div>
 
                       {/* Chat Messages Stream */}
-                      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2.5 bg-canvas/40">
+                      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2.5 bg-canvas/40">
                         {loadingMessages ? (
                           <div className="text-center text-xs text-text-muted py-8">Loading history...</div>
                         ) : messages.map((msg) => {
@@ -5503,7 +5559,7 @@ export default function DashboardPage() {
                                 )}
                                 <p className="leading-relaxed whitespace-pre-wrap font-sans">{msg.body}</p>
                                 <div className={`text-[10px] mt-1 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100/90'}`}>
-                                  <span>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                  <span>{formatTime12(msg.created_at)}</span>
                                   {!isInbound && (
                                     <span className="inline-flex items-center ml-0.5" title={msg.status === 'read' ? 'Read (seen)' : msg.status === 'delivered' ? 'Delivered' : msg.status === 'failed' ? 'Failed' : 'Sent'}>
                                       {msg.status === 'read' ? (
@@ -6242,7 +6298,7 @@ export default function DashboardPage() {
                                           <span className={`font-semibold px-1.5 py-0.5 rounded-sm text-[10px] ${badgeMap[noteColor] || badgeMap.slate}`}>{nt.author}</span>
                                           <div className="flex items-center gap-1.5">
                                             <span className="text-text-muted font-mono">
-                                              {nt.created_at ? new Date(nt.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                                              {formatDateTime12(nt.created_at)}
                                             </span>
                                             <button
                                               type="button"
@@ -6346,7 +6402,7 @@ export default function DashboardPage() {
                                         <div className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${isInbound ? 'bg-surface text-text-body border border-border' : 'bg-accent text-white'}`}>
                                           <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
                                           <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}>
-                                            <span>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                            <span>{formatTime12(msg.created_at)}</span>
                                           </div>
                                         </div>
                                       </div>
@@ -6398,7 +6454,7 @@ export default function DashboardPage() {
                                       <div className="min-w-0">
                                         <p className="font-medium text-text-primary truncate">{bk.service}</p>
                                         <p className="text-[10px] text-text-muted font-mono mt-0.5">
-                                          {bk.start_time ? new Date(bk.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                                          {formatDateTime12(bk.start_time)}
                                         </p>
                                       </div>
                                       <div className="text-right shrink-0">
@@ -6899,7 +6955,7 @@ export default function DashboardPage() {
                                         <div className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${isInbound ? 'bg-surface text-text-body border border-border' : 'bg-accent text-white'}`}>
                                           <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
                                           <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}>
-                                            <span>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                            <span>{formatTime12(msg.created_at)}</span>
                                           </div>
                                         </div>
                                       </div>
@@ -7903,7 +7959,7 @@ export default function DashboardPage() {
                                 )}
                               </div>
                               <div className="flex items-center justify-end gap-1 text-[10px] text-slate-400 font-mono pt-1">
-                                <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                <span>{formatTime12(new Date())}</span>
                                 <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb] stroke-[2.2]" />
                               </div>
                             </div>
@@ -9173,9 +9229,16 @@ export default function DashboardPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-text-primary mb-1">
-                      Time *
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-medium text-text-primary">
+                        Time *
+                      </label>
+                      {newBookingForm.time && (
+                        <span className="text-[11px] font-mono font-medium text-accent bg-accent/10 px-1.5 py-0.2 rounded-xs">
+                          {formatMilitaryTo12(newBookingForm.time)}
+                        </span>
+                      )}
+                    </div>
                     <input
                       type="time"
                       required
@@ -9302,7 +9365,7 @@ export default function DashboardPage() {
                   <div>
                     <p className="text-xs font-medium text-text-muted">Scheduled date & time</p>
                     <p className="font-mono text-xs text-text-primary mt-0.5">
-                      {selectedBookingDetail.start_time ? new Date(selectedBookingDetail.start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                      {formatDateTime12(selectedBookingDetail.start_time)}
                     </p>
                   </div>
                 </div>
@@ -9405,7 +9468,14 @@ export default function DashboardPage() {
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] text-text-muted font-medium block mb-0.5">New Time</label>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <label className="text-[10px] text-text-muted font-medium">New Time</label>
+                        {rescheduleTime && (
+                          <span className="text-[10px] font-mono font-semibold text-blue-700">
+                            {formatMilitaryTo12(rescheduleTime)}
+                          </span>
+                        )}
+                      </div>
                       <input
                         type="time"
                         value={rescheduleTime}
@@ -9645,7 +9715,7 @@ export default function DashboardPage() {
                           }`}>
                             <p className="leading-relaxed">{msg.body}</p>
                             <p className={`text-[9px] mt-1 ${msg.direction === 'outbound' ? 'text-white/70' : 'text-text-muted'}`}>
-                              {msg.created_at ? new Date(msg.created_at).toLocaleString() : ''} {msg.ai_generated ? '· AI' : ''}
+                              {formatDateTime12(msg.created_at)} {msg.ai_generated ? '· AI' : ''}
                             </p>
                           </div>
                         </div>
@@ -9708,7 +9778,7 @@ export default function DashboardPage() {
                           <div key={bk.id} className="flex items-center justify-between bg-surface-subtle border border-border rounded-sm px-3 py-2">
                             <div>
                               <p className="text-xs font-medium text-text-primary">{bk.service}</p>
-                              <p className="text-[10px] text-text-muted">{bk.start_time ? new Date(bk.start_time).toLocaleString() : '—'}</p>
+                              <p className="text-[10px] text-text-muted font-mono">{formatDateTime12(bk.start_time)}</p>
                             </div>
                             <div className="text-right">
                               <p className="text-xs font-semibold text-text-primary">{currentCurrencySymbol}{bk.price || 0}</p>
