@@ -68,6 +68,8 @@ import {
   TenantSettingsResponse,
   TenantSettingsUpdate,
   Invoice,
+  metaTemplatesApi,
+  MetaTemplatesSyncResponse,
 } from '@/lib/api';
 
 
@@ -392,6 +394,29 @@ export default function SuperAdminClients() {
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState('');
   const [configSavedNotice, setConfigSavedNotice] = useState(false);
+
+  // Meta Templates Sync state
+  const [isSyncingMetaTemplates, setIsSyncingMetaTemplates] = useState(false);
+  const [metaSyncResult, setMetaSyncResult] = useState<MetaTemplatesSyncResponse | null>(null);
+
+  async function handleSyncMetaTemplates(tenantId: string) {
+    setIsSyncingMetaTemplates(true);
+    setMetaSyncResult(null);
+    try {
+      const res = await metaTemplatesApi.syncAndProvision(tenantId);
+      setMetaSyncResult(res);
+      if (viewingDbTenant && viewingDbTenant.id === tenantId) {
+        admin.getTenantSettings(tenantId).then(setDbTenantSettings).catch(() => {});
+      }
+      if (editingConfigTenant && editingConfigTenant.id === tenantId) {
+        admin.getTenantSettings(tenantId).then(setConfigForm).catch(() => {});
+      }
+    } catch (err: any) {
+      alert(`Failed to sync Meta templates: ${err?.message || err}`);
+    } finally {
+      setIsSyncingMetaTemplates(false);
+    }
+  }
 
   // Edit Client Razorpay Billing Modal
   const [editingBillingTenant, setEditingBillingTenant] = useState<ClientTenant | null>(null);
@@ -2032,7 +2057,7 @@ export default function SuperAdminClients() {
                   {/* ── SUBTAB 5: MESSAGE TEMPLATES ── */}
                   {(dbViewSubtab === 'templates' || dbSearchQuery) && (
                     <div className="bg-surface border border-border rounded-md p-5 space-y-4 shadow-2xs">
-                      <div className="flex items-center justify-between pb-2 border-b border-border">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
                         <div>
                           <h4 className="font-semibold text-xs text-text-primary flex items-center gap-2">
                             <FileText className="w-4 h-4 text-accent stroke-[1.5]" />
@@ -2042,7 +2067,35 @@ export default function SuperAdminClients() {
                             Approved Meta WhatsApp template identifiers registered for automated system dispatch.
                           </p>
                         </div>
+                        {viewingDbTenant && (
+                          <button
+                            type="button"
+                            disabled={isSyncingMetaTemplates}
+                            onClick={() => handleSyncMetaTemplates(viewingDbTenant.id)}
+                            className="px-3 py-1.5 bg-accent hover:bg-accent/90 text-white rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer shrink-0 disabled:opacity-50"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
+                            <span>{isSyncingMetaTemplates ? 'Syncing with Meta...' : '⚡ Auto-Provision in Meta (Utility)'}</span>
+                          </button>
+                        )}
                       </div>
+
+                      {metaSyncResult && (
+                        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-sm text-xs flex items-start gap-2.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                          <div className="flex-1 space-y-1">
+                            <p className="font-semibold">Meta Template Auto-Sync Completed ({metaSyncResult.industry?.toUpperCase()} Industry Preset)</p>
+                            <p className="text-emerald-700">
+                              ✓ <strong>{metaSyncResult.already_present_count}</strong> active in Meta &bull; <strong>{metaSyncResult.created_count}</strong> newly provisioned as UTILITY &bull; <strong>{metaSyncResult.failed_count}</strong> failed.
+                            </p>
+                            {metaSyncResult.created_count > 0 && (
+                              <p className="text-[11px] text-emerald-600 font-mono">
+                                Newly Created: {metaSyncResult.created.map(c => c.name).join(', ')}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {[
@@ -2950,9 +3003,22 @@ export default function SuperAdminClients() {
                             Meta WhatsApp approved templates used for confirmations, 2-hr reminders, 15-min reviews, no-show nudges, and admin alerts.
                           </p>
                         </div>
-                        <span className="text-xs font-medium text-status-success bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
-                          Automated lifecycles
-                        </span>
+                        <div className="flex items-center gap-2">
+                          {editingConfigTenant && (
+                            <button
+                              type="button"
+                              disabled={isSyncingMetaTemplates}
+                              onClick={() => handleSyncMetaTemplates(editingConfigTenant.id)}
+                              className="px-3 py-1.5 bg-accent hover:bg-accent/90 text-white rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer shrink-0 disabled:opacity-50"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
+                              <span>{isSyncingMetaTemplates ? 'Syncing...' : '⚡ Auto-Provision Meta Templates (Utility)'}</span>
+                            </button>
+                          )}
+                          <span className="text-xs font-medium text-status-success bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
+                            Automated lifecycles
+                          </span>
+                        </div>
                       </div>
 
                       {/* Google Review URL Card */}

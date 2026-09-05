@@ -6258,6 +6258,516 @@ async def list_marketing_templates(tenant_id: str = Depends(get_tenant_id)):
 
     return templates_list
 
+
+def build_industry_template_specs(industry: str = "clinic") -> dict:
+    """
+    Returns standard essential utility templates for the specified industry.
+    All templates are strictly designed to qualify under Meta's UTILITY category
+    (transactional, account/appointment-specific, zero marketing hype).
+    """
+    ind = (industry or "clinic").lower().strip()
+
+    service_noun = "appointment"
+    service_example = "Consultation"
+    if ind == "education":
+        service_noun = "session"
+        service_example = "Demo Class"
+    elif ind == "salon_spa":
+        service_noun = "appointment"
+        service_example = "Hair Styling"
+    elif ind == "real_estate":
+        service_noun = "property visit"
+        service_example = "Site Tour"
+    elif ind == "automobile":
+        service_noun = "service appointment"
+        service_example = "Vehicle Inspection"
+    elif ind == "consulting":
+        service_noun = "consultation"
+        service_example = "Strategy Session"
+    elif ind == "gym_fitness":
+        service_noun = "training session"
+        service_example = "Fitness Assessment"
+    elif ind == "restaurant":
+        service_noun = "table reservation"
+        service_example = "Dinner Table"
+
+    return {
+        "booking_confirmationn": {
+            "name": "booking_confirmationn",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "Booking Confirmation",
+            "description": "Sent to customer when booking is confirmed",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": f"Hello {{{{1}}}},\n\nYour {service_noun} is confirmed.\nService: {{{{2}}}}\nDate: {{{{3}}}}\nTime: {{{{4}}}}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you.",
+                    "example": {
+                        "body_text": [
+                            ["John", service_example, "15-09-2026", "10:30 AM"]
+                        ]
+                    }
+                }
+            ]
+        },
+        "booking_reschedule_confirmation": {
+            "name": "booking_reschedule_confirmation",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "Reschedule Confirmation",
+            "description": "Sent to customer when booking is rescheduled",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": f"Hello {{{{1}}}},  Your {{{{2}}}} {service_noun} has been rescheduled to {{{{3}}}} at {{{{4}}}}.\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you.",
+                    "example": {
+                        "body_text": [
+                            ["John", service_example, "16-09-2026", "11:00 AM"]
+                        ]
+                    }
+                }
+            ]
+        },
+        "cancellation_confirmation": {
+            "name": "cancellation_confirmation",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "Cancellation Confirmation",
+            "description": "Sent to customer when booking is cancelled",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": f"Hello {{{{1}}}},\n\nYour {{{{2}}}} {service_noun} on {{{{3}}}} at {{{{4}}}} has been cancelled as requested.\n\nWhenever you would like to book again, just message us here.",
+                    "example": {
+                        "body_text": [
+                            ["John", service_example, "15-09-2026", "10:30 AM"]
+                        ]
+                    }
+                }
+            ]
+        },
+        "appointment_ramainder": {
+            "name": "appointment_ramainder",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "Upcoming Appointment Reminder",
+            "description": "Sent 24h or same day before appointment",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": f"Hi {{{{1}}}}, quick reminder that your {{{{2}}}} \n{service_noun} is coming up today at {{{{3}}}}.\nSee you shortly, reply here if you need to reschedule.",
+                    "example": {
+                        "body_text": [
+                            ["John", service_example, "10:30 AM"]
+                        ]
+                    }
+                }
+            ]
+        },
+        "reschedule_nudge": {
+            "name": "reschedule_nudge",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "Missed Appointment Reschedule Notice",
+            "description": "Sent when client misses appointment to re-book",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": f"Hi {{{{1}}}}, we missed you for your {{{{2}}}} appointment today. No worries, life happens! Whenever you're ready, simply reply to this message and we'll get you rescheduled right away.\n\nLooking forward to seeing you soon!",
+                    "example": {
+                        "body_text": [
+                            ["John", service_example]
+                        ]
+                    }
+                },
+                {
+                    "type": "BUTTONS",
+                    "buttons": [
+                        {
+                            "type": "QUICK_REPLY",
+                            "text": "Reschedule Now"
+                        }
+                    ]
+                }
+            ]
+        },
+        "review_request": {
+            "name": "review_request",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "Service Review / Feedback Request",
+            "description": "Sent post-service to collect customer reviews",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": f"Hi {{{{1}}}}, thank you for visiting us for your {{{{2}}}}!\n\nWe would really appreciate it if you could take a minute to share your experience with a quick Google review.\nIt helps us a lot! Link: {{{{3}}}}\nThank you!",
+                    "example": {
+                        "body_text": [
+                            ["John", service_example, "https://g.page/r/example/review"]
+                        ]
+                    }
+                }
+            ]
+        },
+        "admin_notification": {
+            "name": "admin_notification",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "Admin New Booking Alert",
+            "description": "Dispatched to admin/staff phone when new appointment booked",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": f"New appointment booked.\n\nHere are the details of the booking:\nCustomer Name: {{{{1}}}}\nPhone Number: {{{{2}}}}\nService Requested: {{{{3}}}}\nScheduled Date: {{{{4}}}}\nScheduled Time: {{{{5}}}}\n\nPlease log in to your Google sheet or Calender to manage this booking.",
+                    "example": {
+                        "body_text": [
+                            ["John", "919876543210", service_example, "15-09-2026", "10:30 AM"]
+                        ]
+                    }
+                }
+            ]
+        },
+        "admin_reschedule_notice": {
+            "name": "admin_reschedule_notice",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "Admin Reschedule Alert",
+            "description": "Dispatched to admin/staff phone when client reschedules",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": f"Appointment Rescheduled Notice  An appointment has been rescheduled by customer: {{{{1}}}}  Phone: {{{{2}}}}.\n\nRescheduled Details:\n• Service: {{{{3}}}}\n• Scheduled Date: {{{{4}}}}\n• Scheduled Time: {{{{5}}}}\n\nPlease review your dashboard or calendar for updates.",
+                    "example": {
+                        "body_text": [
+                            ["John", "919876543210", service_example, "16-09-2026", "11:00 AM"]
+                        ]
+                    }
+                }
+            ]
+        },
+        "admin_cancellation_notice": {
+            "name": "admin_cancellation_notice",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "Admin Cancellation Alert",
+            "description": "Dispatched to admin/staff phone when appointment is cancelled",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": f"Appointment Cancellation Notice\n\nAn appointment has been cancelled by \ncustomer: {{{{1}}}}\nPhone: {{{{2}}}}.\n\nCancelled Details:\n• Service: {{{{3}}}}\n• Scheduled Date: {{{{4}}}}\n• Scheduled Time: {{{{5}}}}\n\nPlease review your dashboard for schedule updates",
+                    "example": {
+                        "body_text": [
+                            ["John", "919876543210", service_example, "15-09-2026", "10:30 AM"]
+                        ]
+                    }
+                }
+            ]
+        },
+        "admin_human_request": {
+            "name": "admin_human_request",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "Admin Human Support Alert",
+            "description": "Dispatched to staff when customer asks to talk to human",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": f"A customer wants to talk to you directly.\n\nCustomer Details:\nName: {{{{1}}}}\nPhone: {{{{2}}}}\nReason for contact: {{{{3}}}}\n\nPlease reach out to them as soon as possible.",
+                    "example": {
+                        "body_text": [
+                            ["John", "919876543210", "Need urgent appointment assistance"]
+                        ]
+                    }
+                }
+            ]
+        },
+        "admin_daily_digest": {
+            "name": "admin_daily_digest",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "Admin Daily Schedule Digest",
+            "description": "Dispatched every morning summarizing day's appointments",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": f"Good morning!\nYou have {{{{1}}}} appointment(s) booked for today, {{{{2}}}}.\n\nCheck your calendar or sheet for the full list.",
+                    "example": {
+                        "body_text": [
+                            ["4", "15-09-2026"]
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+
+
+@app.get("/templates/meta-status")
+@app.get("/api/v1/crm/templates/meta-status")
+async def get_meta_templates_status(tenant_id: str = Depends(get_tenant_id)):
+    """Inspect Meta Graph API to report live status of all essential system templates."""
+    async with db_pool.acquire() as conn:
+        cred_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+            tenant_id
+        )
+        t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+
+    w_data = {}
+    if cred_row and cred_row["credential_data"]:
+        d = cred_row["credential_data"]
+        if isinstance(d, str):
+            try: d = json.loads(d)
+            except: d = {}
+        w_data = dict(d)
+
+    t_settings = {}
+    if t_row and t_row["settings"]:
+        s = t_row["settings"]
+        if isinstance(s, str):
+            try: s = json.loads(s)
+            except: s = {}
+        t_settings = dict(s)
+
+    industry = t_settings.get("industry", "clinic")
+    meta_waba_id = w_data.get("waba_id")
+    meta_token = w_data.get("access_token")
+
+    required_specs = build_industry_template_specs(industry)
+
+    if not meta_waba_id or not meta_token:
+        return {
+            "success": False,
+            "error": "WhatsApp credentials (waba_id or access_token) not configured for this tenant.",
+            "templates": [
+                {
+                    "name": k,
+                    "label": v["label"],
+                    "description": v["description"],
+                    "category": v["category"],
+                    "status": "NOT_CONFIGURED",
+                    "exists_in_meta": False
+                }
+                for k, v in required_specs.items()
+            ],
+            "summary": {"total": len(required_specs), "approved": 0, "pending": 0, "missing": len(required_specs)}
+        }
+
+    meta_templates_map = {}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.get(
+                f"https://graph.facebook.com/v21.0/{meta_waba_id}/message_templates?limit=100",
+                headers={"Authorization": f"Bearer {meta_token}"}
+            )
+            if res.status_code == 200:
+                for t in res.json().get("data", []):
+                    meta_templates_map[t.get("name")] = t
+            else:
+                logger.warning("meta_template_status_fetch_warn", status=res.status_code, text=res.text)
+    except Exception as e:
+        logger.error("meta_template_status_fetch_error", error=str(e))
+
+    templates_result = []
+    approved_count = 0
+    pending_count = 0
+    missing_count = 0
+
+    for name, spec in required_specs.items():
+        found = meta_templates_map.get(name)
+        if found:
+            st = found.get("status", "UNKNOWN").upper()
+            if st == "APPROVED":
+                approved_count += 1
+            elif st == "PENDING":
+                pending_count += 1
+            templates_result.append({
+                "name": name,
+                "label": spec["label"],
+                "description": spec["description"],
+                "category": found.get("category", spec["category"]),
+                "status": st,
+                "exists_in_meta": True,
+                "meta_id": found.get("id"),
+                "language": found.get("language", "en"),
+            })
+        else:
+            missing_count += 1
+            templates_result.append({
+                "name": name,
+                "label": spec["label"],
+                "description": spec["description"],
+                "category": spec["category"],
+                "status": "MISSING",
+                "exists_in_meta": False,
+                "meta_id": None,
+                "language": spec["language"],
+            })
+
+    return {
+        "success": True,
+        "industry": industry,
+        "waba_id": meta_waba_id,
+        "summary": {
+            "total": len(required_specs),
+            "approved": approved_count,
+            "pending": pending_count,
+            "missing": missing_count,
+        },
+        "templates": templates_result
+    }
+
+
+@app.post("/templates/sync-meta")
+@app.post("/api/v1/crm/templates/sync-meta")
+async def sync_meta_templates(tenant_id: str = Depends(get_tenant_id)):
+    """
+    Auto-provision missing message templates directly in Meta WhatsApp Business Account.
+    - Inspects existing templates in Meta.
+    - Preserves and links already approved/pending templates.
+    - Creates any missing templates tailored to the tenant's chosen industry under UTILITY category.
+    """
+    async with db_pool.acquire() as conn:
+        cred_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+            tenant_id
+        )
+        t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+
+    w_data = {}
+    if cred_row and cred_row["credential_data"]:
+        d = cred_row["credential_data"]
+        if isinstance(d, str):
+            try: d = json.loads(d)
+            except: d = {}
+        w_data = dict(d)
+
+    t_settings = {}
+    if t_row and t_row["settings"]:
+        s = t_row["settings"]
+        if isinstance(s, str):
+            try: s = json.loads(s)
+            except: s = {}
+        t_settings = dict(s)
+
+    industry = t_settings.get("industry", "clinic")
+    meta_waba_id = w_data.get("waba_id")
+    meta_token = w_data.get("access_token")
+
+    if not meta_waba_id or not meta_token:
+        raise HTTPException(400, "WhatsApp credentials (waba_id or access_token) not configured for this tenant.")
+
+    required_specs = build_industry_template_specs(industry)
+
+    # 1. Fetch current templates from Meta
+    meta_templates_map = {}
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            res = await client.get(
+                f"https://graph.facebook.com/v21.0/{meta_waba_id}/message_templates?limit=100",
+                headers={"Authorization": f"Bearer {meta_token}"}
+            )
+            if res.status_code == 200:
+                for t in res.json().get("data", []):
+                    meta_templates_map[t.get("name")] = t
+            else:
+                raise HTTPException(502, f"Meta API error fetching templates: {res.text}")
+        except Exception as e:
+            if isinstance(e, HTTPException): raise e
+            raise HTTPException(502, f"Failed to connect to Meta Graph API: {str(e)}")
+
+        # 2. Track results
+        already_present = []
+        created = []
+        failed = []
+
+        headers = {"Authorization": f"Bearer {meta_token}", "Content-Type": "application/json"}
+        url_create = f"https://graph.facebook.com/v21.0/{meta_waba_id}/message_templates"
+
+        for name, spec in required_specs.items():
+            if name in meta_templates_map:
+                existing = meta_templates_map[name]
+                already_present.append({
+                    "name": name,
+                    "label": spec["label"],
+                    "status": existing.get("status", "UNKNOWN"),
+                    "category": existing.get("category", spec["category"]),
+                    "meta_id": existing.get("id"),
+                })
+            else:
+                # Need to create missing template in Meta
+                payload = {
+                    "name": spec["name"],
+                    "category": spec["category"],
+                    "language": spec["language"],
+                    "components": spec["components"]
+                }
+                try:
+                    c_res = await client.post(url_create, headers=headers, json=payload)
+                    if c_res.status_code in [200, 201]:
+                        r_data = c_res.json()
+                        created.append({
+                            "name": name,
+                            "label": spec["label"],
+                            "status": r_data.get("status", "PENDING"),
+                            "category": spec["category"],
+                            "meta_id": r_data.get("id"),
+                        })
+                        logger.info("meta_template_auto_created", name=name, tenant_id=tenant_id, category=spec["category"])
+                    elif "already exists" in c_res.text.lower():
+                        already_present.append({
+                            "name": name,
+                            "label": spec["label"],
+                            "status": "APPROVED",
+                            "category": spec["category"],
+                        })
+                    else:
+                        failed.append({
+                            "name": name,
+                            "label": spec["label"],
+                            "error": c_res.text
+                        })
+                        logger.warning("meta_template_creation_failed", name=name, status=c_res.status_code, error=c_res.text)
+                except Exception as ex:
+                    failed.append({
+                        "name": name,
+                        "label": spec["label"],
+                        "error": str(ex)
+                    })
+
+    # 3. Automatically link template names into tenant settings
+    async with db_pool.acquire() as conn:
+        t_settings["template_booking_confirmation"] = "booking_confirmationn"
+        t_settings["template_booking_reschedule_confirmation"] = "booking_reschedule_confirmation"
+        t_settings["template_cancellation_confirmation"] = "cancellation_confirmation"
+        t_settings["template_appointment_reminder"] = "appointment_ramainder"
+        t_settings["template_reschedule_nudge"] = "reschedule_nudge"
+        t_settings["template_review_request"] = "review_request"
+        t_settings["template_admin_notification"] = "admin_notification"
+        t_settings["template_admin_reschedule_notice"] = "admin_reschedule_notice"
+        t_settings["template_admin_cancellation_notice"] = "admin_cancellation_notice"
+        t_settings["template_admin_human_request"] = "admin_human_request"
+        t_settings["template_admin_daily_digest"] = "admin_daily_digest"
+
+        await conn.execute(
+            "UPDATE tenants SET settings = $1, updated_at = now() WHERE id = $2::uuid",
+            json.dumps(t_settings), tenant_id
+        )
+
+    return {
+        "success": True,
+        "industry": industry,
+        "waba_id": meta_waba_id,
+        "total_required": len(required_specs),
+        "already_present_count": len(already_present),
+        "created_count": len(created),
+        "failed_count": len(failed),
+        "already_present": already_present,
+        "created": created,
+        "failed": failed
+    }
+
+
 @app.post("/templates")
 @app.post("/marketing/templates")
 @app.post("/api/v1/marketing/templates")

@@ -1073,6 +1073,62 @@ export const notificationsApi = {
     }),
 };
 
+// ── Meta Template Provisioning & Sync (/api/v1/crm/templates) ────────────────
+export interface MetaTemplateItem {
+  name: string;
+  label: string;
+  description: string;
+  category: string;
+  status: string;
+  exists_in_meta: boolean;
+  meta_id?: string | null;
+  language?: string;
+}
+
+export interface MetaTemplatesStatusResponse {
+  success: boolean;
+  industry?: string;
+  waba_id?: string;
+  error?: string;
+  summary: {
+    total: number;
+    approved: number;
+    pending: number;
+    missing: number;
+  };
+  templates: MetaTemplateItem[];
+}
+
+export interface MetaTemplatesSyncResponse {
+  success: boolean;
+  industry: string;
+  waba_id: string;
+  total_required: number;
+  already_present_count: number;
+  created_count: number;
+  failed_count: number;
+  already_present: Array<{ name: string; label: string; status: string; category: string }>;
+  created: Array<{ name: string; label: string; status: string; category: string }>;
+  failed: Array<{ name: string; label: string; error: string }>;
+}
+
+export const metaTemplatesApi = {
+  getStatus: (tenantId?: string) =>
+    request<MetaTemplatesStatusResponse>(
+      '/api/v1/crm/templates/meta-status',
+      tenantId ? { headers: { 'x-tenant-id': tenantId } } : undefined
+    ),
+
+  syncAndProvision: (tenantId?: string) =>
+    request<MetaTemplatesSyncResponse>(
+      '/api/v1/crm/templates/sync-meta',
+      {
+        method: 'POST',
+        headers: tenantId ? { 'x-tenant-id': tenantId } : undefined,
+      }
+    ),
+};
+
 
 
 
