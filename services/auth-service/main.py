@@ -166,10 +166,11 @@ async def login_for_access_token(
             except Exception:
                 user_perms = {}
 
+        tenant_id_val = str(user["tenant_id"]) if user.get("tenant_id") else None
         access_token = create_access_token(
             data={
                 "sub": str(user["id"]), 
-                "tenant_id": str(user["tenant_id"]), 
+                "tenant_id": tenant_id_val, 
                 "role": user["role"],
                 "display_name": user.get("display_name") or "",
                 "permissions": user_perms
@@ -180,7 +181,7 @@ async def login_for_access_token(
         return {
             "access_token": access_token,
             "token_type": "bearer",
-            "tenant_id": str(user["tenant_id"])
+            "tenant_id": tenant_id_val
         }
 
 @app.get("/users/me")
@@ -195,7 +196,7 @@ async def read_users_me(token: str = Depends(oauth2_scheme)):
             raise HTTPException(status_code=401, detail="Invalid token")
 
         # Invalidate active JWTs if subscription was halted/cancelled (force-logout)
-        if role != "super_admin" and tenant_id and db_pool:
+        if role != "super_admin" and tenant_id and str(tenant_id).lower() != "none" and db_pool:
             async with db_pool.acquire() as conn:
                 tenant_inv = await conn.fetchval(
                     "SELECT token_invalidated_at FROM tenants WHERE id = $1::uuid", tenant_id

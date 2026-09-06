@@ -88,7 +88,7 @@ async def lifespan(app: FastAPI):
                     followup_time TEXT DEFAULT '10:00 AM',
                     google_task_id TEXT,
                     created_at TIMESTAMPTZ DEFAULT now(),
-                    updated_at TIMESTAMPTZ DEFAULT now(),
+                    updated_at TIMESTAMPTZ DEFAULT now()
                 );
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS age INT;
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS location TEXT;
@@ -1976,11 +1976,7 @@ async def delete_customer(
             customer_id, tenant_id
         )
         if not cust:
-            # Check if customer exists without tenant check or already deleted
-            res = await conn.execute("DELETE FROM customers WHERE id = $1::uuid", customer_id)
-            if res == "DELETE 0":
-                raise HTTPException(404, "Customer not found")
-            return {"status": "ok", "deleted_id": customer_id}
+            raise HTTPException(404, "Customer not found")
 
         phone = cust["phone"]
         await conn.execute("DELETE FROM customer_notes WHERE customer_id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
@@ -4894,7 +4890,7 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
 
 
 @app.get("/admin/tenants/{tenant_id}")
-async def get_admin_tenant_details(tenant_id: str):
+async def get_admin_tenant_details(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
     """Retrieve full details of a specific client including credentials and AI config."""
     async with db_pool.acquire() as conn:
         tenant = await conn.fetchrow("SELECT * FROM tenants WHERE id = $1::uuid", tenant_id)
@@ -4982,11 +4978,18 @@ async def reset_admin_tenant_password(tenant_id: str, payload: PasswordReset, ad
         if not tenant_row:
             raise HTTPException(404, "Client organization not found")
 
-        # 1. Update any user linked to this tenant_id
-        result = await conn.execute(
-            "UPDATE users SET password_hash = $1 WHERE tenant_id = $2::uuid",
-            password_hash, tenant_id
-        )
+        # 1. Update only the primary admin user for this tenant
+        target_email = tenant_row["admin_email"]
+        if target_email:
+            result = await conn.execute(
+                "UPDATE users SET password_hash = $1 WHERE tenant_id = $2::uuid AND email = $3",
+                password_hash, tenant_id, target_email
+            )
+        else:
+            result = await conn.execute(
+                "UPDATE users SET password_hash = $1 WHERE tenant_id = $2::uuid AND (role = 'admin' OR role = 'super_admin')",
+                password_hash, tenant_id
+            )
         if result == "UPDATE 0":
             # 2. If no user linked yet, create admin user for this tenant
             admin_email = (tenant_row["admin_email"] or f"admin@{tenant_row['slug']}.com").lower().strip()
@@ -5913,7 +5916,7 @@ class AdminDueAlertRequest(BaseModel):
 
 
 @app.post("/admin/alerts/send-due-alert")
-async def send_admin_due_date_alert(payload: AdminDueAlertRequest, background_tasks: BackgroundTasks):
+async def send_admin_due_date_alert(payload: AdminDueAlertRequest, background_tasks: BackgroundTasks, admin_user: dict = Depends(verify_super_admin)):
     """
     Send an automated Razorpay subscription renewal due date alert to the SUPER ADMIN's WhatsApp.
     Helps the admin track which clients' auto-debit renewals are scheduled without messaging clients.
@@ -7870,6 +7873,32 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR')""",
             booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, combined_notes
         )
+
+        # 3b. Queue automated 24h & 2h reminders and post-session review request in scheduled_jobs
+        try:
+            now_dt = datetime.now(st_dt.tzinfo) if st_dt.tzinfo else datetime.now()
+            remind_24h = st_dt - timedelta(hours=24)
+            if remind_24h > now_dt:
+                await conn.execute(
+                    """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                       VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
+                    tenant_id, booking_id, remind_24h
+                )
+            remind_2h = st_dt - timedelta(hours=2)
+            if remind_2h > now_dt:
+                await conn.execute(
+                    """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                       VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
+                    tenant_id, booking_id, remind_2h
+                )
+            review_at = et_dt + timedelta(hours=1)
+            await conn.execute(
+                """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                   VALUES (gen_random_uuid(), $1::uuid, 'review_request', $2::uuid, $3, 'pending', now())""",
+                tenant_id, booking_id, review_at
+            )
+        except Exception as e_job:
+            logger.warning("public_booking_scheduled_jobs_failed", error=str(e_job))
 
         # 4. Upsert customer directory
         try:
