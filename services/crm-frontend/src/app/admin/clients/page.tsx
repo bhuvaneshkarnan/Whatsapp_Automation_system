@@ -870,6 +870,7 @@ export default function SuperAdminClients() {
     })
       .then(async (res) => {
         if (!res.ok) throw new Error('Unauthorized');
+        const user = await res.json();
         if (user.role !== 'super_admin') {
           router.replace('/dashboard');
           return;
