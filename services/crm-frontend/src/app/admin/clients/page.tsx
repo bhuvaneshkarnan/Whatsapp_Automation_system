@@ -863,7 +863,7 @@ export default function SuperAdminClients() {
       .then(async (res) => {
         if (!res.ok) throw new Error('Unauthorized');
         const user = await res.json();
-        if (user.role !== 'super_admin') {
+        if (user.role !== 'super_admin' && user.role !== 'admin') {
           router.replace('/dashboard');
           return;
         }
@@ -4479,7 +4479,7 @@ export default function SuperAdminClients() {
                                           ? 'bg-cyan-500/10 text-cyan-700 border-cyan-300'
                                           : 'bg-surface-subtle text-text-muted border-border'
                                       }`}>
-                                        {member.role === 'super_admin' ? 'Admin' : member.role === 'sales' ? 'Sales Executive' : member.role === 'marketing' ? 'Marketing' : member.role}
+                                        {member.role === 'super_admin' || member.role === 'admin' ? 'Admin' : member.role === 'sales' ? 'Sales Executive' : member.role === 'marketing' ? 'Marketing' : member.role}
                                       </span>
                                     </td>
                                     <td className="py-2.5 px-3">
@@ -4523,7 +4523,7 @@ export default function SuperAdminClients() {
                                         >
                                           <SlidersHorizontal className="w-3.5 h-3.5 stroke-[1.5]" />
                                         </button>
-                                        {member.role !== 'super_admin' && (
+                                        {member.role !== 'super_admin' && member.role !== 'admin' && (
                                           <button
                                             type="button"
                                             onClick={() => handleDeleteStaff(member.id, member.email)}

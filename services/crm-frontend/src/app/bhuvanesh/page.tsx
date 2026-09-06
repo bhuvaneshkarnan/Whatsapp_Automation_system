@@ -31,7 +31,7 @@ export default function BhuvaneshAdminPortalPage() {
       .then(async (res) => {
         if (!res.ok) throw new Error('Unauthorized');
         const user = await res.json();
-        if (user.role === 'super_admin') {
+        if (user.role === 'super_admin' || user.role === 'admin') {
           setAdminUser(user);
         } else {
           setAdminUser(null);
@@ -55,9 +55,9 @@ export default function BhuvaneshAdminPortalPage() {
       localStorage.setItem('auth_token', res.access_token);
       localStorage.setItem('tenant_id', res.tenant_id);
 
-      // Verify super admin role
+      // Verify admin role
       const me = await auth.me();
-      if (me.role !== 'super_admin') {
+      if (me.role !== 'super_admin' && me.role !== 'admin') {
         localStorage.removeItem('auth_token');
         localStorage.removeItem('tenant_id');
         throw new Error('Access Denied: This login is strictly restricted to platform administrators.');
@@ -83,8 +83,8 @@ export default function BhuvaneshAdminPortalPage() {
     );
   }
 
-  // 2. If authenticated as Super Admin, render the master admin console directly
-  if (adminUser && adminUser.role === 'super_admin') {
+  // 2. If authenticated as Admin / Super Admin, render the master admin console directly
+  if (adminUser && (adminUser.role === 'super_admin' || adminUser.role === 'admin')) {
     return <AdminClientsPage />;
   }
 

@@ -119,10 +119,38 @@ def sanitize_and_fix_email(email: Optional[str]) -> Optional[str]:
 
 
 def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.datetime:
-    """Parses date and time supporting both 12-hour (10:00 AM, 7:30 PM, 08:00PM) and 24-hour (19:30, 09:00)."""
-    clean_d = (date_str or "").strip()
+    """Parses date and time supporting relative dates (today, tomorrow, weekdays), flexible times, and fallback."""
+    now = datetime.datetime.now(tz)
+    clean_d = (date_str or "").strip().lower()
     clean_t = (time_str or "").strip()
     
+    # Handle relative date keywords
+    if "tomorrow" in clean_d:
+        clean_d = (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    elif "today" in clean_d:
+        clean_d = now.strftime("%Y-%m-%d")
+    elif "day after tomorrow" in clean_d:
+        clean_d = (now + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
+    else:
+        # Check for weekday names (e.g. "monday", "next tuesday")
+        days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        for idx, day in enumerate(days):
+            if day in clean_d:
+                current_day = now.weekday()
+                days_ahead = (idx - current_day) % 7
+                if days_ahead == 0 and "next" in clean_d:
+                    days_ahead = 7
+                elif days_ahead == 0:
+                    days_ahead = 0  # today
+                clean_d = (now + datetime.timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+                break
+
+    # Normalize time if only hour given (e.g., "4 pm" -> "04:00 PM")
+    if clean_t and re.match(r'^\d{1,2}\s*(am|pm)$', clean_t.lower()):
+        m = re.match(r'^(\d{1,2})\s*(am|pm)$', clean_t.lower())
+        if m:
+            clean_t = f"{int(m.group(1)):02d}:00 {m.group(2).upper()}"
+
     formats = [
         "%Y-%m-%d %I:%M %p",
         "%Y-%m-%d %I:%M%p",
@@ -134,6 +162,8 @@ def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.dateti
         "%d-%m-%Y %H:%M",
         "%d/%m/%Y %I:%M %p",
         "%d/%m/%Y %H:%M",
+        "%Y/%m/%d %H:%M",
+        "%Y/%m/%d %I:%M %p",
     ]
     for fmt in formats:
         try:
@@ -141,7 +171,7 @@ def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.dateti
             return dt.replace(tzinfo=tz)
         except ValueError:
             continue
-    return datetime.datetime.now(tz) + datetime.timedelta(hours=2)
+    return now + datetime.timedelta(hours=2)
 
 
 GLOBAL_DEFAULT_STRICT_RULES = (

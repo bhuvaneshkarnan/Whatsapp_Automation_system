@@ -179,17 +179,91 @@ async def get_tenant_id(x_tenant_id: str = Header(...)) -> str:
 
 async def verify_super_admin(authorization: Optional[str] = Header(None)) -> dict:
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Super admin authentication required")
+        raise HTTPException(status_code=401, detail="Admin authentication required")
     token = authorization.split(" ", 1)[1]
     try:
         from jose import jwt, JWTError
         payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
-        role = payload.get("role")
-        if role != "super_admin":
-            raise HTTPException(status_code=403, detail="Super admin privileges required")
-        return payload
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired session token")
+
+    role = payload.get("role")
+    if role not in ("super_admin", "admin"):
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    return payload
+
+
+async def dispatch_whatsapp_message(
+    tenant_id: str,
+    to_phone: str,
+    text: Optional[str] = None,
+    template_name: Optional[str] = None,
+    template_params: Optional[list] = None
+) -> Optional[dict]:
+    """Helper to dispatch WhatsApp text message or approved Meta template to any destination phone."""
+    clean_phone = "".join(filter(str.isdigit, to_phone))
+    if not clean_phone:
+        return None
+    try:
+        async with db_pool.acquire() as conn:
+            cred_row = await conn.fetchrow(
+                """SELECT credential_data FROM tenant_credentials
+                   WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true""",
+                tenant_id
+            )
+        if not cred_row or not cred_row["credential_data"]:
+            return None
+        d = cred_row["credential_data"]
+        if isinstance(d, str):
+            try: d = json.loads(d)
+            except: d = {}
+        creds = dict(d)
+        phone_id = creds.get("phone_number_id")
+        access_token = creds.get("access_token")
+        if not phone_id or not access_token or str(access_token).startswith("EAAB_test"):
+            return None
+
+        import httpx
+        url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+
+        payload = None
+        if template_name:
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": clean_phone,
+                "type": "template",
+                "template": {
+                    "name": template_name,
+                    "language": {"code": "en"},
+                    "components": [
+                        {
+                            "type": "body",
+                            "parameters": [{"type": "text", "text": str(p)} for p in (template_params or [])]
+                        }
+                    ]
+                }
+            }
+        elif text:
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": clean_phone,
+                "type": "text",
+                "text": {"body": text}
+            }
+        if not payload:
+            return None
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code in (200, 201):
+                logger.info("dispatch_whatsapp_message_success", tenant_id=tenant_id, phone=clean_phone)
+                return resp.json()
+            logger.warning("dispatch_whatsapp_message_status_error", status_code=resp.status_code, body=resp.text, phone=clean_phone)
+            return None
+    except Exception as e:
+        logger.warning("dispatch_whatsapp_message_failed", error=str(e), phone=clean_phone)
+        return None
 
 # ── Gmail Direct Dispatch & Email Builders ─────────────────────────────────────
 def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_body: str):
@@ -1928,6 +2002,7 @@ async def delete_customer(
                 for c in convs:
                     await conn.execute("DELETE FROM messages WHERE conversation_id = $1::uuid", c["id"])
                 await conn.execute("DELETE FROM conversations WHERE contact_id = $1::uuid", contact_id)
+                await conn.execute("DELETE FROM scheduled_jobs WHERE booking_id IN (SELECT id FROM bookings WHERE contact_id = $1::uuid)", contact_id)
                 await conn.execute("DELETE FROM bookings WHERE contact_id = $1::uuid", contact_id)
                 await conn.execute("DELETE FROM contacts WHERE id = $1::uuid", contact_id)
 
@@ -2010,11 +2085,24 @@ async def create_booking(
     clean_phone = payload.contact_phone.strip().replace(" ", "").replace("-", "")
     clean_name = payload.contact_name.strip() if payload.contact_name else "Client"
 
+    # Fetch tenant configured timezone
+    tenant_tz_str = "Asia/Kolkata"
+    async with db_pool.acquire() as conn:
+        t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+        if t_row and t_row["settings"]:
+            s_data = json.loads(t_row["settings"]) if isinstance(t_row["settings"], str) else t_row["settings"]
+            if isinstance(s_data, dict) and s_data.get("timezone"):
+                tenant_tz_str = s_data["timezone"]
+    try:
+        tenant_tz = ZoneInfo(tenant_tz_str)
+    except Exception:
+        tenant_tz = ZoneInfo("Asia/Kolkata")
+
     # Parse start and end time
     try:
         st_dt = datetime.fromisoformat(payload.start_time.replace("Z", "+00:00"))
         if st_dt.tzinfo is None:
-            st_dt = st_dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+            st_dt = st_dt.replace(tzinfo=tenant_tz)
     except Exception:
         raise HTTPException(400, "Invalid start_time format. Use ISO format (e.g. 2026-08-30T10:00:00).")
 
@@ -2022,7 +2110,7 @@ async def create_booking(
         try:
             et_dt = datetime.fromisoformat(payload.end_time.replace("Z", "+00:00"))
             if et_dt.tzinfo is None:
-                et_dt = et_dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+                et_dt = et_dt.replace(tzinfo=tenant_tz)
         except Exception:
             et_dt = st_dt + timedelta(minutes=30)
     else:
@@ -4958,13 +5046,13 @@ async def delete_admin_tenant(tenant_id: str, admin_user: dict = Depends(verify_
             raise HTTPException(404, "Client organization not found")
             
         async with conn.transaction():
+            await conn.execute("DELETE FROM scheduled_jobs WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM messages WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM conversations WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM bookings WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM contacts WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM tenant_credentials WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
-            await conn.execute("DELETE FROM scheduled_jobs WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM users WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM tenants WHERE id = $1::uuid", tenant_id)
             
@@ -5551,7 +5639,7 @@ async def handle_razorpay_webhook(
         if t_id_note:
             try:
                 tenant = await conn.fetchrow(
-                    "SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_short_url FROM tenants WHERE id = $1::uuid",
+                    "SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_short_url, settings FROM tenants WHERE id = $1::uuid",
                     t_id_note
                 )
             except Exception:
@@ -5560,7 +5648,7 @@ async def handle_razorpay_webhook(
         # 2. Match by razorpay_subscription_id (which holds plink_... or sub_...)
         if not tenant and sub_id:
             tenant = await conn.fetchrow(
-                "SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_short_url FROM tenants WHERE razorpay_subscription_id = $1",
+                "SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_short_url, settings FROM tenants WHERE razorpay_subscription_id = $1",
                 sub_id
             )
         
@@ -5573,7 +5661,7 @@ async def handle_razorpay_webhook(
                 or invoice_entity.get("notes", {}).get("org_slug")
             )
             if org_slug:
-                tenant = await conn.fetchrow("SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_short_url FROM tenants WHERE slug = $1", org_slug)
+                tenant = await conn.fetchrow("SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_short_url, settings FROM tenants WHERE slug = $1", org_slug)
 
         if not tenant:
             logger.info("razorpay_webhook_no_matching_tenant", sub_id=sub_id, webhook_event=event_type)

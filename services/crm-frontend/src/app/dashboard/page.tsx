@@ -1762,7 +1762,7 @@ export default function DashboardPage() {
     const doScrollToBottom = (instant = true) => {
       if (!el) return;
       el.style.scrollBehavior = instant ? 'auto' : 'smooth';
-      el.scrollTop = el.scrollHeight;
+      el.scrollTop = el.scrollHeight + 10000;
       if (messagesEndRef.current) {
         messagesEndRef.current.scrollIntoView({ behavior: instant ? 'auto' : 'smooth', block: 'end' });
       }
@@ -1775,17 +1775,19 @@ export default function DashboardPage() {
       }
       doScrollToBottom(true);
       requestAnimationFrame(() => doScrollToBottom(true));
-      const t1 = setTimeout(() => doScrollToBottom(true), 40);
-      const t2 = setTimeout(() => doScrollToBottom(true), 120);
+      const t1 = setTimeout(() => doScrollToBottom(true), 30);
+      const t2 = setTimeout(() => doScrollToBottom(true), 100);
       const t3 = setTimeout(() => doScrollToBottom(true), 250);
+      const t4 = setTimeout(() => doScrollToBottom(true), 500);
       return () => {
         clearTimeout(t1);
         clearTimeout(t2);
         clearTimeout(t3);
+        clearTimeout(t4);
       };
     } else {
-      // In-stream update within same chat: stay pinned to bottom if user is already near bottom (within 250px)
-      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 250;
+      // In-stream update within same chat: stay pinned to bottom if user is already near bottom (within 350px)
+      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 350;
       if (isNearBottom) {
         doScrollToBottom(false);
       }
@@ -2078,6 +2080,11 @@ export default function DashboardPage() {
             const sanitizedConvs = convs.map((c) =>
               c.id === activeId ? { ...c, unread_count: 0 } : c
             );
+            sanitizedConvs.sort((a, b) => {
+              const timeA = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+              const timeB = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+              return timeB - timeA;
+            });
             setConversations((prev) => {
               const isDiff =
                 sanitizedConvs.length !== prev.length ||
@@ -2965,7 +2972,7 @@ export default function DashboardPage() {
       const el = messagesContainerRef.current;
       if (el) {
         el.style.scrollBehavior = instant ? 'auto' : 'smooth';
-        el.scrollTop = el.scrollHeight;
+        el.scrollTop = el.scrollHeight + 10000;
       }
       if (messagesEndRef.current) {
         messagesEndRef.current.scrollIntoView({ behavior: instant ? 'auto' : 'smooth', block: 'end' });
@@ -2973,9 +2980,11 @@ export default function DashboardPage() {
     };
     doScroll();
     requestAnimationFrame(doScroll);
-    setTimeout(doScroll, 40);
-    setTimeout(doScroll, 120);
-    setTimeout(doScroll, 250);
+    setTimeout(doScroll, 20);
+    setTimeout(doScroll, 80);
+    setTimeout(doScroll, 180);
+    setTimeout(doScroll, 350);
+    setTimeout(doScroll, 600);
   }
 
   async function handleSendMessage(e: React.FormEvent) {
@@ -4465,9 +4474,13 @@ export default function DashboardPage() {
               {canViewInbox && (
                 <button
                   onClick={() => {
-                    if (activeNav === 'inbox' && selectedConv) {
-                      setSelectedConv(null);
-                      activeConvIdRef.current = null;
+                    if (activeNav === 'inbox') {
+                      if (selectedConv) {
+                        setSelectedConv(null);
+                        activeConvIdRef.current = null;
+                      } else {
+                        navigateTo('overview');
+                      }
                     } else {
                       navigateTo('inbox');
                     }
@@ -6389,7 +6402,7 @@ export default function DashboardPage() {
                       <div
                         ref={messagesContainerRef}
                         style={{ scrollBehavior: 'auto' }}
-                        className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2.5 bg-canvas/40"
+                        className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2.5 bg-canvas/40 min-h-0"
                       >
                         {loadingMessages && (!messages || messages.length === 0) ? (
                           <div className="h-full flex items-center justify-center py-12">
@@ -12016,9 +12029,13 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={() => {
-              if (activeNav === 'inbox' && selectedConv) {
-                setSelectedConv(null);
-                activeConvIdRef.current = null;
+              if (activeNav === 'inbox') {
+                if (selectedConv) {
+                  setSelectedConv(null);
+                  activeConvIdRef.current = null;
+                } else {
+                  navigateTo('overview');
+                }
               } else {
                 navigateTo('inbox');
               }
