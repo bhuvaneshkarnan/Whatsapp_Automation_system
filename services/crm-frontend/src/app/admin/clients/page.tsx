@@ -1603,7 +1603,7 @@ export default function SuperAdminClients() {
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
                     {tenants.map((t) => {
-                      const url = `https://whatsapp-automation-system-eta.vercel.app/webhooks/whatsapp/${t.slug}`;
+                      const url = `https://crm.goboldlabs.com/webhooks/whatsapp/${t.slug}`;
                       const token = `${t.slug}_token`;
                       return (
                         <div key={t.id} className="p-2.5 bg-surface border border-border rounded-sm flex items-center justify-between gap-2 shadow-2xs">
@@ -3685,7 +3685,7 @@ export default function SuperAdminClients() {
                           <label className="text-xs font-medium text-text-primary">Webhook callback URL</label>
                           <button
                             type="button"
-                            onClick={() => copyToClipboard(`https://whatsapp-automation-system-eta.vercel.app/webhooks/whatsapp/${editingConfigTenant.slug}`, 'drawer_url')}
+                            onClick={() => copyToClipboard(`https://crm.goboldlabs.com/webhooks/whatsapp/${editingConfigTenant.slug}`, 'drawer_url')}
                             className="text-xs font-medium text-accent hover:text-accent-hover flex items-center gap-1 cursor-pointer"
                           >
                             {copiedField === 'drawer_url' ? <Check className="w-3.5 h-3.5 stroke-[1.5]" /> : <Copy className="w-3.5 h-3.5 stroke-[1.5]" />}
@@ -3693,7 +3693,7 @@ export default function SuperAdminClients() {
                           </button>
                         </div>
                         <p className="font-mono text-xs text-text-secondary break-all select-all">
-                          {`https://whatsapp-automation-system-eta.vercel.app/webhooks/whatsapp/${editingConfigTenant.slug}`}
+                          {`https://crm.goboldlabs.com/webhooks/whatsapp/${editingConfigTenant.slug}`}
                         </p>
                       </div>
 
@@ -4165,7 +4165,7 @@ export default function SuperAdminClients() {
                           </label>
                           <button
                             type="button"
-                            onClick={() => copyToClipboard('https://whatsapp-automation-system-eta.vercel.app/api/v1/crm/oauth/google/callback', 'gcal_redirect')}
+                            onClick={() => copyToClipboard('https://crm.goboldlabs.com/api/v1/crm/oauth/google/callback', 'gcal_redirect')}
                             className="text-xs font-medium text-accent hover:text-accent-hover flex items-center gap-1 cursor-pointer"
                           >
                             {copiedField === 'gcal_redirect' ? <Check className="w-3.5 h-3.5 stroke-[1.5]" /> : <Copy className="w-3.5 h-3.5 stroke-[1.5]" />}
@@ -4173,7 +4173,7 @@ export default function SuperAdminClients() {
                           </button>
                         </div>
                         <p className="font-mono text-xs text-text-secondary break-all select-all bg-surface-subtle p-2.5 rounded-sm border border-border">
-                          https://whatsapp-automation-system-eta.vercel.app/api/v1/crm/oauth/google/callback
+                          https://crm.goboldlabs.com/api/v1/crm/oauth/google/callback
                         </p>
                       </div>
 

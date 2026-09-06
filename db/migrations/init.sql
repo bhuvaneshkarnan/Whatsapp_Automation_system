@@ -110,10 +110,10 @@ CREATE TABLE IF NOT EXISTS contacts (
 CREATE TABLE IF NOT EXISTS conversations (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  contact_id      UUID NOT NULL REFERENCES contacts(id),
+  contact_id      UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
   status          TEXT NOT NULL DEFAULT 'bot'
     CHECK (status IN ('bot', 'human', 'resolved', 'archived')),
-  assigned_to     UUID REFERENCES users(id),
+  assigned_to     UUID REFERENCES users(id) ON DELETE SET NULL,
   last_message_at TIMESTAMPTZ,
   unread_count    INT DEFAULT 0,
   wa_context      JSONB DEFAULT '{}',          -- last inbound wa message context
@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE TABLE IF NOT EXISTS messages (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-  tenant_id       UUID NOT NULL REFERENCES tenants(id),
+  tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   wa_message_id   TEXT UNIQUE,                 -- Meta's wamid — used for deduplication
   direction       TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
   content_type    TEXT NOT NULL DEFAULT 'text'
@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS messages (
   status          TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'sent', 'delivered', 'read', 'failed')),
   error_code      TEXT,
-  sent_by         UUID REFERENCES users(id),   -- NULL = sent by bot
+  sent_by         UUID REFERENCES users(id) ON DELETE SET NULL,   -- NULL = sent by bot
   ai_model_used   TEXT,                        -- e.g. "gemini-1.5-flash"
   ai_used_fallback BOOLEAN DEFAULT false,      -- true if rule engine was used
   processing_ms   INT,
@@ -149,8 +149,8 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE TABLE IF NOT EXISTS bookings (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id             UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  contact_id            UUID NOT NULL REFERENCES contacts(id),
-  conversation_id       UUID REFERENCES conversations(id),
+  contact_id            UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  conversation_id       UUID REFERENCES conversations(id) ON DELETE SET NULL,
   service               TEXT NOT NULL,
   start_time            TIMESTAMPTZ NOT NULL,
   end_time              TIMESTAMPTZ NOT NULL,
@@ -202,9 +202,9 @@ CREATE TABLE IF NOT EXISTS reply_rules (
 -- ── Scheduled Jobs tracker (reminders, review requests) ───
 CREATE TABLE IF NOT EXISTS scheduled_jobs (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id       UUID NOT NULL REFERENCES tenants(id),
+  tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   job_type        TEXT NOT NULL CHECK (job_type IN ('reminder', 'review_request')),
-  booking_id      UUID NOT NULL REFERENCES bookings(id),
+  booking_id      UUID NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
   scheduled_at    TIMESTAMPTZ NOT NULL,
   sent_at         TIMESTAMPTZ,
   status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed', 'cancelled')),
@@ -214,8 +214,8 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
 -- ── Audit Logs ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS audit_logs (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id   UUID REFERENCES tenants(id),
-  user_id     UUID REFERENCES users(id),
+  tenant_id   UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
   action      TEXT NOT NULL,                   -- e.g. "booking.confirmed"
   resource    TEXT,
   resource_id UUID,

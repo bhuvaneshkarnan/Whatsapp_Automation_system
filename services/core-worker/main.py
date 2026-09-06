@@ -3414,11 +3414,23 @@ class CoreWorker:
                 tenant_id = str(camp["tenant_id"])
                 c_name = camp["campaign_name"] or "Campaign"
                 raw_phones = camp["recipient_phones"]
-                phones = raw_phones if isinstance(raw_phones, list) else json.loads(raw_phones or "[]")
+                if isinstance(raw_phones, list):
+                    phones = raw_phones
+                else:
+                    try:
+                        phones = json.loads(raw_phones or "[]")
+                    except Exception:
+                        phones = []
                 text = camp["message_text"]
                 template_name = camp["template_name"]
                 raw_params = camp["template_params"]
-                template_params = raw_params if isinstance(raw_params, list) else json.loads(raw_params or "[]")
+                if isinstance(raw_params, list):
+                    template_params = raw_params
+                else:
+                    try:
+                        template_params = json.loads(raw_params or "[]")
+                    except Exception:
+                        template_params = []
 
                 await self.db_pool.execute("UPDATE marketing_campaigns SET status = 'in_progress' WHERE id = $1", camp_id)
                 creds = await self._get_tenant_whatsapp_creds(tenant_id)

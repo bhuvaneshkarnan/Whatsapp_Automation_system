@@ -9504,7 +9504,7 @@ export default function DashboardPage() {
                             </label>
                             <button
                               type="button"
-                              onClick={() => copyToClipboard('https://whatsapp-automation-system-eta.vercel.app/api/v1/crm/oauth/google/callback', 'gcal_redirect')}
+                              onClick={() => copyToClipboard('https://crm.goboldlabs.com/api/v1/crm/oauth/google/callback', 'gcal_redirect')}
                               className="text-xs font-medium text-accent hover:text-accent-hover flex items-center gap-1 cursor-pointer"
                             >
                               {copiedField === 'gcal_redirect' ? <Check className="w-3.5 h-3.5 stroke-[1.5]" /> : <Copy className="w-3.5 h-3.5 stroke-[1.5]" />}
@@ -9512,7 +9512,7 @@ export default function DashboardPage() {
                             </button>
                           </div>
                           <p className="font-mono text-xs text-text-secondary break-all select-all bg-surface-subtle p-2.5 rounded-sm border border-border">
-                            https://whatsapp-automation-system-eta.vercel.app/api/v1/crm/oauth/google/callback
+                            https://crm.goboldlabs.com/api/v1/crm/oauth/google/callback
                           </p>
                         </div>
 

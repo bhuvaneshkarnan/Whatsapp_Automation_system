@@ -25,6 +25,19 @@ except ImportError:
 
 logger = structlog.get_logger("crm-api")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://platform_user:devpassword@localhost:5432/whatsapp_platform")
+APP_BASE_URL = os.getenv("APP_BASE_URL", "https://crm.goboldlabs.com").rstrip("/")
+
+def safe_json_loads(val: Any, default: Any = None) -> Any:
+    if val is None:
+        return default if default is not None else {}
+    if isinstance(val, (dict, list)):
+        return val
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except Exception:
+            return default if default is not None else {}
+    return default if default is not None else {}
 
 db_pool: asyncpg.Pool
 
@@ -1535,7 +1548,7 @@ async def get_customer_bookings(
 @app.get("/api/v1/crm/tasks")
 async def list_tasks(
     tenant_id: str = Depends(get_tenant_id),
-    filter: Optional[str] = Query("all", regex="^(all|today|upcoming|overdue|completed)$")
+    filter: Optional[str] = Query("all", pattern="^(all|today|upcoming|overdue|completed)$")
 ):
     """List follow-up tasks with visual overdue indicator and customer context."""
     async with db_pool.acquire() as conn:
@@ -2086,7 +2099,7 @@ async def create_booking(
     async with db_pool.acquire() as conn:
         t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
         if t_row and t_row["settings"]:
-            s_data = json.loads(t_row["settings"]) if isinstance(t_row["settings"], str) else t_row["settings"]
+            s_data = safe_json_loads(t_row["settings"])
             if isinstance(s_data, dict) and s_data.get("timezone"):
                 tenant_tz_str = s_data["timezone"]
     try:
@@ -2218,12 +2231,12 @@ async def create_booking(
         try:
             local_tz = zoneinfo.ZoneInfo(tz_name)
         except Exception:
-            local_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+            local_tz = timezone(timedelta(hours=5, minutes=30))
 
         if hasattr(st_dt, "astimezone"):
             st_local = st_dt.astimezone(local_tz)
         else:
-            st_local = st_dt.replace(tzinfo=datetime.timezone.utc).astimezone(local_tz)
+            st_local = st_dt.replace(tzinfo=timezone.utc).astimezone(local_tz)
 
         date_str = st_local.strftime("%d %b %Y")
         clock_str = st_local.strftime("%I:%M %p")
@@ -2963,7 +2976,7 @@ async def update_booking_status(
         try:
             local_tz = zoneinfo.ZoneInfo(tz_name)
         except Exception:
-            local_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+            local_tz = timezone(timedelta(hours=5, minutes=30))
 
         time_str = ""
         date_str = ""
@@ -2973,7 +2986,7 @@ async def update_booking_status(
             if hasattr(st, "astimezone"):
                 st_local = st.astimezone(local_tz)
             else:
-                st_local = st.replace(tzinfo=datetime.timezone.utc).astimezone(local_tz)
+                st_local = st.replace(tzinfo=timezone.utc).astimezone(local_tz)
             time_str = st_local.strftime("%A, %d %b %Y at %I:%M %p")
             date_str = st_local.strftime("%d-%m-%Y")
             clock_str = st_local.strftime("%I:%M %p")
@@ -3641,7 +3654,7 @@ async def send_manual_message(
 @app.delete("/conversations/{conv_id}")
 async def delete_conversation(
     conv_id: str,
-    delete_type: str = Query("for_everyone", regex="^(for_me|for_everyone)$"),
+    delete_type: str = Query("for_everyone", pattern="^(for_me|for_everyone)$"),
     tenant_id: str = Depends(get_tenant_id)
 ):
     """Delete a conversation and its messages. Unlinks any linked appointments."""
@@ -3669,7 +3682,7 @@ async def delete_conversation(
 @app.delete("/messages/{msg_id}")
 async def delete_message(
     msg_id: str,
-    delete_type: str = Query("for_everyone", regex="^(for_me|for_everyone)$"),
+    delete_type: str = Query("for_everyone", pattern="^(for_me|for_everyone)$"),
     tenant_id: str = Depends(get_tenant_id)
 ):
     """Delete an individual message.
@@ -3902,7 +3915,7 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         "name": tenant["name"],
         "slug": tenant["slug"],
         "logo_url": logo_url,
-        "webhook_url": f"https://whatsapp-automation-system-eta.vercel.app/webhooks/whatsapp/{tenant['slug']}",
+        "webhook_url": f"{APP_BASE_URL}/webhooks/whatsapp/{tenant['slug']}",
         
         # Meta WhatsApp
         "meta_phone_id": wa_data.get("phone_number_id", ""),
@@ -4173,7 +4186,7 @@ async def update_tenant_settings(
 
 # ── Google OAuth 2.0 1-Click Calendar Sync ────────────────────────────────────
 
-GOOGLE_OAUTH_REDIRECT_URI = "https://whatsapp-automation-system-eta.vercel.app/api/v1/crm/oauth/google/callback"
+GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", f"{APP_BASE_URL}/api/v1/crm/oauth/google/callback")
 
 class GoogleOAuthInitPayload(BaseModel):
     client_id: str
@@ -4241,7 +4254,7 @@ async def google_oauth_callback(
     """Exchange authorization code for refresh token and save to tenant credentials."""
     if error or not code or not state:
         logger.error("google_oauth_callback_error", error=error, state=state)
-        return RedirectResponse(f"https://whatsapp-automation-system-eta.vercel.app/dashboard?gcal_error={error or 'missing_code'}")
+        return RedirectResponse(f"{APP_BASE_URL}/dashboard?gcal_error={error or 'missing_code'}")
 
     tenant_id = state
     async with db_pool.acquire() as conn:
@@ -4250,7 +4263,7 @@ async def google_oauth_callback(
             tenant_id
         )
         if not g_row or not g_row["credential_data"]:
-            return RedirectResponse("https://whatsapp-automation-system-eta.vercel.app/dashboard?gcal_error=no_credentials")
+            return RedirectResponse(f"{APP_BASE_URL}/dashboard?gcal_error=no_credentials")
 
         g_data = g_row["credential_data"]
         if isinstance(g_data, str):
@@ -4260,7 +4273,7 @@ async def google_oauth_callback(
         client_id = g_data.get("client_id")
         client_secret = g_data.get("client_secret")
         if not client_id or not client_secret:
-            return RedirectResponse("https://whatsapp-automation-system-eta.vercel.app/dashboard?gcal_error=missing_client_keys")
+            return RedirectResponse(f"{APP_BASE_URL}/dashboard?gcal_error=missing_client_keys")
 
         # Exchange code with Google
         async with httpx.AsyncClient() as client:
@@ -4278,7 +4291,7 @@ async def google_oauth_callback(
 
         if token_res.status_code != 200:
             logger.error("google_token_exchange_failed", status=token_res.status_code, body=token_res.text)
-            return RedirectResponse(f"https://whatsapp-automation-system-eta.vercel.app/dashboard?gcal_error=token_exchange_failed")
+            return RedirectResponse(f"{APP_BASE_URL}/dashboard?gcal_error=token_exchange_failed")
 
         token_data = token_res.json()
         refresh_token = token_data.get("refresh_token")
@@ -4311,7 +4324,7 @@ async def google_oauth_callback(
             json.dumps(g_data), str(g_row["id"])
         )
 
-    return RedirectResponse("https://whatsapp-automation-system-eta.vercel.app/dashboard?gcal_success=true")
+    return RedirectResponse(f"{APP_BASE_URL}/dashboard?gcal_success=true")
 
 
 @app.post("/oauth/google/disconnect")
@@ -4883,9 +4896,9 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
         "name": payload.name.strip(),
         "slug": slug,
         "admin_email": payload.admin_email.strip(),
-        "webhook_url": f"https://whatsapp-automation-system-eta.vercel.app/webhooks/whatsapp/{slug}",
+        "webhook_url": f"{APP_BASE_URL}/webhooks/whatsapp/{slug}",
         "verify_token": payload.verify_token.strip() or (slug + "_verify_token"),
-        "login_url": "https://whatsapp-automation-system-eta.vercel.app/login",
+        "login_url": f"{APP_BASE_URL}/login",
         "status": "active"
     }
 
@@ -5065,6 +5078,7 @@ async def delete_admin_tenant(tenant_id: str, admin_user: dict = Depends(verify_
             await conn.execute("DELETE FROM reply_rules WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM tenant_credentials WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
+            await conn.execute("DELETE FROM audit_logs WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM users WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM tenants WHERE id = $1::uuid", tenant_id)
             
@@ -5727,10 +5741,7 @@ async def handle_razorpay_webhook(
                     "SELECT email FROM users WHERE tenant_id = $1::uuid AND is_active = true ORDER BY (role = 'admin') DESC, created_at ASC LIMIT 1",
                     tenant_id
                 )
-                t_cfg = tenant.get("settings") or {}
-                if isinstance(t_cfg, str):
-                    try: t_cfg = json.loads(t_cfg)
-                    except: t_cfg = {}
+                t_cfg = safe_json_loads(tenant.get("settings"))
                 
                 target_email = admin_u["email"] if admin_u else t_cfg.get("notification_email")
                 target_phone = t_cfg.get("admin_whatsapp_number", "")
@@ -5742,7 +5753,7 @@ async def handle_razorpay_webhook(
                     "SELECT credential_data FROM tenant_credentials WHERE provider = 'google_calendar' AND is_active = true LIMIT 1"
                 )
                 if g_cred_row and g_cred_row["credential_data"] and target_email and "@" in target_email:
-                    gd = json.loads(g_cred_row["credential_data"]) if isinstance(g_cred_row["credential_data"], str) else g_cred_row["credential_data"]
+                    gd = safe_json_loads(g_cred_row["credential_data"])
                     from google.oauth2.credentials import Credentials
                     g_creds = Credentials(
                         token=gd.get("access_token"),
@@ -7997,7 +8008,7 @@ async def list_tenant_staff(tenant_id: str, admin_user: dict = Depends(verify_su
                 "email": r["email"],
                 "display_name": r["display_name"] or "",
                 "role": r["role"],
-                "permissions": json.loads(r["permissions"]) if isinstance(r["permissions"], str) else (r["permissions"] or {}),
+                "permissions": safe_json_loads(r["permissions"], {}),
                 "is_active": r["is_active"] if r["is_active"] is not None else True,
                 "last_login_at": r["last_login_at"].isoformat() if r["last_login_at"] else None,
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
@@ -8118,7 +8129,7 @@ async def client_list_staff(tenant_id: str = Depends(get_tenant_id)):
                 "email": r["email"],
                 "display_name": r["display_name"] or "",
                 "role": r["role"],
-                "permissions": json.loads(r["permissions"]) if isinstance(r["permissions"], str) else (r["permissions"] or {}),
+                "permissions": safe_json_loads(r["permissions"], {}),
                 "is_active": r["is_active"] if r["is_active"] is not None else True,
                 "last_login_at": r["last_login_at"].isoformat() if r["last_login_at"] else None,
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
