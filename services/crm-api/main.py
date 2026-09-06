@@ -2460,21 +2460,22 @@ async def create_booking(
 
         # Schedule automatic 24h & 2h reminders and post-session review request
         try:
-            remind_24h = st_dt - datetime.timedelta(hours=24)
-            if remind_24h > datetime.datetime.now(tz):
+            now_dt = datetime.now(tenant_tz)
+            remind_24h = st_dt - timedelta(hours=24)
+            if remind_24h > now_dt:
                 await conn.execute(
                     """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
                        VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
                     tenant_id, booking_id, remind_24h
                 )
-            remind_2h = st_dt - datetime.timedelta(hours=2)
-            if remind_2h > datetime.datetime.now(tz):
+            remind_2h = st_dt - timedelta(hours=2)
+            if remind_2h > now_dt:
                 await conn.execute(
                     """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
                        VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
                     tenant_id, booking_id, remind_2h
                 )
-            review_at = et_dt + datetime.timedelta(hours=1)
+            review_at = et_dt + timedelta(hours=1)
             await conn.execute(
                 """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
                    VALUES (gen_random_uuid(), $1::uuid, 'review_request', $2::uuid, $3, 'pending', now())""",
@@ -5050,10 +5051,18 @@ async def delete_admin_tenant(tenant_id: str, admin_user: dict = Depends(verify_
             
         async with conn.transaction():
             await conn.execute("DELETE FROM scheduled_jobs WHERE tenant_id = $1::uuid", tenant_id)
+            await conn.execute("DELETE FROM bookings WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM messages WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM conversations WHERE tenant_id = $1::uuid", tenant_id)
-            await conn.execute("DELETE FROM bookings WHERE tenant_id = $1::uuid", tenant_id)
+            await conn.execute("DELETE FROM customer_notes WHERE tenant_id = $1::uuid", tenant_id)
+            await conn.execute("DELETE FROM tasks WHERE tenant_id = $1::uuid", tenant_id)
+            await conn.execute("DELETE FROM customers WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM contacts WHERE tenant_id = $1::uuid", tenant_id)
+            await conn.execute("DELETE FROM push_subscriptions WHERE tenant_id = $1::uuid", tenant_id)
+            await conn.execute("DELETE FROM notifications WHERE tenant_id = $1::uuid", tenant_id)
+            await conn.execute("DELETE FROM marketing_campaigns WHERE tenant_id = $1::uuid", tenant_id)
+            await conn.execute("DELETE FROM marketing_triggers WHERE tenant_id = $1::uuid", tenant_id)
+            await conn.execute("DELETE FROM reply_rules WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM tenant_credentials WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM users WHERE tenant_id = $1::uuid", tenant_id)
