@@ -2081,13 +2081,14 @@ class CoreWorker:
                 followup_date = datetime.date.today() + datetime.timedelta(days=30)
 
             # 4. Update customer record in database
+            # Build params: $1=lead_prob, then dynamic optional params, then tenant_id and phone at the end
             updates = ["lead_probability = $1", "updated_at = NOW()", "last_messaged_at = NOW()"]
-            params = [lead_prob, tenant_id, phone]
-            idx = 4
+            dynamic_params = [lead_prob]
+            idx = 2
 
             if status:
                 updates.append(f"status = CASE WHEN customers.status = 'converted' THEN 'converted' ELSE ${idx} END")
-                params.insert(len(params) - 2, status)
+                dynamic_params.append(status)
                 idx += 1
 
             if status == "converted":
@@ -2095,18 +2096,23 @@ class CoreWorker:
 
             if extracted_concern:
                 updates.append(f"health_concern = CASE WHEN customers.health_concern IS NULL OR customers.health_concern = 'General Consultation' THEN ${idx} ELSE customers.health_concern END")
-                params.insert(len(params) - 2, extracted_concern)
+                dynamic_params.append(extracted_concern)
                 idx += 1
 
             if followup_date:
                 updates.append(f"followup_date = COALESCE(customers.followup_date, ${idx}::date)")
-                params.insert(len(params) - 2, followup_date.isoformat())
+                dynamic_params.append(followup_date.isoformat())
                 idx += 1
+
+            # tenant_id and phone are always the last two params
+            tid_idx = idx
+            phone_idx = idx + 1
+            params = dynamic_params + [tenant_id, phone]
 
             query = f"""
                 UPDATE customers
                 SET {', '.join(updates)}
-                WHERE tenant_id = $2::uuid AND phone = $3
+                WHERE tenant_id = ${tid_idx}::uuid AND phone = ${phone_idx}
             """
             await self.db_pool.execute(query, *params)
             logger.info("lead_analyzed_and_updated", phone=phone, lead_prob=lead_prob, status=status, concern=extracted_concern)

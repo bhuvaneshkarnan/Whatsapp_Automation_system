@@ -1291,9 +1291,31 @@ export const metaTemplatesApi = {
 };
 
 // ── Public Web Booking API (No Auth Required) ─────────────────────────────────
+async function publicRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers as Record<string, string> || {}),
+    },
+  });
+  if (!res.ok) {
+    let errorMsg = `Booking Error (${res.status})`;
+    try {
+      const errorJson = await res.json();
+      errorMsg = typeof errorJson.detail === 'string' ? errorJson.detail : (errorJson.message || JSON.stringify(errorJson));
+    } catch {
+      const text = await res.text().catch(() => '');
+      if (text) errorMsg = text;
+    }
+    throw new Error(errorMsg);
+  }
+  return res.json() as Promise<T>;
+}
+
 export const publicBooking = {
   getInfo: (slug: string) =>
-    request<PublicBookingInfo>(`/api/v1/crm/public/${slug}/booking-info`),
+    publicRequest<PublicBookingInfo>(`/api/v1/crm/public/${slug}/booking-info`),
 
   createBooking: (slug: string, data: {
     patient_name: string;
@@ -1305,7 +1327,7 @@ export const publicBooking = {
     booking_time: string;
     notes?: string;
   }) =>
-    request<{
+    publicRequest<{
       status: string;
       booking_id: string;
       doctor_name: string;

@@ -3587,6 +3587,13 @@ export default function DashboardPage() {
   function handleLogout() {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('tenant_id');
+    localStorage.removeItem('tenant_slug');
+    localStorage.removeItem('boldlabs_sticky_notes');
+    localStorage.removeItem('whatsapp_crm_important_chats');
+    localStorage.removeItem('whatsapp_crm_custom_templates');
+    localStorage.removeItem('whatsapp_crm_active_nav');
+    localStorage.removeItem('whatsapp_crm_followup_view');
+    try { sessionStorage.clear(); } catch {}
     router.push('/login');
   }
 

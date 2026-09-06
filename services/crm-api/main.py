@@ -180,29 +180,89 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan, title="CRM API")
 
 # --- Auth dependencies ---
-JWT_SECRET = os.getenv("JWT_SECRET", "super_secret_dev_key_only")
+JWT_SECRET = os.getenv("JWT_SECRET", "18d73e947ecf30719ab9a2c4e919fc892f36e5c74207429b4a9e82f5ad0e5e7f")
 ALGORITHM = "HS256"
 
-async def get_tenant_id(x_tenant_id: str = Header(...)) -> str:
-    if not x_tenant_id:
-        raise HTTPException(status_code=401, detail="Missing X-Tenant-ID header")
-    # Normalize if proxies or client libraries send comma-separated duplicate headers (e.g. 'uuid, uuid')
-    clean_id = x_tenant_id.split(",")[0].strip()
-    return clean_id
+async def get_tenant_id(
+    authorization: Optional[str] = Header(None),
+    x_tenant_id: Optional[str] = Header(None)
+) -> str:
+    """
+    Secure tenant scoping dependency:
+    - Decodes and validates the caller's JWT bearer token.
+    - If user is super_admin, allows managing any tenant specified by X-Tenant-ID header.
+    - If user is a standard tenant user/admin, strictly scopes to the JWT's tenant_id claim.
+      Rejects any spoofed X-Tenant-ID header with 403 Forbidden.
+    """
+    clean_requested_id = x_tenant_id.split(",")[0].strip() if x_tenant_id else None
+
+    # 1. Bearer Token Verification
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        try:
+            from jose import jwt
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
+        except Exception as e:
+            logger.warning("jwt_verification_failed", error=str(e))
+            raise HTTPException(status_code=401, detail="Invalid or expired session token. Please log in again.")
+
+        role = payload.get("role", "agent")
+        token_tenant = payload.get("tenant_id")
+
+        # Super admin can view/act on behalf of any requested tenant, or defaults to own
+        if role == "super_admin":
+            if clean_requested_id:
+                return clean_requested_id
+            if token_tenant:
+                return str(token_tenant)
+            raise HTTPException(status_code=400, detail="X-Tenant-ID header required for super_admin")
+
+        # Regular tenant user: token_tenant MUST be present
+        if not token_tenant:
+            raise HTTPException(status_code=403, detail="No tenant workspace assigned to this account.")
+
+        token_tenant_str = str(token_tenant)
+
+        # Anti-Spoofing Guard: If client sent a different X-Tenant-ID header, reject!
+        if clean_requested_id and clean_requested_id.lower() != token_tenant_str.lower():
+            logger.warning(
+                "cross_tenant_access_blocked",
+                token_tenant=token_tenant_str,
+                requested_tenant=clean_requested_id,
+                user_id=payload.get("sub"),
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: Cross-tenant data access is prohibited."
+            )
+
+        return token_tenant_str
+
+    # 2. Require authorization header
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Please provide a valid Bearer token.",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    raise HTTPException(status_code=401, detail="Invalid authentication format.")
+
 
 async def verify_super_admin(authorization: Optional[str] = Header(None)) -> dict:
+    """Strict Super-Admin Gate: Only platform super_admin is authorized."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Admin authentication required")
-    token = authorization.split(" ", 1)[1]
+    token = authorization.split(" ", 1)[1].strip()
     try:
-        from jose import jwt, JWTError
+        from jose import jwt
         payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired session token")
 
     role = payload.get("role")
-    if role not in ("super_admin", "admin"):
-        raise HTTPException(status_code=403, detail="Admin privileges required")
+    if role != "super_admin":
+        raise HTTPException(status_code=403, detail="Platform Super Admin privileges required.")
     return payload
 
 
@@ -4211,7 +4271,7 @@ async def init_google_oauth(
     if not c_id or not c_sec:
         raise HTTPException(400, "Google Client ID and Client Secret are required")
 
-    effective_tenant_id = (payload.target_tenant_id.strip() if payload.target_tenant_id else None) or tenant_id
+    effective_tenant_id = tenant_id
 
     async with db_pool.acquire() as conn:
         g_row = await conn.fetchrow(
@@ -4403,7 +4463,7 @@ async def get_live_calendar_availability(
     connection status, target calendar, and verified availability window.
     Accessible by both workspace users and super admins.
     """
-    effective_id = (target_tenant_id.strip() if target_tenant_id else None) or tenant_id
+    effective_id = tenant_id
     async with db_pool.acquire() as conn:
         tenant_st = await conn.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", effective_id)
         if tenant_st:
@@ -8244,6 +8304,11 @@ async def client_create_staff(payload: StaffCreateRequest, tenant_id: str = Depe
     if not payload.password or len(payload.password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
 
+    clean_role = (payload.role or "agent").strip().lower()
+    ALLOWED_CLIENT_STAFF_ROLES = {"admin", "doctor", "receptionist", "agent", "viewer"}
+    if clean_role not in ALLOWED_CLIENT_STAFF_ROLES or clean_role == "super_admin":
+        raise HTTPException(400, f"Invalid role. Permitted roles: {', '.join(sorted(ALLOWED_CLIENT_STAFF_ROLES))}")
+
     async with db_pool.acquire() as conn:
         exists = await conn.fetchrow("SELECT id FROM users WHERE tenant_id = $1::uuid AND LOWER(email) = $2", tenant_id, clean_email)
         if exists:
@@ -8256,7 +8321,7 @@ async def client_create_staff(payload: StaffCreateRequest, tenant_id: str = Depe
         await conn.execute(
             """INSERT INTO users (id, tenant_id, email, password_hash, display_name, role, permissions, is_active, created_at, updated_at)
                VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, true, now(), now())""",
-            user_id, tenant_id, clean_email, pw_hash, payload.display_name.strip(), payload.role, json.dumps(perms)
+            user_id, tenant_id, clean_email, pw_hash, payload.display_name.strip(), clean_role, json.dumps(perms)
         )
 
         return {
@@ -8264,13 +8329,14 @@ async def client_create_staff(payload: StaffCreateRequest, tenant_id: str = Depe
             "id": user_id,
             "email": clean_email,
             "display_name": payload.display_name.strip(),
-            "role": payload.role,
+            "role": clean_role,
             "permissions": perms
         }
 
 @app.put("/staff/{user_id}")
 async def client_update_staff(user_id: str, payload: StaffUpdateRequest, tenant_id: str = Depends(get_tenant_id)):
     """Tenant/Client updates team member role, permissions, or password."""
+    ALLOWED_CLIENT_STAFF_ROLES = {"admin", "doctor", "receptionist", "agent", "viewer"}
     async with db_pool.acquire() as conn:
         user = await conn.fetchrow("SELECT id, email, role, permissions, is_active FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid", user_id, tenant_id)
         if not user:
@@ -8284,7 +8350,10 @@ async def client_update_staff(user_id: str, payload: StaffUpdateRequest, tenant_
             updates.append(f"display_name = ${len(vals)}")
 
         if payload.role is not None:
-            vals.append(payload.role.strip())
+            clean_role = payload.role.strip().lower()
+            if clean_role not in ALLOWED_CLIENT_STAFF_ROLES or clean_role == "super_admin":
+                raise HTTPException(400, f"Invalid role. Permitted roles: {', '.join(sorted(ALLOWED_CLIENT_STAFF_ROLES))}")
+            vals.append(clean_role)
             updates.append(f"role = ${len(vals)}")
 
         if payload.permissions is not None:
