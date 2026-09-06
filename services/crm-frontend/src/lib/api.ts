@@ -137,6 +137,8 @@ export interface Booking {
   currency?: string;
   contact_name?: string;
   contact_phone?: string;
+  customer_name?: string;
+  staff_member?: string;
   created_at?: string;
 }
 
@@ -236,6 +238,8 @@ export interface GlobalRulesResponse {
   total_tenants: number;
   tenants_with_rules: number;
   gcal_connected_tenants: number;
+  opening_time?: string;
+  closing_time?: string;
   rules_summary: Array<{ title: string; description: string; status: string }>;
 }
 
@@ -675,6 +679,8 @@ export interface TenantSettingsResponse {
   google_calendar_id?: string;
   notification_email?: string;
   google_calendar_configured?: boolean;
+  opening_time?: string;
+  closing_time?: string;
 
   industry?: string;
   taxonomy?: {
@@ -983,16 +989,27 @@ export const admin = {
         method: 'DELETE',
       }
     ),
+  initGoogleOAuth: (tenantId: string, data: { client_id: string; client_secret: string }) =>
+    request<{ auth_url: string; redirect_uri: string }>(`/api/v1/crm/admin/tenants/${tenantId}/oauth/google/init`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  disconnectGoogleCalendar: (tenantId: string) =>
+    request<{ status: string }>(`/api/v1/crm/admin/tenants/${tenantId}/oauth/google/disconnect`, {
+      method: 'POST',
+    }),
   getGlobalRules: () =>
     request<GlobalRulesResponse>('/api/v1/crm/admin/global-rules'),
-  syncGlobalRules: (strictRules?: string) =>
-    request<{ status: string; message: string; updated_count: number }>(
+  syncGlobalRules: (data?: { strict_rules?: string; opening_time?: string; closing_time?: string } | string) => {
+    const payload = typeof data === 'string' ? { strict_rules: data } : (data || {});
+    return request<{ status: string; message: string; updated_count: number }>(
       '/api/v1/crm/admin/sync-global-rules',
       {
         method: 'POST',
-        body: JSON.stringify({ strict_rules: strictRules }),
+        body: JSON.stringify(payload),
       }
-    ),
+    );
+  },
 };
 
 // ── Marketing / Broadcast Campaigns & Automations ───────────────────────────

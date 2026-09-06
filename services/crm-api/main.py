@@ -3829,6 +3829,8 @@ class TenantSettingsUpdate(BaseModel):
     
     industry: Optional[str] = None
     taxonomy: Optional[Dict[str, Any]] = None
+    opening_time: Optional[str] = None
+    closing_time: Optional[str] = None
 
 
 @app.get("/settings")
@@ -3984,6 +3986,8 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
             "event_label": "Appointment",
             "booking_cta": "Schedule Appointment",
         }),
+        "opening_time": tenant_settings.get("opening_time", "09:00"),
+        "closing_time": tenant_settings.get("closing_time", "20:00"),
 
         # Razorpay Subscription & Organization Lifecycle
         "org_lifecycle_stage": tenant.get("org_lifecycle_stage") or "setup",
@@ -4025,6 +4029,8 @@ async def update_tenant_settings(
         if payload.full_location_text is not None: cur_settings["full_location_text"] = payload.full_location_text.strip()
         if payload.industry is not None: cur_settings["industry"] = payload.industry.strip()
         if payload.taxonomy is not None: cur_settings["taxonomy"] = payload.taxonomy
+        if payload.opening_time is not None: cur_settings["opening_time"] = payload.opening_time.strip()
+        if payload.closing_time is not None: cur_settings["closing_time"] = payload.closing_time.strip()
 
         # Dual-sync all 12 configurable template names into tenants.settings
         if payload.template_booking_confirmation is not None: cur_settings["template_booking_confirmation"] = payload.template_booking_confirmation.strip()
@@ -4191,6 +4197,8 @@ GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", f"{APP_BASE_U
 class GoogleOAuthInitPayload(BaseModel):
     client_id: str
     client_secret: str
+    target_tenant_id: Optional[str] = None
+    source: Optional[str] = "dashboard"
 
 @app.post("/oauth/google/init")
 async def init_google_oauth(
@@ -4203,10 +4211,12 @@ async def init_google_oauth(
     if not c_id or not c_sec:
         raise HTTPException(400, "Google Client ID and Client Secret are required")
 
+    effective_tenant_id = (payload.target_tenant_id.strip() if payload.target_tenant_id else None) or tenant_id
+
     async with db_pool.acquire() as conn:
         g_row = await conn.fetchrow(
             "SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar'",
-            tenant_id
+            effective_tenant_id
         )
         g_data = {}
         g_id = str(g_row["id"]) if g_row else str(uuid.uuid4())
@@ -4228,10 +4238,12 @@ async def init_google_oauth(
         else:
             await conn.execute(
                 "INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'google_calendar', $3::jsonb, true)",
-                g_id, tenant_id, json.dumps(g_data)
+                g_id, effective_tenant_id, json.dumps(g_data)
             )
 
     scopes = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile openid"
+    src = (payload.source or "dashboard").strip()
+    state_payload = f"{effective_tenant_id}:{src}"
     auth_url = (
         f"https://accounts.google.com/o/oauth2/v2/auth?"
         f"client_id={c_id}&"
@@ -4240,7 +4252,7 @@ async def init_google_oauth(
         f"scope={scopes}&"
         f"access_type=offline&"
         f"prompt=consent&"
-        f"state={tenant_id}"
+        f"state={state_payload}"
     )
     return {"auth_url": auth_url, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI}
 
@@ -4252,18 +4264,29 @@ async def google_oauth_callback(
     error: Optional[str] = None
 ):
     """Exchange authorization code for refresh token and save to tenant credentials."""
-    if error or not code or not state:
-        logger.error("google_oauth_callback_error", error=error, state=state)
-        return RedirectResponse(f"{APP_BASE_URL}/dashboard?gcal_error={error or 'missing_code'}")
+    state_str = state or ""
+    is_admin = False
+    tenant_id = state_str
+    if ":" in state_str:
+        parts = state_str.split(":", 1)
+        tenant_id = parts[0]
+        if parts[1] == "admin":
+            is_admin = True
 
-    tenant_id = state
+    base_redir = f"{APP_BASE_URL}/admin/clients" if is_admin else f"{APP_BASE_URL}/dashboard"
+    t_param = f"&tenant_id={tenant_id}" if is_admin else ""
+
+    if error or not code or not tenant_id:
+        logger.error("google_oauth_callback_error", error=error, state=state)
+        return RedirectResponse(f"{base_redir}?gcal_error={error or 'missing_code'}{t_param}")
+
     async with db_pool.acquire() as conn:
         g_row = await conn.fetchrow(
             "SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar'",
             tenant_id
         )
         if not g_row or not g_row["credential_data"]:
-            return RedirectResponse(f"{APP_BASE_URL}/dashboard?gcal_error=no_credentials")
+            return RedirectResponse(f"{base_redir}?gcal_error=no_credentials{t_param}")
 
         g_data = g_row["credential_data"]
         if isinstance(g_data, str):
@@ -4273,7 +4296,7 @@ async def google_oauth_callback(
         client_id = g_data.get("client_id")
         client_secret = g_data.get("client_secret")
         if not client_id or not client_secret:
-            return RedirectResponse(f"{APP_BASE_URL}/dashboard?gcal_error=missing_client_keys")
+            return RedirectResponse(f"{base_redir}?gcal_error=missing_client_keys{t_param}")
 
         # Exchange code with Google
         async with httpx.AsyncClient() as client:
@@ -4291,7 +4314,7 @@ async def google_oauth_callback(
 
         if token_res.status_code != 200:
             logger.error("google_token_exchange_failed", status=token_res.status_code, body=token_res.text)
-            return RedirectResponse(f"{APP_BASE_URL}/dashboard?gcal_error=token_exchange_failed")
+            return RedirectResponse(f"{base_redir}?gcal_error=token_exchange_failed{t_param}")
 
         token_data = token_res.json()
         refresh_token = token_data.get("refresh_token")
@@ -4324,7 +4347,7 @@ async def google_oauth_callback(
             json.dumps(g_data), str(g_row["id"])
         )
 
-    return RedirectResponse(f"{APP_BASE_URL}/dashboard?gcal_success=true")
+    return RedirectResponse(f"{base_redir}?gcal_success=true{t_param}")
 
 
 @app.post("/oauth/google/disconnect")
@@ -4347,6 +4370,27 @@ async def disconnect_google_calendar(tenant_id: str = Depends(get_tenant_id)):
                 json.dumps(d), str(g_row["id"])
             )
     return {"status": "disconnected"}
+
+
+@app.post("/admin/tenants/{target_tenant_id}/oauth/google/init")
+async def admin_init_google_oauth(
+    target_tenant_id: str,
+    payload: GoogleOAuthInitPayload,
+    admin_user: dict = Depends(verify_super_admin)
+):
+    """Super Admin initiates Google OAuth for a specific client organization."""
+    payload.target_tenant_id = target_tenant_id
+    payload.source = "admin"
+    return await init_google_oauth(payload, tenant_id=target_tenant_id)
+
+
+@app.post("/admin/tenants/{target_tenant_id}/oauth/google/disconnect")
+async def admin_disconnect_google_oauth(
+    target_tenant_id: str,
+    admin_user: dict = Depends(verify_super_admin)
+):
+    """Super Admin disconnects Google Calendar sync for a specific client organization."""
+    return await disconnect_google_calendar(tenant_id=target_tenant_id)
 
 
 @app.get("/calendar/live-availability")
@@ -4459,6 +4503,18 @@ async def get_live_calendar_availability(
                 except Exception as ex:
                     logger.warning("gcal_live_availability_endpoint_error", error=str(ex))
 
+        # Format operating hours
+        ot_raw = tenant_st.get("opening_time", "09:00")
+        ct_raw = tenant_st.get("closing_time", "20:00")
+        try:
+            ot_parts = str(ot_raw).split(":")
+            ct_parts = str(ct_raw).split(":")
+            ot_fmt = datetime(2000, 1, 1, int(ot_parts[0]), int(ot_parts[1]) if len(ot_parts) > 1 else 0).strftime("%I:%M %p")
+            ct_fmt = datetime(2000, 1, 1, int(ct_parts[0]), int(ct_parts[1]) if len(ct_parts) > 1 else 0).strftime("%I:%M %p")
+            op_hours_str = f"{ot_fmt} – {ct_fmt}"
+        except Exception:
+            op_hours_str = "09:00 AM – 08:00 PM"
+
         # Sort chronologically
         busy_slots.sort(key=lambda x: x["start"])
         return {
@@ -4469,7 +4525,9 @@ async def get_live_calendar_availability(
             "timezone": tz_str,
             "total_occupied_slots": len(busy_slots),
             "occupied_slots": busy_slots,
-            "operating_hours": "09:00 AM - 08:00 PM",
+            "operating_hours": op_hours_str,
+            "opening_time": ot_raw,
+            "closing_time": ct_raw,
             "message": "AI Assistant verifies this schedule in real time and strictly books in open free time without hallucinating occupied slots."
         }
 
@@ -4558,6 +4616,8 @@ GLOBAL_DEFAULT_STRICT_RULES = """- CONTINUOUS CONVERSATION & ZERO RE-GREETING: N
 
 class SyncGlobalRulesPayload(BaseModel):
     strict_rules: Optional[str] = None
+    opening_time: Optional[str] = None
+    closing_time: Optional[str] = None
 
 
 @app.get("/admin/global-rules")
@@ -4568,12 +4628,23 @@ async def get_admin_global_rules(admin_user: dict = Depends(verify_super_admin))
         tenants_with_rules = await conn.fetchval("SELECT count(*) FROM ai_config WHERE strict_rules IS NOT NULL AND length(strict_rules) > 10") or 0
         gcal_connected_count = await conn.fetchval("SELECT count(*) FROM tenant_credentials WHERE provider = 'google_calendar' AND is_active = true") or 0
         
+        # Pull global opening/closing defaults from the first tenant if configured
+        first_tenant_st = await conn.fetchval("SELECT settings FROM tenants WHERE settings IS NOT NULL LIMIT 1")
+        default_open = "09:00"
+        default_close = "20:00"
+        if first_tenant_st:
+            st = safe_json_loads(first_tenant_st)
+            if st.get("opening_time"): default_open = st.get("opening_time").strip()
+            if st.get("closing_time"): default_close = st.get("closing_time").strip()
+
         return {
             "status": "active",
             "strict_rules": GLOBAL_DEFAULT_STRICT_RULES,
             "total_tenants": total_tenants,
             "tenants_with_rules": tenants_with_rules,
             "gcal_connected_tenants": gcal_connected_count,
+            "opening_time": default_open,
+            "closing_time": default_close,
             "rules_summary": [
                 {
                     "title": "Real-Time Google Calendar Availability & Conflict Prevention",
@@ -4599,12 +4670,13 @@ async def get_admin_global_rules(admin_user: dict = Depends(verify_super_admin))
         }
 
 
+@app.post("/admin/global-rules")
 @app.post("/admin/sync-global-rules")
 async def sync_admin_global_rules(
     payload: Optional[SyncGlobalRulesPayload] = None,
     admin_user: dict = Depends(verify_super_admin)
 ):
-    """Syncs master global strict rules to all tenant organizations in PostgreSQL."""
+    """Syncs master global strict rules and operating hours to all tenant organizations in PostgreSQL."""
     rules_to_apply = (payload.strict_rules.strip() if payload and payload.strict_rules else None) or GLOBAL_DEFAULT_STRICT_RULES
     async with db_pool.acquire() as conn:
         tenant_ids = [r['id'] for r in await conn.fetch("SELECT id FROM tenants")]
@@ -4622,11 +4694,22 @@ async def sync_admin_global_rules(
                        VALUES ($1::uuid, 'gemini-1.5-flash', 'You are the official assistant.', 'Assistant', 'Assist customers', '', $2, 'short', 'dogfooding', 0.3, 500)""",
                     tid, rules_to_apply
                 )
+            
+            # If global opening/closing time is provided, update tenant settings
+            if payload and (payload.opening_time is not None or payload.closing_time is not None):
+                t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tid)
+                t_st = safe_json_loads(t_row["settings"]) if t_row and t_row["settings"] else {}
+                if payload.opening_time is not None:
+                    t_st["opening_time"] = payload.opening_time.strip()
+                if payload.closing_time is not None:
+                    t_st["closing_time"] = payload.closing_time.strip()
+                await conn.execute("UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid", json.dumps(t_st), tid)
+
             updated_count += 1
             
         return {
             "status": "success",
-            "message": f"Successfully synced global strict rules to {updated_count} organization(s).",
+            "message": f"Successfully synced global strict rules & operating hours to {updated_count} organization(s).",
             "updated_count": updated_count
         }
 
@@ -7775,9 +7858,21 @@ async def get_public_booking_info(slug: str):
         if not bot_phone:
             bot_phone = cfg.get("admin_whatsapp_number", "")
 
+        open_time = cfg.get("opening_time") or cfg.get("working_hours_start", "09:00")
+        close_time = cfg.get("closing_time") or cfg.get("working_hours_end", "20:00")
+        try:
+            ot_parts = str(open_time).split(":")
+            ct_parts = str(close_time).split(":")
+            ot_fmt = datetime(2000, 1, 1, int(ot_parts[0]), int(ot_parts[1]) if len(ot_parts) > 1 else 0).strftime("%I:%M %p")
+            ct_fmt = datetime(2000, 1, 1, int(ct_parts[0]), int(ct_parts[1]) if len(ct_parts) > 1 else 0).strftime("%I:%M %p")
+            op_hours_formatted = f"{ot_fmt} – {ct_fmt}"
+        except Exception:
+            op_hours_formatted = "09:00 AM – 08:00 PM"
+
         return {
             "name": tenant["name"],
             "slug": tenant["slug"],
+            "plan": tenant["plan"],
             "industry": industry,
             "currency": cfg.get("currency", "INR"),
             "currency_symbol": cfg.get("currency_symbol", "₹"),
@@ -7787,9 +7882,12 @@ async def get_public_booking_info(slug: str):
             "concern_label": tax.get("requirement_label") or ("Health Concern / Service" if industry == "clinic" else "Requirement / Service"),
             "doctors": doctor_list,
             "health_concerns": concerns_list,
+            "operating_hours": op_hours_formatted,
+            "opening_time": open_time,
+            "closing_time": close_time,
             "business_hours": {
-                "open": cfg.get("working_hours_start", "09:00"),
-                "close": cfg.get("working_hours_end", "19:00"),
+                "open": open_time,
+                "close": close_time,
                 "slot_duration_minutes": 30
             },
             "bot_phone": bot_phone

@@ -1084,6 +1084,31 @@ class CoreWorker:
             "Use this live timestamp to resolve relative dates (today, tomorrow, next Monday) and know if a time has already passed.\n\n"
         )
 
+        # Extract business operating hours from tenant settings
+        opening_time_raw = "09:00"
+        closing_time_raw = "20:00"
+        if tenant_st_row:
+            if tenant_st_row.get("opening_time"):
+                opening_time_raw = str(tenant_st_row.get("opening_time")).strip()
+            elif tenant_st_row.get("working_hours_start"):
+                opening_time_raw = str(tenant_st_row.get("working_hours_start")).strip()
+            if tenant_st_row.get("closing_time"):
+                closing_time_raw = str(tenant_st_row.get("closing_time")).strip()
+            elif tenant_st_row.get("working_hours_end"):
+                closing_time_raw = str(tenant_st_row.get("working_hours_end")).strip()
+
+        def _fmt_ampm(t_str: str, default_val: str) -> str:
+            try:
+                parts = t_str.split(":")
+                h = int(parts[0])
+                m = int(parts[1]) if len(parts) > 1 else 0
+                import datetime as dt_mod
+                return dt_mod.time(h, m).strftime("%I:%M %p")
+            except Exception:
+                return default_val
+
+        op_hours_display = f"{_fmt_ampm(opening_time_raw, '09:00 AM')} to {_fmt_ampm(closing_time_raw, '08:00 PM')}"
+
         # Retrieve all currently booked/occupied slots for this business (next 7 days) from Google Calendar and CRM
         busy_slots, gcal_connected = await self._get_live_occupied_slots(tenant_id, tenant_tz)
         if busy_slots:
@@ -1100,14 +1125,14 @@ class CoreWorker:
                 "- LIVE CALENDAR GROUND TRUTH: The occupied slots above are the definitive ground truth from Google Calendar and the CRM.\n"
                 "- FREE TIME ONLY: You must STRICTLY and EXCLUSIVELY propose or confirm appointments during open, unoccupied time slots.\n"
                 "- ZERO WRONG OR INCORRECT DATA: NEVER guess, invent, or state inaccurate slot availability. If a customer requests any occupied time slot above, you MUST politely inform them that this slot is already booked on the calendar, and propose the closest open free time instead.\n"
-                "- BUSINESS OPERATING HOURS: Standard business operating hours are strictly 09:00 AM to 08:00 PM. Never propose times outside operating hours or overlapping with occupied slots.\n"
+                f"- BUSINESS OPERATING HOURS: Standard business operating hours are strictly {op_hours_display}. Never propose times outside operating hours or overlapping with occupied slots.\n"
                 "- NO TIME ASSUMPTION: If the customer asks for an appointment without giving a specific time, ask what day and time works best for them. Never assume today at 3pm or create a booking without their explicit confirmation."
             )
         else:
             busy_slots_block = (
                 f"### LIVE CALENDAR AVAILABILITY ({'GOOGLE CALENDAR LIVE SYNC ACTIVE' if gcal_connected else 'CRM LOCAL SCHEDULE'}):\n"
                 f"- Live Integration Status: {'Google Calendar Connected & Verified (Ground Truth)' if gcal_connected else 'CRM Internal Schedule Active'}\n"
-                "All standard business hours (09:00 AM to 08:00 PM) over the next 7 days are currently open and available for booking.\n"
+                f"All standard business hours ({op_hours_display}) over the next 7 days are currently open and available for booking.\n"
                 "- Propose and book only during standard business hours upon customer confirmation. Never invent or assume times."
             )
 
@@ -1185,7 +1210,7 @@ class CoreWorker:
             "- If a customer asks for a slot that is already occupied or busy on Google Calendar (or CRM), NEVER agree to that time.\n"
             "- NEVER say incorrect, hallucinated, or wrong schedule data. Politely inform them:\n"
             "  'That slot is already booked on our calendar. Would [suggest an available free time from open hours] work for you instead?'\n"
-            "- Operating hours: strictly within business hours (09:00 AM to 08:00 PM).\n\n"
+            f"- Operating hours: strictly within business hours ({op_hours_display}).\n\n"
             "4. INQUIRY ABOUT EXISTING APPOINTMENT ('When is my appointment?', 'What time is my call?', 'Do I have a booking?', 'Check my appointment', 'My appointment status'):\n"
             "- CRITICAL GLOBAL DIRECTIVE: THIS IS AN INFORMATIONAL STATUS INQUIRY ONLY.\n"
             "- The customer is ONLY asking what time or date their existing appointment is. THEY ARE NOT ASKING TO BOOK OR RESCHEDULE!\n"

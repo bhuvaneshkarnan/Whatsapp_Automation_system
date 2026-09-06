@@ -59,6 +59,7 @@ import {
   CheckSquare,
   ShieldAlert,
   Loader2,
+  Stethoscope,
 } from 'lucide-react';
 import {
   admin,
@@ -70,6 +71,7 @@ import {
   TenantSettingsUpdate,
   Invoice,
   metaTemplatesApi,
+  MetaTemplatesStatusResponse,
   MetaTemplatesSyncResponse,
   StaffUser,
   StaffPermissions,
@@ -385,6 +387,12 @@ export default function SuperAdminClients() {
   const [syncingGlobalRules, setSyncingGlobalRules] = useState(false);
   const [syncResultNotice, setSyncResultNotice] = useState('');
   const [editedGlobalStrictRules, setEditedGlobalStrictRules] = useState('');
+  const [globalOpeningTime, setGlobalOpeningTime] = useState('09:00');
+  const [globalClosingTime, setGlobalClosingTime] = useState('20:00');
+  const [syncingGlobalHours, setSyncingGlobalHours] = useState(false);
+  const [globalHoursNotice, setGlobalHoursNotice] = useState('');
+  const [oauthConnecting, setOauthConnecting] = useState(false);
+  const [oauthDisconnecting, setOauthDisconnecting] = useState(false);
 
   // Live Google Calendar Slot Tester in Global Settings & Drawer
   const [testerTenantId, setTesterTenantId] = useState('');
@@ -703,7 +711,7 @@ export default function SuperAdminClients() {
       return { status: 'CHECKING', category: 'UTILITY', metaId: null };
     }
     const match = metaTemplatesStatus?.templates?.find(
-      (t) => (tplName && t.name === tplName) || (defaultName && t.name === defaultName)
+      (t: any) => (tplName && t.name === tplName) || (defaultName && t.name === defaultName)
     );
     if (match) {
       return {
@@ -1037,6 +1045,8 @@ export default function SuperAdminClients() {
       const res = await admin.getGlobalRules();
       setGlobalRules(res);
       setEditedGlobalStrictRules(res.strict_rules || '');
+      if (res.opening_time) setGlobalOpeningTime(res.opening_time);
+      if (res.closing_time) setGlobalClosingTime(res.closing_time);
     } catch (err: any) {
       console.error('Failed to load global rules:', err);
     } finally {
@@ -1048,13 +1058,81 @@ export default function SuperAdminClients() {
     setSyncingGlobalRules(true);
     setSyncResultNotice('');
     try {
-      const res = await admin.syncGlobalRules(editedGlobalStrictRules);
+      const res = await admin.syncGlobalRules({
+        strict_rules: editedGlobalStrictRules,
+        opening_time: globalOpeningTime,
+        closing_time: globalClosingTime,
+      });
       setSyncResultNotice(res.message || 'Global rules synced successfully.');
       await loadGlobalRules();
     } catch (err: any) {
       setSyncResultNotice('Error: ' + (err?.message || String(err)));
     } finally {
       setSyncingGlobalRules(false);
+    }
+  };
+
+  const handleSyncGlobalHours = async () => {
+    setSyncingGlobalHours(true);
+    setGlobalHoursNotice('');
+    try {
+      const res = await admin.syncGlobalRules({
+        opening_time: globalOpeningTime,
+        closing_time: globalClosingTime,
+      });
+      setGlobalHoursNotice(res.message || 'Global operating hours applied to all clients!');
+      setTimeout(() => setGlobalHoursNotice(''), 4000);
+      loadData();
+    } catch (err: any) {
+      setGlobalHoursNotice('Error: ' + (err?.message || String(err)));
+    } finally {
+      setSyncingGlobalHours(false);
+    }
+  };
+
+  const handleAdminInitGoogleOAuth = async () => {
+    if (!editingConfigTenant) return;
+    const cId = configForm.google_client_id?.trim();
+    const cSec = configForm.google_client_secret?.trim();
+    if (!cId || !cSec) {
+      setConfigError('Please enter both Google OAuth Client ID and Client Secret before signing in with Google.');
+      return;
+    }
+    setOauthConnecting(true);
+    setConfigError('');
+    try {
+      // Auto-save form first
+      await admin.updateTenantSettings(editingConfigTenant.id, configForm);
+      const res = await admin.initGoogleOAuth(editingConfigTenant.id, {
+        client_id: cId,
+        client_secret: cSec,
+      });
+      if (res.auth_url) {
+        window.open(res.auth_url, '_blank', 'width=600,height=700');
+        setActionSuccessNotice('Google OAuth authorization window opened. Complete consent to connect calendar.');
+        setTimeout(() => setActionSuccessNotice(null), 5000);
+      }
+    } catch (err: any) {
+      setConfigError(err?.message || 'Failed to initialize Google OAuth');
+    } finally {
+      setOauthConnecting(false);
+    }
+  };
+
+  const handleAdminDisconnectGoogle = async () => {
+    if (!editingConfigTenant) return;
+    if (!confirm(`Are you sure you want to disconnect Google Calendar synchronization for "${editingConfigTenant.name}"?`)) return;
+    setOauthDisconnecting(true);
+    try {
+      await admin.disconnectGoogleCalendar(editingConfigTenant.id);
+      setConfigForm(prev => ({ ...prev, google_calendar_configured: false }));
+      setActionSuccessNotice(`Google Calendar disconnected for "${editingConfigTenant.name}".`);
+      setTimeout(() => setActionSuccessNotice(null), 3000);
+      loadData();
+    } catch (err: any) {
+      setConfigError(err?.message || 'Failed to disconnect Google Calendar');
+    } finally {
+      setOauthDisconnecting(false);
     }
   };
 
@@ -1072,6 +1150,20 @@ export default function SuperAdminClients() {
       setTesterLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get('gcal_success') === 'true') {
+        setActionSuccessNotice('Google Calendar authorization successful! Workspace calendar is connected.');
+        setTimeout(() => setActionSuccessNotice(null), 5000);
+        loadData();
+      } else if (sp.get('gcal_error')) {
+        setActionSuccessNotice(`Google OAuth error: ${sp.get('gcal_error')}`);
+        setTimeout(() => setActionSuccessNotice(null), 7000);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'global_settings') {
@@ -2295,6 +2387,75 @@ export default function SuperAdminClients() {
                   </div>
                 </div>
 
+              </div>
+
+              {/* Universal Shop Operating Hours Editor & Broadcast Sync */}
+              <div className="bg-surface border border-border rounded-md p-5 space-y-4 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-border">
+                  <div>
+                    <h4 className="text-xs font-semibold text-text-primary flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-accent stroke-[1.5]" />
+                      <span>Platform Universal Shop Operating Hours</span>
+                    </h4>
+                    <p className="text-xs text-text-muted mt-0.5">
+                      Configure standard business hours applied across client AI bots. Bots will strictly propose and confirm slots within this window.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSyncGlobalHours}
+                    disabled={syncingGlobalHours}
+                    className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer shadow-xs disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+                  >
+                    {syncingGlobalHours ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5 stroke-[1.5]" />
+                    )}
+                    <span>Apply Operating Hours to All Clients</span>
+                  </button>
+                </div>
+
+                {globalHoursNotice && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs rounded-sm font-medium flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{globalHoursNotice}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-3.5 bg-surface-subtle border border-border rounded-sm space-y-2">
+                    <label className="block text-xs font-medium text-text-primary flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                      <span>Global Shop Opening Time</span>
+                    </label>
+                    <input
+                      type="time"
+                      value={globalOpeningTime}
+                      onChange={(e) => setGlobalOpeningTime(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                    />
+                    <span className="text-[11px] text-text-muted block">
+                      Default opening time for bookings (e.g. 09:00 AM).
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 bg-surface-subtle border border-border rounded-sm space-y-2">
+                    <label className="block text-xs font-medium text-text-primary flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                      <span>Global Shop Closing Time</span>
+                    </label>
+                    <input
+                      type="time"
+                      value={globalClosingTime}
+                      onChange={(e) => setGlobalClosingTime(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                    />
+                    <span className="text-[11px] text-text-muted block">
+                      Default closing time for bookings (e.g. 08:00 PM).
+                    </span>
+                  </div>
+                </div>
               </div>
 
               {/* Master Directives Editor & Broadcast Sync */}
@@ -4202,7 +4363,108 @@ export default function SuperAdminClients() {
                         </div>
                       </div>
 
-                      {/* Calendar ID Config */}
+                      {/* Step 3: Google 1-Click OAuth Authorization Button */}
+                      <div className="bg-surface-subtle border border-border rounded-md p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-5 h-5 flex items-center justify-center">
+                              <svg className="w-4 h-4" viewBox="0 0 24 24">
+                                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                              </svg>
+                            </div>
+                            <h5 className="text-xs font-semibold text-text-primary">Google Calendar Authorization (1-Click OAuth)</h5>
+                          </div>
+                          {configForm.google_calendar_configured ? (
+                            <span className="text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-sm">
+                              Authorized & Live
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-sm">
+                              Authorization Required
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-xs text-text-secondary leading-relaxed">
+                          Save Client ID & Secret above, then click below to authorize Google Calendar synchronization. 
+                          The OAuth screen will request Calendar Free/Busy and Event access.
+                        </p>
+
+                        <div className="flex items-center gap-2.5 pt-1">
+                          <button
+                            type="button"
+                            onClick={handleAdminInitGoogleOAuth}
+                            disabled={oauthConnecting}
+                            className="px-3.5 py-2 bg-white hover:bg-gray-50 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-800 dark:text-gray-100 border border-gray-300 dark:border-zinc-600 rounded-sm text-xs font-medium shadow-xs transition-colors duration-150 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                          >
+                            {oauthConnecting ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
+                            ) : (
+                              <svg className="w-4 h-4" viewBox="0 0 24 24">
+                                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                              </svg>
+                            )}
+                            <span>{configForm.google_calendar_configured ? 'Re-authorize with Google' : 'Sign in with Google'}</span>
+                          </button>
+
+                          {configForm.google_calendar_configured && (
+                            <button
+                              type="button"
+                              onClick={handleAdminDisconnectGoogle}
+                              disabled={oauthDisconnecting}
+                              className="px-3 py-2 bg-transparent hover:bg-status-error-bg text-status-error border border-status-error-border rounded-sm text-xs font-medium transition-colors duration-150 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              {oauthDisconnecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5 stroke-[1.5]" />}
+                              <span>Disconnect Calendar</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Step 4: Shop Opening & Closing Hours */}
+                      <div className="bg-surface rounded-md border border-border p-4 space-y-3">
+                        <div className="flex items-center justify-between pb-1 border-b border-border">
+                          <label className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                            <span>Shop Operating Hours (Client Specific)</span>
+                          </label>
+                          <span className="text-[10px] text-text-muted">Enforced on WhatsApp AI</span>
+                        </div>
+                        <p className="text-xs text-text-secondary">
+                          AI assistant will strictly propose and accept appointments only within this operating window for this organization.
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                          <div>
+                            <label className="block text-[11px] font-medium text-text-primary mb-1">Shop Opening Time</label>
+                            <input
+                              type="time"
+                              value={configForm.opening_time || '09:00'}
+                              onChange={(e) => setConfigForm({ ...configForm, opening_time: e.target.value })}
+                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                            />
+                            <span className="text-[10px] text-text-muted mt-1 block">Default: 09:00 AM</span>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-medium text-text-primary mb-1">Shop Closing Time</label>
+                            <input
+                              type="time"
+                              value={configForm.closing_time || '20:00'}
+                              onChange={(e) => setConfigForm({ ...configForm, closing_time: e.target.value })}
+                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                            />
+                            <span className="text-[10px] text-text-muted mt-1 block">Default: 08:00 PM</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Step 5: Calendar ID Config */}
                       <div>
                         <label className="block text-xs font-medium text-text-primary mb-1">Target Google Calendar ID</label>
                         <input
@@ -5385,7 +5647,7 @@ export default function SuperAdminClients() {
                     className="w-full px-3 py-1.5 bg-surface border border-border rounded text-text-primary focus:border-accent focus:outline-none"
                   >
                     <option value="">None / Clinic-wide (All Doctors)</option>
-                    {(configForm.doctors || []).map((doc) => (
+                    {(((configForm as any).doctors || configForm.taxonomy?.doctor_presets || []) as string[]).map((doc: string) => (
                       <option key={doc} value={doc}>{doc}</option>
                     ))}
                   </select>
