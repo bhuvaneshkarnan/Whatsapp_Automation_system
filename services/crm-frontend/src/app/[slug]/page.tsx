@@ -8,6 +8,11 @@ export function generateStaticParams() {
   ];
 }
 
-export default function TenantDashboardPage() {
-  return <DashboardPage />;
+export default async function TenantDashboardPage({
+  params,
+}: {
+  params: Promise<{ slug: string }> | { slug: string };
+}) {
+  const resolvedParams = await params;
+  return <DashboardPage routeSlug={resolvedParams?.slug} />;
 }

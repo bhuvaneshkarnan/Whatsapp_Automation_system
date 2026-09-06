@@ -4341,6 +4341,10 @@ async def google_oauth_callback(
         return RedirectResponse(f"{base_redir}?gcal_error={error or 'missing_code'}{t_param}")
 
     async with db_pool.acquire() as conn:
+        tenant_slug = await conn.fetchval("SELECT slug FROM tenants WHERE id = $1::uuid", tenant_id)
+        if not is_admin and tenant_slug:
+            base_redir = f"{APP_BASE_URL}/{tenant_slug}"
+
         g_row = await conn.fetchrow(
             "SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar'",
             tenant_id
@@ -7845,6 +7849,29 @@ async def clear_all_notifications(
             tenant_id
         )
     return {"status": "ok"}
+
+
+@app.get("/tenants/resolve/{slug}")
+async def resolve_tenant_by_slug(slug: str):
+    """
+    Resolve a tenant workspace slug to its tenant ID and basic metadata.
+    Used by frontend routing to establish strict tenant context.
+    """
+    clean_slug = slug.strip().lower()
+    async with db_pool.acquire() as conn:
+        tenant = await conn.fetchrow(
+            "SELECT id, name, slug, plan, is_active FROM tenants WHERE LOWER(slug) = $1",
+            clean_slug
+        )
+        if not tenant:
+            raise HTTPException(404, detail="Tenant organization not found")
+        return {
+            "id": str(tenant["id"]),
+            "name": tenant["name"],
+            "slug": tenant["slug"],
+            "plan": tenant["plan"],
+            "is_active": tenant["is_active"]
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

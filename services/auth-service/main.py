@@ -36,7 +36,9 @@ app = FastAPI(lifespan=lifespan, title="Auth Service")
 class Token(BaseModel):
     access_token: str
     token_type: str
-    tenant_id: str
+    tenant_id: Optional[str] = None
+    tenant_slug: Optional[str] = None
+    role: Optional[str] = None
 
 class UserCreate(BaseModel):
     tenant_id: str
@@ -97,7 +99,11 @@ async def login_for_access_token(
     username_clean = (form_data.username or "").strip().lower()
     async with db_pool.acquire() as conn:
         user = await conn.fetchrow(
-            "SELECT id, tenant_id, password_hash, role, display_name, permissions, is_active FROM users WHERE LOWER(TRIM(email)) = $1",
+            """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
+                      t.slug as tenant_slug, t.name as tenant_name
+               FROM users u
+               LEFT JOIN tenants t ON u.tenant_id = t.id
+               WHERE LOWER(TRIM(u.email)) = $1""",
             username_clean
         )
 
@@ -167,10 +173,12 @@ async def login_for_access_token(
                 user_perms = {}
 
         tenant_id_val = str(user["tenant_id"]) if user.get("tenant_id") else None
+        tenant_slug_val = str(user["tenant_slug"]) if user.get("tenant_slug") else None
         access_token = create_access_token(
             data={
                 "sub": str(user["id"]), 
                 "tenant_id": tenant_id_val, 
+                "tenant_slug": tenant_slug_val,
                 "role": user["role"],
                 "display_name": user.get("display_name") or "",
                 "permissions": user_perms
@@ -181,7 +189,9 @@ async def login_for_access_token(
         return {
             "access_token": access_token,
             "token_type": "bearer",
-            "tenant_id": tenant_id_val
+            "tenant_id": tenant_id_val,
+            "tenant_slug": tenant_slug_val,
+            "role": user["role"]
         }
 
 @app.get("/users/me")
@@ -191,9 +201,19 @@ async def read_users_me(token: str = Depends(oauth2_scheme)):
         payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
         tenant_id: str = payload.get("tenant_id")
+        tenant_slug: str = payload.get("tenant_slug")
         role: str = payload.get("role")
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
+
+        if not tenant_slug and tenant_id and str(tenant_id).lower() != "none" and db_pool:
+            try:
+                async with db_pool.acquire() as conn:
+                    tenant_slug = await conn.fetchval(
+                        "SELECT slug FROM tenants WHERE id = $1::uuid", tenant_id
+                    )
+            except Exception:
+                pass
 
         # Invalidate active JWTs if subscription was halted/cancelled (force-logout)
         if role != "super_admin" and tenant_id and str(tenant_id).lower() != "none" and db_pool:
@@ -209,6 +229,7 @@ async def read_users_me(token: str = Depends(oauth2_scheme)):
         return {
             "id": user_id, 
             "tenant_id": tenant_id, 
+            "tenant_slug": tenant_slug or "",
             "role": role,
             "display_name": payload.get("display_name") or "",
             "permissions": payload.get("permissions") or {}

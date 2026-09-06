@@ -93,9 +93,9 @@ export const auth = {
       }
       throw new Error(errorMsg);
     }
-    return res.json() as Promise<{ access_token: string; token_type: string; tenant_id: string }>;
+    return res.json() as Promise<{ access_token: string; token_type: string; tenant_id: string; tenant_slug?: string; role?: string }>;
   },
-  me: () => request<{ id: string; tenant_id: string; role: string; email?: string; display_name?: string; permissions?: StaffPermissions }>('/api/v1/auth/users/me'),
+  me: () => request<{ id: string; tenant_id: string; tenant_slug?: string; role: string; email?: string; display_name?: string; permissions?: StaffPermissions }>('/api/v1/auth/users/me'),
   createUser: (data: { tenant_id: string; email: string; password: string; display_name?: string }) =>
     request<{ id: string; email: string }>('/api/v1/auth/users', {
       method: 'POST',
@@ -437,6 +437,11 @@ export const crm = {
 
   getSettings: () =>
     request<TenantSettingsResponse>('/api/v1/crm/settings'),
+
+  resolveTenantBySlug: (slug: string) =>
+    request<{ id: string; name: string; slug: string; plan?: string; is_active?: boolean }>(
+      `/api/v1/crm/tenants/resolve/${encodeURIComponent(slug)}`
+    ),
 
   updateSettings: (data: Partial<TenantSettingsResponse>) =>
     request<TenantSettingsResponse>('/api/v1/crm/settings', {

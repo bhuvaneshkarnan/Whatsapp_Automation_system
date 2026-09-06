@@ -1341,9 +1341,10 @@ export default function SuperAdminClients() {
     }
   }
 
-  function handleImpersonateTenant(tenantId: string) {
-    localStorage.setItem('tenant_id', tenantId);
-    router.push('/dashboard');
+  function handleImpersonateTenant(tenant: { id: string; slug: string }) {
+    localStorage.setItem('tenant_id', tenant.id);
+    localStorage.setItem('tenant_slug', tenant.slug);
+    router.push(`/${tenant.slug}`);
   }
 
   function copyToClipboard(text: string, fieldName: string) {
@@ -1857,7 +1858,7 @@ export default function SuperAdminClients() {
 
                                 {/* Open CRM - PRIMARY ACTION */}
                                 <button
-                                  onClick={() => handleImpersonateTenant(t.id)}
+                                  onClick={() => handleImpersonateTenant(t)}
                                   className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shadow-xs shrink-0"
                                   title="Access this Tenant's CRM Workspace"
                                 >
@@ -3338,7 +3339,7 @@ export default function SuperAdminClients() {
 
                 <button
                   type="button"
-                  onClick={() => handleImpersonateTenant(editingConfigTenant.id)}
+                  onClick={() => handleImpersonateTenant(editingConfigTenant)}
                   className="px-2.5 py-1 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-border rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer"
                   title="Open Client CRM in another tab or view"
                 >

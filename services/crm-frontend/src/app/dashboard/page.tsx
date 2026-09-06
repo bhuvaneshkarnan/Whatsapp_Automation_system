@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams, usePathname } from 'next/navigation';
 
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 import {
@@ -493,8 +493,10 @@ const INDUSTRY_PRESETS = [
   },
 ];
 
-export default function DashboardPage() {
+export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}) {
   const router = useRouter();
+  const params = useParams();
+  const pathname = usePathname();
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
   
   // Navigation: overview | inbox | bookings | calendar | customers | followup | marketing | settings | team
@@ -699,7 +701,7 @@ export default function DashboardPage() {
 
       // Fire an immediate confirmation notification banner
       try {
-        await reg.showNotification('🔔 Boldlabs Web Push Enabled', {
+        await reg.showNotification(`🔔 ${settingsForm.name || 'CRM'} Web Push Enabled`, {
           body: 'Real-time notifications are now active on your laptop!',
           icon: '/favicon.ico',
           badge: '/favicon.ico',
@@ -728,14 +730,14 @@ export default function DashboardPage() {
           if ('serviceWorker' in navigator) {
             const reg = await navigator.serviceWorker.ready;
             if (reg) {
-              await reg.showNotification('🔔 Boldlabs Live Alert', {
+              await reg.showNotification(`🔔 ${settingsForm.name || 'CRM'} Live Alert`, {
                 body: 'Real notification is active on this device!',
                 icon: '/favicon.ico',
                 badge: '/favicon.ico',
                 tag: `test-alert-${Date.now()}`,
                 renotify: true,
                 requireInteraction: true,
-                data: { url: '/boldlabs' },
+                data: { url: `/${settingsForm.slug || (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') || 'dashboard'}` },
               } as any);
             }
           }
@@ -1796,6 +1798,11 @@ export default function DashboardPage() {
     }
   }, [selectedConv?.id, messages]);
 
+  const getStickyNotesKey = (targetTenantId?: string) => {
+    const tid = targetTenantId || settingsForm.tenant_id || (typeof window !== 'undefined' ? localStorage.getItem('tenant_id') || localStorage.getItem('tenant_slug') : '') || 'default';
+    return `crm_sticky_notes_${tid}`;
+  };
+
   // Initial Auth & Load
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
@@ -1806,15 +1813,53 @@ export default function DashboardPage() {
       return;
     }
     crm.getMe()
-      .then((data) => {
+      .then(async (data) => {
         setUser(data);
         setIsAuthChecking(false);
-        if (typeof window !== 'undefined') {
-          const storedSlug = localStorage.getItem('tenant_slug') || 'boldlabs';
-          if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
-            window.history.replaceState(null, '', `/${storedSlug}${window.location.hash || ''}`);
+
+        // Determine effective target slug from props, params, or URL path
+        const rawSlug = routeSlug || (params?.slug as string) || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : '') || '';
+        const targetSlug = rawSlug && rawSlug !== 'dashboard' && rawSlug !== 'login' && rawSlug !== 'bhuvanesh' && rawSlug !== 'admin' ? rawSlug.toLowerCase().trim() : '';
+
+        // 1. Regular client admin / agent: STRICT WORKSPACE LOCK
+        if (data.role !== 'super_admin') {
+          const userSlug = (data.tenant_slug || '').toLowerCase().trim();
+          if (data.tenant_id) {
+            localStorage.setItem('tenant_id', data.tenant_id);
+          }
+          if (userSlug) {
+            localStorage.setItem('tenant_slug', userSlug);
+            // If user attempts to view a different tenant slug, bounce them back to their assigned workspace
+            if (targetSlug && targetSlug !== userSlug && typeof window !== 'undefined') {
+              window.location.replace(`/${userSlug}${window.location.hash || ''}`);
+              return;
+            }
+            if (typeof window !== 'undefined' && (window.location.pathname === '/dashboard' || window.location.pathname === '/')) {
+              window.history.replaceState(null, '', `/${userSlug}${window.location.hash || ''}`);
+            }
+          }
+        } 
+        // 2. Super Admin: Workspace resolution and switching
+        else if (data.role === 'super_admin') {
+          if (targetSlug) {
+            try {
+              // Resolve target slug to tenant_id so all API calls are scoped to the intended client
+              const resolved = await crm.resolveTenantBySlug(targetSlug);
+              if (resolved && resolved.id) {
+                localStorage.setItem('tenant_id', resolved.id);
+                localStorage.setItem('tenant_slug', resolved.slug);
+              }
+            } catch (err) {
+              console.warn('Could not resolve tenant by slug:', targetSlug, err);
+            }
+          } else if (typeof window !== 'undefined') {
+            const storedSlug = localStorage.getItem('tenant_slug') || data.tenant_slug;
+            if (storedSlug && (window.location.pathname === '/dashboard' || window.location.pathname === '/')) {
+              window.history.replaceState(null, '', `/${storedSlug}${window.location.hash || ''}`);
+            }
           }
         }
+
         if (data.permissions) {
           const p = data.permissions;
           if (p.assigned_doctor) {
@@ -1842,27 +1887,31 @@ export default function DashboardPage() {
       });
   }, []);
 
-  // Load Sticky Notes from localStorage
+  // Load Sticky Notes from localStorage (strictly isolated per tenant)
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('boldlabs_sticky_notes');
+      const key = getStickyNotesKey();
+      const saved = localStorage.getItem(key);
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
+          if (Array.isArray(parsed)) {
             setStickyNotes(parsed);
           }
         } catch (e) {
           console.error('Error parsing sticky notes', e);
         }
+      } else {
+        setStickyNotes([]);
       }
     }
-  }, []);
+  }, [settingsForm.tenant_id]);
 
   const saveStickyNotes = (notes: typeof stickyNotes) => {
     setStickyNotes(notes);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('boldlabs_sticky_notes', JSON.stringify(notes));
+      const key = getStickyNotesKey();
+      localStorage.setItem(key, JSON.stringify(notes));
     }
   };
 
@@ -2797,10 +2846,12 @@ export default function DashboardPage() {
       const data = await crm.getSettings();
       setSettingsForm(data);
       if (typeof window !== 'undefined') {
-        const slug = data?.slug || localStorage.getItem('tenant_slug') || 'boldlabs';
-        localStorage.setItem('tenant_slug', slug);
-        if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
-          window.history.replaceState(null, '', `/${slug}${window.location.hash || ''}`);
+        const slug = data?.slug || localStorage.getItem('tenant_slug');
+        if (slug) {
+          localStorage.setItem('tenant_slug', slug);
+          if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
+            window.history.replaceState(null, '', `/${slug}${window.location.hash || ''}`);
+          }
         }
       }
     } catch (err: unknown) {
@@ -2874,10 +2925,12 @@ export default function DashboardPage() {
       if (updated && updated.name !== undefined) {
         setSettingsForm((prev) => ({ ...prev, ...updated }));
         if (typeof window !== 'undefined') {
-          const slug = updated.slug || settingsForm.slug || localStorage.getItem('tenant_slug') || 'boldlabs';
-          localStorage.setItem('tenant_slug', slug);
-          if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
-            window.history.replaceState(null, '', `/${slug}${window.location.hash || ''}`);
+          const slug = updated.slug || settingsForm.slug || localStorage.getItem('tenant_slug');
+          if (slug) {
+            localStorage.setItem('tenant_slug', slug);
+            if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
+              window.history.replaceState(null, '', `/${slug}${window.location.hash || ''}`);
+            }
           }
         }
       } else {
@@ -3478,7 +3531,7 @@ export default function DashboardPage() {
 
       const rawParams = [
         campaignForm.template_param1 || 'Customer',
-        campaignForm.template_param2 || settingsForm.name || 'Boldlabs',
+        campaignForm.template_param2 || settingsForm.name || 'Our Team',
         campaignForm.template_param3 || 'Special Promotion',
         campaignForm.template_param4 || 'Visit Us',
       ];
@@ -3588,6 +3641,8 @@ export default function DashboardPage() {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('tenant_id');
     localStorage.removeItem('tenant_slug');
+    const noteKey = getStickyNotesKey();
+    localStorage.removeItem(noteKey);
     localStorage.removeItem('boldlabs_sticky_notes');
     localStorage.removeItem('whatsapp_crm_important_chats');
     localStorage.removeItem('whatsapp_crm_custom_templates');
@@ -3813,7 +3868,7 @@ export default function DashboardPage() {
         />
         <div className="w-9 h-9 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
         <div className="flex flex-col items-center gap-1 text-center">
-          <span className="text-sm font-semibold text-white tracking-wide">Boldlabs CRM</span>
+          <span className="text-sm font-semibold text-white tracking-wide">{settingsForm.name ? `${settingsForm.name} CRM` : 'Client CRM'}</span>
           <span className="text-xs text-slate-400">Verifying authorized access...</span>
         </div>
       </div>
@@ -3842,7 +3897,7 @@ export default function DashboardPage() {
               Workspace Access Paused
             </h1>
             <p className="text-xs text-text-muted mt-1">
-              Organization: <span className="text-amber-400 font-semibold">{settingsForm.name || 'Boldlabs CRM'}</span>
+              Organization: <span className="text-amber-400 font-semibold">{settingsForm.name || 'Your Organization'}</span>
             </p>
           </div>
 
@@ -4216,7 +4271,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
             <span className="font-bold text-[17px] text-text-primary tracking-tight">
-              {settingsForm.name || 'Boldlabs CRM'}
+              {settingsForm.name || 'Client CRM'}
             </span>
           </div>
 
@@ -8771,7 +8826,7 @@ export default function DashboardPage() {
                                         <label className="text-[10px] font-medium text-text-muted">Variable {i + 1} {`({{${i + 1}}})`}</label>
                                         <input
                                           type="text"
-                                          placeholder={i === 0 ? 'e.g. Valued Customer' : i === 1 ? settingsForm.name || 'Boldlabs' : 'e.g. FLAT20'}
+                                          placeholder={i === 0 ? 'e.g. Valued Customer' : i === 1 ? settingsForm.name || 'Our Company' : 'e.g. FLAT20'}
                                           value={campaignForm[param]}
                                           onChange={(e) => setCampaignForm({ ...campaignForm, [param]: e.target.value })}
                                           className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary"
@@ -8887,7 +8942,7 @@ export default function DashboardPage() {
                           </div>
                           <div className="bg-[#EFEAE2] p-3.5 rounded-md border border-slate-200 shadow-inner space-y-2">
                             <div className="bg-white rounded-md p-3 max-w-[90%] shadow-sm text-xs space-y-2 text-slate-800 ml-auto border border-slate-100">
-                              <div className="font-semibold text-emerald-800 text-[11px] pb-1 border-b border-slate-100">{settingsForm.name || 'Boldlabs'}</div>
+                              <div className="font-semibold text-emerald-800 text-[11px] pb-1 border-b border-slate-100">{settingsForm.name || 'Our Company'}</div>
                               <div className="text-slate-700 leading-relaxed text-xs">
                                 {campaignForm.message_mode === 'template' ? (
                                   <p>Hello <strong>{campaignForm.template_param1 || 'Valued Customer'}</strong>! {campaignForm.template_param3 ? `Here is your special offer: ${campaignForm.template_param3}.` : 'Thank you for being our customer.'} Reply to claim or book now!</p>
@@ -9333,7 +9388,7 @@ export default function DashboardPage() {
                         </div>
                         <div className="p-3 bg-surface-subtle rounded-sm border border-border flex items-center gap-2.5">
                           <span className="font-bold text-[16px] text-text-primary tracking-tight">
-                            {settingsForm.name || 'Boldlabs CRM'}
+                            {settingsForm.name || 'Client CRM'}
                           </span>
                           <span className="text-[13px] font-medium text-text-muted">
                             / Overview

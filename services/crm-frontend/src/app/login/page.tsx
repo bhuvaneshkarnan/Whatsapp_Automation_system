@@ -41,26 +41,47 @@ export default function LoginPage() {
     try {
       const res = await auth.login(email, password, rememberMe);
       localStorage.setItem('auth_token', res.access_token);
-      localStorage.setItem('tenant_id', res.tenant_id);
+      if (res.tenant_id) {
+        localStorage.setItem('tenant_id', res.tenant_id);
+      }
+      if (res.tenant_slug) {
+        localStorage.setItem('tenant_slug', res.tenant_slug);
+      }
 
       // Check if logged in user is super_admin
+      let userRole = res.role;
+      let userSlug = res.tenant_slug;
       try {
         const me = await auth.me();
-        if (me.role === 'super_admin') {
-          router.push('/bhuvanesh');
-          return;
+        userRole = me.role || userRole;
+        if (me.tenant_slug) {
+          userSlug = me.tenant_slug;
+          localStorage.setItem('tenant_slug', me.tenant_slug);
+        }
+        if (me.tenant_id) {
+          localStorage.setItem('tenant_id', me.tenant_id);
         }
       } catch {}
 
+      if (userRole === 'super_admin') {
+        router.push('/bhuvanesh');
+        return;
+      }
+
       // Standard client: route directly to their business workspace
-      try {
-        const settings = await crm.getSettings();
-        const slug = settings.slug || 'boldlabs';
-        localStorage.setItem('tenant_slug', slug);
-        router.push(`/${slug}`);
-      } catch {
-        localStorage.setItem('tenant_slug', 'boldlabs');
-        router.push('/boldlabs');
+      let targetSlug = userSlug;
+      if (!targetSlug) {
+        try {
+          const settings = await crm.getSettings();
+          targetSlug = settings.slug;
+        } catch {}
+      }
+
+      if (targetSlug) {
+        localStorage.setItem('tenant_slug', targetSlug);
+        router.push(`/${targetSlug}`);
+      } else {
+        router.push('/dashboard');
       }
     } catch (err: any) {
       if (err?.code === 'PAYMENT_REQUIRED' && err.paymentDetails) {
