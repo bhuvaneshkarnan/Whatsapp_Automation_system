@@ -508,7 +508,7 @@ async def dispatch_push_notification(
         return {"status": "error", "message": "Missing pool or tenant_id"}
 
     notification_id = str(uuid.uuid4())
-    merged_data = {"url": url or "/boldlabs#inbox", "type": notif_type, **(data or {})}
+    merged_data = {"url": url or "/dashboard#inbox", "type": notif_type, **(data or {})}
 
     try:
         async with pool.acquire() as conn:
