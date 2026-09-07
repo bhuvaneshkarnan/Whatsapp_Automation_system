@@ -345,6 +345,14 @@ export const crm = {
       }
     ),
 
+  deleteBooking: (bookingId: string) =>
+    request<{ status: string; id: string }>(
+      `/api/v1/crm/bookings/${bookingId}`,
+      {
+        method: 'DELETE',
+      }
+    ),
+
   conversations: (status?: string, limit = 50) =>
     crm.getConversations(status, limit),
 

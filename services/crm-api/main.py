@@ -3449,6 +3449,41 @@ async def update_booking_status(
     }
 
 
+@app.delete("/bookings/{booking_id}")
+@app.delete("/api/v1/crm/bookings/{booking_id}")
+async def delete_booking(
+    booking_id: str,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """
+    Permanently delete a booking.
+    Strict rule: Only cancelled bookings can be deleted.
+    """
+    async with db_pool.acquire() as conn:
+        booking = await conn.fetchrow(
+            "SELECT id, status FROM bookings WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            booking_id, tenant_id
+        )
+        if not booking:
+            raise HTTPException(404, "Booking not found")
+
+        if booking["status"] != "cancelled":
+            raise HTTPException(
+                status_code=400,
+                detail="Only cancelled bookings can be deleted. Please cancel the booking first."
+            )
+
+        async with conn.transaction():
+            # Clean up scheduled jobs associated with this booking
+            await conn.execute("DELETE FROM scheduled_jobs WHERE booking_id = $1::uuid", booking_id)
+            # Remove any rescheduled_from pointers pointing to this booking
+            await conn.execute("UPDATE bookings SET rescheduled_from = NULL WHERE rescheduled_from = $1::uuid", booking_id)
+            # Delete the booking record
+            await conn.execute("DELETE FROM bookings WHERE id = $1::uuid AND tenant_id = $2::uuid", booking_id, tenant_id)
+
+    return {"status": "deleted", "id": booking_id}
+
+
 @app.get("/conversations")
 async def list_conversations(
     tenant_id: str = Depends(get_tenant_id),
