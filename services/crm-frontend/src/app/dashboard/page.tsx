@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, Fragment } from 'react';
 import { useRouter, useParams, usePathname } from 'next/navigation';
 
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
@@ -293,6 +293,90 @@ function formatDateTime12(dateStrOrObj: string | Date | null | undefined): strin
     return `${datePart}, ${timePart}`;
   } catch {
     return '—';
+  }
+}
+
+function formatFullDateTimeDetailed(dateStrOrObj: string | Date | null | undefined): string {
+  if (!dateStrOrObj) return '';
+  try {
+    const d = typeof dateStrOrObj === 'string' ? new Date(dateStrOrObj) : dateStrOrObj;
+    if (isNaN(d.getTime())) return '';
+    const datePart = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    const timePart = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+    return `${datePart} at ${timePart}`;
+  } catch {
+    return '';
+  }
+}
+
+function getMessageDateKey(dateStrOrObj: string | Date | null | undefined): string {
+  if (!dateStrOrObj) return '';
+  try {
+    const d = typeof dateStrOrObj === 'string' ? new Date(dateStrOrObj) : dateStrOrObj;
+    if (isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  } catch {
+    return '';
+  }
+}
+
+function formatMessageDateDivider(dateStrOrObj: string | Date | null | undefined): string {
+  if (!dateStrOrObj) return '';
+  try {
+    const d = typeof dateStrOrObj === 'string' ? new Date(dateStrOrObj) : dateStrOrObj;
+    if (isNaN(d.getTime())) return '';
+    
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const msgDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    
+    const diffMs = today.getTime() - msgDate.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+    
+    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    
+    if (diffDays === 0) {
+      return `Today • ${dateStr}`;
+    } else if (diffDays === 1) {
+      return `Yesterday • ${dateStr}`;
+    } else if (diffDays > 1 && diffDays < 7) {
+      const weekday = d.toLocaleDateString('en-US', { weekday: 'long' });
+      return `${weekday} • ${dateStr}`;
+    } else {
+      const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+      return `${weekday}, ${dateStr}`;
+    }
+  } catch {
+    return '';
+  }
+}
+
+function formatConversationDate(dateStrOrObj: string | Date | null | undefined): string {
+  if (!dateStrOrObj) return '';
+  try {
+    const d = typeof dateStrOrObj === 'string' ? new Date(dateStrOrObj) : dateStrOrObj;
+    if (isNaN(d.getTime())) return '';
+    
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const msgDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    
+    const diffMs = today.getTime() - msgDate.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) {
+      return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    } else if (diffDays === 1) {
+      return 'Yesterday';
+    } else if (diffDays > 1 && diffDays < 7) {
+      return d.toLocaleDateString('en-US', { weekday: 'short' });
+    } else if (d.getFullYear() === now.getFullYear()) {
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } else {
+      return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' });
+    }
+  } catch {
+    return '';
   }
 }
 
@@ -6353,8 +6437,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     ) : null;
                                   })()}
                                 </div>
-                                <span className="text-[11px] text-text-muted font-mono shrink-0">
-                                  {formatTime12(conv.last_message_at)}
+                                <span
+                                  className="text-[11px] text-text-muted font-mono shrink-0"
+                                  title={formatFullDateTimeDetailed(conv.last_message_at)}
+                                >
+                                  {formatConversationDate(conv.last_message_at)}
                                 </span>
                               </div>
                               <div className="flex items-center justify-between mt-0.5">
@@ -6449,7 +6536,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 ) : null;
                               })()}
                             </div>
-                            <p className="text-[10px] text-text-muted font-mono truncate">{selectedConv.contact_phone}</p>
+                            <div className="flex items-center gap-1.5 text-[10px] text-text-muted font-mono truncate">
+                              <span>{selectedConv.contact_phone}</span>
+                              {selectedConv.last_message_at && (
+                                <>
+                                  <span>&bull;</span>
+                                  <span
+                                    className="text-text-secondary truncate"
+                                    title={formatFullDateTimeDetailed(selectedConv.last_message_at)}
+                                  >
+                                    Last: {formatConversationDate(selectedConv.last_message_at)} ({formatTime12(selectedConv.last_message_at)})
+                                  </span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
 
@@ -6575,39 +6675,56 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             No messages in this chat yet.
                           </div>
                         ) : (
-                          messages.map((msg) => {
+                          messages.map((msg, idx) => {
                             const isInbound = msg.direction === 'inbound';
                             const isVoice = msg.body?.startsWith('[Voice Note:');
+                            const currentDateKey = getMessageDateKey(msg.created_at);
+                            const prevDateKey = idx > 0 ? getMessageDateKey(messages[idx - 1]?.created_at) : null;
+                            const showDateDivider = idx === 0 || (Boolean(currentDateKey) && currentDateKey !== prevDateKey);
+
                             return (
-                              <div key={msg.id} className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
-                                <div
-                                  className={`max-w-[85%] sm:max-w-[70%] rounded-2xl ${isInbound ? 'rounded-tl-xs bg-surface text-text-body border border-border shadow-xs' : 'rounded-tr-xs bg-accent text-white shadow-xs'} px-3.5 py-2.5 text-xs`}
-                                >
-                                  {isVoice && (
-                                    <div className="flex items-center gap-1 text-accent-light font-mono text-[10px] mb-1">
-                                      <Mic className="w-3 h-3 stroke-[1.5]" />
-                                      <span>Voice note transcribed</span>
+                              <Fragment key={msg.id}>
+                                {showDateDivider && (
+                                  <div className="flex justify-center my-3 sticky top-1 z-10 select-none">
+                                    <div className="px-3 py-1 rounded-full text-[11px] font-semibold bg-surface/95 backdrop-blur-sm text-text-secondary border border-border shadow-xs flex items-center gap-1.5">
+                                      <Calendar className="w-3 h-3 text-text-muted stroke-[1.8]" />
+                                      <span>{formatMessageDateDivider(msg.created_at)}</span>
                                     </div>
-                                  )}
-                                  <p className="leading-relaxed whitespace-pre-wrap font-sans">{msg.body}</p>
-                                  <div className={`text-[10px] mt-1 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100/90'}`}>
-                                    <span>{formatTime12(msg.created_at)}</span>
-                                    {!isInbound && (
-                                      <span className="inline-flex items-center ml-0.5" title={msg.status === 'read' ? 'Read (seen)' : msg.status === 'delivered' ? 'Delivered' : msg.status === 'failed' ? 'Failed' : 'Sent'}>
-                                        {msg.status === 'read' ? (
-                                          <CheckCheck className="w-3.5 h-3.5 stroke-[2.2] text-[#53bdeb] shrink-0" />
-                                        ) : msg.status === 'delivered' ? (
-                                          <CheckCheck className="w-3.5 h-3.5 stroke-[2] text-teal-200/80 shrink-0" />
-                                        ) : msg.status === 'failed' ? (
-                                          <AlertCircle className="w-3 h-3 stroke-[2] text-rose-300 shrink-0" />
-                                        ) : (
-                                          <Check className="w-3.5 h-3.5 stroke-[2] text-teal-200/80 shrink-0" />
-                                        )}
-                                      </span>
+                                  </div>
+                                )}
+                                <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
+                                  <div
+                                    className={`max-w-[85%] sm:max-w-[70%] rounded-2xl ${isInbound ? 'rounded-tl-xs bg-surface text-text-body border border-border shadow-xs' : 'rounded-tr-xs bg-accent text-white shadow-xs'} px-3.5 py-2.5 text-xs`}
+                                  >
+                                    {isVoice && (
+                                      <div className="flex items-center gap-1 text-accent-light font-mono text-[10px] mb-1">
+                                        <Mic className="w-3 h-3 stroke-[1.5]" />
+                                        <span>Voice note transcribed</span>
+                                      </div>
                                     )}
+                                    <p className="leading-relaxed whitespace-pre-wrap font-sans">{msg.body}</p>
+                                    <div
+                                      className={`text-[10px] mt-1 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100/90'}`}
+                                      title={formatFullDateTimeDetailed(msg.created_at)}
+                                    >
+                                      <span>{formatTime12(msg.created_at)}</span>
+                                      {!isInbound && (
+                                        <span className="inline-flex items-center ml-0.5" title={msg.status === 'read' ? 'Read (seen)' : msg.status === 'delivered' ? 'Delivered' : msg.status === 'failed' ? 'Failed' : 'Sent'}>
+                                          {msg.status === 'read' ? (
+                                            <CheckCheck className="w-3.5 h-3.5 stroke-[2.2] text-[#53bdeb] shrink-0" />
+                                          ) : msg.status === 'delivered' ? (
+                                            <CheckCheck className="w-3.5 h-3.5 stroke-[2] text-teal-200/80 shrink-0" />
+                                          ) : msg.status === 'failed' ? (
+                                            <AlertCircle className="w-3 h-3 stroke-[2] text-rose-300 shrink-0" />
+                                          ) : (
+                                            <Check className="w-3.5 h-3.5 stroke-[2] text-teal-200/80 shrink-0" />
+                                          )}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
+                              </Fragment>
                             );
                           })
                         )}
@@ -7435,17 +7552,34 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 ) : !customerChat || !customerChat.messages || customerChat.messages.length === 0 ? (
                                   <p className="text-[11px] text-text-muted text-center py-6">No WhatsApp messages yet.</p>
                                 ) : (
-                                  customerChat.messages.map((msg) => {
+                                  customerChat.messages.map((msg, idx) => {
                                     const isInbound = msg.direction === 'inbound';
+                                    const currentDateKey = getMessageDateKey(msg.created_at);
+                                    const prevDateKey = idx > 0 ? getMessageDateKey(customerChat.messages[idx - 1]?.created_at) : null;
+                                    const showDateDivider = idx === 0 || (Boolean(currentDateKey) && currentDateKey !== prevDateKey);
+
                                     return (
-                                      <div key={msg.id} className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
-                                        <div className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${isInbound ? 'bg-surface text-text-body border border-border' : 'bg-accent text-white'}`}>
-                                          <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
-                                          <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}>
-                                            <span>{formatTime12(msg.created_at)}</span>
+                                      <Fragment key={msg.id}>
+                                        {showDateDivider && (
+                                          <div className="flex justify-center my-2 select-none">
+                                            <div className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-surface text-text-secondary border border-border shadow-xs flex items-center gap-1">
+                                              <Calendar className="w-2.5 h-2.5 text-text-muted stroke-[1.8]" />
+                                              <span>{formatMessageDateDivider(msg.created_at)}</span>
+                                            </div>
+                                          </div>
+                                        )}
+                                        <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
+                                          <div className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${isInbound ? 'bg-surface text-text-body border border-border' : 'bg-accent text-white'}`}>
+                                            <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
+                                            <div
+                                              className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}
+                                              title={formatFullDateTimeDetailed(msg.created_at)}
+                                            >
+                                              <span>{formatTime12(msg.created_at)}</span>
+                                            </div>
                                           </div>
                                         </div>
-                                      </div>
+                                      </Fragment>
                                     );
                                   })
                                 )}
@@ -7988,17 +8122,34 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 ) : !customerChat || !customerChat.messages || customerChat.messages.length === 0 ? (
                                   <p className="text-[11px] text-text-muted text-center py-6">No WhatsApp messages yet.</p>
                                 ) : (
-                                  customerChat.messages.map((msg) => {
+                                  customerChat.messages.map((msg, idx) => {
                                     const isInbound = msg.direction === 'inbound';
+                                    const currentDateKey = getMessageDateKey(msg.created_at);
+                                    const prevDateKey = idx > 0 ? getMessageDateKey(customerChat.messages[idx - 1]?.created_at) : null;
+                                    const showDateDivider = idx === 0 || (Boolean(currentDateKey) && currentDateKey !== prevDateKey);
+
                                     return (
-                                      <div key={msg.id} className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
-                                        <div className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${isInbound ? 'bg-surface text-text-body border border-border' : 'bg-accent text-white'}`}>
-                                          <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
-                                          <div className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}>
-                                            <span>{formatTime12(msg.created_at)}</span>
+                                      <Fragment key={msg.id}>
+                                        {showDateDivider && (
+                                          <div className="flex justify-center my-2 select-none">
+                                            <div className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-surface text-text-secondary border border-border shadow-xs flex items-center gap-1">
+                                              <Calendar className="w-2.5 h-2.5 text-text-muted stroke-[1.8]" />
+                                              <span>{formatMessageDateDivider(msg.created_at)}</span>
+                                            </div>
+                                          </div>
+                                        )}
+                                        <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
+                                          <div className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${isInbound ? 'bg-surface text-text-body border border-border' : 'bg-accent text-white'}`}>
+                                            <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
+                                            <div
+                                              className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}
+                                              title={formatFullDateTimeDetailed(msg.created_at)}
+                                            >
+                                              <span>{formatTime12(msg.created_at)}</span>
+                                            </div>
                                           </div>
                                         </div>
-                                      </div>
+                                      </Fragment>
                                     );
                                   })
                                 )}
