@@ -1111,6 +1111,22 @@ class CoreWorker:
 
         # Retrieve all currently booked/occupied slots for this business (next 7 days) from Google Calendar and CRM
         busy_slots, gcal_connected = await self._get_live_occupied_slots(tenant_id, tenant_tz)
+
+        # Explicitly compute today's live availability status
+        today_date = now.date()
+        today_busy = [s for s in busy_slots if s['start'].date() == today_date]
+        if today_busy:
+            today_busy_str = ", ".join([f"{s['start'].strftime('%I:%M %p')} to {s['end'].strftime('%I:%M %p')}" for s in today_busy])
+            today_status_summary = (
+                f"- TODAY ({now.strftime('%A, %d %b %Y')}): Business hours are {op_hours_display}. "
+                f"Occupied timeslots today: {today_busy_str}. Any other time between now ({now.strftime('%I:%M %p')}) and closing ({_fmt_ampm(closing_time_raw, '08:00 PM')}) is 100% OPEN and AVAILABLE to book."
+            )
+        else:
+            today_status_summary = (
+                f"- TODAY ({now.strftime('%A, %d %b %Y')}): ZERO BOOKINGS / 100% OPEN! "
+                f"There are NO bookings for today. Any time between now ({now.strftime('%I:%M %p')}) and closing ({_fmt_ampm(closing_time_raw, '08:00 PM')}) is 100% OPEN and AVAILABLE to book."
+            )
+
         if busy_slots:
             busy_lines = [
                 f"- {s['start'].strftime('%A, %d %b %Y: %I:%M %p')} to {s['end'].strftime('%I:%M %p')} ({s['source']})"
@@ -1119,12 +1135,14 @@ class CoreWorker:
             busy_slots_block = (
                 f"### LIVE CALENDAR AVAILABILITY & OCCUPIED TIMESLOTS ({'GOOGLE CALENDAR LIVE SYNC ACTIVE' if gcal_connected else 'CRM LOCAL SCHEDULE'}):\n"
                 f"- Live Integration Status: {'Google Calendar Connected & Verified (Ground Truth)' if gcal_connected else 'CRM Internal Schedule Active'}\n"
+                f"{today_status_summary}\n"
                 "The following time slots are ALREADY OCCUPIED and BUSY on the calendar over the next 7 days. NO ONE CAN BOOK THESE TIMES:\n"
                 + "\n".join(busy_lines)
                 + "\n\n### STRICT AVAILABILITY & FREE-TIME BOOKING DIRECTIVES (ZERO WRONG DATA):\n"
                 "- LIVE CALENDAR GROUND TRUTH: The occupied slots above are the definitive ground truth from Google Calendar and the CRM.\n"
                 "- FREE TIME ONLY: You must STRICTLY and EXCLUSIVELY propose or confirm appointments during open, unoccupied time slots.\n"
                 "- ZERO WRONG OR INCORRECT DATA: NEVER guess, invent, or state inaccurate slot availability. If a customer requests any occupied time slot above, you MUST politely inform them that this slot is already booked on the calendar, and propose the closest open free time instead.\n"
+                "- ZERO FALSE 'FULLY BOOKED' CLAIMS: NEVER state, claim, or imply that today or any day is 'fully booked' or 'full' if open hours remain on the calendar! If today has no occupied slots, today is OPEN. If a customer asks 'Can I come today?' or confirms 'Reschedule it [to today]' without giving a specific time, confirm today has open slots and ask what time today works best for them.\n"
                 f"- BUSINESS OPERATING HOURS: Standard business operating hours are strictly {op_hours_display}. Never propose times outside operating hours or overlapping with occupied slots.\n"
                 "- NO TIME ASSUMPTION: If the customer asks for an appointment without giving a specific time, ask what day and time works best for them. Never assume today at 3pm or create a booking without their explicit confirmation."
             )
@@ -1132,8 +1150,9 @@ class CoreWorker:
             busy_slots_block = (
                 f"### LIVE CALENDAR AVAILABILITY ({'GOOGLE CALENDAR LIVE SYNC ACTIVE' if gcal_connected else 'CRM LOCAL SCHEDULE'}):\n"
                 f"- Live Integration Status: {'Google Calendar Connected & Verified (Ground Truth)' if gcal_connected else 'CRM Internal Schedule Active'}\n"
+                f"{today_status_summary}\n"
                 f"All standard business hours ({op_hours_display}) over the next 7 days are currently open and available for booking.\n"
-                "- Propose and book only during standard business hours upon customer confirmation. Never invent or assume times."
+                "- ZERO FALSE 'FULLY BOOKED' CLAIMS: NEVER claim the business is fully booked when the calendar is clear. Propose and book only during standard business hours upon customer confirmation."
             )
 
         memory_block = (
@@ -1210,6 +1229,7 @@ class CoreWorker:
             "- If a customer asks for a slot that is already occupied or busy on Google Calendar (or CRM), NEVER agree to that time.\n"
             "- NEVER say incorrect, hallucinated, or wrong schedule data. Politely inform them:\n"
             "  'That slot is already booked on our calendar. Would [suggest an available free time from open hours] work for you instead?'\n"
+            "- ZERO FALSE 'FULLY BOOKED' CLAIMS: NEVER tell a customer that today, tomorrow, or any day is 'fully booked' or 'full' unless that entire day is literally packed with back-to-back bookings in the occupied timeslots list above. If the calendar has open free hours, the business IS available!\n"
             f"- Operating hours: strictly within business hours ({op_hours_display}).\n\n"
             "4. INQUIRY ABOUT EXISTING APPOINTMENT ('When is my appointment?', 'What time is my call?', 'Do I have a booking?', 'Check my appointment', 'My appointment status'):\n"
             "- CRITICAL GLOBAL DIRECTIVE: THIS IS AN INFORMATIONAL STATUS INQUIRY ONLY.\n"
@@ -1237,10 +1257,15 @@ class CoreWorker:
             "    [ACTION:CANCEL_BOOKING]\n"
             "- If they do not have an active booking: Let them know they don't have an active booking to cancel.\n\n"
             "7. RESCHEDULE ACTIONS (MANDATORY):\n"
-            "- When a customer asks to change or reschedule their booking to a new Date & Time:\n"
+            "- When a customer asks to change or reschedule their booking to a specific new Date & Time:\n"
             "  * Check that the new slot is not occupied.\n"
             "  * Confirm the new Date & Time politely in 1 short line, and MUST append on a new line:\n"
-            "    [ACTION:RESCHEDULE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}]\n\n"
+            "    [ACTION:RESCHEDULE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}]\n"
+            "- When a customer asks or confirms they want to reschedule (e.g. 'Can I come today?' -> 'Reschedule it', 'reschedule to today', or 'reschedule my booking') WITHOUT giving a specific time:\n"
+            "  * Check that day's availability (which is open if not in occupied list).\n"
+            "  * NEVER claim the day is fully booked when it is open!\n"
+            "  * Enthusiastically confirm that the day has open slots, and ask what time works best for them.\n"
+            f"    Example: 'Sure! We are open until {_fmt_ampm(closing_time_raw, '08:00 PM')} today. What time today would you prefer to come in?'\n\n"
             "8. 12-HOUR TIME FORMAT DIRECTIVE (ABSOLUTE MANDATORY RULE):\n"
             "- The entire business operates strictly in 12-HOUR TIME FORMAT.\n"
             "- ALWAYS speak, quote, propose, and confirm appointments exclusively in 12-HOUR FORMAT WITH AM/PM (e.g., '10:00 AM', '02:30 PM', '07:00 PM').\n"
