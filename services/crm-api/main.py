@@ -4008,6 +4008,11 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         ai_cfg_row = await conn.fetchrow("SELECT * FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
         ai_cfg = dict(ai_cfg_row) if ai_cfg_row else {}
 
+        admin_user_row = await conn.fetchrow(
+            "SELECT email, display_name FROM users WHERE tenant_id = $1::uuid AND role IN ('admin', 'super_admin') ORDER BY (role = 'admin') DESC, created_at ASC LIMIT 1",
+            tenant_id
+        )
+
     return {
         "tenant_id": str(tenant["id"]),
         "name": tenant["name"],
@@ -4049,7 +4054,8 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         "country_code": tenant_settings.get("country_code", "+91"),
         "currency": tenant_settings.get("currency", "INR"),
         "currency_symbol": tenant_settings.get("currency_symbol", "₹"),
-        "admin_name": tenant_settings.get("admin_name", ""),
+        "admin_name": tenant_settings.get("admin_name", "") or (admin_user_row["display_name"] if admin_user_row else ""),
+        "admin_email": admin_user_row["email"] if admin_user_row else "",
         "admin_whatsapp_number": wa_data.get("admin_whatsapp_number") or tenant_settings.get("admin_whatsapp_number", ""),
         "template_booking_confirmation": wa_data.get("template_booking_confirmation") or tenant_settings.get("template_booking_confirmation", "booking_confirmationn"),
         "template_admin_notification": wa_data.get("template_admin_notification") or tenant_settings.get("template_admin_notification", "admin_notification"),
@@ -4874,7 +4880,7 @@ async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
                 t.razorpay_customer_id, t.razorpay_subscription_id, t.razorpay_short_url,
                 t.org_lifecycle_stage, t.subscription_status, t.next_charge_at,
                 t.last_payment_status, t.last_charge_at,
-                (SELECT email FROM users WHERE tenant_id = t.id ORDER BY (role = 'super_admin') DESC, created_at ASC LIMIT 1) as admin_email,
+                (SELECT email FROM users WHERE tenant_id = t.id ORDER BY (role = 'admin') DESC, (role = 'super_admin') DESC, created_at ASC LIMIT 1) as admin_email,
                 (SELECT COUNT(*) FROM contacts WHERE tenant_id = t.id) as contact_count,
                 (SELECT COUNT(*) FROM conversations WHERE tenant_id = t.id) as conversation_count,
                 (SELECT COUNT(*) FROM messages WHERE tenant_id = t.id) as message_count,
@@ -5226,7 +5232,7 @@ async def reset_admin_tenant_password(tenant_id: str, payload: PasswordReset, ad
     async with db_pool.acquire() as conn:
         tenant_row = await conn.fetchrow(
             """SELECT t.id, t.name, t.slug,
-                      (SELECT email FROM users WHERE tenant_id = t.id ORDER BY (role = 'super_admin') DESC, created_at ASC LIMIT 1) as admin_email
+                      (SELECT email FROM users WHERE tenant_id = t.id ORDER BY (role = 'admin') DESC, (role = 'super_admin') DESC, created_at ASC LIMIT 1) as admin_email
                FROM tenants t WHERE t.id = $1::uuid""",
             tenant_id
         )

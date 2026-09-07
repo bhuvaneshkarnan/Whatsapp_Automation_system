@@ -671,6 +671,7 @@ export interface TenantSettingsResponse {
   currency?: string;
   currency_symbol?: string;
   admin_name?: string;
+  admin_email?: string;
   admin_whatsapp_number?: string;
   template_booking_confirmation?: string;
   template_admin_notification?: string;

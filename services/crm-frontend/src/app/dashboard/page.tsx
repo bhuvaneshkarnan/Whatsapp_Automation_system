@@ -1213,9 +1213,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     has_groq_key?: boolean;
     has_opencode_key?: boolean;
     google_calendar_configured?: boolean;
+    admin_email?: string;
   }>({
     name: '',
     admin_name: '',
+    admin_email: '',
     logo_url: '',
     meta_phone_id: '',
     meta_waba_id: '',
@@ -10254,10 +10256,49 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </div>
 
                       <div className="bg-surface p-4 rounded-md border border-border space-y-4">
+                        {/* Super Admin Notice if inspecting workspace */}
+                        {user?.role === 'super_admin' && (
+                          <div className="p-3.5 bg-blue-500/10 border border-blue-500/20 rounded-md text-xs text-blue-700 dark:text-blue-300 flex items-start gap-2.5">
+                            <ShieldCheck className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-semibold">Super Admin Master View</p>
+                              <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
+                                You are currently inspecting this organization workspace with Super Admin privileges. The client logs in with their own registered admin credentials below.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Organization Registered Admin Account */}
+                        {settingsForm.admin_email && (
+                          <div className="flex items-center justify-between pb-3 border-b border-border">
+                            <div>
+                              <p className="text-xs font-medium text-text-muted">Organization Primary Admin Account</p>
+                              <p className="font-medium text-sm text-text-primary mt-0.5">
+                                {settingsForm.admin_name ? `${settingsForm.admin_name} • ` : ''}{settingsForm.admin_email}
+                              </p>
+                              <p className="text-[11px] text-text-muted mt-0.5">
+                                Registered account used by the client to sign in to this CRM.
+                              </p>
+                            </div>
+                            <span className="text-xs font-mono font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 px-2.5 py-1 rounded-sm border border-emerald-500/20">
+                              Client Admin
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Active Session */}
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-xs font-medium text-text-muted">Signed In Email</p>
+                            <p className="text-xs font-medium text-text-muted">
+                              {user?.role === 'super_admin' ? 'Active Super Admin Session' : 'Signed In Email'}
+                            </p>
                             <p className="font-medium text-sm text-text-primary mt-0.5">{user?.email || 'Logged in user'}</p>
+                            {user?.role === 'super_admin' && (
+                              <p className="text-[11px] text-text-muted mt-0.5">
+                                Your personal Super Admin account currently authenticated in this browser.
+                              </p>
+                            )}
                           </div>
                           <span className="text-xs font-mono font-medium bg-surface-subtle text-text-secondary px-2.5 py-1 rounded-sm border border-border">
                             Role: {formatRoleName(user?.role)}
