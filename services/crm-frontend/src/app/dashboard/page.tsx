@@ -310,7 +310,10 @@ function formatMilitaryTo12(timeStr: string | null | undefined): string {
 function formatRoleName(role?: string): string {
   if (!role) return 'Staff';
   const r = role.toLowerCase().trim();
-  if (r === 'super_admin' || r === 'superadmin' || r === 'admin') {
+  if (r === 'super_admin' || r === 'superadmin') {
+    return 'Super Admin';
+  }
+  if (r === 'admin') {
     return 'Admin';
   }
   return role.replace(/_/g, ' ');
@@ -1212,6 +1215,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     google_calendar_configured?: boolean;
   }>({
     name: '',
+    admin_name: '',
     logo_url: '',
     meta_phone_id: '',
     meta_waba_id: '',
@@ -2870,6 +2874,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     try {
       const payload: Partial<TenantSettingsResponse> = {
         name: settingsForm.name,
+        admin_name: settingsForm.admin_name,
         logo_url: settingsForm.logo_url,
         admin_whatsapp_number: settingsForm.admin_whatsapp_number,
         notification_email: settingsForm.notification_email,
@@ -2923,6 +2928,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       if (settingsForm.opencode_base_url) payload.opencode_base_url = settingsForm.opencode_base_url;
 
       const updated = await crm.updateSettings(payload);
+      if (payload.admin_name) {
+        setUser((prev) => (prev ? { ...prev, display_name: payload.admin_name } : null));
+      }
       if (updated && updated.name !== undefined) {
         setSettingsForm((prev) => ({ ...prev, ...updated }));
         if (typeof window !== 'undefined') {
@@ -9813,6 +9821,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="p-4 bg-surface rounded-md border border-border space-y-2 md:col-span-2">
+                          <div className="flex items-center gap-2">
+                            <User className="w-4 h-4 text-text-secondary stroke-[1.5]" />
+                            <label className="block text-xs font-medium text-text-primary">
+                              Admin Name (Personal / Doctor Name)
+                            </label>
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="e.g. Dr. Sameer or Bhuvanesh"
+                            value={settingsForm.admin_name || ''}
+                            onChange={(e) => setSettingsForm({ ...settingsForm, admin_name: e.target.value })}
+                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                          />
+                          <p className="text-xs text-text-muted">
+                            Your personal name displayed in the top-right user profile header, staff alerts, and reports.
+                          </p>
+                        </div>
+
                         <div className="p-4 bg-surface rounded-md border border-border space-y-2">
                           <div className="flex items-center gap-2">
                             <Phone className="w-4 h-4 text-text-secondary stroke-[1.5]" />

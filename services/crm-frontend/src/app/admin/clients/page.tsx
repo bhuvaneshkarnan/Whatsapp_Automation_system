@@ -24,6 +24,7 @@ import {
   Activity,
   MessageSquare,
   Users,
+  User,
   CheckCircle2,
   AlertCircle,
   Clock,
@@ -821,6 +822,7 @@ export default function SuperAdminClients() {
   const initialFormData = {
     name: '',
     slug: '',
+    admin_name: '',
     admin_email: '',
     admin_password: '',
     plan: 'pro',
@@ -3488,6 +3490,25 @@ export default function SuperAdminClients() {
 
                         {/* Admin Notification Alerts */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                          <div className="p-3.5 bg-surface rounded-md border border-border space-y-1.5 md:col-span-2">
+                            <div className="flex items-center gap-1.5">
+                              <User className="w-3.5 h-3.5 text-text-secondary stroke-[1.5]" />
+                              <label className="block text-xs font-medium text-text-primary">
+                                Admin Name (Personal / Doctor Name)
+                              </label>
+                            </div>
+                            <input
+                              type="text"
+                              placeholder="e.g. Dr. Sameer or Bhuvanesh"
+                              value={configForm.admin_name || ''}
+                              onChange={(e) => setConfigForm({ ...configForm, admin_name: e.target.value })}
+                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                            />
+                            <p className="text-xs text-text-muted">
+                              Personal admin name displayed in the top-right header and staff notifications.
+                            </p>
+                          </div>
+
                           <div className="p-3.5 bg-surface rounded-md border border-border space-y-1.5">
                             <label className="block text-xs font-medium text-text-primary">
                               Admin WhatsApp phone (booking alerts)
@@ -4898,6 +4919,18 @@ export default function SuperAdminClients() {
                     className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-text-primary mb-1">Admin Name (e.g. Dr. Sameer / Bhuvanesh)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Dr. Sameer"
+                  value={formData.admin_name}
+                  onChange={(e) => setFormData({ ...formData, admin_name: e.target.value })}
+                  className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                />
+                <p className="text-[11px] text-text-muted mt-0.5">Admin user display name shown in CRM header and alert notifications.</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

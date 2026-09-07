@@ -3872,6 +3872,7 @@ async def search_messages(
 
 class TenantSettingsUpdate(BaseModel):
     name: Optional[str] = None
+    admin_name: Optional[str] = None
     logo_url: Optional[str] = None
     meta_phone_id: Optional[str] = None
     meta_waba_id: Optional[str] = None
@@ -4048,6 +4049,7 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         "country_code": tenant_settings.get("country_code", "+91"),
         "currency": tenant_settings.get("currency", "INR"),
         "currency_symbol": tenant_settings.get("currency_symbol", "₹"),
+        "admin_name": tenant_settings.get("admin_name", ""),
         "admin_whatsapp_number": wa_data.get("admin_whatsapp_number") or tenant_settings.get("admin_whatsapp_number", ""),
         "template_booking_confirmation": wa_data.get("template_booking_confirmation") or tenant_settings.get("template_booking_confirmation", "booking_confirmationn"),
         "template_admin_notification": wa_data.get("template_admin_notification") or tenant_settings.get("template_admin_notification", "admin_notification"),
@@ -4112,6 +4114,14 @@ async def update_tenant_settings(
         if isinstance(cur_settings, str):
             try: cur_settings = json.loads(cur_settings)
             except: cur_settings = {}
+
+        if payload.admin_name is not None:
+            cur_settings["admin_name"] = payload.admin_name.strip()
+            if payload.admin_name.strip():
+                await conn.execute(
+                    "UPDATE users SET display_name = $1 WHERE tenant_id = $2::uuid AND role IN ('admin', 'super_admin')",
+                    payload.admin_name.strip(), tenant_id
+                )
 
         if payload.logo_url is not None: cur_settings["logo_url"] = payload.logo_url.strip()
         if payload.timezone is not None: cur_settings["timezone"] = payload.timezone.strip()
@@ -4673,6 +4683,7 @@ async def get_live_calendar_availability(
 class TenantCreate(BaseModel):
     name: str
     slug: str
+    admin_name: Optional[str] = ""
     admin_email: str
     admin_password: str
     plan: Optional[str] = "pro"
@@ -4713,6 +4724,7 @@ class TenantCreate(BaseModel):
 
 class TenantUpdate(BaseModel):
     name: Optional[str] = None
+    admin_name: Optional[str] = None
     plan: Optional[str] = None
     status: Optional[str] = None
     primary_model_provider: Optional[str] = None
@@ -5014,7 +5026,9 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
         m_price = payload.monthly_price if payload.monthly_price is not None else (999.0 if (payload.plan or "").lower() == "starter" else (9999.0 if (payload.plan or "").lower() == "enterprise" else 3499.0))
         b_day = payload.billing_cycle_day or 1
         ind = (payload.industry or "clinic").strip().lower()
+        admin_display_name = (payload.admin_name or "").strip() or payload.name.strip()
         t_settings = {
+            "admin_name": admin_display_name,
             "industry": ind,
             "monthly_price": float(m_price),
             "billing_cycle_day": int(b_day),
@@ -5037,7 +5051,7 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
                 # 2. Admin User
                 await conn.execute(
                     "INSERT INTO users (id, tenant_id, email, password_hash, role, display_name) VALUES ($1::uuid, $2::uuid, $3, $4, 'admin', $5)",
-                    user_id, tenant_id, payload.admin_email.strip(), password_hash, payload.name.strip()
+                    user_id, tenant_id, payload.admin_email.strip(), password_hash, admin_display_name
                 )
 
                 # 3. WhatsApp Credentials & Meta Templates
@@ -5138,6 +5152,12 @@ async def get_admin_tenant_details(tenant_id: str, admin_user: dict = Depends(ve
         opencode_creds = await conn.fetchrow("SELECT credential_data, is_active FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'opencode' LIMIT 1", tenant_id)
         ai_cfg = await conn.fetchrow("SELECT * FROM ai_config WHERE tenant_id = $1::uuid LIMIT 1", tenant_id)
 
+        t_settings = tenant["settings"] if tenant and tenant["settings"] else {}
+        if isinstance(t_settings, str):
+            try: t_settings = json.loads(t_settings)
+            except: t_settings = {}
+        admin_display = admin_user["display_name"] if admin_user and admin_user["display_name"] else t_settings.get("admin_name", "")
+
         cred_data = {}
         if creds and creds["credential_data"]:
             cd = creds["credential_data"]
@@ -5157,6 +5177,7 @@ async def get_admin_tenant_details(tenant_id: str, admin_user: dict = Depends(ve
         "status": "active" if tenant["is_active"] else "inactive",
         "plan": tenant["plan"],
         "created_at": tenant["created_at"].isoformat() if tenant["created_at"] else "",
+        "admin_name": admin_display,
         "admin_email": admin_user["email"] if admin_user else "",
         "webhook_url": f"http://168.138.172.197/webhooks/whatsapp/{tenant['slug']}",
         "credentials": {

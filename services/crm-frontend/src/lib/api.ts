@@ -670,6 +670,7 @@ export interface TenantSettingsResponse {
   country_code?: string;
   currency?: string;
   currency_symbol?: string;
+  admin_name?: string;
   admin_whatsapp_number?: string;
   template_booking_confirmation?: string;
   template_admin_notification?: string;
@@ -752,6 +753,7 @@ export interface ClientTenant {
   status: string;
   plan: string;
   created_at: string;
+  admin_name?: string;
   admin_email: string;
   contact_count: number;
   conversation_count: number;
@@ -822,6 +824,7 @@ export interface PublicBookingInfo {
 export interface ClientCreatePayload {
   name: string;
   slug: string;
+  admin_name?: string;
   admin_email: string;
   admin_password: string;
   plan?: string;
