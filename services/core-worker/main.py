@@ -3265,7 +3265,10 @@ class CoreWorker:
             logger.error("process_daily_digest_error", error=str(e))
 
     async def _process_appointment_reminders(self):
-        """Find confirmed bookings happening in 2 hours that have not yet received a reminder."""
+        """
+        Find confirmed bookings happening in 2 hours that have not yet received a reminder.
+        Acts as a safety fallback for bookings without pending scheduled_jobs reminders.
+        """
         try:
             due_reminders = await self.db_pool.fetch(
                 """SELECT b.id, b.tenant_id, b.service, b.start_time, b.conversation_id,
@@ -3280,6 +3283,12 @@ class CoreWorker:
                      AND b.reminder_sent_at IS NULL
                      AND b.start_time <= (now() + interval '2 hours 5 minutes')
                      AND b.start_time >= now()
+                     AND NOT EXISTS (
+                         SELECT 1 FROM scheduled_jobs sj
+                         WHERE sj.booking_id = b.id
+                           AND sj.job_type = 'reminder'
+                           AND sj.status = 'pending'
+                     )
                    LIMIT 25"""
             )
 
@@ -3290,6 +3299,13 @@ class CoreWorker:
                 name = row["contact_name"] or "there"
                 service_name = row["service"] or "Appointment"
                 conv_id = str(row["conversation_id"]) if row.get("conversation_id") else None
+
+                # Distributed Redis Lock to ensure exactly one 2-hour reminder is sent per booking
+                lock_key = f"dedup:wa_reminder_2h:{booking_id}"
+                is_locked = await self.redis.set(lock_key, "1", ex=14400, nx=True)
+                if not is_locked:
+                    logger.info("reminder_skipped_redis_lock_held", booking_id=booking_id)
+                    continue
 
                 # Extract timezone
                 tenant_timezone_str = "Asia/Kolkata"
@@ -3313,9 +3329,15 @@ class CoreWorker:
                     try: creds = json.loads(creds)
                     except: creds = {}
 
-                # 1. Mark as sent immediately to avoid duplicate dispatch
+                # 1. Mark as sent immediately in both bookings and any pending scheduled_jobs to avoid duplicate dispatch
                 await self.db_pool.execute(
                     "UPDATE bookings SET reminder_sent_at = now() WHERE id = $1::uuid",
+                    booking_id
+                )
+                await self.db_pool.execute(
+                    """UPDATE scheduled_jobs
+                       SET status = 'sent', sent_at = now()
+                       WHERE booking_id = $1::uuid AND job_type = 'reminder' AND status = 'pending'""",
                     booking_id
                 )
 
@@ -3375,7 +3397,7 @@ class CoreWorker:
         """Find due scheduled jobs and send WhatsApp messages using approved Meta utility templates."""
         due_jobs = await self.db_pool.fetch(
             """SELECT sj.id, sj.tenant_id, sj.job_type, sj.booking_id,
-                      b.contact_id, b.service, b.start_time, b.end_time, b.notes,
+                      b.contact_id, b.service, b.start_time, b.end_time, b.notes, b.reminder_sent_at,
                       c.phone, c.name as contact_name,
                       tc.credential_data as wa_creds,
                       t.settings as tenant_settings
@@ -3392,6 +3414,48 @@ class CoreWorker:
 
         for job in due_jobs:
             try:
+                job_id = str(job["id"])
+                booking_id = str(job["booking_id"])
+                job_type = job["job_type"]
+
+                # Atomic Job Lock to prevent concurrent execution of the same job row
+                job_lock = f"dedup:scheduled_job:{job_id}"
+                if not await self.redis.set(job_lock, "1", ex=3600, nx=True):
+                    continue
+
+                # Reminder deduplication checks
+                if job_type == "reminder":
+                    # Check 1: If reminder was already sent within the last 4 hours (e.g. by fallback loop or 2h job)
+                    rem_sent = job.get("reminder_sent_at")
+                    if rem_sent:
+                        now_utc = datetime.datetime.now(datetime.timezone.utc)
+                        if isinstance(rem_sent, datetime.datetime):
+                            rem_sent_utc = rem_sent if rem_sent.tzinfo else rem_sent.replace(tzinfo=datetime.timezone.utc)
+                            elapsed = (now_utc - rem_sent_utc.astimezone(datetime.timezone.utc)).total_seconds()
+                            if elapsed < 14400:  # within 4 hours
+                                logger.info("scheduled_reminder_skipped_already_sent_recently", booking_id=booking_id, elapsed_sec=elapsed)
+                                await self.db_pool.execute(
+                                    "UPDATE scheduled_jobs SET status = 'skipped_already_sent', sent_at = now() WHERE id = $1",
+                                    job["id"]
+                                )
+                                continue
+
+                    # Check 2: If this is within 4 hours of appointment start (i.e. 2-hour reminder), acquire 2h lock
+                    start_val = job["start_time"]
+                    if isinstance(start_val, datetime.datetime):
+                        now_utc = datetime.datetime.now(datetime.timezone.utc)
+                        start_utc = start_val if start_val.tzinfo else start_val.replace(tzinfo=datetime.timezone.utc)
+                        hours_to_start = (start_utc.astimezone(datetime.timezone.utc) - now_utc).total_seconds() / 3600.0
+                        if hours_to_start <= 4.0:
+                            lock_2h = f"dedup:wa_reminder_2h:{booking_id}"
+                            if not await self.redis.set(lock_2h, "1", ex=14400, nx=True):
+                                logger.info("scheduled_reminder_skipped_2h_lock_held", booking_id=booking_id)
+                                await self.db_pool.execute(
+                                    "UPDATE scheduled_jobs SET status = 'skipped_duplicate', sent_at = now() WHERE id = $1",
+                                    job["id"]
+                                )
+                                continue
+
                 creds = dict(job["wa_creds"]) if isinstance(job["wa_creds"], dict) else json.loads(job["wa_creds"])
                 t_st = job["tenant_settings"] if job.get("tenant_settings") else {}
                 if isinstance(t_st, str):
@@ -3418,7 +3482,6 @@ class CoreWorker:
                     full_time_str = str(start)
 
                 sent_via_template = False
-                job_type = job["job_type"]
 
                 # 1. Reminder job: Send approved appointment_ramainder template
                 if job_type == "reminder" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
@@ -3498,6 +3561,12 @@ class CoreWorker:
                     job["id"],
                 )
 
+                if job_type == "reminder":
+                    await self.db_pool.execute(
+                        "UPDATE bookings SET reminder_sent_at = now() WHERE id = $1::uuid",
+                        booking_id
+                    )
+
                 if job.get("contact_id") and job.get("tenant_id"):
                     conv_row = await self.db_pool.fetchrow(
                         "SELECT id FROM conversations WHERE contact_id = $1 AND tenant_id = $2 LIMIT 1",
@@ -3507,7 +3576,7 @@ class CoreWorker:
                         logged_body = f"Template: {job_type}" if sent_via_template else message
                         await self.db_pool.execute(
                             """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
-                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
+                                VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
                             str(uuid.uuid4()), conv_row["id"], job["tenant_id"], logged_body
                         )
 
