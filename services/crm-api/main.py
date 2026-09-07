@@ -4579,6 +4579,41 @@ async def get_live_calendar_availability(
         except Exception:
             op_hours_str = "09:00 AM – 08:00 PM"
 
+        # Compute exact verified live empty slots for next 7 days from Google Calendar and CRM
+        empty_slots = []
+        try:
+            op_h = int(ot_parts[0])
+            op_m = int(ot_parts[1]) if len(ot_parts) > 1 else 0
+            cl_h = int(ct_parts[0])
+            cl_m = int(ct_parts[1]) if len(ct_parts) > 1 else 0
+            slot_dur = 30
+            for d in range(7):
+                day_d = (now_dt + timedelta(days=d)).date()
+                d_start = datetime.combine(day_d, time(op_h, op_m), tzinfo=tenant_tz)
+                d_end = datetime.combine(day_d, time(cl_h, cl_m), tzinfo=tenant_tz)
+                cur_slot = d_start
+                while cur_slot + timedelta(minutes=slot_dur) <= d_end:
+                    s_end = cur_slot + timedelta(minutes=slot_dur)
+                    if d == 0 and cur_slot <= now_dt + timedelta(minutes=15):
+                        cur_slot += timedelta(minutes=slot_dur)
+                        continue
+                    overlaps = any(
+                        not (s_end.strftime('%Y-%m-%dT%H:%M:%S%z') <= b["start"] or cur_slot.strftime('%Y-%m-%dT%H:%M:%S%z') >= b["end"])
+                        for b in busy_slots
+                    )
+                    if not overlaps:
+                        empty_slots.append({
+                            "date": day_d.strftime("%Y-%m-%d"),
+                            "day_formatted": day_d.strftime("%A, %d %b"),
+                            "start": cur_slot.strftime('%Y-%m-%dT%H:%M:%S%z'),
+                            "end": s_end.strftime('%Y-%m-%dT%H:%M:%S%z'),
+                            "start_formatted": cur_slot.strftime("%I:%M %p"),
+                            "end_formatted": s_end.strftime("%I:%M %p"),
+                        })
+                    cur_slot += timedelta(minutes=slot_dur)
+        except Exception as e_err:
+            logger.warning("compute_empty_slots_err", error=str(e_err))
+
         # Sort chronologically
         busy_slots.sort(key=lambda x: x["start"])
         return {
@@ -4589,6 +4624,8 @@ async def get_live_calendar_availability(
             "timezone": tz_str,
             "total_occupied_slots": len(busy_slots),
             "occupied_slots": busy_slots,
+            "total_empty_slots": len(empty_slots),
+            "empty_slots": empty_slots,
             "operating_hours": op_hours_str,
             "opening_time": ot_raw,
             "closing_time": ct_raw,

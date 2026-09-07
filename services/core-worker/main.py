@@ -959,6 +959,69 @@ class CoreWorker:
         busy_slots.sort(key=lambda x: x["start"])
         return busy_slots, gcal_connected
 
+    def _compute_live_empty_slots(
+        self,
+        busy_slots: list[dict],
+        tenant_tz,
+        opening_time_str: str = "09:00",
+        closing_time_str: str = "20:00",
+        slot_duration_mins: int = 30,
+        days_ahead: int = 5,
+    ) -> dict[str, list[datetime.datetime]]:
+        """
+        Deterministically calculates exact open, verified empty time slots from Google Calendar and CRM.
+        Iterates day by day across business operating hours, checking collision against all busy slots.
+        """
+        now_dt = datetime.datetime.now(tenant_tz)
+        try:
+            op_parts = str(opening_time_str).split(":")
+            op_h, op_m = int(op_parts[0]), int(op_parts[1]) if len(op_parts) > 1 else 0
+        except Exception:
+            op_h, op_m = 9, 0
+
+        try:
+            cl_parts = str(closing_time_str).split(":")
+            cl_h, cl_m = int(cl_parts[0]), int(cl_parts[1]) if len(cl_parts) > 1 else 0
+        except Exception:
+            cl_h, cl_m = 20, 0
+
+        empty_slots_by_day = {}
+        for d in range(days_ahead):
+            day_date = (now_dt + datetime.timedelta(days=d)).date()
+            day_start = datetime.datetime.combine(day_date, datetime.time(op_h, op_m), tzinfo=tenant_tz)
+            day_end = datetime.datetime.combine(day_date, datetime.time(cl_h, cl_m), tzinfo=tenant_tz)
+
+            cur = day_start
+            slots_for_day = []
+            while cur + datetime.timedelta(minutes=slot_duration_mins) <= day_end:
+                slot_end = cur + datetime.timedelta(minutes=slot_duration_mins)
+                # For today, slot must start at least 15 mins in future
+                if d == 0 and cur <= now_dt + datetime.timedelta(minutes=15):
+                    cur += datetime.timedelta(minutes=slot_duration_mins)
+                    continue
+
+                # Check collision against all busy slots from GCal and CRM
+                has_collision = any(
+                    not (slot_end <= b['start'] or cur >= b['end'])
+                    for b in busy_slots
+                )
+                if not has_collision:
+                    slots_for_day.append(cur)
+
+                cur += datetime.timedelta(minutes=slot_duration_mins)
+
+            day_name = day_date.strftime("%A, %d %b %Y")
+            if d == 0:
+                label = f"TODAY ({day_name})"
+            elif d == 1:
+                label = f"TOMORROW ({day_name})"
+            else:
+                label = day_name
+
+            empty_slots_by_day[label] = slots_for_day
+
+        return empty_slots_by_day
+
     async def _generate_and_send_reply(
         self,
         tenant_id: str,
@@ -1112,48 +1175,49 @@ class CoreWorker:
         # Retrieve all currently booked/occupied slots for this business (next 7 days) from Google Calendar and CRM
         busy_slots, gcal_connected = await self._get_live_occupied_slots(tenant_id, tenant_tz)
 
-        # Explicitly compute today's live availability status
-        today_date = now.date()
-        today_busy = [s for s in busy_slots if s['start'].date() == today_date]
-        if today_busy:
-            today_busy_str = ", ".join([f"{s['start'].strftime('%I:%M %p')} to {s['end'].strftime('%I:%M %p')}" for s in today_busy])
-            today_status_summary = (
-                f"- TODAY ({now.strftime('%A, %d %b %Y')}): Business hours are {op_hours_display}. "
-                f"Occupied timeslots today: {today_busy_str}. Any other time between now ({now.strftime('%I:%M %p')}) and closing ({_fmt_ampm(closing_time_raw, '08:00 PM')}) is 100% OPEN and AVAILABLE to book."
-            )
-        else:
-            today_status_summary = (
-                f"- TODAY ({now.strftime('%A, %d %b %Y')}): ZERO BOOKINGS / 100% OPEN! "
-                f"There are NO bookings for today. Any time between now ({now.strftime('%I:%M %p')}) and closing ({_fmt_ampm(closing_time_raw, '08:00 PM')}) is 100% OPEN and AVAILABLE to book."
-            )
+        # Compute exact live verified empty slots from Google Calendar and CRM
+        empty_slots_by_day = self._compute_live_empty_slots(
+            busy_slots=busy_slots,
+            tenant_tz=tenant_tz,
+            opening_time_str=opening_time_raw,
+            closing_time_str=closing_time_raw,
+            slot_duration_mins=30,
+            days_ahead=5,
+        )
 
-        if busy_slots:
-            busy_lines = [
-                f"- {s['start'].strftime('%A, %d %b %Y: %I:%M %p')} to {s['end'].strftime('%I:%M %p')} ({s['source']})"
-                for s in busy_slots
-            ]
-            busy_slots_block = (
-                f"### LIVE CALENDAR AVAILABILITY & OCCUPIED TIMESLOTS ({'GOOGLE CALENDAR LIVE SYNC ACTIVE' if gcal_connected else 'CRM LOCAL SCHEDULE'}):\n"
-                f"- Live Integration Status: {'Google Calendar Connected & Verified (Ground Truth)' if gcal_connected else 'CRM Internal Schedule Active'}\n"
-                f"{today_status_summary}\n"
-                "The following time slots are ALREADY OCCUPIED and BUSY on the calendar over the next 7 days. NO ONE CAN BOOK THESE TIMES:\n"
-                + "\n".join(busy_lines)
-                + "\n\n### STRICT AVAILABILITY & FREE-TIME BOOKING DIRECTIVES (ZERO WRONG DATA):\n"
-                "- LIVE CALENDAR GROUND TRUTH: The occupied slots above are the definitive ground truth from Google Calendar and the CRM.\n"
-                "- FREE TIME ONLY: You must STRICTLY and EXCLUSIVELY propose or confirm appointments during open, unoccupied time slots.\n"
-                "- ZERO WRONG OR INCORRECT DATA: NEVER guess, invent, or state inaccurate slot availability. If a customer requests any occupied time slot above, you MUST politely inform them that this slot is already booked on the calendar, and propose the closest open free time instead.\n"
-                "- ZERO FALSE 'FULLY BOOKED' CLAIMS: NEVER state, claim, or imply that today or any day is 'fully booked' or 'full' if open hours remain on the calendar! If today has no occupied slots, today is OPEN. If a customer asks 'Can I come today?' or confirms 'Reschedule it [to today]' without giving a specific time, confirm today has open slots and ask what time today works best for them.\n"
-                f"- BUSINESS OPERATING HOURS: Standard business operating hours are strictly {op_hours_display}. Never propose times outside operating hours or overlapping with occupied slots.\n"
-                "- NO TIME ASSUMPTION: If the customer asks for an appointment without giving a specific time, ask what day and time works best for them. Never assume today at 3pm or create a booking without their explicit confirmation."
+        empty_slot_lines = []
+        for day_label, slots in empty_slots_by_day.items():
+            if slots:
+                fmt_times = [s.strftime("%I:%M %p") for s in slots]
+                empty_slot_lines.append(f"* {day_label} ({len(slots)} verified empty slots available):\n  " + ", ".join(fmt_times))
+            else:
+                empty_slot_lines.append(f"* {day_label}: FULLY BOOKED (0 open slots remaining)")
+
+        busy_lines = [
+            f"- {s['start'].strftime('%A, %d %b %Y: %I:%M %p')} to {s['end'].strftime('%I:%M %p')} ({s['source']})"
+            for s in busy_slots
+        ]
+
+        busy_slots_block = (
+            f"### LIVE GOOGLE CALENDAR GROUND TRUTH & VERIFIED EMPTY SLOTS ({'GOOGLE CALENDAR LIVE SYNC ACTIVE' if gcal_connected else 'CRM LOCAL SCHEDULE'}):\n"
+            f"- Live Integration Status: {'Google Calendar Connected & Verified (Ground Truth)' if gcal_connected else 'CRM Internal Schedule Active'}\n"
+            f"- Business Operating Hours: {op_hours_display}\n\n"
+            "VERIFIED EMPTY & AVAILABLE SLOTS (CHECKED IN REAL-TIME AGAINST GOOGLE CALENDAR):\n"
+            "The following are the EXACT, VERIFIED OPEN SLOTS where no events exist on Google Calendar or the CRM:\n"
+            + "\n".join(empty_slot_lines)
+            + "\n\n"
+            + (
+                f"OCCUPIED / BUSY SLOTS ON CALENDAR (CANNOT BE BOOKED):\n" + "\n".join(busy_lines) + "\n\n"
+                if busy_lines else "OCCUPIED / BUSY SLOTS: None. The calendar is completely clear.\n\n"
             )
-        else:
-            busy_slots_block = (
-                f"### LIVE CALENDAR AVAILABILITY ({'GOOGLE CALENDAR LIVE SYNC ACTIVE' if gcal_connected else 'CRM LOCAL SCHEDULE'}):\n"
-                f"- Live Integration Status: {'Google Calendar Connected & Verified (Ground Truth)' if gcal_connected else 'CRM Internal Schedule Active'}\n"
-                f"{today_status_summary}\n"
-                f"All standard business hours ({op_hours_display}) over the next 7 days are currently open and available for booking.\n"
-                "- ZERO FALSE 'FULLY BOOKED' CLAIMS: NEVER claim the business is fully booked when the calendar is clear. Propose and book only during standard business hours upon customer confirmation."
-            )
+            + "### STRICT DIRECTIVES FOR LIVE CALENDAR BOOKING & RESCHEDULING:\n"
+            "- LIVE EMPTY SLOTS ONLY: When offering, proposing, confirming, or rescheduling an appointment, you MUST choose and propose 2 to 3 times EXCLUSIVELY from the VERIFIED EMPTY SLOTS list above.\n"
+            "- ZERO FALSE 'FULLY BOOKED' CLAIMS: NEVER state, claim, or imply that today or any day is 'fully booked' or 'full' if it has open slots in the verified empty list above! If today has empty slots, today is OPEN.\n"
+            "- WHEN CUSTOMER ASKS 'CAN I COME TODAY?' OR 'WHAT SLOTS ARE AVAILABLE?': Immediately check today's verified empty slots above. Quote 2 to 3 available options from the list (e.g., 'Yes! Today we have slots open at [Time 1], [Time 2], or [Time 3]. Which time works best for you?').\n"
+            "- RESCHEDULE FLOW: When a customer asks or confirms they want to reschedule (e.g. 'Reschedule it', 'reschedule to today', or 'move to tomorrow') without a time, confirm that day is open and offer 2-3 verified empty slots.\n"
+            f"- OPERATING HOURS: Propose times strictly within business hours ({op_hours_display}).\n"
+            "- NO TIME ASSUMPTION: If the customer asks for an appointment without giving a specific time, ask what time works best from the verified empty slots above."
+        )
 
         memory_block = (
             "### CUSTOMER PROFILE & CONVERSATION MEMORY:\n"
@@ -1258,14 +1322,14 @@ class CoreWorker:
             "- If they do not have an active booking: Let them know they don't have an active booking to cancel.\n\n"
             "7. RESCHEDULE ACTIONS (MANDATORY):\n"
             "- When a customer asks to change or reschedule their booking to a specific new Date & Time:\n"
-            "  * Check that the new slot is not occupied.\n"
+            "  * Check that the new slot is in the VERIFIED EMPTY SLOTS list above.\n"
             "  * Confirm the new Date & Time politely in 1 short line, and MUST append on a new line:\n"
             "    [ACTION:RESCHEDULE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}]\n"
             "- When a customer asks or confirms they want to reschedule (e.g. 'Can I come today?' -> 'Reschedule it', 'reschedule to today', or 'reschedule my booking') WITHOUT giving a specific time:\n"
-            "  * Check that day's availability (which is open if not in occupied list).\n"
-            "  * NEVER claim the day is fully booked when it is open!\n"
-            "  * Enthusiastically confirm that the day has open slots, and ask what time works best for them.\n"
-            f"    Example: 'Sure! We are open until {_fmt_ampm(closing_time_raw, '08:00 PM')} today. What time today would you prefer to come in?'\n\n"
+            "  * Check the VERIFIED EMPTY SLOTS list for that day (e.g. TODAY).\n"
+            "  * NEVER claim the day is fully booked when empty slots exist!\n"
+            "  * Enthusiastically confirm that the day has open slots, and offer 2 to 3 verified empty slots for them to choose:\n"
+            f"    Example: 'Sure! Today we have open slots at [e.g. 02:00 PM, 04:30 PM, or 06:00 PM]. Which time would you prefer to come in?'\n\n"
             "8. 12-HOUR TIME FORMAT DIRECTIVE (ABSOLUTE MANDATORY RULE):\n"
             "- The entire business operates strictly in 12-HOUR TIME FORMAT.\n"
             "- ALWAYS speak, quote, propose, and confirm appointments exclusively in 12-HOUR FORMAT WITH AM/PM (e.g., '10:00 AM', '02:30 PM', '07:00 PM').\n"
