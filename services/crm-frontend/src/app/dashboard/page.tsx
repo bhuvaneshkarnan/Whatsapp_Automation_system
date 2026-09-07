@@ -12132,7 +12132,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <div className="grid grid-cols-2 gap-1.5 bg-surface-subtle/50 p-2.5 rounded-sm border border-border">
                     {[
                       { key: 'can_view_inbox', label: 'Chats & WhatsApp Inbox' },
-                      { key: 'can_send_messages', label: 'Send WhatsApp Replies' },
+                      { key: 'can_send_messages', label: 'Send WhatsApp Replies', parentKey: 'can_view_inbox' },
                       { key: 'can_manage_customers', label: `${currentTaxonomy.client_plural || 'Customer'} Directory & Follow-ups` },
                       { key: 'can_manage_bookings', label: 'Bookings & Appointments' },
                       { key: 'can_view_calendar', label: 'Calendar Schedule' },
@@ -12140,27 +12140,41 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       { key: 'can_view_analytics', label: 'Overview Dashboard' },
                       { key: 'can_manage_settings', label: 'Workspace Preferences' },
                     ].map((item) => {
-                      const isChecked = Boolean((teamForm.permissions as any)?.[item.key]);
+                      const isParentDisabled = item.key === 'can_send_messages' && !teamForm.permissions.can_view_inbox;
+                      const isChecked = isParentDisabled ? false : Boolean((teamForm.permissions as any)?.[item.key]);
                       return (
                         <label
                           key={item.key}
-                          className="flex items-center gap-1.5 p-1 rounded hover:bg-surface cursor-pointer text-xs select-none transition-colors"
+                          className={`flex items-center gap-1.5 p-1 rounded transition-colors select-none text-xs ${
+                            isParentDisabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-surface cursor-pointer'
+                          }`}
                         >
                           <input
                             type="checkbox"
                             checked={isChecked}
-                            onChange={(e) =>
+                            disabled={isParentDisabled}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              const updatedPerms: any = {
+                                ...teamForm.permissions,
+                                [item.key]: checked,
+                              };
+                              if (item.key === 'can_view_inbox' && !checked) {
+                                updatedPerms.can_send_messages = false;
+                              }
                               setTeamForm({
                                 ...teamForm,
-                                permissions: {
-                                  ...teamForm.permissions,
-                                  [item.key]: e.target.checked,
-                                },
-                              })
-                            }
-                            className="w-3.5 h-3.5 rounded text-accent focus:ring-accent accent-accent cursor-pointer"
+                                permissions: updatedPerms,
+                              });
+                            }}
+                            className="w-3.5 h-3.5 rounded text-accent focus:ring-accent accent-accent cursor-pointer disabled:cursor-not-allowed"
                           />
-                          <span className="text-text-primary text-[10px] font-medium">{item.label}</span>
+                          <span className="text-text-primary text-[10px] font-medium flex items-center gap-1">
+                            {item.label}
+                            {isParentDisabled && (
+                              <span className="text-[9px] text-text-muted font-normal italic">(Requires Inbox)</span>
+                            )}
+                          </span>
                         </label>
                       );
                     })}

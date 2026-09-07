@@ -5705,26 +5705,47 @@ export default function SuperAdminClients() {
                     <input
                       type="checkbox"
                       checked={staffForm.permissions.can_view_inbox ?? true}
-                      onChange={(e) => setStaffForm({
-                        ...staffForm,
-                        permissions: { ...staffForm.permissions, can_view_inbox: e.target.checked }
-                      })}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setStaffForm({
+                          ...staffForm,
+                          permissions: {
+                            ...staffForm.permissions,
+                            can_view_inbox: checked,
+                            ...(checked ? {} : { can_send_messages: false }),
+                          },
+                        });
+                      }}
                       className="rounded border-border text-accent focus:ring-0"
                     />
                     <span className="text-text-primary font-medium">View Inbox & Chats</span>
                   </label>
 
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <label className={`flex items-center gap-2 select-none ${
+                    !(staffForm.permissions.can_view_inbox ?? true)
+                      ? 'opacity-40 cursor-not-allowed'
+                      : 'cursor-pointer'
+                  }`}>
                     <input
                       type="checkbox"
-                      checked={staffForm.permissions.can_send_messages ?? true}
+                      disabled={!(staffForm.permissions.can_view_inbox ?? true)}
+                      checked={
+                        !(staffForm.permissions.can_view_inbox ?? true)
+                          ? false
+                          : (staffForm.permissions.can_send_messages ?? true)
+                      }
                       onChange={(e) => setStaffForm({
                         ...staffForm,
                         permissions: { ...staffForm.permissions, can_send_messages: e.target.checked }
                       })}
-                      className="rounded border-border text-accent focus:ring-0"
+                      className="rounded border-border text-accent focus:ring-0 disabled:cursor-not-allowed"
                     />
-                    <span className="text-text-primary font-medium">Send Outbound Messages</span>
+                    <span className="text-text-primary font-medium flex items-center gap-1">
+                      Send Outbound Messages
+                      {!(staffForm.permissions.can_view_inbox ?? true) && (
+                        <span className="text-[10px] text-text-muted font-normal italic">(Requires Inbox)</span>
+                      )}
+                    </span>
                   </label>
 
                   <label className="flex items-center gap-2 cursor-pointer select-none">
