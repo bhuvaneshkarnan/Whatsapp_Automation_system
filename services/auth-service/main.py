@@ -226,12 +226,29 @@ async def read_users_me(token: str = Depends(oauth2_scheme)):
                     if token_iat and datetime.fromtimestamp(token_iat, tz=timezone.utc) < tenant_inv:
                         raise HTTPException(status_code=401, detail="Session expired due to account status change. Please log in again.")
 
+        display_name = payload.get("display_name") or ""
+        email = payload.get("email") or ""
+        if db_pool and user_id:
+            try:
+                async with db_pool.acquire() as conn:
+                    user_row = await conn.fetchrow(
+                        "SELECT email, display_name FROM users WHERE id = $1::uuid", user_id
+                    )
+                    if user_row:
+                        if user_row["display_name"]:
+                            display_name = user_row["display_name"]
+                        if user_row["email"]:
+                            email = user_row["email"]
+            except Exception:
+                pass
+
         return {
             "id": user_id, 
             "tenant_id": tenant_id, 
             "tenant_slug": tenant_slug or "",
             "role": role,
-            "display_name": payload.get("display_name") or "",
+            "email": email,
+            "display_name": display_name,
             "permissions": payload.get("permissions") or {}
         }
     except JWTError:
