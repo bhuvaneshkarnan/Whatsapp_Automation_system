@@ -6893,14 +6893,14 @@ async def get_dashboard_analytics(
         since = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     async with db_pool.acquire() as conn:
-        # 1. Message Volume Breakdown
+        # 1. Message Volume Breakdown (Real DB data: AI vs Human)
         msg_counts = await conn.fetchrow(
             """SELECT
                 COUNT(*) as total_messages,
                 COUNT(*) FILTER (WHERE direction = 'inbound') as inbound_messages,
                 COUNT(*) FILTER (WHERE direction = 'outbound') as outbound_messages,
-                COUNT(*) FILTER (WHERE direction = 'outbound' AND sent_by IS NULL) as ai_messages,
-                COUNT(*) FILTER (WHERE direction = 'outbound' AND sent_by IS NOT NULL) as human_messages
+                COUNT(*) FILTER (WHERE direction = 'outbound' AND ai_model_used IS NOT NULL) as ai_messages,
+                COUNT(*) FILTER (WHERE direction = 'outbound' AND ai_model_used IS NULL) as human_messages
                FROM messages
                WHERE tenant_id = $1::uuid
                  AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)""",
@@ -6911,6 +6911,7 @@ async def get_dashboard_analytics(
         outbound_msgs = msg_counts["outbound_messages"] or 0
         ai_msgs = msg_counts["ai_messages"] or 0
         human_msgs = msg_counts["human_messages"] or 0
+        ai_autonomous_rate = round((ai_msgs / outbound_msgs * 100), 1) if outbound_msgs > 0 else 0.0
 
         # 2. Daily Message Traffic Time Series
         daily_rows = await conn.fetch(
@@ -6935,22 +6936,35 @@ async def get_dashboard_analytics(
             for r in daily_rows
         ]
 
-        # 3. Lead & Customer Funnel
-        lead_counts = await conn.fetchrow(
-            """SELECT
-                COUNT(*) as total_leads,
-                COUNT(*) FILTER (WHERE status = 'new') as new_leads,
-                COUNT(*) FILTER (WHERE status = 'contacted') as contacted_leads,
-                COUNT(*) FILTER (WHERE status = 'followup' OR status = 'follow-up') as qualified_leads,
-                COUNT(*) FILTER (WHERE status = 'converted' OR converted = true) as converted_leads,
-                COUNT(*) FILTER (WHERE status = 'lost') as lost_leads
-               FROM customers
+        # 3. Lead & Customer Lifecycle Funnel (Real progression from inbound to booked)
+        inbound_contacts = await conn.fetchval(
+            """SELECT COUNT(DISTINCT contact_id) FROM conversations
                WHERE tenant_id = $1::uuid
                  AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)""",
             tenant_id, since
-        )
-        total_leads = lead_counts["total_leads"] or 0
-        converted_leads = lead_counts["converted_leads"] or 0
+        ) or 0
+        engaged_contacts = await conn.fetchval(
+            """SELECT COUNT(DISTINCT c.id) FROM conversations c
+               WHERE c.tenant_id = $1::uuid
+                 AND ($2::timestamptz IS NULL OR c.created_at >= $2::timestamptz)
+                 AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'outbound')""",
+            tenant_id, since
+        ) or 0
+        crm_leads = await conn.fetchval(
+            """SELECT COUNT(*) FROM customers
+               WHERE tenant_id = $1::uuid
+                 AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)""",
+            tenant_id, since
+        ) or 0
+        converted_leads = await conn.fetchval(
+            """SELECT COUNT(*) FROM customers
+               WHERE tenant_id = $1::uuid
+                 AND (converted = true OR status = 'converted')
+                 AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)""",
+            tenant_id, since
+        ) or 0
+
+        total_leads = max(inbound_contacts, crm_leads)
         lead_conv_rate = round((converted_leads / total_leads * 100), 1) if total_leads > 0 else 0.0
 
         # 4. Bookings & Revenue
@@ -6981,21 +6995,8 @@ async def get_dashboard_analytics(
         attended_plus_noshow = completed_bookings + noshow_bookings
         attendance_rate = round((completed_bookings / attended_plus_noshow * 100), 1) if attended_plus_noshow > 0 else (100.0 if completed_bookings > 0 else 0.0)
 
-        # 5. AI Conversation Performance
-        conv_stats = await conn.fetchrow(
-            """SELECT
-                COUNT(*) as total_convs,
-                COUNT(*) FILTER (WHERE status = 'bot') as bot_convs,
-                COUNT(*) FILTER (WHERE status = 'human') as human_convs,
-                COUNT(*) FILTER (WHERE assigned_to IS NOT NULL) as assigned_convs
-               FROM conversations
-               WHERE tenant_id = $1::uuid""",
-            tenant_id
-        )
-        total_convs = conv_stats["total_convs"] or 0
-        bot_convs = conv_stats["bot_convs"] or 0
-        human_convs = conv_stats["human_convs"] or 0
-        ai_autonomous_rate = round((bot_convs / total_convs * 100), 1) if total_convs > 0 else 0.0
+        # 5. Conversations Total
+        total_convs = inbound_contacts
 
     return {
         "period": period,
@@ -7018,17 +7019,20 @@ async def get_dashboard_analytics(
             "total_revenue": round(total_revenue),
             "average_ticket_size": round(avg_ticket),
             "total_conversations": total_convs,
-            "ai_conversations": bot_convs,
-            "human_conversations": human_convs,
+            "ai_conversations": ai_msgs,
+            "human_conversations": human_msgs,
             "ai_autonomous_rate": ai_autonomous_rate
         },
         "time_series": time_series,
         "pipeline": {
-            "new": lead_counts["new_leads"] or 0,
-            "contacted": lead_counts["contacted_leads"] or 0,
-            "qualified": lead_counts["qualified_leads"] or 0,
+            "inbound_contacts": inbound_contacts,
+            "engaged_contacts": engaged_contacts,
+            "crm_leads": crm_leads,
+            "new": inbound_contacts,
+            "contacted": engaged_contacts,
+            "qualified": crm_leads,
             "converted": converted_leads,
-            "lost": lead_counts["lost_leads"] or 0
+            "lost": 0
         },
         "bookings_by_status": {
             "confirmed": confirmed_bookings,

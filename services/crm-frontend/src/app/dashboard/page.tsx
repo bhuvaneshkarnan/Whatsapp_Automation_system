@@ -5192,7 +5192,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         )}
                       </div>
                       <p className="text-[11px] text-text-muted truncate">
-                        {dashboardAnalyticsData ? `${dashboardAnalyticsData.summary.converted_leads} converted leads` : 'Contacts on file'}
+                        {dashboardAnalyticsData ? `${dashboardAnalyticsData.summary.converted_leads} converted of ${dashboardAnalyticsData.summary.total_leads} leads` : 'Contacts on file'}
                       </p>
                     </div>
 
@@ -5233,9 +5233,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           : bookings.filter((b) => b.status === 'completed' || b.status === 'attended').reduce((sum, b) => sum + (Number(b.price) || 0), 0).toLocaleString()}
                       </p>
                       <p className="text-[11px] text-text-muted truncate">
-                        {dashboardAnalyticsData
+                        {dashboardAnalyticsData && dashboardAnalyticsData.summary.completed_bookings > 0
                           ? `Avg ticket: ${currentCurrencySymbol}${dashboardAnalyticsData.summary.average_ticket_size.toLocaleString()}`
-                          : `From ${bookings.filter((b) => b.status === 'completed' || b.status === 'attended').length} attended visits`}
+                          : dashboardAnalyticsData && dashboardAnalyticsData.summary.confirmed_bookings > 0
+                          ? `${dashboardAnalyticsData.summary.confirmed_bookings} session pending attendance`
+                          : 'No completed visits yet'}
                       </p>
                     </div>
 
@@ -5249,16 +5251,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </div>
                       <div className="flex items-baseline gap-1.5">
                         <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
-                          {dashboardAnalyticsData ? `${dashboardAnalyticsData.summary.ai_autonomous_rate}%` : '85%'}
+                          {dashboardAnalyticsData ? `${dashboardAnalyticsData.summary.ai_autonomous_rate}%` : '0%'}
                         </p>
                         <span className="text-[10px] px-1 py-0.2 rounded-xs bg-status-success-bg text-status-success border border-status-success-border font-medium">
-                          Auto
+                          {dashboardAnalyticsData && dashboardAnalyticsData.summary.ai_autonomous_rate >= 50 ? 'Active' : 'Assisted'}
                         </span>
                       </div>
                       <p className="text-[11px] text-text-muted truncate">
                         {dashboardAnalyticsData
-                          ? `${dashboardAnalyticsData.summary.ai_conversations} AI • ${dashboardAnalyticsData.summary.human_conversations} human`
-                          : 'Conversations handled'}
+                          ? `${dashboardAnalyticsData.summary.ai_conversations} AI replies • ${dashboardAnalyticsData.summary.human_conversations} staff replies`
+                          : 'Messages automated'}
                       </p>
                     </div>
                   </div>
@@ -5345,10 +5347,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </div>
 
                       <div className="space-y-2.5 py-1">
-                        {/* Step 1: New Leads */}
+                        {/* Step 1: Inbound Contacts */}
                         <div>
                           <div className="flex justify-between text-xs mb-1">
-                            <span className="text-text-secondary">New Inbound Leads</span>
+                            <span className="text-text-secondary">Inbound Inquiries</span>
                             <span className="font-mono font-semibold text-text-primary">{dashboardAnalyticsData.pipeline.new}</span>
                           </div>
                           <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
@@ -5359,13 +5361,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         {/* Step 2: Contacted */}
                         <div>
                           <div className="flex justify-between text-xs mb-1">
-                            <span className="text-text-secondary">Contacted / Engaged</span>
+                            <span className="text-text-secondary">Engaged in Chat</span>
                             <span className="font-mono font-semibold text-text-primary">{dashboardAnalyticsData.pipeline.contacted}</span>
                           </div>
                           <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
                             <div
                               className="bg-indigo-500 h-full rounded-full"
-                              style={{ width: `${dashboardAnalyticsData.summary.total_leads > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.pipeline.contacted / dashboardAnalyticsData.summary.total_leads) * 100)) : 0}%` }}
+                              style={{ width: `${dashboardAnalyticsData.pipeline.new > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.pipeline.contacted / dashboardAnalyticsData.pipeline.new) * 100)) : 0}%` }}
                             />
                           </div>
                         </div>
@@ -5373,13 +5375,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         {/* Step 3: Qualified / Follow-up */}
                         <div>
                           <div className="flex justify-between text-xs mb-1">
-                            <span className="text-text-secondary">Follow-up / In Progress</span>
+                            <span className="text-text-secondary">Tracked in CRM</span>
                             <span className="font-mono font-semibold text-text-primary">{dashboardAnalyticsData.pipeline.qualified}</span>
                           </div>
                           <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
                             <div
                               className="bg-amber-500 h-full rounded-full"
-                              style={{ width: `${dashboardAnalyticsData.summary.total_leads > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.pipeline.qualified / dashboardAnalyticsData.summary.total_leads) * 100)) : 0}%` }}
+                              style={{ width: `${dashboardAnalyticsData.pipeline.new > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.pipeline.qualified / dashboardAnalyticsData.pipeline.new) * 100)) : 0}%` }}
                             />
                           </div>
                         </div>
@@ -5393,7 +5395,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
                             <div
                               className="bg-purple-500 h-full rounded-full"
-                              style={{ width: `${dashboardAnalyticsData.summary.total_leads > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.summary.total_bookings / dashboardAnalyticsData.summary.total_leads) * 100)) : 0}%` }}
+                              style={{ width: `${dashboardAnalyticsData.pipeline.new > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.summary.total_bookings / dashboardAnalyticsData.pipeline.new) * 100)) : 0}%` }}
                             />
                           </div>
                         </div>
@@ -5407,7 +5409,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
                             <div
                               className="bg-emerald-600 h-full rounded-full"
-                              style={{ width: `${dashboardAnalyticsData.summary.total_leads > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.summary.completed_bookings / dashboardAnalyticsData.summary.total_leads) * 100)) : 0}%` }}
+                              style={{ width: `${dashboardAnalyticsData.pipeline.new > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.summary.completed_bookings / dashboardAnalyticsData.pipeline.new) * 100)) : 0}%` }}
                             />
                           </div>
                         </div>
