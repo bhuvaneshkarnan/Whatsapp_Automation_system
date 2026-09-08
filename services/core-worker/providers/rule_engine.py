@@ -90,16 +90,6 @@ def apply_rule_engine(
             try:
                 if re.search(rule.trigger_value, text_lower, re.IGNORECASE):
                     logger.info("rule_matched", rule=rule.name, tenant_id=tenant_id)
-                    if rule.name == "greeting":
-                        a_name = (assistant_name or "").strip()
-                        b_name = (business_name or "").strip()
-                        has_custom_name = bool(a_name and a_name.lower() != "assistant")
-                        if has_custom_name and b_name:
-                            return f"Hello! Welcome to {b_name}, I'm {a_name}. How can I assist you today?"
-                        elif has_custom_name:
-                            return f"Hello! Welcome, I'm {a_name}. How can I assist you today?"
-                        elif b_name:
-                            return f"Hello! Welcome to {b_name}, how can I assist you today?"
                     return rule.response_text
             except re.error:
                 # Bad regex in DB — skip this rule

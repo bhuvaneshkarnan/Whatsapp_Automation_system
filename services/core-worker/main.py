@@ -1465,7 +1465,7 @@ class CoreWorker:
             gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
             max_tokens=350,
             temperature=0.3,
-            timeout_seconds=3.5,
+            timeout_seconds=10.0,
             tenant_id=tenant_id,
         )
 
@@ -3452,7 +3452,7 @@ class CoreWorker:
                             "parameters": [
                                 {"type": "text", "text": name},
                                 {"type": "text", "text": service_name},
-                                {"type": "text", "text": f"{formatted_time} on {formatted_date}"},
+                                {"type": "text", "text": formatted_time},
                             ]
                         }
                     ]
@@ -3594,7 +3594,7 @@ class CoreWorker:
                             "parameters": [
                                 {"type": "text", "text": name},
                                 {"type": "text", "text": service},
-                                {"type": "text", "text": full_time_str},
+                                {"type": "text", "text": time_str},
                             ]
                         }
                     ]
@@ -3643,6 +3643,36 @@ class CoreWorker:
                         logger.info("scheduled_review_template_sent", template=template_name, to=job["phone"])
                     except Exception as te:
                         logger.warning("scheduled_review_template_failed_fallback_text", error=str(te))
+
+                # 3. Reschedule Nudge job: Send approved reschedule_nudge template
+                elif job_type == "reschedule_nudge" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+                    template_name = (
+                        creds.get("template_reschedule_nudge") or
+                        t_st.get("template_reschedule_nudge") or
+                        "reschedule_nudge"
+                    )
+                    components = [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": name},
+                                {"type": "text", "text": service},
+                            ]
+                        }
+                    ]
+                    try:
+                        await send_template(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=job["phone"],
+                            template_name=template_name,
+                            language_code="en",
+                            components=components,
+                        )
+                        sent_via_template = True
+                        logger.info("scheduled_reschedule_nudge_template_sent", template=template_name, to=job["phone"])
+                    except Exception as te:
+                        logger.warning("scheduled_reschedule_nudge_template_failed_fallback_text", error=str(te))
 
                 # 3. Fallback to freeform text if template wasn't sent
                 if not sent_via_template:

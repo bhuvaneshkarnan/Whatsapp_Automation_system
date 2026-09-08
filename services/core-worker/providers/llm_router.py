@@ -382,7 +382,7 @@ async def call_llm_cascade(
                 model="qwen/qwen3.8-27b",
                 max_tokens=effective_max_tokens,
                 temperature=temperature,
-                timeout_seconds=3.0,
+                timeout_seconds=8.0,
                 tenant_id=tenant_id,
             ), "groq"
 
@@ -394,7 +394,7 @@ async def call_llm_cascade(
                 model=gemini_model or "gemini-3.1-flash-lite",
                 max_tokens=effective_max_tokens,
                 temperature=temperature,
-                timeout_seconds=3.5,
+                timeout_seconds=10.0,
                 tenant_id=tenant_id,
             ), "gemini"
 

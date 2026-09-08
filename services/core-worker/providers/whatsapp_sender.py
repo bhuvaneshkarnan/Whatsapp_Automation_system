@@ -68,10 +68,7 @@ async def send_template(
     if len(clean_to) == 10:
         clean_to = f"91{clean_to}"
 
-    # If template is admin_reschedule_notice (currently pending review on Meta), fallback to admin_notification immediately
     active_template = template_name
-    if active_template == "admin_reschedule_notice":
-        active_template = "admin_notification"
 
     payload = {
         "messaging_product": "whatsapp",

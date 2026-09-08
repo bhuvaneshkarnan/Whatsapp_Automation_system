@@ -280,6 +280,8 @@ async def dispatch_whatsapp_message(
     clean_phone = "".join(filter(str.isdigit, to_phone))
     if not clean_phone:
         return None
+    if len(clean_phone) == 10:
+        clean_phone = f"91{clean_phone}"
     try:
         async with db_pool.acquire() as conn:
             cred_row = await conn.fetchrow(
@@ -2320,10 +2322,14 @@ async def create_booking(
             headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
             url = f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages"
             
+            clean_wa_phone = "".join(filter(str.isdigit, clean_phone))
+            if len(clean_wa_phone) == 10:
+                clean_wa_phone = f"91{clean_wa_phone}"
+
             # 1. Try approved Meta template first
             payload_tpl = {
                 "messaging_product": "whatsapp",
-                "to": clean_phone,
+                "to": clean_wa_phone,
                 "type": "template",
                 "template": {
                     "name": tpl_name,
@@ -2343,14 +2349,14 @@ async def create_booking(
                     logger.info("manual_booking_template_response", status=res.status_code, template=tpl_name, body=res.text)
                     if res.status_code in (200, 201):
                         template_sent = True
-                        logger.info("manual_booking_wa_template_dispatched", template=tpl_name, phone=clean_phone)
+                        logger.info("manual_booking_wa_template_dispatched", template=tpl_name, phone=clean_wa_phone)
                     elif "132000" in res.text or "132001" in res.text or "does not exist in" in res.text:
                         # Try language retry en_US
                         payload_tpl["template"]["language"] = {"code": "en_US"}
                         res_retry = await client.post(url, headers=headers, json=payload_tpl)
                         if res_retry.status_code in (200, 201):
                             template_sent = True
-                            logger.info("manual_booking_wa_template_retry_succeeded", template=tpl_name, phone=clean_phone)
+                            logger.info("manual_booking_wa_template_retry_succeeded", template=tpl_name, phone=clean_wa_phone)
             except Exception as e:
                 logger.error("manual_booking_wa_template_error", error=str(e))
 
@@ -2362,7 +2368,7 @@ async def create_booking(
                         res_txt = await client.post(
                             url,
                             headers=headers,
-                            json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": confirmation_msg}}
+                            json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_wa_phone, "type": "text", "text": {"body": confirmation_msg}}
                         )
                         logger.info("manual_booking_wa_text_fallback_response", status=res_txt.status_code, text=res_txt.text)
                 except Exception as e:
@@ -2798,10 +2804,6 @@ async def dispatch_admin_reschedule_whatsapp(
             t_st.get("template_admin_reschedule_notice") or
             "admin_reschedule_notice"
         )
-        # If admin_reschedule_notice is configured, default immediately to approved admin_notification to prevent 132001 pending error
-        if tpl_name == "admin_reschedule_notice":
-            tpl_name = "admin_notification"
-
         tpl_params = [customer_name or "Client", customer_phone, service_name or "Appointment", formatted_date or "Rescheduled Date", formatted_time or "Rescheduled Time"]
 
         import httpx
@@ -3674,6 +3676,8 @@ async def send_manual_message(
             try:
                 import httpx
                 clean_phone = conv["phone"].replace("+", "").replace(" ", "").replace("-", "").strip()
+                if len(clean_phone) == 10:
+                    clean_phone = f"91{clean_phone}"
                 headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
                 url = f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages"
 
@@ -8470,12 +8474,79 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
         except Exception as e_c:
             logger.warning("customer_directory_upsert_failed", error=str(e_c))
 
-        # 5. WhatsApp booking confirmation dispatch
+        # 5. WhatsApp booking confirmation dispatch (Approved Meta Template first)
         try:
             date_str = st_dt.strftime("%d %b %Y")
             time_str = st_dt.strftime("%I:%M %p")
-            wa_text = f"Appointment Confirmed! Hello {clean_name}, your appointment with {payload.doctor_name} for {payload.health_concern} is confirmed for {date_str} at {time_str}. Location: {tenant['name']}."
-            await dispatch_whatsapp_message(tenant_id, clean_phone, text=wa_text)
+
+            t_settings = {}
+            if tenant and tenant.get("settings"):
+                try:
+                    t_settings = json.loads(tenant["settings"]) if isinstance(tenant["settings"], str) else dict(tenant["settings"])
+                except Exception:
+                    t_settings = {}
+
+            wa_cred_row = await conn.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+                tenant_id
+            )
+            wa_creds = {}
+            if wa_cred_row and wa_cred_row["credential_data"]:
+                try:
+                    wa_creds = json.loads(wa_cred_row["credential_data"]) if isinstance(wa_cred_row["credential_data"], str) else dict(wa_cred_row["credential_data"])
+                except Exception:
+                    wa_creds = {}
+
+            customer_tpl = (
+                t_settings.get("template_booking_confirmation") or
+                wa_creds.get("template_booking_confirmation") or
+                "booking_confirmationn"
+            )
+            customer_params = [clean_name, service_name, date_str, time_str]
+            wa_text = f"Appointment Confirmed! Hello {clean_name}, your appointment for {service_name} is confirmed for {date_str} at {time_str}. Location: {tenant['name']}."
+
+            tpl_resp = await dispatch_whatsapp_message(
+                tenant_id,
+                clean_phone,
+                template_name=customer_tpl,
+                template_params=customer_params
+            )
+            # If template dispatch failed or not configured, fallback to direct text
+            if not tpl_resp:
+                await dispatch_whatsapp_message(tenant_id, clean_phone, text=wa_text)
+
+            # Record message in conversation history
+            try:
+                msg_body_record = f"[Template: {customer_tpl}] {service_name} on {date_str} at {time_str}" if tpl_resp else wa_text
+                await conn.execute(
+                    """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
+                       VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'outbound', 'template', $3, 'sent', false)""",
+                    conv_id, tenant_id, msg_body_record
+                )
+                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+            except Exception as db_msg_err:
+                logger.warning("public_booking_msg_record_failed", error=str(db_msg_err))
+
+            # 5b. Send location details if configured
+            full_location = (wa_creds.get("full_location_text") or t_settings.get("full_location_text") or "").strip()
+            if full_location:
+                loc_msg = f"📍 *Location & Directions:*\n{full_location}"
+                await dispatch_whatsapp_message(tenant_id, clean_phone, text=loc_msg)
+
+            # 5c. Push Admin WhatsApp Alert via Meta admin_notification template
+            admin_phone = (wa_creds.get("admin_whatsapp_number") or t_settings.get("admin_whatsapp_number") or "").strip()
+            if admin_phone:
+                admin_tpl = (
+                    t_settings.get("template_admin_notification") or
+                    wa_creds.get("template_admin_notification") or
+                    "admin_notification"
+                )
+                clean_admin_phone = re.sub(r'[^0-9]', '', admin_phone)
+                if len(clean_admin_phone) == 10:
+                    clean_admin_phone = f"91{clean_admin_phone}"
+                admin_params = [clean_name, clean_phone.replace("+", ""), service_name, date_str, time_str]
+                await dispatch_whatsapp_message(tenant_id, clean_admin_phone, template_name=admin_tpl, template_params=admin_params)
+
         except Exception as e_wa:
             logger.warning("public_booking_wa_dispatch_failed", error=str(e_wa))
 
