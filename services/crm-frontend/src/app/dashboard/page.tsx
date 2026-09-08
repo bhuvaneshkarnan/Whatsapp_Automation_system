@@ -640,6 +640,105 @@ const INDUSTRY_PRESETS = [
   },
 ];
 
+function FollowupTimeInput({
+  value,
+  onChange,
+  placeholder = '10:00 AM',
+  size = 'sm',
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  placeholder?: string;
+  size?: 'sm' | 'md';
+}) {
+  const parseTime = (str: string) => {
+    const raw = (str || '').trim();
+    const match = raw.match(/^(\d{1,2})(?::(\d{1,2}))?\s*(AM|PM)?$/i);
+    let h = 10;
+    let m = 0;
+    let p: 'AM' | 'PM' = 'AM';
+    if (match) {
+      let parsedH = parseInt(match[1], 10);
+      m = match[2] ? parseInt(match[2], 10) : 0;
+      if (match[3]) {
+        p = match[3].toUpperCase() === 'PM' ? 'PM' : 'AM';
+      } else if (parsedH >= 12) {
+        p = 'PM';
+        if (parsedH > 12) parsedH -= 12;
+      }
+      if (parsedH === 0) parsedH = 12;
+      h = Math.min(Math.max(1, parsedH), 12);
+      m = Math.min(Math.max(0, m), 59);
+    }
+    return { hour: h, minute: m, period: p };
+  };
+
+  const parsed = parseTime(value);
+
+  const handlePeriodToggle = (targetPeriod: 'AM' | 'PM') => {
+    if (parsed.period === targetPeriod) return;
+    const hStr = String(parsed.hour).padStart(2, '0');
+    const mStr = String(parsed.minute).padStart(2, '0');
+    onChange(`${hStr}:${mStr} ${targetPeriod}`);
+  };
+
+  const handleRawChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onChange(e.target.value);
+  };
+
+  const handleBlur = () => {
+    if (value && value.trim()) {
+      const p = parseTime(value);
+      const hStr = String(p.hour).padStart(2, '0');
+      const mStr = String(p.minute).padStart(2, '0');
+      onChange(`${hStr}:${mStr} ${p.period}`);
+    }
+  };
+
+  const isSmall = size === 'sm';
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        type="text"
+        value={value || ''}
+        onChange={handleRawChange}
+        onBlur={handleBlur}
+        placeholder={placeholder}
+        className={`flex-1 min-w-0 ${
+          isSmall ? 'px-2 py-1 text-xs' : 'px-2.5 py-1.5 text-xs'
+        } bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent font-mono`}
+      />
+      <div className="flex border border-border rounded-sm overflow-hidden text-[10px] font-semibold tracking-wider shrink-0 bg-surface">
+        <button
+          type="button"
+          onClick={() => handlePeriodToggle('AM')}
+          className={`px-2 py-1 transition-all cursor-pointer select-none ${
+            parsed.period === 'AM'
+              ? 'bg-accent text-white font-bold shadow-xs'
+              : 'text-text-muted hover:text-text-primary hover:bg-surface-subtle'
+          }`}
+          title="Switch to Morning (AM)"
+        >
+          AM
+        </button>
+        <button
+          type="button"
+          onClick={() => handlePeriodToggle('PM')}
+          className={`px-2 py-1 transition-all cursor-pointer select-none ${
+            parsed.period === 'PM'
+              ? 'bg-accent text-white font-bold shadow-xs'
+              : 'text-text-muted hover:text-text-primary hover:bg-surface-subtle'
+          }`}
+          title="Switch to Evening (PM)"
+        >
+          PM
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}) {
   const router = useRouter();
   const params = useParams();
@@ -2802,6 +2901,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         setCustomers((prev) => prev.map((c) => (c.id === customerId ? { ...c, ...updated } : c)));
         if (selectedCustomer && selectedCustomer.id === customerId) {
           setSelectedCustomer((prev) => (prev ? { ...prev, ...updated } : null));
+        }
+        if (patch.followup_date !== undefined || patch.followup_time !== undefined) {
+          loadTasks();
         }
       }
     } catch (err) {
@@ -7971,12 +8073,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 </div>
                                 <div>
                                   <label className="text-[10px] text-text-muted block mb-1">Follow-up Time</label>
-                                  <input
-                                    type="text"
+                                  <FollowupTimeInput
                                     value={selectedCustomer.followup_time || '10:00 AM'}
-                                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_time: e.target.value })}
-                                    placeholder="e.g. 10:30 AM"
-                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                    onChange={(newTime) => handleUpdateCustomer(selectedCustomer.id, { followup_time: newTime })}
+                                    size="sm"
                                   />
                                 </div>
                               </div>
@@ -8663,12 +8763,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 </div>
                                 <div>
                                   <label className="text-[10px] text-text-muted block mb-1">Follow-up Time</label>
-                                  <input
-                                    type="text"
+                                  <FollowupTimeInput
                                     value={selectedCustomer.followup_time || '10:00 AM'}
-                                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_time: e.target.value })}
-                                    placeholder="e.g. 10:30 AM"
-                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                                    onChange={(newTime) => handleUpdateCustomer(selectedCustomer.id, { followup_time: newTime })}
+                                    size="sm"
                                   />
                                 </div>
                               </div>
@@ -9204,12 +9302,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </div>
                       <div>
                         <label className="block text-[11px] text-text-muted mb-1">Follow-up Time</label>
-                        <input
-                          type="text"
-                          value={addCustomerForm.followup_time}
-                          onChange={(e) => setAddCustomerForm(p => ({...p, followup_time: e.target.value}))}
-                          placeholder="10:00 AM"
-                          className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                        <FollowupTimeInput
+                          value={addCustomerForm.followup_time || '10:00 AM'}
+                          onChange={(newTime) => setAddCustomerForm(p => ({...p, followup_time: newTime}))}
+                          size="md"
                         />
                       </div>
                     </div>

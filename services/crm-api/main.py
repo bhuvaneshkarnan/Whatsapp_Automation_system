@@ -1228,7 +1228,7 @@ async def update_customer(
                     due_dt
                 )
                 if new_gtask_id:
-                    await conn.execute("UPDATE customers SET google_task_id = $1 WHERE id = $2::uuid", new_gtask_id, customer_id)
+                    await conn.execute("UPDATE customers SET google_task_id = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid", new_gtask_id, customer_id, tenant_id)
 
     return {
         "status": "ok",
@@ -1953,13 +1953,26 @@ async def sync_customer_to_google_tasks(
                 tasks_service = build("tasks", "v1", credentials=creds)
                 task_body = {
                     "title": f"Follow-up: {cust['name'] or 'Customer'}",
-                    "notes": f"Phone: {cust['phone']}\nHealth Concern: {cust['health_concern']}\nLead: {cust['lead_probability'].upper()}\nFollow-up: {cust['followup_date']} at {cust['followup_time']}",
+                    "notes": f"Phone: {cust['phone']}\nHealth Concern: {cust['health_concern'] or 'General'}\nLead: {cust['lead_probability'].upper() if cust['lead_probability'] else 'WARM'}\nFollow-up: {cust['followup_date']} at {cust['followup_time'] or '10:00 AM'}",
                     "due": due_iso,
                 }
-                res = tasks_service.tasks().insert(tasklist="@default", body=task_body).execute()
-                if res and res.get("id"):
-                    google_task_id = res["id"]
-                    logger.info("google_task_created_successfully", task_id=google_task_id, customer_id=customer_id)
+                # If task already existed on Google, update it rather than inserting a duplicate
+                if cust.get("google_task_id") and not str(cust["google_task_id"]).startswith("gtask_"):
+                    try:
+                        res = tasks_service.tasks().update(tasklist="@default", task=cust["google_task_id"], body=task_body).execute()
+                        if res and res.get("id"):
+                            google_task_id = res["id"]
+                            logger.info("google_task_updated_successfully", task_id=google_task_id, customer_id=customer_id)
+                    except Exception as ex_t_up:
+                        logger.info("google_task_update_fallback_insert", error=str(ex_t_up))
+                        res = tasks_service.tasks().insert(tasklist="@default", body=task_body).execute()
+                        if res and res.get("id"):
+                            google_task_id = res["id"]
+                else:
+                    res = tasks_service.tasks().insert(tasklist="@default", body=task_body).execute()
+                    if res and res.get("id"):
+                        google_task_id = res["id"]
+                        logger.info("google_task_created_successfully", task_id=google_task_id, customer_id=customer_id)
             except Exception as ex_t:
                 logger.warning("google_tasks_api_dispatch_warn", error=str(ex_t))
 
@@ -2016,21 +2029,41 @@ async def sync_customer_to_google_tasks(
 
         # Save google_task_id and google_calendar_event_id in customers table
         await conn.execute(
-            "UPDATE customers SET google_task_id = $1, google_calendar_event_id = $2 WHERE id = $3::uuid",
-            google_task_id, google_cal_id, customer_id
+            "UPDATE customers SET google_task_id = $1, google_calendar_event_id = $2 WHERE id = $3::uuid AND tenant_id = $4::uuid",
+            google_task_id, google_cal_id, customer_id, tenant_id
         )
 
-        # Upsert in local tasks table
-        task_id = str(uuid.uuid4())
-        await conn.execute(
-            """INSERT INTO tasks (id, tenant_id, customer_id, google_task_id, title, description, due_date, completed, created_at, updated_at)
-               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, false, now(), now())
-               ON CONFLICT (id) DO NOTHING""",
-            task_id, tenant_id, customer_id, google_task_id,
-            f"Follow-up: {cust['name'] or 'Customer'}",
-            f"Health Concern: {cust['health_concern']} | Phone: {cust['phone']}",
-            due_dt
+        # Upsert in local tasks table strictly avoiding duplicates
+        existing_task = await conn.fetchrow(
+            "SELECT id FROM tasks WHERE customer_id = $1::uuid AND tenant_id = $2::uuid ORDER BY created_at DESC LIMIT 1",
+            customer_id, tenant_id
         )
+        if existing_task:
+            task_id = str(existing_task["id"])
+            await conn.execute(
+                """UPDATE tasks
+                   SET google_task_id = $1, google_event_id = $2, title = $3, description = $4, due_date = $5, updated_at = now()
+                   WHERE id = $6::uuid AND tenant_id = $7::uuid""",
+                google_task_id, google_cal_id,
+                f"Follow-up: {cust['name'] or 'Customer'}",
+                f"Health Concern: {cust['health_concern'] or 'General'} | Phone: {cust['phone']}",
+                due_dt, existing_task["id"], tenant_id
+            )
+            # Delete any obsolete duplicate tasks for this customer
+            await conn.execute(
+                "DELETE FROM tasks WHERE customer_id = $1::uuid AND tenant_id = $2::uuid AND id != $3::uuid",
+                customer_id, tenant_id, existing_task["id"]
+            )
+        else:
+            task_id = str(uuid.uuid4())
+            await conn.execute(
+                """INSERT INTO tasks (id, tenant_id, customer_id, google_task_id, google_event_id, title, description, due_date, completed, created_at, updated_at)
+                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, false, now(), now())""",
+                task_id, tenant_id, customer_id, google_task_id, google_cal_id,
+                f"Follow-up: {cust['name'] or 'Customer'}",
+                f"Health Concern: {cust['health_concern'] or 'General'} | Phone: {cust['phone']}",
+                due_dt
+            )
 
     return {
         "status": "ok",
