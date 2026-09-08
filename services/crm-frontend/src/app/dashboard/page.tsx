@@ -5291,34 +5291,37 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           No message activity recorded in this time range.
                         </div>
                       ) : (
-                        <div className="h-44 flex items-end gap-1.5 pt-4 px-1 overflow-x-auto">
+                        <div className="h-44 flex items-end gap-2 pt-4 px-2">
                           {(() => {
-                            const maxVal = Math.max(1, ...dashboardAnalyticsData.time_series.map((t) => Math.max(t.inbound, t.outbound, t.total)));
-                            return dashboardAnalyticsData.time_series.map((t, i) => {
+                            const series = dashboardAnalyticsData.time_series;
+                            const maxVal = Math.max(1, ...series.map((t) => Math.max(t.inbound, t.outbound, t.total)));
+                            const barMaxW = series.length <= 3 ? 'max-w-[120px]' : series.length <= 7 ? 'max-w-[72px]' : series.length <= 14 ? 'max-w-[52px]' : 'max-w-[40px]';
+                            const barGap = series.length <= 7 ? 'gap-1.5' : 'gap-0.5';
+                            return series.map((t, i) => {
                               const inPct = Math.round((t.inbound / maxVal) * 100);
                               const outPct = Math.round((t.outbound / maxVal) * 100);
                               const dayLabel = t.day.slice(5); // MM-DD
                               return (
-                                <div key={t.day || i} className="flex-1 min-w-[20px] max-w-[40px] flex flex-col items-center gap-1 group relative">
+                                <div key={t.day || i} className={`flex-1 min-w-[28px] ${barMaxW} flex flex-col items-center gap-1 group relative`}>
                                   {/* Tooltip on hover */}
-                                  <div className="absolute bottom-full mb-1 hidden group-hover:flex flex-col bg-gray-900 text-white text-[10px] rounded px-2 py-1 shadow-lg pointer-events-none z-20 whitespace-nowrap">
-                                    <span className="font-semibold">{t.day}</span>
-                                    <span>Inbound: {t.inbound}</span>
-                                    <span>Outbound: {t.outbound}</span>
-                                    <span>Total: {t.total}</span>
+                                  <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col bg-gray-900 text-white text-[10px] rounded-md px-2.5 py-1.5 shadow-xl pointer-events-none z-20 whitespace-nowrap border border-white/10">
+                                    <span className="font-semibold border-b border-white/20 pb-0.5 mb-0.5">{t.day}</span>
+                                    <span>📥 Inbound: {t.inbound}</span>
+                                    <span>📤 Outbound: {t.outbound}</span>
+                                    <span className="font-medium pt-0.5 border-t border-white/20 mt-0.5">Total: {t.total}</span>
                                   </div>
                                   {/* Bars */}
-                                  <div className="w-full h-32 flex items-end justify-center gap-0.5">
+                                  <div className={`w-full h-32 flex items-end justify-center ${barGap}`}>
                                     <div
-                                      style={{ height: `${Math.max(inPct, 4)}%` }}
-                                      className="w-1/2 bg-emerald-500 rounded-t-xs transition-all duration-300 hover:opacity-80"
+                                      style={{ height: `${Math.max(inPct, 6)}%` }}
+                                      className="w-1/2 bg-emerald-500 rounded-t-sm transition-all duration-300 hover:brightness-110 cursor-pointer"
                                     />
                                     <div
-                                      style={{ height: `${Math.max(outPct, 4)}%` }}
-                                      className="w-1/2 bg-accent rounded-t-xs transition-all duration-300 hover:opacity-80"
+                                      style={{ height: `${Math.max(outPct, 6)}%` }}
+                                      className="w-1/2 bg-accent rounded-t-sm transition-all duration-300 hover:brightness-110 cursor-pointer"
                                     />
                                   </div>
-                                  <span className="text-[9px] text-text-muted font-mono truncate w-full text-center">
+                                  <span className="text-[10px] text-text-muted font-mono truncate w-full text-center font-medium">
                                     {dayLabel}
                                   </span>
                                 </div>
