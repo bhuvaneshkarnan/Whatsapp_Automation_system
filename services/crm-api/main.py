@@ -3556,7 +3556,8 @@ async def get_messages(
         unread_rows = await conn.fetch(
             """SELECT wa_message_id FROM messages
                WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid
-                 AND direction = 'inbound' AND wa_message_id IS NOT NULL""",
+                 AND direction = 'inbound' AND wa_message_id IS NOT NULL
+                 AND status != 'read'""",
             conv_id, tenant_id
         )
         if unread_rows:
@@ -3725,6 +3726,7 @@ async def send_manual_message(
                                 logger.info("sent_followup_template_due_to_24h_window", conv_id=conv_id, template=f_tpl)
             except Exception as e:
                 logger.error("manual_send_error", error=str(e))
+                status = "failed"
 
         # Insert message row
         inserted = await conn.fetchrow(
