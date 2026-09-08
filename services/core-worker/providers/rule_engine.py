@@ -21,17 +21,14 @@ class Rule:
 # Built-in fallback rules — always active for every tenant
 # Tenant-specific rules (from reply_rules table) are merged and sorted by priority
 DEFAULT_RULES: list[Rule] = [
-    Rule("owner_inquiry", 110, "keyword", r"\b(who are you|who is the owner|who built|founder|boldlabs|who runs|what is your name)\b",
-         "I am Rakshaya, an AI assistant built by Bhuvanesh at Boldlabs. We automate WhatsApp conversations to turn incoming ad leads into booked clients instantly."),
+    Rule("owner_inquiry", 110, "keyword", r"\b(who are you|who is the owner|who built|founder|who runs|what is your name)\b",
+         "I'm the virtual assistant for this business. How can I help you today?"),
 
     Rule("help_inquiry",  105, "keyword", r"\b(how can you help|help me|what do you do|what does it do|how does it work|features)\b",
-         "We set up an AI assistant directly on your WhatsApp number that replies instantly to inquiries 24/7, answers questions naturally, and books appointments on calendar."),
-
-    Rule("business_type", 102, "keyword", r"\b(food|restaurant|clinic|doctor|hospital|agency|ecommerce|store|shop|hotel)\b",
-         "We tailor the WhatsApp automation to your specific business workflow so it captures leads, answers inquiries, and schedules bookings smoothly."),
+         "I can help you with information about our services, scheduling appointments, and answering your questions. What would you like to know?"),
 
     Rule("greeting",      100, "keyword", r"\b(hello|hi|hey|hii+|bii+|hola|namaste|good morning|good afternoon|good evening)\b",
-         "Hey there! How is everything going with your business today?"),
+         "Hello! Welcome, how can I assist you today?"),
 
     Rule("bye",           90,  "keyword", r"\b(bye|goodbye|see you|thanks|thank you|dhanyavaad)\b",
          "You're very welcome! Have a wonderful day ahead. 😊"),
@@ -55,10 +52,10 @@ DEFAULT_RULES: list[Rule] = [
          "I'm connecting you with our team right away. One moment! 🤝"),
 
     Rule("price",         65,  "keyword", r"\b(price|cost|how much|rate|charges|fee)\b",
-         "Our automation is Rs 3499 per month with zero setup fee, including continuous server maintenance and support. How many monthly inquiries do you get?"),
+         "I can share our pricing details with you. Could you let me know which service you are interested in?"),
 
     Rule("fallback",      0,   "fallback", None,
-         "We provide 24/7 AI automation on WhatsApp that turns customer inquiries into confirmed bookings. How can I help with your setup?"),
+         "Thank you for reaching out! I am here to help. Could you tell me more about what you are looking for?"),
 ]
 
 
@@ -66,6 +63,8 @@ def apply_rule_engine(
     message_text: str,
     tenant_id: str,
     tenant_rules: list[Rule] | None = None,
+    assistant_name: str = "Assistant",
+    business_name: str = "",
 ) -> str:
     """
     Match message against rules in priority order.
@@ -91,6 +90,16 @@ def apply_rule_engine(
             try:
                 if re.search(rule.trigger_value, text_lower, re.IGNORECASE):
                     logger.info("rule_matched", rule=rule.name, tenant_id=tenant_id)
+                    if rule.name == "greeting":
+                        a_name = (assistant_name or "").strip()
+                        b_name = (business_name or "").strip()
+                        has_custom_name = bool(a_name and a_name.lower() != "assistant")
+                        if has_custom_name and b_name:
+                            return f"Hello! Welcome to {b_name}, I'm {a_name}. How can I assist you today?"
+                        elif has_custom_name:
+                            return f"Hello! Welcome, I'm {a_name}. How can I assist you today?"
+                        elif b_name:
+                            return f"Hello! Welcome to {b_name}, how can I assist you today?"
                     return rule.response_text
             except re.error:
                 # Bad regex in DB — skip this rule

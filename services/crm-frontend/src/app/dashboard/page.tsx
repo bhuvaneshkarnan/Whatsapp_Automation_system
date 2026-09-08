@@ -1243,7 +1243,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'new' | 'important' | 'mine' | 'unassigned'>('all');
+  const [filter, setFilter] = useState<'all' | 'new' | 'important'>('all');
 
   // Feature 1: Analytics & Reports State
   const [analyticsPeriod, setAnalyticsPeriod] = useState<'7d' | '30d' | '90d' | 'this_month' | 'all'>('30d');
@@ -3297,6 +3297,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
+  async function handleDeleteMessage(msgId: string) {
+    if (!selectedConv) return;
+    try {
+      const res = await crm.deleteMessage(msgId, 'for_me');
+      setMessages((prev) => {
+        const next = prev.filter((m) => m.id !== msgId);
+        if (selectedConv) {
+          messagesCacheRef.current[selectedConv.id] = next;
+        }
+        return next;
+      });
+    } catch (err) {
+      console.error('Failed to delete message:', err);
+    }
+  }
+
   async function handleToggleAi(convId: string, currentStatus: boolean) {
     setTogglingAi(true);
     const newStatus = !currentStatus;
@@ -4043,12 +4059,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       }
       if (filter === 'important') {
         return importantConvIds.includes(c.id);
-      }
-      if (filter === 'mine') {
-        return user?.id ? c.assigned_to === user.id : false;
-      }
-      if (filter === 'unassigned') {
-        return !c.assigned_to;
       }
       return true;
     })
@@ -6841,40 +6851,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       <button
                         type="button"
-                        onClick={() => setFilter('mine')}
-                        className={`flex-1 py-1 px-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
-                          filter === 'mine'
-                            ? 'bg-surface text-text-primary border border-border-strong font-semibold shadow-subtle'
-                            : 'text-text-secondary hover:text-text-primary'
-                        }`}
-                      >
-                        <span>Mine</span>
-                        {conversations.filter((c) => user?.id && c.assigned_to === user.id).length > 0 && (
-                          <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'mine' ? 'bg-accent/10 text-accent font-semibold' : 'bg-surface-subtle text-text-muted'}`}>
-                            {conversations.filter((c) => user?.id && c.assigned_to === user.id).length}
-                          </span>
-                        )}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setFilter('unassigned')}
-                        className={`flex-1 py-1 px-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
-                          filter === 'unassigned'
-                            ? 'bg-surface text-text-primary border border-border-strong font-semibold shadow-subtle'
-                            : 'text-text-secondary hover:text-text-primary'
-                        }`}
-                      >
-                        <span>Unassigned</span>
-                        {conversations.filter((c) => !c.assigned_to).length > 0 && (
-                          <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'unassigned' ? 'bg-amber-100 text-amber-800 font-semibold' : 'bg-surface-subtle text-text-muted'}`}>
-                            {conversations.filter((c) => !c.assigned_to).length}
-                          </span>
-                        )}
-                      </button>
-
-                      <button
-                        type="button"
                         onClick={() => setFilter('important')}
                         className={`flex-1 py-1 px-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
                           filter === 'important'
@@ -7256,9 +7232,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   </div>
                                 )}
                                 <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`} title={formatFullDateTimeDetailed(msg.created_at)}>
-                                  <div
-                                    className={`max-w-[85%] sm:max-w-[70%] rounded-2xl ${isInbound ? 'rounded-tl-xs bg-surface text-text-body border border-border shadow-xs' : 'rounded-tr-xs bg-accent text-white shadow-xs'} px-3.5 py-2.5 text-xs`}
-                                  >
+                                  <div className={`group/msg flex items-center gap-1 max-w-[85%] sm:max-w-[70%] ${isInbound ? '' : 'flex-row-reverse'}`}>
+                                    <div
+                                      className={`rounded-2xl ${isInbound ? 'rounded-tl-xs bg-surface text-text-body border border-border shadow-xs' : 'rounded-tr-xs bg-accent text-white shadow-xs'} px-3.5 py-2.5 text-xs`}
+                                    >
                                     {isVoice && (
                                       <div className="flex items-center gap-1 text-accent-light font-mono text-[10px] mb-1">
                                         <Mic className="w-3 h-3 stroke-[1.5]" />
@@ -7285,6 +7262,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         </span>
                                       )}
                                     </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteMessage(msg.id)}
+                                      className="opacity-0 group-hover/msg:opacity-100 transition-opacity p-1 rounded-full hover:bg-rose-50 dark:hover:bg-rose-950/40 text-text-muted hover:text-rose-500 cursor-pointer shrink-0"
+                                      title="Delete message"
+                                    >
+                                      <Trash2 className="w-3 h-3 stroke-[1.5]" />
+                                    </button>
                                   </div>
                                 </div>
                               </Fragment>

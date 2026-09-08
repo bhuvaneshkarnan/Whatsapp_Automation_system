@@ -1107,7 +1107,9 @@ class CoreWorker:
         tenant_currency_str = "INR"
         tenant_currency_sym = "₹"
         tenant_country_code = "+91"
-        tenant_st_row = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+        tenant_row = await self.db_pool.fetchrow("SELECT name, settings FROM tenants WHERE id = $1::uuid", tenant_id)
+        tenant_name = (tenant_row["name"] if tenant_row and tenant_row.get("name") else "")
+        tenant_st_row = tenant_row.get("settings") if tenant_row else None
         if tenant_st_row:
             if isinstance(tenant_st_row, str):
                 try: tenant_st_row = json.loads(tenant_st_row)
@@ -1353,7 +1355,7 @@ class CoreWorker:
 
         prompt_blocks = [
             time_context,
-            f"You are {assistant_name or 'the assistant'}, representing this business directly on WhatsApp chat.",
+            f"You are {assistant_name or 'the assistant'}, representing {tenant_name or 'this business'} directly on WhatsApp chat.",
             conversation_state_block,
             memory_block,
             busy_slots_block,
@@ -1556,7 +1558,7 @@ class CoreWorker:
                 tenant_id,
             )
             tenant_rules = [db_row_to_rule(dict(r)) for r in rule_rows]
-            response_text = apply_rule_engine(message_text, tenant_id, tenant_rules)
+            response_text = apply_rule_engine(message_text, tenant_id, tenant_rules, assistant_name=assistant_name, business_name=tenant_name)
             provider_used = "rule_engine"
             ai_used_fallback = True
             ai_requests.labels(tenant=tenant_id, provider="rule_engine").inc()
