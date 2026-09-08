@@ -336,14 +336,13 @@ function formatMessageDateDivider(dateStrOrObj: string | Date | null | undefined
     const dateStr = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
     
     if (diffDays === 0) {
-      return `TODAY • ${dateStr}`;
+      return 'TODAY';
     } else if (diffDays === 1) {
-      return `YESTERDAY • ${dateStr}`;
+      return 'YESTERDAY';
     } else if (diffDays > 1 && diffDays < 7) {
-      const weekday = d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
-      return `${weekday} • ${dateStr}`;
+      return d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
     } else {
-      return dateStr.toUpperCase();
+      return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase();
     }
   } catch {
     return '';
@@ -6752,11 +6751,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             return (
                               <Fragment key={msg.id}>
                                 {showDateDivider && (
-                                  <div className="flex justify-center my-3 sticky top-1 z-10 select-none">
-                                    <div className="px-3.5 py-1 rounded-md text-[11px] font-semibold bg-white/95 dark:bg-zinc-800/95 backdrop-blur-sm text-[#54656f] dark:text-zinc-300 border border-border/80 shadow-xs flex items-center gap-1.5 uppercase tracking-wide">
-                                      <Calendar className="w-3 h-3 text-[#54656f]/70 dark:text-zinc-400 stroke-[2]" />
-                                      <span>{formatMessageDateDivider(msg.created_at)}</span>
-                                    </div>
+                                  <div className="flex justify-center my-1.5 select-none pointer-events-none">
+                                    <span
+                                      className="px-2.5 py-0.5 rounded-md text-[10px] font-medium tracking-wide uppercase bg-surface/90 dark:bg-zinc-800/90 backdrop-blur-xs text-text-secondary border border-border/70 shadow-2xs pointer-events-auto"
+                                      title={formatFullDateTimeDetailed(msg.created_at)}
+                                    >
+                                      {formatMessageDateDivider(msg.created_at)}
+                                    </span>
                                   </div>
                                 )}
                                 <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`} title={formatFullDateTimeDetailed(msg.created_at)}>
@@ -7634,11 +7635,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     return (
                                       <Fragment key={msg.id}>
                                         {showDateDivider && (
-                                          <div className="flex justify-center my-2 select-none">
-                                            <div className="px-3 py-0.5 rounded-md text-[10px] font-semibold bg-white/95 dark:bg-zinc-800/95 backdrop-blur-sm text-[#54656f] dark:text-zinc-300 border border-border/80 shadow-xs flex items-center gap-1 uppercase tracking-wide">
-                                              <Calendar className="w-2.5 h-2.5 text-[#54656f]/70 dark:text-zinc-400 stroke-[2]" />
-                                              <span>{formatMessageDateDivider(msg.created_at)}</span>
-                                            </div>
+                                          <div className="flex justify-center my-1.5 select-none pointer-events-none">
+                                            <span
+                                              className="px-2.5 py-0.5 rounded-md text-[10px] font-medium tracking-wide uppercase bg-surface/90 dark:bg-zinc-800/90 backdrop-blur-xs text-text-secondary border border-border/70 shadow-2xs pointer-events-auto"
+                                              title={formatFullDateTimeDetailed(msg.created_at)}
+                                            >
+                                              {formatMessageDateDivider(msg.created_at)}
+                                            </span>
                                           </div>
                                         )}
                                         <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
@@ -8212,11 +8215,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     return (
                                       <Fragment key={msg.id}>
                                         {showDateDivider && (
-                                          <div className="flex justify-center my-2 select-none">
-                                            <div className="px-3 py-0.5 rounded-md text-[10px] font-semibold bg-white/95 dark:bg-zinc-800/95 backdrop-blur-sm text-[#54656f] dark:text-zinc-300 border border-border/80 shadow-xs flex items-center gap-1 uppercase tracking-wide">
-                                              <Calendar className="w-2.5 h-2.5 text-[#54656f]/70 dark:text-zinc-400 stroke-[2]" />
-                                              <span>{formatMessageDateDivider(msg.created_at)}</span>
-                                            </div>
+                                          <div className="flex justify-center my-1.5 select-none pointer-events-none">
+                                            <span
+                                              className="px-2.5 py-0.5 rounded-md text-[10px] font-medium tracking-wide uppercase bg-surface/90 dark:bg-zinc-800/90 backdrop-blur-xs text-text-secondary border border-border/70 shadow-2xs pointer-events-auto"
+                                              title={formatFullDateTimeDetailed(msg.created_at)}
+                                            >
+                                              {formatMessageDateDivider(msg.created_at)}
+                                            </span>
                                           </div>
                                         )}
                                         <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
