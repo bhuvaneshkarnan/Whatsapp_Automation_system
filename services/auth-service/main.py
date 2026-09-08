@@ -110,21 +110,21 @@ async def login_for_access_token(
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="No account found with this email address. Please check your email or contact support.",
+                detail="Invalid email or password. Please check your credentials and try again.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
         if not user.get("is_active", True):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Your account has been deactivated. Please contact your administrator.",
+                detail="Invalid email or password. Please check your credentials and try again.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
         if not verify_password(form_data.password, user["password_hash"]):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect password. Please verify and try again.",
+                detail="Invalid email or password. Please check your credentials and try again.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         

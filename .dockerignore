@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+
+# Environment & secrets
+.env
+.env.*
+*.key
+*.pem
+Oracle key/
+
+# IDE
+.vscode
+.idea
+*.swp
+
+# Dependencies (rebuilt in container)
+node_modules
+__pycache__
+*.pyc
+
+# Build artifacts
+.next
+out
+dist
+*.zip
+
+# Logs
+*.log
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+
+# Docs
+README.md
+*.md
+
+# Vercel
+.vercel
+vercel.json
