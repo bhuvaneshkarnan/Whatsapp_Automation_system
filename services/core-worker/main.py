@@ -728,6 +728,7 @@ class CoreWorker:
                     ON CONFLICT (tenant_id, phone) DO UPDATE
                     SET updated_at = NOW(),
                         last_messaged_at = NOW(),
+                        status = CASE WHEN customers.status = 'converted' THEN 'converted' ELSE 'new' END,
                         name = CASE 
                             WHEN customers.name IS NULL OR customers.name = '' OR customers.name = 'Customer'
                             THEN COALESCE(EXCLUDED.name, customers.name)
@@ -2113,7 +2114,7 @@ class CoreWorker:
 
             # 1. Lead Probability & Status Classification
             lead_prob = "warm"
-            status = "contacted"
+            status = "new"
 
             # Hot indicators: ready to book, pricing query, urgent, slots requested, or booking made
             hot_keywords = [
@@ -2136,10 +2137,10 @@ class CoreWorker:
                 status = "lost"
             elif any(kw in full_text for kw in hot_keywords):
                 lead_prob = "hot"
-                status = "in-progress"
+                status = "new"
             else:
                 lead_prob = "warm"
-                status = "contacted"
+                status = "new"
 
             # 2. Extract Requirement / Health Concern / Inquiry
             extracted_concern = None

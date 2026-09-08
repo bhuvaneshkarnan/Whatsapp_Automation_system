@@ -2245,15 +2245,15 @@ async def create_booking(
             if not existing_cust:
                 new_cust_id = str(uuid.uuid4())
                 await conn.execute(
-                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, health_concern, followup_date, followup_time, created_at, updated_at)
-                       VALUES ($1::uuid, $2::uuid, $3, $4, 'contacted', 'warm', $5, CURRENT_DATE + 7, '10:00 AM', now(), now())
-                       ON CONFLICT (tenant_id, phone) DO NOTHING""",
+                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, converted, health_concern, followup_date, followup_time, created_at, updated_at)
+                       VALUES ($1::uuid, $2::uuid, $3, $4, 'converted', 'hot', true, $5, CURRENT_DATE + 7, '10:00 AM', now(), now())
+                       ON CONFLICT (tenant_id, phone) DO UPDATE SET status = 'converted', converted = true, lead_probability = 'hot', updated_at = now()""",
                     new_cust_id, tenant_id, clean_phone, clean_name, payload.service.strip() or "General Consultation"
                 )
             else:
-                # Update name if customer record has no name yet
+                # Update status to converted and name if customer record has no name yet
                 await conn.execute(
-                    "UPDATE customers SET name = $1, updated_at = now() WHERE id = $2::uuid AND (name IS NULL OR name = '')",
+                    "UPDATE customers SET name = COALESCE(NULLIF(name, ''), $1), status = 'converted', converted = true, lead_probability = 'hot', updated_at = now() WHERE id = $2::uuid",
                     clean_name, str(existing_cust["id"])
                 )
         except Exception as e_cust_link:
@@ -8210,14 +8210,14 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
             cust = await conn.fetchrow("SELECT id FROM customers WHERE tenant_id = $1::uuid AND phone = $2", tenant_id, clean_phone)
             if not cust:
                 await conn.execute(
-                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, health_concern, preferred_doctor, created_at, updated_at)
-                       VALUES (gen_random_uuid(), $1::uuid, $2, $3, 'contacted', 'warm', $4, $5, now(), now())
-                       ON CONFLICT (tenant_id, phone) DO NOTHING""",
+                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, converted, health_concern, preferred_doctor, created_at, updated_at)
+                       VALUES (gen_random_uuid(), $1::uuid, $2, $3, 'converted', 'hot', true, $4, $5, now(), now())
+                       ON CONFLICT (tenant_id, phone) DO UPDATE SET status = 'converted', converted = true, lead_probability = 'hot', updated_at = now()""",
                     tenant_id, clean_phone, clean_name, payload.health_concern, payload.doctor_name
                 )
             else:
                 await conn.execute(
-                    """UPDATE customers SET name = $1, health_concern = $2, preferred_doctor = $3, updated_at = now() WHERE id = $4::uuid""",
+                    """UPDATE customers SET name = COALESCE(NULLIF(name, ''), $1), status = 'converted', converted = true, lead_probability = 'hot', health_concern = $2, preferred_doctor = $3, updated_at = now() WHERE id = $4::uuid""",
                     clean_name, payload.health_concern, payload.doctor_name, str(cust["id"])
                 )
         except Exception as e_c:

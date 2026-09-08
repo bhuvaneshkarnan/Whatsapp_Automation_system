@@ -2566,7 +2566,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         health_concern: quickCrmConcern.trim() || 'General Consultation',
         lead_probability: quickCrmLead,
         preferred_doctor: quickCrmDoctor.trim() || undefined,
-        status: 'contacted',
+        status: 'new',
       });
       setShowQuickAddCrmModal(false);
       const freshCustomers = await crm.getCustomers();
