@@ -333,18 +333,79 @@ function formatMessageDateDivider(dateStrOrObj: string | Date | null | undefined
     const diffMs = today.getTime() - msgDate.getTime();
     const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
     
+    const dateStr = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+    
+    if (diffDays === 0) {
+      return `TODAY • ${dateStr}`;
+    } else if (diffDays === 1) {
+      return `YESTERDAY • ${dateStr}`;
+    } else if (diffDays > 1 && diffDays < 7) {
+      const weekday = d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+      return `${weekday} • ${dateStr}`;
+    } else {
+      return dateStr.toUpperCase();
+    }
+  } catch {
+    return '';
+  }
+}
+
+function formatWhatsAppHeaderDate(dateStrOrObj: string | Date | null | undefined): string {
+  if (!dateStrOrObj) return '';
+  try {
+    const d = typeof dateStrOrObj === 'string' ? new Date(dateStrOrObj) : dateStrOrObj;
+    if (isNaN(d.getTime())) return '';
+    
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const msgDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    
+    const diffMs = today.getTime() - msgDate.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+    
+    const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     
     if (diffDays === 0) {
-      return `Today • ${dateStr}`;
+      return `Today at ${timeStr} (${dateStr})`;
     } else if (diffDays === 1) {
-      return `Yesterday • ${dateStr}`;
+      return `Yesterday at ${timeStr} (${dateStr})`;
     } else if (diffDays > 1 && diffDays < 7) {
       const weekday = d.toLocaleDateString('en-US', { weekday: 'long' });
-      return `${weekday} • ${dateStr}`;
+      return `${weekday} at ${timeStr} (${dateStr})`;
     } else {
+      return `${dateStr} at ${timeStr}`;
+    }
+  } catch {
+    return '';
+  }
+}
+
+function formatWhatsAppRelativeDate(dateStrOrObj: string | Date | null | undefined): string {
+  if (!dateStrOrObj) return '';
+  try {
+    const d = typeof dateStrOrObj === 'string' ? new Date(dateStrOrObj) : dateStrOrObj;
+    if (isNaN(d.getTime())) return '';
+    
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const msgDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    
+    const diffMs = today.getTime() - msgDate.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+    
+    const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    
+    if (diffDays === 0) {
+      return `Today, ${timeStr}`;
+    } else if (diffDays === 1) {
+      return `Yesterday, ${timeStr}`;
+    } else if (diffDays > 1 && diffDays < 7) {
       const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
-      return `${weekday}, ${dateStr}`;
+      return `${weekday}, ${timeStr}`;
+    } else {
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return `${dateStr}, ${timeStr}`;
     }
   } catch {
     return '';
@@ -6524,9 +6585,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
-                              <h4 className="font-semibold text-xs sm:text-sm text-text-primary truncate">{selectedConv.contact_name || selectedConv.contact_phone}</h4>
+                              <h4 className="font-semibold text-xs sm:text-sm text-text-primary truncate">
+                                {selectedConv.contact_name || selectedConv.contact_phone || selectedConv.name || selectedConv.phone}
+                              </h4>
                               {(() => {
-                                const cleanP = selectedConv?.contact_phone ? selectedConv.contact_phone.replace(/[^0-9]/g, '') : '';
+                                const cleanP = (selectedConv?.contact_phone || selectedConv?.phone || '').replace(/[^0-9]/g, '');
                                 if (!cleanP) return null;
                                 const inCrm = Array.isArray(customers) && customers.some((c) => c && c.phone && c.phone.replace(/[^0-9]/g, '') === cleanP);
                                 return inCrm ? (
@@ -6537,18 +6600,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               })()}
                             </div>
                             <div className="flex items-center gap-1.5 text-[10px] text-text-muted font-mono truncate">
-                              <span>{selectedConv.contact_phone}</span>
-                              {selectedConv.last_message_at && (
-                                <>
-                                  <span>&bull;</span>
-                                  <span
-                                    className="text-text-secondary truncate"
-                                    title={formatFullDateTimeDetailed(selectedConv.last_message_at)}
-                                  >
-                                    Last: {formatConversationDate(selectedConv.last_message_at)} ({formatTime12(selectedConv.last_message_at)})
-                                  </span>
-                                </>
-                              )}
+                              <span>{selectedConv.contact_phone || selectedConv.phone}</span>
+                              {(() => {
+                                const lastActive = selectedConv.last_message_at || (messages && messages.length > 0 ? messages[messages.length - 1]?.created_at : null);
+                                if (!lastActive) return null;
+                                return (
+                                  <>
+                                    <span className="text-text-muted/60">•</span>
+                                    <span
+                                      className="text-text-secondary font-medium tracking-tight truncate"
+                                      title={formatFullDateTimeDetailed(lastActive)}
+                                    >
+                                      Last contacted: {formatWhatsAppHeaderDate(lastActive)}
+                                    </span>
+                                  </>
+                                );
+                              })()}
                             </div>
                           </div>
                         </div>
@@ -6686,13 +6753,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <Fragment key={msg.id}>
                                 {showDateDivider && (
                                   <div className="flex justify-center my-3 sticky top-1 z-10 select-none">
-                                    <div className="px-3 py-1 rounded-full text-[11px] font-semibold bg-surface/95 backdrop-blur-sm text-text-secondary border border-border shadow-xs flex items-center gap-1.5">
-                                      <Calendar className="w-3 h-3 text-text-muted stroke-[1.8]" />
+                                    <div className="px-3.5 py-1 rounded-md text-[11px] font-semibold bg-white/95 dark:bg-zinc-800/95 backdrop-blur-sm text-[#54656f] dark:text-zinc-300 border border-border/80 shadow-xs flex items-center gap-1.5 uppercase tracking-wide">
+                                      <Calendar className="w-3 h-3 text-[#54656f]/70 dark:text-zinc-400 stroke-[2]" />
                                       <span>{formatMessageDateDivider(msg.created_at)}</span>
                                     </div>
                                   </div>
                                 )}
-                                <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
+                                <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`} title={formatFullDateTimeDetailed(msg.created_at)}>
                                   <div
                                     className={`max-w-[85%] sm:max-w-[70%] rounded-2xl ${isInbound ? 'rounded-tl-xs bg-surface text-text-body border border-border shadow-xs' : 'rounded-tr-xs bg-accent text-white shadow-xs'} px-3.5 py-2.5 text-xs`}
                                   >
@@ -7058,6 +7125,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     <td className="p-2.5 pl-4">
                                       <div className="font-medium text-text-primary text-[11px]">{cust.name || 'Customer'}</div>
                                       <div className="font-mono text-[10px] text-text-muted mt-0.5">{cust.phone}</div>
+                                      {cust.last_chat_at && (
+                                        <div className="text-[10px] text-text-secondary mt-0.5 flex items-center gap-1 font-mono" title={`Last WhatsApp: ${formatFullDateTimeDetailed(cust.last_chat_at)}`}>
+                                          <Clock className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                                          <span>Last: {formatWhatsAppRelativeDate(cust.last_chat_at)}</span>
+                                        </div>
+                                      )}
                                       {(cust.age || cust.location) && (
                                         <div className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1">
                                           {cust.age && <span>{cust.age}y</span>}
@@ -7220,8 +7293,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 <span className="truncate italic text-text-primary">"{selectedCustomer.last_message}"</span>
                               </div>
                               {selectedCustomer.last_chat_at && (
-                                <span className="text-[10px] text-text-muted shrink-0 font-mono">
-                                  {formatRelativeTime(selectedCustomer.last_chat_at)}
+                                <span className="text-[10px] text-text-muted shrink-0 font-mono" title={formatFullDateTimeDetailed(selectedCustomer.last_chat_at)}>
+                                  {formatWhatsAppRelativeDate(selectedCustomer.last_chat_at)}
                                 </span>
                               )}
                             </div>
@@ -7562,8 +7635,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       <Fragment key={msg.id}>
                                         {showDateDivider && (
                                           <div className="flex justify-center my-2 select-none">
-                                            <div className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-surface text-text-secondary border border-border shadow-xs flex items-center gap-1">
-                                              <Calendar className="w-2.5 h-2.5 text-text-muted stroke-[1.8]" />
+                                            <div className="px-3 py-0.5 rounded-md text-[10px] font-semibold bg-white/95 dark:bg-zinc-800/95 backdrop-blur-sm text-[#54656f] dark:text-zinc-300 border border-border/80 shadow-xs flex items-center gap-1 uppercase tracking-wide">
+                                              <Calendar className="w-2.5 h-2.5 text-[#54656f]/70 dark:text-zinc-400 stroke-[2]" />
                                               <span>{formatMessageDateDivider(msg.created_at)}</span>
                                             </div>
                                           </div>
@@ -7805,7 +7878,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     <td className="p-2.5 pl-4">
                                       <div className="font-semibold text-text-primary text-[11px]">{cust.name || 'Customer'}</div>
                                     </td>
-                                    <td className="p-2.5 font-mono text-[11px] text-text-muted whitespace-nowrap">{cust.phone}</td>
+                                    <td className="p-2.5 font-mono text-[11px] text-text-muted whitespace-nowrap">
+                                      <div>{cust.phone}</div>
+                                      {cust.last_chat_at && (
+                                        <div className="text-[10px] text-text-secondary mt-0.5 flex items-center gap-1 font-mono" title={`Last WhatsApp: ${formatFullDateTimeDetailed(cust.last_chat_at)}`}>
+                                          <Clock className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                                          <span>Last: {formatWhatsAppRelativeDate(cust.last_chat_at)}</span>
+                                        </div>
+                                      )}
+                                    </td>
                                     <td className="p-2.5 text-text-secondary text-[11px] whitespace-nowrap">
                                       {cust.age || cust.location ? (
                                         <div className="flex items-center gap-1.5">
@@ -8132,8 +8213,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       <Fragment key={msg.id}>
                                         {showDateDivider && (
                                           <div className="flex justify-center my-2 select-none">
-                                            <div className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-surface text-text-secondary border border-border shadow-xs flex items-center gap-1">
-                                              <Calendar className="w-2.5 h-2.5 text-text-muted stroke-[1.8]" />
+                                            <div className="px-3 py-0.5 rounded-md text-[10px] font-semibold bg-white/95 dark:bg-zinc-800/95 backdrop-blur-sm text-[#54656f] dark:text-zinc-300 border border-border/80 shadow-xs flex items-center gap-1 uppercase tracking-wide">
+                                              <Calendar className="w-2.5 h-2.5 text-[#54656f]/70 dark:text-zinc-400 stroke-[2]" />
                                               <span>{formatMessageDateDivider(msg.created_at)}</span>
                                             </div>
                                           </div>
