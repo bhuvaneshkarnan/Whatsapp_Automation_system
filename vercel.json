@@ -1,8 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs",
+  "framework": null,
+  "cleanUrls": true,
   "buildCommand": "cd services/crm-frontend && npm run build",
-  "outputDirectory": "services/crm-frontend/.next",
+  "outputDirectory": "services/crm-frontend/out",
   "installCommand": "cd services/crm-frontend && npm install",
   "headers": [
     {
