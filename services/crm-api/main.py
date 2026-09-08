@@ -5120,7 +5120,19 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
             "next_renewal_date": f"Day {b_day} of every month",
             "country_code": "+91",
             "currency": "INR",
-            "currency_symbol": "₹"
+            "currency_symbol": "₹",
+            "template_booking_confirmation": payload.template_booking_confirmation.strip() if payload.template_booking_confirmation else "booking_confirmationn",
+            "template_booking_reschedule_confirmation": payload.template_reschedule_confirmation.strip() if payload.template_reschedule_confirmation else "booking_reschedule_confirmation",
+            "template_cancellation_confirmation": payload.template_cancellation_confirmation.strip() if payload.template_cancellation_confirmation else "cancellation_confirmation",
+            "template_appointment_reminder": "appointment_ramainder",
+            "template_reschedule_nudge": "reschedule_nudge",
+            "template_review_request": "review_request",
+            "template_admin_notification": payload.template_admin_notification.strip() if payload.template_admin_notification else "admin_notification",
+            "template_admin_reschedule_notice": payload.template_admin_reschedule_notice.strip() if payload.template_admin_reschedule_notice else "admin_reschedule_notice",
+            "template_admin_cancellation_notice": payload.template_admin_cancellation_notice.strip() if payload.template_admin_cancellation_notice else "admin_cancellation_notice",
+            "template_admin_human_request": payload.template_admin_human_request.strip() if payload.template_admin_human_request else "admin_human_request",
+            "template_admin_daily_digest": "admin_daily_digest",
+            "template_client_followup_checkin": "client_followup_checkin",
         }
 
         # Transactional insert
@@ -5148,12 +5160,17 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
                     "full_location_text": full_location,
                     "admin_whatsapp_number": payload.admin_whatsapp_number.strip() if payload.admin_whatsapp_number else "",
                     "template_booking_confirmation": payload.template_booking_confirmation.strip() if payload.template_booking_confirmation else "booking_confirmationn",
-                    "template_admin_notification": payload.template_admin_notification.strip() if payload.template_admin_notification else "admin_notification",
-                    "template_admin_human_request": payload.template_admin_human_request.strip() if payload.template_admin_human_request else "admin_human_request",
+                    "template_booking_reschedule_confirmation": payload.template_reschedule_confirmation.strip() if payload.template_reschedule_confirmation else "booking_reschedule_confirmation",
                     "template_cancellation_confirmation": payload.template_cancellation_confirmation.strip() if payload.template_cancellation_confirmation else "cancellation_confirmation",
-                    "template_admin_cancellation_notice": payload.template_admin_cancellation_notice.strip() if payload.template_admin_cancellation_notice else "admin_cancellation_notice",
-                    "template_reschedule_confirmation": payload.template_reschedule_confirmation.strip() if payload.template_reschedule_confirmation else "booking_reschedule_confirmation",
+                    "template_appointment_reminder": "appointment_ramainder",
+                    "template_reschedule_nudge": "reschedule_nudge",
+                    "template_review_request": "review_request",
+                    "template_admin_notification": payload.template_admin_notification.strip() if payload.template_admin_notification else "admin_notification",
                     "template_admin_reschedule_notice": payload.template_admin_reschedule_notice.strip() if payload.template_admin_reschedule_notice else "admin_reschedule_notice",
+                    "template_admin_cancellation_notice": payload.template_admin_cancellation_notice.strip() if payload.template_admin_cancellation_notice else "admin_cancellation_notice",
+                    "template_admin_human_request": payload.template_admin_human_request.strip() if payload.template_admin_human_request else "admin_human_request",
+                    "template_admin_daily_digest": "admin_daily_digest",
+                    "template_client_followup_checkin": "client_followup_checkin",
                 }
                 await conn.execute(
                     "INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'whatsapp', $3::jsonb, true)",
@@ -5208,6 +5225,14 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
         except Exception as e:
             logger.error(f"Error provisioning client tenant: {e}")
             raise HTTPException(400, f"Failed to provision client organization: {str(e)}")
+
+    # Auto-provision Meta templates for new tenant if WhatsApp credentials provided
+    if payload.meta_waba_id and payload.meta_access_token:
+        try:
+            sync_res = await execute_meta_template_sync(tenant_id, db_pool)
+            logger.info("tenant_onboarding_meta_templates_synced", tenant_id=tenant_id, total_required=sync_res.get("total_required"))
+        except Exception as st_err:
+            logger.warning("tenant_onboarding_meta_template_sync_warn", tenant_id=tenant_id, error=str(st_err))
 
     return {
         "id": tenant_id,
@@ -5939,6 +5964,56 @@ async def get_tenant_invoices(tenant_id: str, admin_user: dict = Depends(verify_
             }
             for r in rows
         ]
+
+
+@app.post("/admin/purge-test-data")
+async def purge_test_data(tenant_id: Optional[str] = None, admin_user: dict = Depends(verify_super_admin)):
+    """
+    Purge test records (bookings, customers, contacts, test messages) across all or specific tenants.
+    Ensures zero dummy or test data remains in the database.
+    """
+    async with db_pool.acquire() as conn:
+        t_filter = "AND tenant_id = $1::uuid" if tenant_id else ""
+        params = [tenant_id] if tenant_id else []
+
+        # 1. Purge test bookings
+        b_res = await conn.execute(
+            f"DELETE FROM bookings WHERE (notes ILIKE '%test%' OR service ILIKE '%test%') {t_filter}",
+            *params
+        )
+        b_count = int(b_res.split()[-1]) if b_res else 0
+
+        # 2. Purge test customers
+        c_res = await conn.execute(
+            f"DELETE FROM customers WHERE (name ILIKE '%test%' OR health_concern ILIKE '%test%') {t_filter}",
+            *params
+        )
+        c_count = int(c_res.split()[-1]) if c_res else 0
+
+        # 3. Purge test contacts
+        ct_res = await conn.execute(
+            f"DELETE FROM contacts WHERE (name ILIKE '%test%' OR notes ILIKE '%test%') {t_filter}",
+            *params
+        )
+        ct_count = int(ct_res.split()[-1]) if ct_res else 0
+
+        # 4. Purge test messages
+        m_res = await conn.execute(
+            f"DELETE FROM messages WHERE (body ILIKE '%[TEST]%' OR body ILIKE '%test_message%' OR body ILIKE 'Test message from%' OR body ILIKE '%automated test%') {t_filter}",
+            *params
+        )
+        m_count = int(m_res.split()[-1]) if m_res else 0
+
+        logger.info("admin_purged_test_data", bookings=b_count, customers=c_count, contacts=ct_count, messages=m_count, tenant_id=tenant_id)
+        return {
+            "success": True,
+            "purged": {
+                "bookings": b_count,
+                "customers": c_count,
+                "contacts": ct_count,
+                "messages": m_count
+            }
+        }
 
 
 @app.post("/webhooks/razorpay")
@@ -7350,7 +7425,7 @@ def build_industry_template_specs(industry: str = "clinic") -> dict:
         },
         "reschedule_nudge": {
             "name": "reschedule_nudge",
-            "category": "UTILITY",
+            "category": "MARKETING",
             "language": "en",
             "label": "Missed Appointment Reschedule Notice",
             "description": "Sent when client misses appointment to re-book",
@@ -7620,16 +7695,67 @@ async def get_meta_templates_status(tenant_id: str = Depends(get_tenant_id)):
     }
 
 
-@app.post("/templates/sync-meta")
-@app.post("/api/v1/crm/templates/sync-meta")
-async def sync_meta_templates(tenant_id: str = Depends(get_tenant_id)):
+def check_template_component_diff(existing_components: list, spec_components: list) -> tuple[bool, str]:
     """
-    Auto-provision missing message templates directly in Meta WhatsApp Business Account.
+    Compare existing components returned by Meta Graph API vs desired spec components.
+    Returns (needs_update: bool, reason: str).
+    Checks:
+    1. BUTTONS: If spec has BUTTONS and Meta does not, or button text/type differs.
+    2. BODY: If spec has BODY and Meta does not.
+    3. HEADER / FOOTER: If spec defines them and Meta does not.
+    """
+    if not existing_components and spec_components:
+        return True, "Existing template has no components"
+
+    existing_by_type = {str(c.get("type", "")).upper(): c for c in (existing_components or [])}
+    spec_by_type = {str(c.get("type", "")).upper(): c for c in (spec_components or [])}
+
+    # 1. Check BUTTONS (e.g. Quick Reply buttons like 'Reschedule Now')
+    if "BUTTONS" in spec_by_type:
+        spec_btn_comp = spec_by_type["BUTTONS"]
+        spec_btns = spec_btn_comp.get("buttons", [])
+        if "BUTTONS" not in existing_by_type:
+            return True, "Missing BUTTONS component (e.g. Quick Reply buttons)"
+        exist_btn_comp = existing_by_type["BUTTONS"]
+        exist_btns = exist_btn_comp.get("buttons", [])
+        if len(spec_btns) != len(exist_btns):
+            return True, f"Button count mismatch (spec: {len(spec_btns)}, Meta: {len(exist_btns)})"
+        for sb, eb in zip(spec_btns, exist_btns):
+            s_type = (sb.get("type") or "").upper()
+            e_type = (eb.get("type") or "").upper()
+            s_text = (sb.get("text") or "").strip()
+            e_text = (eb.get("text") or "").strip()
+            if s_type != e_type or s_text != e_text:
+                return True, f"Button mismatch: expected '{s_text}' ({s_type}), got '{e_text}' ({e_type})"
+
+    # 2. Check BODY
+    if "BODY" in spec_by_type:
+        if "BODY" not in existing_by_type:
+            return True, "Missing BODY component"
+
+    # 3. Check HEADER
+    if "HEADER" in spec_by_type:
+        if "HEADER" not in existing_by_type:
+            return True, "Missing HEADER component"
+
+    # 4. Check FOOTER
+    if "FOOTER" in spec_by_type:
+        if "FOOTER" not in existing_by_type:
+            return True, "Missing FOOTER component"
+
+    return False, ""
+
+
+async def execute_meta_template_sync(tenant_id: str, pool) -> dict:
+    """
+    Auto-provision missing message templates and auto-update missing components
+    (such as Quick Reply buttons) directly in Meta WhatsApp Business Account.
     - Inspects existing templates in Meta.
-    - Preserves and links already approved/pending templates.
-    - Creates any missing templates tailored to the tenant's chosen industry under UTILITY category.
+    - If template exists but is missing buttons/components, updates components via POST /{template_id}.
+    - If template does not exist, creates it via POST /{waba_id}/message_templates.
+    - Updates both tenants.settings and tenant_credentials.credential_data with all 12 templates.
     """
-    async with db_pool.acquire() as conn:
+    async with pool.acquire() as conn:
         cred_row = await conn.fetchrow(
             "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
             tenant_id
@@ -7678,8 +7804,8 @@ async def sync_meta_templates(tenant_id: str = Depends(get_tenant_id)):
             if isinstance(e, HTTPException): raise e
             raise HTTPException(502, f"Failed to connect to Meta Graph API: {str(e)}")
 
-        # 2. Track results
         already_present = []
+        updated = []
         created = []
         failed = []
 
@@ -7689,13 +7815,56 @@ async def sync_meta_templates(tenant_id: str = Depends(get_tenant_id)):
         for name, spec in required_specs.items():
             if name in meta_templates_map:
                 existing = meta_templates_map[name]
-                already_present.append({
-                    "name": name,
-                    "label": spec["label"],
-                    "status": existing.get("status", "UNKNOWN"),
-                    "category": existing.get("category", spec["category"]),
-                    "meta_id": existing.get("id"),
-                })
+                existing_meta_id = existing.get("id")
+                needs_update, update_reason = check_template_component_diff(existing.get("components", []), spec.get("components", []))
+
+                if needs_update and existing_meta_id:
+                    # Template exists in Meta but is missing buttons or components: update it!
+                    update_url = f"https://graph.facebook.com/v21.0/{existing_meta_id}"
+                    try:
+                        u_res = await client.post(
+                            update_url,
+                            headers=headers,
+                            json={"components": spec["components"]}
+                        )
+                        if u_res.status_code in [200, 201]:
+                            updated.append({
+                                "name": name,
+                                "label": spec["label"],
+                                "status": existing.get("status", "APPROVED"),
+                                "category": existing.get("category", spec["category"]),
+                                "meta_id": existing_meta_id,
+                                "action": "UPDATED_COMPONENTS",
+                                "reason": update_reason,
+                            })
+                            logger.info("meta_template_components_auto_updated", name=name, tenant_id=tenant_id, reason=update_reason)
+                        else:
+                            logger.warning("meta_template_components_update_warn", name=name, status=u_res.status_code, error=u_res.text)
+                            already_present.append({
+                                "name": name,
+                                "label": spec["label"],
+                                "status": existing.get("status", "UNKNOWN"),
+                                "category": existing.get("category", spec["category"]),
+                                "meta_id": existing_meta_id,
+                                "update_warning": f"Edit rejected: {u_res.text}"
+                            })
+                    except Exception as ue:
+                        logger.error("meta_template_update_exception", name=name, error=str(ue))
+                        already_present.append({
+                            "name": name,
+                            "label": spec["label"],
+                            "status": existing.get("status", "UNKNOWN"),
+                            "category": existing.get("category", spec["category"]),
+                            "meta_id": existing_meta_id,
+                        })
+                else:
+                    already_present.append({
+                        "name": name,
+                        "label": spec["label"],
+                        "status": existing.get("status", "UNKNOWN"),
+                        "category": existing.get("category", spec["category"]),
+                        "meta_id": existing_meta_id,
+                    })
             else:
                 # Need to create missing template in Meta
                 payload = {
@@ -7737,23 +7906,33 @@ async def sync_meta_templates(tenant_id: str = Depends(get_tenant_id)):
                         "error": str(ex)
                     })
 
-    # 3. Automatically link template names into tenant settings
-    async with db_pool.acquire() as conn:
-        t_settings["template_booking_confirmation"] = "booking_confirmationn"
-        t_settings["template_booking_reschedule_confirmation"] = "booking_reschedule_confirmation"
-        t_settings["template_cancellation_confirmation"] = "cancellation_confirmation"
-        t_settings["template_appointment_reminder"] = "appointment_ramainder"
-        t_settings["template_reschedule_nudge"] = "reschedule_nudge"
-        t_settings["template_review_request"] = "review_request"
-        t_settings["template_admin_notification"] = "admin_notification"
-        t_settings["template_admin_reschedule_notice"] = "admin_reschedule_notice"
-        t_settings["template_admin_cancellation_notice"] = "admin_cancellation_notice"
-        t_settings["template_admin_human_request"] = "admin_human_request"
-        t_settings["template_admin_daily_digest"] = "admin_daily_digest"
+    # Save all 12 template names into both tenant settings and tenant credentials
+    all_templates_map = {
+        "template_booking_confirmation": "booking_confirmationn",
+        "template_booking_reschedule_confirmation": "booking_reschedule_confirmation",
+        "template_cancellation_confirmation": "cancellation_confirmation",
+        "template_appointment_reminder": "appointment_ramainder",
+        "template_reschedule_nudge": "reschedule_nudge",
+        "template_review_request": "review_request",
+        "template_admin_notification": "admin_notification",
+        "template_admin_reschedule_notice": "admin_reschedule_notice",
+        "template_admin_cancellation_notice": "admin_cancellation_notice",
+        "template_admin_human_request": "admin_human_request",
+        "template_admin_daily_digest": "admin_daily_digest",
+        "template_client_followup_checkin": "client_followup_checkin",
+    }
+    for k, v in all_templates_map.items():
+        t_settings[k] = v
+        w_data[k] = v
 
+    async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE tenants SET settings = $1, updated_at = now() WHERE id = $2::uuid",
             json.dumps(t_settings), tenant_id
+        )
+        await conn.execute(
+            "UPDATE tenant_credentials SET credential_data = $1::jsonb, updated_at = now() WHERE tenant_id = $2::uuid AND provider = 'whatsapp' AND is_active = true",
+            json.dumps(w_data), tenant_id
         )
 
     return {
@@ -7762,12 +7941,24 @@ async def sync_meta_templates(tenant_id: str = Depends(get_tenant_id)):
         "waba_id": meta_waba_id,
         "total_required": len(required_specs),
         "already_present_count": len(already_present),
+        "updated_count": len(updated),
         "created_count": len(created),
         "failed_count": len(failed),
         "already_present": already_present,
+        "updated": updated,
         "created": created,
         "failed": failed
     }
+
+
+@app.post("/templates/sync-meta")
+@app.post("/api/v1/crm/templates/sync-meta")
+async def sync_meta_templates(tenant_id: str = Depends(get_tenant_id)):
+    """
+    Auto-provision missing message templates and auto-update missing components
+    (such as Quick Reply buttons) directly in Meta WhatsApp Business Account.
+    """
+    return await execute_meta_template_sync(tenant_id, db_pool)
 
 
 @app.post("/templates")
