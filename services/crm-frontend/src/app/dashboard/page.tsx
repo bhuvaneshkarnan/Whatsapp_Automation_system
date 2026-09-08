@@ -1243,7 +1243,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'new' | 'important'>('all');
+  const [filter, setFilter] = useState<'all' | 'new' | 'important' | 'mine' | 'unassigned'>('all');
+
+  // Feature 1: Analytics & Reports State
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<'7d' | '30d' | '90d' | 'this_month' | 'all'>('30d');
+  const [dashboardAnalyticsData, setDashboardAnalyticsData] = useState<DashboardAnalyticsData | null>(null);
+  const [loadingDashboardAnalytics, setLoadingDashboardAnalytics] = useState(false);
+
+  // Feature 2: WhatsApp Template Picker in Live Chat State
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [selectedChatTemplate, setSelectedChatTemplate] = useState<any | null>(null);
+  const [templateVariableValues, setTemplateVariableValues] = useState<Record<string, string>>({});
+  const [templateSearchQuery, setTemplateSearchQuery] = useState('');
+  const [sendingChatTemplate, setSendingChatTemplate] = useState(false);
+
+  // Feature 4: Staff Assignment Dropdown State
+  const [showAssignDropdown, setShowAssignDropdown] = useState(false);
   const [importantConvIds, setImportantConvIds] = useState<string[]>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -2029,6 +2044,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         loadContacts();
         loadCustomers();
         loadSettings();
+        loadTeamList();
+        loadMarketingTemplates();
+        loadDashboardAnalytics(analyticsPeriod);
       })
       .catch(() => {
         if (typeof window !== 'undefined') {
@@ -2136,7 +2154,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // Load section data based on active tab
   useEffect(() => {
-    if (activeNav === 'bookings') {
+    if (activeNav === 'overview') {
+      loadDashboardAnalytics(analyticsPeriod);
+    } else if (activeNav === 'bookings') {
       loadBookings();
     } else if (activeNav === 'calendar') {
       loadCalendarData();
@@ -2172,6 +2192,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       loadTeamList();
     }
   }, [activeNav, settingsTab]);
+
+  useEffect(() => {
+    if (activeNav === 'overview') {
+      loadDashboardAnalytics(analyticsPeriod);
+    }
+  }, [analyticsPeriod]);
 
   // Refetch customers when filter state changes (Instant responsive filtering)
   useEffect(() => {
@@ -3318,6 +3344,148 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
+  // ── Feature 1: Analytics & Reports Handlers ────────────────────────────────
+  async function loadDashboardAnalytics(period: string = analyticsPeriod) {
+    setLoadingDashboardAnalytics(true);
+    try {
+      const data = await crm.getDashboardAnalytics(period);
+      setDashboardAnalyticsData(data);
+    } catch (err) {
+      console.error('Failed to load dashboard analytics:', err);
+    } finally {
+      setLoadingDashboardAnalytics(false);
+    }
+  }
+
+  function exportAnalyticsToCsv() {
+    if (!dashboardAnalyticsData) return;
+    const s = dashboardAnalyticsData.summary;
+    const rows = [
+      ['Metric', 'Value'],
+      ['Period', dashboardAnalyticsData.period],
+      ['Total Messages', String(s.total_messages)],
+      ['Inbound Messages', String(s.inbound_messages)],
+      ['Outbound Messages', String(s.outbound_messages)],
+      ['AI Handled Messages', String(s.ai_messages)],
+      ['Human Handled Messages', String(s.human_messages)],
+      ['Total Inbound Leads', String(s.total_leads)],
+      ['Converted Leads', String(s.converted_leads)],
+      ['Lead Conversion Rate (%)', String(s.conversion_rate)],
+      ['Total Bookings', String(s.total_bookings)],
+      ['Completed/Attended Visits', String(s.completed_bookings)],
+      ['Attendance Rate (%)', String(s.attendance_rate)],
+      ['Total Attended Revenue (INR)', String(s.total_revenue)],
+      ['Average Ticket Size (INR)', String(s.average_ticket_size)],
+      ['AI Autonomy Rate (%)', String(s.ai_autonomous_rate)],
+      [],
+      ['Date', 'Inbound Messages', 'Outbound Messages', 'Total Messages'],
+      ...dashboardAnalyticsData.time_series.map((t) => [t.day, String(t.inbound), String(t.outbound), String(t.total)]),
+    ];
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map((e) => e.join(',')).join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `whatsapp_crm_analytics_${analyticsPeriod}_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  // ── Feature 2: WhatsApp Live Chat Template Picker Handlers ──────────────────
+  function is24HourWindowExpired(conv?: Conversation | null): boolean {
+    if (!conv) return false;
+    const timeVal = conv.last_inbound_at || conv.last_message_at;
+    if (!timeVal) return false;
+    const diffMs = Date.now() - new Date(timeVal).getTime();
+    return diffMs > 24 * 60 * 60 * 1000;
+  }
+
+  async function openChatTemplatePicker() {
+    setShowTemplateModal(true);
+    setTemplateSearchQuery('');
+    setSelectedChatTemplate(null);
+    setTemplateVariableValues({});
+    if (marketingTemplates.length === 0) {
+      await loadMarketingTemplates();
+    }
+  }
+
+  function handleSelectTemplate(tpl: any) {
+    setSelectedChatTemplate(tpl);
+    const initialValues: Record<string, string> = {};
+    if (selectedConv?.contact_name || selectedConv?.name) {
+      initialValues['1'] = (selectedConv.contact_name || selectedConv.name || '').trim();
+    }
+    setTemplateVariableValues(initialValues);
+  }
+
+  async function handleSendSelectedTemplate() {
+    if (!selectedConv || !selectedChatTemplate || sendingChatTemplate) return;
+    setSendingChatTemplate(true);
+    try {
+      const varCount = selectedChatTemplate.variables_count || 0;
+      const params: string[] = [];
+      for (let i = 1; i <= varCount; i++) {
+        params.push(templateVariableValues[String(i)] || '');
+      }
+
+      let resolvedBody = selectedChatTemplate.body || `[Template: ${selectedChatTemplate.name}]`;
+      params.forEach((val, idx) => {
+        resolvedBody = resolvedBody.replace(new RegExp(`\\{\\{${idx + 1}\\}\\}`, 'g'), val);
+      });
+
+      const sent = await crm.sendMessage(
+        selectedConv.id,
+        resolvedBody,
+        selectedChatTemplate.name,
+        params
+      );
+
+      setMessages((prev) => {
+        const next = [...prev, sent];
+        if (selectedConv) {
+          messagesCacheRef.current[selectedConv.id] = next;
+        }
+        return next;
+      });
+      scrollToBottom();
+      loadConversations();
+      setShowTemplateModal(false);
+      setSelectedChatTemplate(null);
+      setTemplateVariableValues({});
+      setActionNotice(`Template "${selectedChatTemplate.name}" dispatched successfully!`);
+      setTimeout(() => setActionNotice(null), 3500);
+    } catch (err) {
+      console.error('Failed to send template:', err);
+      alert('Could not send WhatsApp template. Please verify your Meta Business template setup.');
+    } finally {
+      setSendingChatTemplate(false);
+    }
+  }
+
+  // ── Feature 4: Multi-Staff Assignment Handlers ───────────────────────────────
+  async function handleAssignConversation(convId: string, staffId: string | null) {
+    setShowAssignDropdown(false);
+    const assignedMember = staffId ? teamList.find((m) => m.id === staffId) : null;
+    const staffName = assignedMember ? (assignedMember.display_name || assignedMember.email) : null;
+
+    // Optimistic UI update
+    setSelectedConv((prev) => (prev && prev.id === convId ? { ...prev, assigned_to: staffId, assigned_staff_name: staffName } : prev));
+    setConversations((prev) =>
+      prev.map((c) => (c.id === convId ? { ...c, assigned_to: staffId, assigned_staff_name: staffName } : c))
+    );
+
+    try {
+      await crm.assignConversation(convId, staffId);
+      setActionNotice(staffName ? `Chat assigned to ${staffName}` : 'Chat unassigned');
+      setTimeout(() => setActionNotice(null), 2500);
+    } catch (err) {
+      console.error('Failed to assign conversation:', err);
+      loadConversations();
+    }
+  }
+
   async function handleDeleteConversation(convId: string, deleteType: 'for_me' | 'for_everyone') {
     setDeletingItem(true);
     try {
@@ -3875,6 +4043,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       }
       if (filter === 'important') {
         return importantConvIds.includes(c.id);
+      }
+      if (filter === 'mine') {
+        return user?.id ? c.assigned_to === user.id : false;
+      }
+      if (filter === 'unassigned') {
+        return !c.assigned_to;
       }
       return true;
     })
@@ -4903,32 +5077,72 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {/* ── VIEW 0: DEDICATED OVERVIEW DASHBOARD ─────────────────────────── */}
             {activeNav === 'overview' && (
               <div className="flex-1 flex flex-col overflow-y-auto space-y-6 pr-1">
-                {/* Welcome Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
+                {/* Welcome & Period Header */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-border">
                   <div>
-                    <h2 className="text-lg font-semibold text-text-primary">
-                      Workspace overview
+                    <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+                      <BarChart2 className="w-5 h-5 text-accent stroke-[1.8]" />
+                      <span>Workspace Overview & Analytics</span>
                     </h2>
                     <p className="text-xs text-text-muted mt-0.5">
-                      Summary of WhatsApp automation, bookings, and customer activity
+                      Real-time WhatsApp volume, appointment conversion funnel, and revenue ROI
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Period Selector Pills */}
+                    <div className="flex items-center p-0.5 bg-surface-subtle rounded-sm border border-border">
+                      {(['7d', '30d', 'this_month', 'all'] as const).map((p) => {
+                        const labels: Record<string, string> = {
+                          '7d': '7 Days',
+                          '30d': '30 Days',
+                          'this_month': 'This Month',
+                          'all': 'All Time',
+                        };
+                        return (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setAnalyticsPeriod(p)}
+                            className={`px-2 py-1 text-xs font-medium rounded-xs transition-colors cursor-pointer ${
+                              analyticsPeriod === p
+                                ? 'bg-surface text-text-primary shadow-2xs font-semibold border border-border-strong'
+                                : 'text-text-muted hover:text-text-primary'
+                            }`}
+                          >
+                            {labels[p]}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      onClick={exportAnalyticsToCsv}
+                      disabled={!dashboardAnalyticsData}
+                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-body font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border border-border disabled:opacity-50"
+                      title="Export Analytics to CSV"
+                    >
+                      <Download className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span className="hidden sm:inline">Export CSV</span>
+                    </button>
+
                     <button
                       onClick={() => {
+                        loadDashboardAnalytics(analyticsPeriod);
                         loadConversations();
                         loadBookings();
                         loadContacts();
                       }}
-                      className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border border-border"
+                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-body font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border border-border"
+                      title="Refresh analytics and data"
                     >
-                      <RotateCcw className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>Refresh</span>
+                      <RotateCcw className={`w-3.5 h-3.5 stroke-[1.5] ${loadingDashboardAnalytics ? 'animate-spin' : ''}`} />
+                      <span className="hidden sm:inline">Refresh</span>
                     </button>
+
                     <button
                       onClick={() => setActiveNav('inbox')}
-                      className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5"
+                      className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 shadow-2xs"
                     >
                       <MessageSquare className="w-3.5 h-3.5 stroke-[1.5]" />
                       <span>Open inbox</span>
@@ -4936,81 +5150,72 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                 </div>
 
-                {/* Quick Access Metric Cards */}
+                {/* 5 Top Summary Metric Cards */}
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-4">
-                    {/* Card 1: Active Conversations */}
+                    {/* Card 1: WhatsApp Messages */}
                     <div
                       onClick={() => setActiveNav('inbox')}
                       className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 cursor-pointer space-y-1.5"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-text-muted">Chats</span>
-                        <MessageSquare className="w-4 h-4 stroke-[1.5] text-text-muted" />
+                        <span className="text-xs font-medium text-text-muted">Total messages</span>
+                        <MessageSquare className="w-4 h-4 stroke-[1.5] text-accent" />
                       </div>
                       <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
-                        {conversations.length}
+                        {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_messages : conversations.length}
                       </p>
-                      <p className="text-xs text-text-muted">
-                        Active conversations
+                      <p className="text-[11px] text-text-muted truncate">
+                        {dashboardAnalyticsData
+                          ? `${dashboardAnalyticsData.summary.inbound_messages} in • ${dashboardAnalyticsData.summary.outbound_messages} out`
+                          : 'Active conversations'}
                       </p>
                     </div>
 
-                    {/* Card 2: Upcoming Bookings */}
-                    <div
-                      onClick={() => setActiveNav('bookings')}
-                      className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 cursor-pointer space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-text-muted">Upcoming bookings</span>
-                        <CalendarDays className="w-4 h-4 stroke-[1.5] text-text-muted" />
-                      </div>
-                      <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
-                        {bookings.filter((b) => b.status === 'confirmed' || b.status === 'pending').length}
-                      </p>
-                      <p className="text-xs text-text-muted">
-                        Scheduled appointments
-                      </p>
-                    </div>
-
-                    {/* Card 3: Attended / Completed */}
-                    <div
-                      onClick={() => {
-                        setActiveNav('bookings');
-                        setBookingFilter('completed');
-                      }}
-                      className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 cursor-pointer space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-text-muted">Completed visits</span>
-                        <Star className="w-4 h-4 stroke-[1.5] text-text-muted" />
-                      </div>
-                      <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
-                        {bookings.filter((b) => b.status === 'completed').length}
-                      </p>
-                      <p className="text-xs text-text-muted">
-                        Attended appointments
-                      </p>
-                    </div>
-
-                    {/* Card 4: Customer Directory */}
+                    {/* Card 2: Leads & Conversion */}
                     <div
                       onClick={() => setActiveNav('customers')}
                       className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 cursor-pointer space-y-1.5"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-text-muted">Customer directory</span>
-                        <Users className="w-4 h-4 stroke-[1.5] text-text-muted" />
+                        <span className="text-xs font-medium text-text-muted">Leads & conversion</span>
+                        <Users className="w-4 h-4 stroke-[1.5] text-blue-600" />
                       </div>
-                      <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
-                        {contacts.length}
-                      </p>
-                      <p className="text-xs text-text-muted">
-                        Total contacts on file
+                      <div className="flex items-baseline gap-1.5">
+                        <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
+                          {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_leads : contacts.length}
+                        </p>
+                        {dashboardAnalyticsData && (
+                          <span className="text-xs font-semibold px-1.5 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            {dashboardAnalyticsData.summary.conversion_rate}%
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-text-muted truncate">
+                        {dashboardAnalyticsData ? `${dashboardAnalyticsData.summary.converted_leads} converted leads` : 'Contacts on file'}
                       </p>
                     </div>
 
-                    {/* Card 5: Total Revenue */}
+                    {/* Card 3: Scheduled Bookings */}
+                    <div
+                      onClick={() => setActiveNav('bookings')}
+                      className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 cursor-pointer space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-text-muted">Bookings</span>
+                        <CalendarDays className="w-4 h-4 stroke-[1.5] text-indigo-600" />
+                      </div>
+                      <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
+                        {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_bookings : bookings.filter((b) => b.status === 'confirmed' || b.status === 'pending').length}
+                      </p>
+                      <p className="text-[11px] text-text-muted truncate">
+                        {dashboardAnalyticsData
+                          ? `${dashboardAnalyticsData.summary.completed_bookings} attended (${dashboardAnalyticsData.summary.attendance_rate}%)`
+                          : 'Scheduled appointments'}
+                      </p>
+                    </div>
+
+                    {/* Card 4: Attended Revenue */}
                     <div
                       onClick={() => {
                         setActiveNav('bookings');
@@ -5019,18 +5224,210 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 cursor-pointer space-y-1.5"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-text-muted">Total revenue</span>
-                        <TrendingUp className="w-4 h-4 stroke-[1.5] text-text-muted" />
+                        <span className="text-xs font-medium text-text-muted">Attended revenue</span>
+                        <TrendingUp className="w-4 h-4 stroke-[1.5] text-emerald-600" />
                       </div>
                       <p className="text-2xl font-semibold text-emerald-700 font-mono tabular-nums">
-                        {currentCurrencySymbol}{bookings.filter((b) => b.status === 'completed' || b.status === 'attended').reduce((sum, b) => sum + (Number(b.price) || 0), 0).toLocaleString()}
+                        {currentCurrencySymbol}{dashboardAnalyticsData
+                          ? dashboardAnalyticsData.summary.total_revenue.toLocaleString()
+                          : bookings.filter((b) => b.status === 'completed' || b.status === 'attended').reduce((sum, b) => sum + (Number(b.price) || 0), 0).toLocaleString()}
                       </p>
-                      <p className="text-xs text-text-muted">
-                        From {bookings.filter((b) => b.status === 'completed' || b.status === 'attended').length} attended bookings
+                      <p className="text-[11px] text-text-muted truncate">
+                        {dashboardAnalyticsData
+                          ? `Avg ticket: ${currentCurrencySymbol}${dashboardAnalyticsData.summary.average_ticket_size.toLocaleString()}`
+                          : `From ${bookings.filter((b) => b.status === 'completed' || b.status === 'attended').length} attended visits`}
+                      </p>
+                    </div>
+
+                    {/* Card 5: AI Autonomy */}
+                    <div
+                      className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-text-muted">AI automation</span>
+                        <Zap className="w-4 h-4 stroke-[1.5] text-amber-500" />
+                      </div>
+                      <div className="flex items-baseline gap-1.5">
+                        <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
+                          {dashboardAnalyticsData ? `${dashboardAnalyticsData.summary.ai_autonomous_rate}%` : '85%'}
+                        </p>
+                        <span className="text-[10px] px-1 py-0.2 rounded-xs bg-status-success-bg text-status-success border border-status-success-border font-medium">
+                          Auto
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-text-muted truncate">
+                        {dashboardAnalyticsData
+                          ? `${dashboardAnalyticsData.summary.ai_conversations} AI • ${dashboardAnalyticsData.summary.human_conversations} human`
+                          : 'Conversations handled'}
                       </p>
                     </div>
                   </div>
                 </div>
+
+                {/* ── Interactive Visual Analytics Suite ── */}
+                {dashboardAnalyticsData && (
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    {/* Chart: Daily WhatsApp Message Traffic (Span 2 cols) */}
+                    <div className="lg:col-span-2 bg-surface border border-border rounded-md p-4 space-y-3">
+                      <div className="flex items-center justify-between pb-2 border-b border-border">
+                        <div className="flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-text-secondary stroke-[1.8]" />
+                          <h4 className="font-semibold text-xs text-text-primary">WhatsApp Message Traffic</h4>
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px] text-text-muted">
+                          <span className="flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 rounded-xs bg-emerald-500 inline-block" />
+                            <span>Inbound ({dashboardAnalyticsData.summary.inbound_messages})</span>
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 rounded-xs bg-accent inline-block" />
+                            <span>Outbound ({dashboardAnalyticsData.summary.outbound_messages})</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {dashboardAnalyticsData.time_series.length === 0 ? (
+                        <div className="h-44 flex items-center justify-center text-xs text-text-muted">
+                          No message activity recorded in this time range.
+                        </div>
+                      ) : (
+                        <div className="h-44 flex items-end gap-1.5 pt-4 px-1 overflow-x-auto">
+                          {(() => {
+                            const maxVal = Math.max(1, ...dashboardAnalyticsData.time_series.map((t) => Math.max(t.inbound, t.outbound, t.total)));
+                            return dashboardAnalyticsData.time_series.map((t, i) => {
+                              const inPct = Math.round((t.inbound / maxVal) * 100);
+                              const outPct = Math.round((t.outbound / maxVal) * 100);
+                              const dayLabel = t.day.slice(5); // MM-DD
+                              return (
+                                <div key={t.day || i} className="flex-1 min-w-[20px] max-w-[40px] flex flex-col items-center gap-1 group relative">
+                                  {/* Tooltip on hover */}
+                                  <div className="absolute bottom-full mb-1 hidden group-hover:flex flex-col bg-gray-900 text-white text-[10px] rounded px-2 py-1 shadow-lg pointer-events-none z-20 whitespace-nowrap">
+                                    <span className="font-semibold">{t.day}</span>
+                                    <span>Inbound: {t.inbound}</span>
+                                    <span>Outbound: {t.outbound}</span>
+                                    <span>Total: {t.total}</span>
+                                  </div>
+                                  {/* Bars */}
+                                  <div className="w-full h-32 flex items-end justify-center gap-0.5">
+                                    <div
+                                      style={{ height: `${Math.max(inPct, 4)}%` }}
+                                      className="w-1/2 bg-emerald-500 rounded-t-xs transition-all duration-300 hover:opacity-80"
+                                    />
+                                    <div
+                                      style={{ height: `${Math.max(outPct, 4)}%` }}
+                                      className="w-1/2 bg-accent rounded-t-xs transition-all duration-300 hover:opacity-80"
+                                    />
+                                  </div>
+                                  <span className="text-[9px] text-text-muted font-mono truncate w-full text-center">
+                                    {dayLabel}
+                                  </span>
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Funnel: Lead & Conversion Funnel (1 col) */}
+                    <div className="bg-surface border border-border rounded-md p-4 space-y-3 flex flex-col justify-between">
+                      <div className="flex items-center justify-between pb-2 border-b border-border">
+                        <div className="flex items-center gap-2">
+                          <TrendingUp className="w-4 h-4 text-text-secondary stroke-[1.8]" />
+                          <h4 className="font-semibold text-xs text-text-primary">Conversion Funnel</h4>
+                        </div>
+                        <span className="text-[11px] font-mono text-emerald-700 font-semibold">
+                          {dashboardAnalyticsData.summary.conversion_rate}% Conv.
+                        </span>
+                      </div>
+
+                      <div className="space-y-2.5 py-1">
+                        {/* Step 1: New Leads */}
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-text-secondary">New Inbound Leads</span>
+                            <span className="font-mono font-semibold text-text-primary">{dashboardAnalyticsData.pipeline.new}</span>
+                          </div>
+                          <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
+                            <div className="bg-blue-500 h-full rounded-full" style={{ width: '100%' }} />
+                          </div>
+                        </div>
+
+                        {/* Step 2: Contacted */}
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-text-secondary">Contacted / Engaged</span>
+                            <span className="font-mono font-semibold text-text-primary">{dashboardAnalyticsData.pipeline.contacted}</span>
+                          </div>
+                          <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
+                            <div
+                              className="bg-indigo-500 h-full rounded-full"
+                              style={{ width: `${dashboardAnalyticsData.summary.total_leads > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.pipeline.contacted / dashboardAnalyticsData.summary.total_leads) * 100)) : 0}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Step 3: Qualified / Follow-up */}
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-text-secondary">Follow-up / In Progress</span>
+                            <span className="font-mono font-semibold text-text-primary">{dashboardAnalyticsData.pipeline.qualified}</span>
+                          </div>
+                          <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
+                            <div
+                              className="bg-amber-500 h-full rounded-full"
+                              style={{ width: `${dashboardAnalyticsData.summary.total_leads > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.pipeline.qualified / dashboardAnalyticsData.summary.total_leads) * 100)) : 0}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Step 4: Booked Visits */}
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-text-secondary">Booked Appointments</span>
+                            <span className="font-mono font-semibold text-text-primary">{dashboardAnalyticsData.summary.total_bookings}</span>
+                          </div>
+                          <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
+                            <div
+                              className="bg-purple-500 h-full rounded-full"
+                              style={{ width: `${dashboardAnalyticsData.summary.total_leads > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.summary.total_bookings / dashboardAnalyticsData.summary.total_leads) * 100)) : 0}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Step 5: Completed Visits */}
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-emerald-700 font-medium">Attended / Completed</span>
+                            <span className="font-mono font-semibold text-emerald-700">{dashboardAnalyticsData.summary.completed_bookings}</span>
+                          </div>
+                          <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
+                            <div
+                              className="bg-emerald-600 h-full rounded-full"
+                              style={{ width: `${dashboardAnalyticsData.summary.total_leads > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.summary.completed_bookings / dashboardAnalyticsData.summary.total_leads) * 100)) : 0}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Status Badges Row */}
+                      <div className="pt-2 border-t border-border grid grid-cols-3 gap-1 text-center">
+                        <div className="p-1 rounded bg-surface-subtle">
+                          <p className="text-[10px] text-text-muted">Confirmed</p>
+                          <p className="text-xs font-semibold text-text-primary font-mono">{dashboardAnalyticsData.bookings_by_status.confirmed}</p>
+                        </div>
+                        <div className="p-1 rounded bg-emerald-50 text-emerald-800">
+                          <p className="text-[10px] text-emerald-700">Attended</p>
+                          <p className="text-xs font-semibold font-mono">{dashboardAnalyticsData.bookings_by_status.completed}</p>
+                        </div>
+                        <div className="p-1 rounded bg-rose-50 text-rose-800">
+                          <p className="text-[10px] text-rose-700">No-Show</p>
+                          <p className="text-xs font-semibold font-mono">{dashboardAnalyticsData.bookings_by_status.no_show}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* 2-Column Overview Widgets */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
@@ -6423,7 +6820,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setFilter('new')}
-                        className={`flex-1 py-1 px-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                        className={`flex-1 py-1 px-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
                           filter === 'new'
                             ? 'bg-surface text-text-primary border border-border-strong font-semibold shadow-subtle'
                             : 'text-text-secondary hover:text-text-primary'
@@ -6433,6 +6830,40 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         {conversations.filter((c) => (c.unread_count || 0) > 0 || (c.last_message_at && (Date.now() - new Date(c.last_message_at).getTime() < 86400000))).length > 0 && (
                           <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'new' ? 'bg-accent/10 text-accent font-semibold' : 'bg-surface-subtle text-text-muted'}`}>
                             {conversations.filter((c) => (c.unread_count || 0) > 0 || (c.last_message_at && (Date.now() - new Date(c.last_message_at).getTime() < 86400000))).length}
+                          </span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setFilter('mine')}
+                        className={`flex-1 py-1 px-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
+                          filter === 'mine'
+                            ? 'bg-surface text-text-primary border border-border-strong font-semibold shadow-subtle'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        <span>Mine</span>
+                        {conversations.filter((c) => user?.id && c.assigned_to === user.id).length > 0 && (
+                          <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'mine' ? 'bg-accent/10 text-accent font-semibold' : 'bg-surface-subtle text-text-muted'}`}>
+                            {conversations.filter((c) => user?.id && c.assigned_to === user.id).length}
+                          </span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setFilter('unassigned')}
+                        className={`flex-1 py-1 px-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
+                          filter === 'unassigned'
+                            ? 'bg-surface text-text-primary border border-border-strong font-semibold shadow-subtle'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        <span>Unassigned</span>
+                        {conversations.filter((c) => !c.assigned_to).length > 0 && (
+                          <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'unassigned' ? 'bg-amber-100 text-amber-800 font-semibold' : 'bg-surface-subtle text-text-muted'}`}>
+                            {conversations.filter((c) => !c.assigned_to).length}
                           </span>
                         )}
                       </button>
@@ -6507,6 +6938,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <div className="flex items-center justify-between mt-0.5">
                                 <p className="text-xs text-text-muted truncate font-mono">{conv.contact_phone}</p>
                                 <div className="flex items-center gap-1.5">
+                                  {conv.assigned_staff_name && (
+                                    <span className="text-[9px] font-medium px-1 py-0.2 rounded-xs bg-surface-subtle text-text-muted border border-border flex items-center gap-0.5 max-w-[65px] truncate" title={`Assigned to ${conv.assigned_staff_name}`}>
+                                      👤 {conv.assigned_staff_name.split(' ')[0]}
+                                    </span>
+                                  )}
                                   {(conv.unread_count || 0) > 0 && selectedConv?.id !== conv.id && (
                                     <span className="px-1.5 py-0.2 rounded-full bg-accent text-white text-[10px] font-bold min-w-[18px] text-center">
                                       {conv.unread_count}
@@ -6651,6 +7087,60 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               );
                             }
                           })()}
+
+                          {/* Staff Assignment Dropdown */}
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setShowAssignDropdown((prev) => !prev)}
+                              className="px-2 py-1 rounded-sm text-xs font-medium border border-border bg-surface hover:bg-surface-subtle text-text-primary flex items-center gap-1 transition-colors cursor-pointer"
+                              title={selectedConv.assigned_staff_name ? `Assigned to: ${selectedConv.assigned_staff_name}` : 'Assign staff to this conversation'}
+                            >
+                              <Users className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                              <span className="hidden sm:inline max-w-[85px] truncate text-[11px]">
+                                {selectedConv.assigned_staff_name || 'Unassigned'}
+                              </span>
+                              <ChevronDown className="w-3 h-3 text-text-muted shrink-0" />
+                            </button>
+                            {showAssignDropdown && (
+                              <div className="absolute right-0 mt-1 w-48 bg-surface border border-border rounded-md shadow-lg z-50 py-1 text-xs">
+                                <div className="px-3 py-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wider border-b border-border">
+                                  Assign Conversation
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAssignConversation(selectedConv.id, null)}
+                                  className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-surface-subtle cursor-pointer ${
+                                    !selectedConv.assigned_to ? 'text-accent font-semibold bg-accent/5' : 'text-text-secondary'
+                                  }`}
+                                >
+                                  <UserX className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                                  <span>Unassigned</span>
+                                </button>
+                                {teamList && teamList.length > 0 ? (
+                                  teamList.map((member) => (
+                                    <button
+                                      key={member.id}
+                                      type="button"
+                                      onClick={() => handleAssignConversation(selectedConv.id, member.id)}
+                                      className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-surface-subtle cursor-pointer ${
+                                        selectedConv.assigned_to === member.id ? 'text-accent font-semibold bg-accent/5' : 'text-text-secondary'
+                                      }`}
+                                    >
+                                      <div className="w-4 h-4 rounded-full bg-accent/20 text-accent flex items-center justify-center font-bold text-[9px] shrink-0">
+                                        {(member.display_name || member.email)[0].toUpperCase()}
+                                      </div>
+                                      <span className="truncate">{member.display_name || member.email}</span>
+                                    </button>
+                                  ))
+                                ) : (
+                                  <div className="px-3 py-2 text-[11px] text-text-muted text-center">
+                                    No staff members found
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
 
                           {/* AI Toggle Button */}
                           <button
@@ -6799,9 +7289,36 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <div ref={messagesEndRef} />
                       </div>
 
+                      {/* 24-Hour Customer Window Expiration Banner */}
+                      {is24HourWindowExpired(selectedConv) && (
+                        <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/40 border-t border-amber-200 dark:border-amber-800/60 flex items-center justify-between text-xs text-amber-800 dark:text-amber-200 shrink-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                            <span className="truncate">
+                              24h customer window expired. Regular messages may fail. Send a template to re-open window.
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={openChatTemplatePicker}
+                            className="ml-2 px-2.5 py-1 text-[11px] font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-md transition-colors cursor-pointer shrink-0 shadow-xs"
+                          >
+                            Send Template
+                          </button>
+                        </div>
+                      )}
+
                       {/* Chat Input */}
                       {canSendMessages ? (
                         <form onSubmit={handleSendMessage} className="p-2 sm:p-3 border-t border-border flex items-center gap-2 bg-surface shrink-0">
+                          <button
+                            type="button"
+                            onClick={openChatTemplatePicker}
+                            className="p-2 text-text-secondary hover:text-accent hover:bg-surface-subtle rounded-full transition-colors cursor-pointer shrink-0"
+                            title="Send pre-approved WhatsApp template"
+                          >
+                            <FileText className="w-4 h-4 stroke-[1.8]" />
+                          </button>
                           <input
                             type="text"
                             placeholder="Type WhatsApp reply..."
@@ -12329,6 +12846,226 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* ── WHATSAPP TEMPLATE PICKER MODAL (FEATURE 2) ─────────────────────────── */}
+        {showTemplateModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-3 overflow-y-auto"
+            onClick={() => setShowTemplateModal(false)}
+          >
+            <div
+              className="w-full max-w-2xl bg-surface border border-border rounded-lg shadow-2xl overflow-hidden my-4 flex flex-col max-h-[90vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-border bg-surface-subtle/50 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-accent/10 text-accent flex items-center justify-center">
+                    <FileText className="w-4 h-4 stroke-[2]" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-text-primary">Send WhatsApp Template</h3>
+                    <p className="text-[11px] text-text-muted">
+                      Recipient: <span className="font-medium text-text-secondary">{selectedConv?.contact_name || selectedConv?.contact_phone || 'Customer'}</span>
+                      {selectedConv?.contact_phone && <span className="ml-1 font-mono text-[10px]">({selectedConv.contact_phone})</span>}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowTemplateModal(false)}
+                  className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Modal Body - 2 Columns (Template Selection & Preview/Variables) */}
+              <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border min-h-[400px]">
+                {/* Column 1: Search & Template List */}
+                <div className="flex flex-col h-full overflow-hidden bg-surface-subtle/30">
+                  <div className="p-3 border-b border-border">
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                      <input
+                        type="text"
+                        placeholder="Search approved templates..."
+                        value={templateSearchQuery}
+                        onChange={(e) => setTemplateSearchQuery(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1.5 text-xs bg-surface border border-border rounded-md text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+                    {loadingTemplates ? (
+                      <div className="p-6 text-center text-xs text-text-muted">
+                        <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-accent border-t-transparent animate-spin mr-2" />
+                        Loading templates...
+                      </div>
+                    ) : marketingTemplates.filter((t) =>
+                        !templateSearchQuery.trim() ||
+                        t.name.toLowerCase().includes(templateSearchQuery.toLowerCase()) ||
+                        (t.body && t.body.toLowerCase().includes(templateSearchQuery.toLowerCase()))
+                      ).length === 0 ? (
+                      <div className="p-6 text-center text-xs text-text-muted">
+                        No approved templates found.
+                      </div>
+                    ) : (
+                      marketingTemplates
+                        .filter((t) =>
+                          !templateSearchQuery.trim() ||
+                          t.name.toLowerCase().includes(templateSearchQuery.toLowerCase()) ||
+                          (t.body && t.body.toLowerCase().includes(templateSearchQuery.toLowerCase()))
+                        )
+                        .map((tpl) => {
+                          const isSelected = selectedChatTemplate?.name === tpl.name;
+                          return (
+                            <button
+                              key={tpl.id || tpl.name}
+                              type="button"
+                              onClick={() => handleSelectTemplate(tpl)}
+                              className={`w-full text-left p-2.5 rounded-md border transition-all cursor-pointer flex flex-col gap-1 ${
+                                isSelected
+                                  ? 'bg-accent/10 border-accent text-accent shadow-xs'
+                                  : 'bg-surface hover:bg-surface-subtle/70 border-border text-text-primary'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="font-semibold text-xs truncate">{tpl.label || tpl.name}</span>
+                                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-surface-subtle border border-border uppercase font-mono tracking-wider text-text-muted shrink-0">
+                                  {tpl.category || 'UTILITY'}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-text-muted line-clamp-2 leading-relaxed">
+                                {tpl.body || tpl.name}
+                              </p>
+                              <div className="flex items-center gap-2 text-[10px] text-text-muted mt-0.5">
+                                <span>{tpl.variables_count || 0} variable{tpl.variables_count !== 1 ? 's' : ''}</span>
+                                {tpl.language && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="uppercase font-mono">{tpl.language}</span>
+                                  </>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })
+                    )}
+                  </div>
+                </div>
+
+                {/* Column 2: Parameters Form & Live Preview */}
+                <div className="flex flex-col h-full overflow-y-auto p-4 bg-surface">
+                  {selectedChatTemplate ? (
+                    <div className="space-y-4 flex-1 flex flex-col justify-between">
+                      <div className="space-y-4">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-semibold text-text-primary">{selectedChatTemplate.label || selectedChatTemplate.name}</h4>
+                            <span className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-xs border border-emerald-200">
+                              APPROVED
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-text-muted font-mono mt-0.5">{selectedChatTemplate.name}</p>
+                        </div>
+
+                        {/* Variable Inputs */}
+                        {(selectedChatTemplate.variables_count || 0) > 0 && (
+                          <div className="space-y-2.5 pt-2 border-t border-border">
+                            <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider block">
+                              Template Variables
+                            </label>
+                            {Array.from({ length: selectedChatTemplate.variables_count || 0 }, (_, i) => i + 1).map((idx) => (
+                              <div key={idx} className="space-y-1">
+                                <label className="text-[10px] text-text-muted block font-medium">
+                                  Variable {"{{"}{idx}{"}}"} {idx === 1 ? '(Customer Name)' : ''}
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder={idx === 1 ? 'e.g. Rahul Sharma' : `Value for {{${idx}}}`}
+                                  value={templateVariableValues[String(idx)] || ''}
+                                  onChange={(e) =>
+                                    setTemplateVariableValues((prev) => ({
+                                      ...prev,
+                                      [String(idx)]: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full px-2.5 py-1.5 text-xs bg-surface-subtle border border-border rounded-md text-text-primary focus:outline-none focus:border-accent"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Live WhatsApp Bubble Preview */}
+                        <div className="pt-2 border-t border-border space-y-1.5">
+                          <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider block">
+                            Live Message Preview
+                          </label>
+                          <div className="p-3 bg-[#efeae2] dark:bg-zinc-900 rounded-lg border border-border/80 flex flex-col items-end">
+                            <div className="bg-white dark:bg-emerald-950 text-text-primary rounded-xl rounded-tr-xs p-3 text-xs shadow-xs max-w-[95%] space-y-1">
+                              <p className="whitespace-pre-wrap leading-relaxed">
+                                {(() => {
+                                  let text = selectedChatTemplate.body || `[Template: ${selectedChatTemplate.name}]`;
+                                  const count = selectedChatTemplate.variables_count || 0;
+                                  for (let i = 1; i <= count; i++) {
+                                    const val = templateVariableValues[String(i)];
+                                    text = text.replace(new RegExp(`\\{\\{${i}\\}\\}`, 'g'), val && val.trim() ? val : `{{${i}}}`);
+                                  }
+                                  return text;
+                                })()}
+                              </p>
+                              <div className="flex items-center justify-end gap-1 text-[9px] text-text-muted font-mono pt-1">
+                                <span>Now</span>
+                                <CheckCheck className="w-3 h-3 text-emerald-500" />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Modal Actions */}
+                      <div className="pt-4 border-t border-border flex items-center justify-end gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setShowTemplateModal(false)}
+                          className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-surface-subtle rounded-md cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={sendingChatTemplate}
+                          onClick={handleSendSelectedTemplate}
+                          className="px-4 py-1.5 text-xs font-semibold bg-accent hover:bg-accent-hover text-white rounded-md shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {sendingChatTemplate ? (
+                            <>
+                              <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              <span>Sending...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-3.5 h-3.5 stroke-[2]" />
+                              <span>Send Template</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-text-muted space-y-2">
+                      <FileText className="w-8 h-8 text-text-muted/50 stroke-[1.5]" />
+                      <p className="text-xs">Select a template from the list on the left to preview and edit variables.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}

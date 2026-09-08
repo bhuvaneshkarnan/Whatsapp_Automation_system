@@ -107,6 +107,7 @@ export interface Conversation {
   id: string;
   status: string;
   last_message_at?: string;
+  last_inbound_at?: string;
   last_message?: string;
   unread_count?: number;
   name?: string | null;
@@ -114,6 +115,56 @@ export interface Conversation {
   contact_name?: string | null;
   contact_phone?: string;
   ai_enabled?: boolean;
+  assigned_to?: string | null;
+  assigned_staff_name?: string | null;
+  assigned_staff_email?: string | null;
+}
+
+export interface DashboardAnalyticsData {
+  period: string;
+  summary: {
+    total_messages: number;
+    inbound_messages: number;
+    outbound_messages: number;
+    ai_messages: number;
+    human_messages: number;
+    total_leads: number;
+    converted_leads: number;
+    conversion_rate: number;
+    total_bookings: number;
+    completed_bookings: number;
+    confirmed_bookings: number;
+    cancelled_bookings: number;
+    no_show_bookings: number;
+    pending_bookings: number;
+    attendance_rate: number;
+    total_revenue: number;
+    average_ticket_size: number;
+    total_conversations: number;
+    ai_conversations: number;
+    human_conversations: number;
+    ai_autonomous_rate: number;
+  };
+  time_series: Array<{
+    day: string;
+    inbound: number;
+    outbound: number;
+    total: number;
+  }>;
+  pipeline: {
+    new: number;
+    contacted: number;
+    qualified: number;
+    converted: number;
+    lost: number;
+  };
+  bookings_by_status: {
+    confirmed: number;
+    completed: number;
+    cancelled: number;
+    no_show: number;
+    pending: number;
+  };
 }
 
 export interface Message {
@@ -366,12 +417,17 @@ export const crm = {
         id: c.id,
         status: c.status || 'open',
         last_message_at: c.last_message_at || '',
+        last_inbound_at: c.last_inbound_at || '',
+        last_message: c.last_message || '',
         unread_count: c.unread_count || 0,
         name: c.name || c.contact_name || '',
         phone: c.phone || c.contact_phone || '',
         contact_name: c.name || c.contact_name || '',
         contact_phone: c.phone || c.contact_phone || '',
         ai_enabled: c.status !== 'human',
+        assigned_to: c.assigned_to || null,
+        assigned_staff_name: c.assigned_staff_name || null,
+        assigned_staff_email: c.assigned_staff_email || null,
       }));
     } catch {
       return [];
@@ -412,6 +468,18 @@ export const crm = {
       body: JSON.stringify({ ai_enabled: enabled }),
     });
   },
+
+  assignConversation: (convId: string, assignedTo: string | null) =>
+    request<{ status: string; conversation_id: string; assigned_to: string | null; assigned_staff_name: string | null }>(
+      `/api/v1/crm/conversations/${convId}/assign`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ assigned_to: assignedTo }),
+      }
+    ),
+
+  getDashboardAnalytics: (period: string = '30d') =>
+    request<DashboardAnalyticsData>(`/api/v1/crm/analytics/dashboard?period=${period}`),
 
   sendMessage: (convId: string, body: string, template_name?: string, template_params?: string[]) =>
     request<Message>(

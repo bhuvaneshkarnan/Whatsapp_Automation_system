@@ -2939,10 +2939,48 @@ class CoreWorker:
         if row:
             return str(row["id"]), row["status"]
 
+        # Lead routing: check if tenant has enabled auto_assign_leads
+        assigned_user_id = None
+        try:
+            t_row = await self.db_pool.fetchrow(
+                "SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id
+            )
+            settings_obj = {}
+            if t_row and t_row["settings"]:
+                s = t_row["settings"]
+                if isinstance(s, str):
+                    try: settings_obj = json.loads(s)
+                    except: pass
+                elif isinstance(s, dict):
+                    settings_obj = s
+
+            if settings_obj.get("auto_assign_leads", False):
+                agents = await self.db_pool.fetch(
+                    """SELECT id FROM users
+                       WHERE tenant_id = $1::uuid AND is_active = true
+                         AND role IN ('agent', 'doctor', 'receptionist', 'admin')
+                       ORDER BY created_at ASC""",
+                    tenant_id
+                )
+                if agents:
+                    counts = await self.db_pool.fetch(
+                        """SELECT assigned_to, COUNT(*) as cnt
+                           FROM conversations
+                           WHERE tenant_id = $1::uuid AND assigned_to IS NOT NULL
+                           GROUP BY assigned_to""",
+                        tenant_id
+                    )
+                    count_map = {str(c["assigned_to"]): c["cnt"] for c in counts}
+                    sorted_agents = sorted(agents, key=lambda a: count_map.get(str(a["id"]), 0))
+                    assigned_user_id = sorted_agents[0]["id"]
+        except Exception as e:
+            logger.warning("auto_assign_lead_error", error=str(e), tenant_id=tenant_id)
+
         new_id = str(uuid.uuid4())
         await self.db_pool.execute(
-            "INSERT INTO conversations (id, tenant_id, contact_id, status) VALUES ($1::uuid, $2::uuid, $3::uuid, 'bot')",
-            new_id, tenant_id, contact_id,
+            """INSERT INTO conversations (id, tenant_id, contact_id, status, assigned_to)
+               VALUES ($1::uuid, $2::uuid, $3::uuid, 'bot', $4)""",
+            new_id, tenant_id, contact_id, assigned_user_id
         )
         return new_id, "bot"
 

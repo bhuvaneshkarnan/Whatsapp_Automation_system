@@ -108,6 +108,9 @@ async def lifespan(app: FastAPI):
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS google_calendar_event_id TEXT;
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_visited_at TIMESTAMPTZ;
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_messaged_at TIMESTAMPTZ;
+                ALTER TABLE conversations ADD COLUMN IF NOT EXISTS assigned_to UUID REFERENCES users(id) ON DELETE SET NULL;
+                ALTER TABLE messages ADD COLUMN IF NOT EXISTS template_name TEXT;
+                ALTER TABLE messages ADD COLUMN IF NOT EXISTS template_params JSONB;
 
                 CREATE TABLE IF NOT EXISTS customer_notes (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -3493,11 +3496,15 @@ async def list_conversations(
 ):
     async with db_pool.acquire() as conn:
         query = """
-            SELECT c.id, c.status, c.last_message_at, c.unread_count,
-                   ct.name, ct.phone
+            SELECT c.id, c.status, c.last_message_at, c.unread_count, c.assigned_to,
+                   ct.name, ct.phone,
+                   u.display_name as assigned_staff_name, u.email as assigned_staff_email,
+                   (SELECT m.body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message,
+                   (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'inbound') as last_inbound_at
             FROM conversations c
             JOIN contacts ct ON ct.id = c.contact_id
-            WHERE c.tenant_id = $1
+            LEFT JOIN users u ON u.id = c.assigned_to
+            WHERE c.tenant_id = $1::uuid
         """
         args = [tenant_id]
         if status:
@@ -3510,7 +3517,24 @@ async def list_conversations(
             args.extend([limit, offset])
 
         rows = await conn.fetch(query, *args)
-    return [dict(r) for r in rows]
+    return [
+        {
+            "id": str(r["id"]),
+            "status": r["status"] or "bot",
+            "last_message_at": r["last_message_at"].isoformat() if r["last_message_at"] else None,
+            "last_inbound_at": r["last_inbound_at"].isoformat() if r["last_inbound_at"] else None,
+            "last_message": r["last_message"] or "",
+            "unread_count": r["unread_count"] or 0,
+            "name": r["name"] or "",
+            "phone": r["phone"] or "",
+            "contact_name": r["name"] or "",
+            "contact_phone": r["phone"] or "",
+            "assigned_to": str(r["assigned_to"]) if r["assigned_to"] else None,
+            "assigned_staff_name": r["assigned_staff_name"] or None,
+            "assigned_staff_email": r["assigned_staff_email"] or None,
+        }
+        for r in rows
+    ]
 
 
 async def mark_wa_message_as_read(phone_number_id: str, access_token: str, wa_message_id: str):
@@ -3593,7 +3617,7 @@ async def get_messages(
 
 
 class MessageCreate(BaseModel):
-    body: str
+    body: Optional[str] = ""
     template_name: Optional[str] = None
     template_params: Optional[list] = None
 
@@ -3604,8 +3628,10 @@ async def send_manual_message(
     tenant_id: str = Depends(get_tenant_id)
 ):
     """Send manual message from CRM agent to contact via WhatsApp and persist in DB."""
-    if not payload.body or not payload.body.strip():
-        raise HTTPException(400, "Message body cannot be empty")
+    has_body = bool(payload.body and payload.body.strip())
+    has_template = bool(payload.template_name and payload.template_name.strip())
+    if not has_body and not has_template:
+        raise HTTPException(400, "Message body or template name is required")
 
     async with db_pool.acquire() as conn:
         # Get conversation and contact details
@@ -3652,21 +3678,22 @@ async def send_manual_message(
                 url = f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages"
 
                 # 1. If explicit template requested
-                if payload.template_name:
+                if has_template:
                     tpl_params = payload.template_params or []
+                    tpl_components = []
+                    if tpl_params:
+                        tpl_components.append({
+                            "type": "body",
+                            "parameters": [{"type": "text", "text": str(p)} for p in tpl_params]
+                        })
                     tpl_payload = {
                         "messaging_product": "whatsapp",
                         "to": clean_phone,
                         "type": "template",
                         "template": {
-                            "name": payload.template_name,
+                            "name": payload.template_name.strip(),
                             "language": {"code": "en"},
-                            "components": [
-                                {
-                                    "type": "body",
-                                    "parameters": [{"type": "text", "text": str(p)} for p in tpl_params]
-                                }
-                            ]
+                            "components": tpl_components
                         }
                     }
                     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -3729,11 +3756,15 @@ async def send_manual_message(
                 status = "failed"
 
         # Insert message row
+        body_to_save = payload.body.strip() if has_body else f"[Template: {payload.template_name}]"
+        content_type = "template" if has_template else "text"
+        tpl_params_json = json.dumps(payload.template_params) if payload.template_params else None
+
         inserted = await conn.fetchrow(
-            """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, status, ai_used_fallback)
-               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'text', $5, $6, false)
+            """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, status, template_name, template_params, ai_used_fallback)
+               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', $5, $6, $7, $8, $9::jsonb, false)
                RETURNING id, direction, body, status, created_at""",
-            msg_id, conv_id, tenant_id, wa_id, payload.body.strip(), status
+            msg_id, conv_id, tenant_id, wa_id, content_type, body_to_save, status, payload.template_name, tpl_params_json
         )
 
         # Update conversation last_message_at
@@ -3745,6 +3776,47 @@ async def send_manual_message(
         "body": inserted["body"],
         "status": inserted["status"],
         "created_at": inserted["created_at"].isoformat() if inserted["created_at"] else ""
+    }
+
+
+class AssignConversationPayload(BaseModel):
+    assigned_to: Optional[str] = None
+
+@app.patch("/conversations/{conv_id}/assign")
+@app.patch("/api/v1/crm/conversations/{conv_id}/assign")
+async def assign_conversation(
+    conv_id: str,
+    payload: AssignConversationPayload,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Assign or unassign a WhatsApp conversation to an organization staff member."""
+    async with db_pool.acquire() as conn:
+        staff_name = None
+        assign_val = None
+        if payload.assigned_to and payload.assigned_to.strip():
+            user_row = await conn.fetchrow(
+                "SELECT id, display_name, email FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                payload.assigned_to.strip(), tenant_id
+            )
+            if not user_row:
+                raise HTTPException(404, "Staff member not found in your organization")
+            staff_name = user_row["display_name"] or user_row["email"]
+            assign_val = user_row["id"]
+
+        res = await conn.execute(
+            """UPDATE conversations
+               SET assigned_to = $1, updated_at = now()
+               WHERE id = $2::uuid AND tenant_id = $3::uuid""",
+            assign_val, conv_id, tenant_id
+        )
+        if res == "UPDATE 0":
+            raise HTTPException(404, "Conversation not found")
+
+    return {
+        "status": "ok",
+        "conversation_id": conv_id,
+        "assigned_to": str(assign_val) if assign_val else None,
+        "assigned_staff_name": staff_name
     }
 
 
@@ -6796,6 +6868,175 @@ async def test_marketing_trigger(
         "trigger_name": trig["name"],
         "recipient": admin_phone,
         "template": tpl_name
+    }
+
+
+@app.get("/analytics/dashboard")
+@app.get("/api/v1/crm/analytics/dashboard")
+async def get_dashboard_analytics(
+    period: str = Query("30d", pattern="^(7d|30d|90d|this_month|all)$"),
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """
+    Comprehensive Analytics & Business Intelligence:
+    Returns message volume, booking funnel, revenue metrics, conversion rates, and time-series.
+    """
+    now = datetime.now(timezone.utc)
+    since = None
+    if period == "7d":
+        since = now - timedelta(days=7)
+    elif period == "30d":
+        since = now - timedelta(days=30)
+    elif period == "90d":
+        since = now - timedelta(days=90)
+    elif period == "this_month":
+        since = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    async with db_pool.acquire() as conn:
+        # 1. Message Volume Breakdown
+        msg_counts = await conn.fetchrow(
+            """SELECT
+                COUNT(*) as total_messages,
+                COUNT(*) FILTER (WHERE direction = 'inbound') as inbound_messages,
+                COUNT(*) FILTER (WHERE direction = 'outbound') as outbound_messages,
+                COUNT(*) FILTER (WHERE direction = 'outbound' AND sent_by IS NULL) as ai_messages,
+                COUNT(*) FILTER (WHERE direction = 'outbound' AND sent_by IS NOT NULL) as human_messages
+               FROM messages
+               WHERE tenant_id = $1::uuid
+                 AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)""",
+            tenant_id, since
+        )
+        total_msgs = msg_counts["total_messages"] or 0
+        inbound_msgs = msg_counts["inbound_messages"] or 0
+        outbound_msgs = msg_counts["outbound_messages"] or 0
+        ai_msgs = msg_counts["ai_messages"] or 0
+        human_msgs = msg_counts["human_messages"] or 0
+
+        # 2. Daily Message Traffic Time Series
+        daily_rows = await conn.fetch(
+            """SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') as day,
+                      COUNT(*) FILTER (WHERE direction = 'inbound') as inbound,
+                      COUNT(*) FILTER (WHERE direction = 'outbound') as outbound,
+                      COUNT(*) as total
+               FROM messages
+               WHERE tenant_id = $1::uuid
+                 AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
+               GROUP BY day
+               ORDER BY day ASC""",
+            tenant_id, since
+        )
+        time_series = [
+            {
+                "day": r["day"],
+                "inbound": r["inbound"] or 0,
+                "outbound": r["outbound"] or 0,
+                "total": r["total"] or 0,
+            }
+            for r in daily_rows
+        ]
+
+        # 3. Lead & Customer Funnel
+        lead_counts = await conn.fetchrow(
+            """SELECT
+                COUNT(*) as total_leads,
+                COUNT(*) FILTER (WHERE status = 'new') as new_leads,
+                COUNT(*) FILTER (WHERE status = 'contacted') as contacted_leads,
+                COUNT(*) FILTER (WHERE status = 'followup' OR status = 'follow-up') as qualified_leads,
+                COUNT(*) FILTER (WHERE status = 'converted' OR converted = true) as converted_leads,
+                COUNT(*) FILTER (WHERE status = 'lost') as lost_leads
+               FROM customers
+               WHERE tenant_id = $1::uuid
+                 AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)""",
+            tenant_id, since
+        )
+        total_leads = lead_counts["total_leads"] or 0
+        converted_leads = lead_counts["converted_leads"] or 0
+        lead_conv_rate = round((converted_leads / total_leads * 100), 1) if total_leads > 0 else 0.0
+
+        # 4. Bookings & Revenue
+        booking_stats = await conn.fetchrow(
+            """SELECT
+                COUNT(*) as total_bookings,
+                COUNT(*) FILTER (WHERE status IN ('completed', 'attended')) as completed_bookings,
+                COUNT(*) FILTER (WHERE status = 'confirmed') as confirmed_bookings,
+                COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled_bookings,
+                COUNT(*) FILTER (WHERE status = 'no_show') as noshow_bookings,
+                COUNT(*) FILTER (WHERE status = 'pending') as pending_bookings,
+                COALESCE(SUM(price) FILTER (WHERE status IN ('completed', 'attended')), 0.0) as total_revenue,
+                COALESCE(AVG(price) FILTER (WHERE status IN ('completed', 'attended') AND price > 0), 0.0) as avg_ticket
+               FROM bookings
+               WHERE tenant_id = $1::uuid
+                 AND ($2::timestamptz IS NULL OR start_time >= $2::timestamptz)""",
+            tenant_id, since
+        )
+        total_bookings = booking_stats["total_bookings"] or 0
+        completed_bookings = booking_stats["completed_bookings"] or 0
+        confirmed_bookings = booking_stats["confirmed_bookings"] or 0
+        cancelled_bookings = booking_stats["cancelled_bookings"] or 0
+        noshow_bookings = booking_stats["noshow_bookings"] or 0
+        pending_bookings = booking_stats["pending_bookings"] or 0
+        total_revenue = float(booking_stats["total_revenue"] or 0.0)
+        avg_ticket = float(booking_stats["avg_ticket"] or 0.0)
+
+        attended_plus_noshow = completed_bookings + noshow_bookings
+        attendance_rate = round((completed_bookings / attended_plus_noshow * 100), 1) if attended_plus_noshow > 0 else (100.0 if completed_bookings > 0 else 0.0)
+
+        # 5. AI Conversation Performance
+        conv_stats = await conn.fetchrow(
+            """SELECT
+                COUNT(*) as total_convs,
+                COUNT(*) FILTER (WHERE status = 'bot') as bot_convs,
+                COUNT(*) FILTER (WHERE status = 'human') as human_convs,
+                COUNT(*) FILTER (WHERE assigned_to IS NOT NULL) as assigned_convs
+               FROM conversations
+               WHERE tenant_id = $1::uuid""",
+            tenant_id
+        )
+        total_convs = conv_stats["total_convs"] or 0
+        bot_convs = conv_stats["bot_convs"] or 0
+        human_convs = conv_stats["human_convs"] or 0
+        ai_autonomous_rate = round((bot_convs / total_convs * 100), 1) if total_convs > 0 else 0.0
+
+    return {
+        "period": period,
+        "summary": {
+            "total_messages": total_msgs,
+            "inbound_messages": inbound_msgs,
+            "outbound_messages": outbound_msgs,
+            "ai_messages": ai_msgs,
+            "human_messages": human_msgs,
+            "total_leads": total_leads,
+            "converted_leads": converted_leads,
+            "conversion_rate": lead_conv_rate,
+            "total_bookings": total_bookings,
+            "completed_bookings": completed_bookings,
+            "confirmed_bookings": confirmed_bookings,
+            "cancelled_bookings": cancelled_bookings,
+            "no_show_bookings": noshow_bookings,
+            "pending_bookings": pending_bookings,
+            "attendance_rate": attendance_rate,
+            "total_revenue": round(total_revenue),
+            "average_ticket_size": round(avg_ticket),
+            "total_conversations": total_convs,
+            "ai_conversations": bot_convs,
+            "human_conversations": human_convs,
+            "ai_autonomous_rate": ai_autonomous_rate
+        },
+        "time_series": time_series,
+        "pipeline": {
+            "new": lead_counts["new_leads"] or 0,
+            "contacted": lead_counts["contacted_leads"] or 0,
+            "qualified": lead_counts["qualified_leads"] or 0,
+            "converted": converted_leads,
+            "lost": lead_counts["lost_leads"] or 0
+        },
+        "bookings_by_status": {
+            "confirmed": confirmed_bookings,
+            "completed": completed_bookings,
+            "cancelled": cancelled_bookings,
+            "no_show": noshow_bookings,
+            "pending": pending_bookings
+        }
     }
 
 
