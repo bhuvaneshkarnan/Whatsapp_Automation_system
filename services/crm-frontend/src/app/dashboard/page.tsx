@@ -10548,58 +10548,86 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </div>
 
               {/* Add New Note Box */}
-              {isAddingNote && (
-                <form onSubmit={handleAddStickyNote} className="bg-surface-subtle border border-border rounded-md p-3 space-y-2.5 shadow-subtle">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-text-secondary">Color Theme</span>
-                    <div className="flex items-center gap-1.5">
-                      {[
-                        { id: 'yellow', bg: 'bg-[#fef08a]', border: 'border-amber-300' },
-                        { id: 'green', bg: 'bg-[#bbf7d0]', border: 'border-emerald-300' },
-                        { id: 'blue', bg: 'bg-[#bae6fd]', border: 'border-sky-300' },
-                        { id: 'purple', bg: 'bg-[#e9d5ff]', border: 'border-purple-300' },
-                        { id: 'pink', bg: 'bg-[#fecdd3]', border: 'border-rose-300' },
-                      ].map((c) => (
-                        <button
-                          type="button"
-                          key={c.id}
-                          onClick={() => setNewNoteColor(c.id as any)}
-                          className={`w-4.5 h-4.5 rounded-full ${c.bg} ${c.border} border transition-all cursor-pointer ${
-                            newNoteColor === c.id ? 'ring-2 ring-accent ring-offset-1 scale-110 shadow-xs' : 'hover:scale-105 opacity-80 hover:opacity-100'
-                          }`}
-                          title={`Select ${c.id} note`}
-                        />
-                      ))}
+              {isAddingNote && (() => {
+                const noteColors: { id: 'yellow' | 'green' | 'blue' | 'purple' | 'pink'; name: string; swatch: string; border: string; previewBg: string; text: string }[] = [
+                  { id: 'yellow', name: 'Yellow', swatch: '#fde047', border: '#ca8a04', previewBg: '#fefce8', text: '#713f12' },
+                  { id: 'green', name: 'Green', swatch: '#86efac', border: '#16a34a', previewBg: '#f0fdf4', text: '#064e3b' },
+                  { id: 'blue', name: 'Blue', swatch: '#7dd3fc', border: '#0284c7', previewBg: '#f0f9ff', text: '#0c4a6e' },
+                  { id: 'purple', name: 'Purple', swatch: '#d8b4fe', border: '#9333ea', previewBg: '#faf5ff', text: '#581c87' },
+                  { id: 'pink', name: 'Pink', swatch: '#fda4af', border: '#e11d48', previewBg: '#fff1f2', text: '#881337' },
+                ];
+                const activeColor = noteColors.find(c => c.id === newNoteColor) || noteColors[0];
+
+                return (
+                  <form
+                    onSubmit={handleAddStickyNote}
+                    className="rounded-md p-3 space-y-2.5 shadow-subtle border-2 transition-colors duration-150"
+                    style={{ backgroundColor: activeColor.previewBg, borderColor: activeColor.border }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold" style={{ color: activeColor.text }}>Color:</span>
+                        <span
+                          className="text-[11px] font-semibold px-2 py-0.5 rounded-full border shadow-2xs"
+                          style={{ backgroundColor: activeColor.swatch, borderColor: activeColor.border, color: activeColor.text }}
+                        >
+                          {activeColor.name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {noteColors.map((c) => {
+                          const isSelected = newNoteColor === c.id;
+                          return (
+                            <button
+                              type="button"
+                              key={c.id}
+                              onClick={() => setNewNoteColor(c.id)}
+                              style={{ backgroundColor: c.swatch, borderColor: c.border }}
+                              className={`w-6 h-6 rounded-full border-2 transition-all flex items-center justify-center cursor-pointer ${
+                                isSelected
+                                  ? 'ring-2 ring-text-primary ring-offset-2 scale-110 shadow-xs'
+                                  : 'hover:scale-105 opacity-80 hover:opacity-100'
+                              }`}
+                              title={`${c.name} Note`}
+                            >
+                              {isSelected && (
+                                <Check className="w-3.5 h-3.5 stroke-[2.5]" style={{ color: c.text }} />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
 
-                  <textarea
-                    rows={3}
-                    autoFocus
-                    placeholder="Write a client follow-up or reminder note..."
-                    value={newNoteText}
-                    onChange={(e) => setNewNoteText(e.target.value)}
-                    className="w-full px-2.5 py-2 bg-white border border-border rounded-sm text-xs focus:outline-none focus:border-accent resize-none text-text-primary placeholder:text-text-muted font-sans transition-colors duration-150"
-                  />
+                    <textarea
+                      rows={3}
+                      autoFocus
+                      placeholder={`Write a ${activeColor.name.toLowerCase()} reminder or note...`}
+                      value={newNoteText}
+                      onChange={(e) => setNewNoteText(e.target.value)}
+                      className="w-full px-2.5 py-2 bg-white/95 border rounded-sm text-xs focus:outline-none resize-none placeholder:text-text-muted font-sans transition-colors duration-150 shadow-2xs"
+                      style={{ borderColor: activeColor.border, color: activeColor.text }}
+                    />
 
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsAddingNote(false)}
-                      className="px-2 py-1 text-xs font-medium text-text-muted hover:text-text-primary cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={!newNoteText.trim()}
-                      className="px-3 py-1 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-semibold rounded-sm transition-colors duration-150 cursor-pointer shadow-subtle"
-                    >
-                      Add Note
-                    </button>
-                  </div>
-                </form>
-              )}
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsAddingNote(false)}
+                        className="px-2 py-1 text-xs font-medium text-text-muted hover:text-text-primary cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={!newNoteText.trim()}
+                        className="px-3 py-1 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-semibold rounded-sm transition-colors duration-150 cursor-pointer shadow-subtle"
+                      >
+                        Add Note
+                      </button>
+                    </div>
+                  </form>
+                );
+              })()}
 
               {/* Sticky Notes Cards List */}
               <div className="space-y-2.5">
@@ -10611,19 +10639,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                 ) : (
                   stickyNotes.map((note) => {
-                    const colorStyles: Record<string, { bg: string; border: string; text: string; badge: string }> = {
-                      yellow: { bg: 'bg-[#fefce8]', border: 'border-[#fef08a]', text: 'text-amber-950', badge: 'bg-[#fef08a] text-amber-900 border-[#fde047]' },
-                      green: { bg: 'bg-[#f0fdf4]', border: 'border-[#bbf7d0]', text: 'text-emerald-950', badge: 'bg-[#bbf7d0] text-emerald-900 border-[#86efac]' },
-                      blue: { bg: 'bg-[#f0f9ff]', border: 'border-[#bae6fd]', text: 'text-sky-950', badge: 'bg-[#bae6fd] text-sky-900 border-[#7dd3fc]' },
-                      purple: { bg: 'bg-[#faf5ff]', border: 'border-[#e9d5ff]', text: 'text-purple-950', badge: 'bg-[#e9d5ff] text-purple-900 border-[#d8b4fe]' },
-                      pink: { bg: 'bg-[#fff1f2]', border: 'border-[#fecdd3]', text: 'text-rose-950', badge: 'bg-[#fecdd3] text-rose-900 border-[#fda4af]' },
+                    const colorStyles: Record<string, { bg: string; border: string; text: string; badge: string; badgeText: string; badgeBorder: string }> = {
+                      yellow: { bg: '#fefce8', border: '#fde047', text: '#713f12', badge: '#fef08a', badgeText: '#854d0e', badgeBorder: '#fde047' },
+                      green: { bg: '#f0fdf4', border: '#bbf7d0', text: '#064e3b', badge: '#bbf7d0', badgeText: '#065f46', badgeBorder: '#86efac' },
+                      blue: { bg: '#f0f9ff', border: '#bae6fd', text: '#0c4a6e', badge: '#bae6fd', badgeText: '#0369a1', badgeBorder: '#7dd3fc' },
+                      purple: { bg: '#faf5ff', border: '#e9d5ff', text: '#581c87', badge: '#e9d5ff', badgeText: '#6b21a8', badgeBorder: '#d8b4fe' },
+                      pink: { bg: '#fff1f2', border: '#fecdd3', text: '#881337', badge: '#fecdd3', badgeText: '#9f1239', badgeBorder: '#fda4af' },
                     };
                     const currentStyle = colorStyles[note.color] || colorStyles.yellow;
 
                     return (
                       <div
                         key={note.id}
-                        className={`p-3 rounded-md border transition-all duration-150 relative group ${currentStyle.bg} ${currentStyle.border} ${
+                        style={{ backgroundColor: currentStyle.bg, borderColor: currentStyle.border }}
+                        className={`p-3 rounded-md border-2 transition-all duration-150 relative group ${
                           note.done ? 'opacity-55' : 'shadow-2xs'
                         }`}
                       >
@@ -10638,7 +10667,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <Pin className={`w-3.5 h-3.5 stroke-[1.5] ${note.pinned ? 'fill-accent text-accent' : ''}`} />
                             </button>
                             {note.pinned && (
-                              <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.2 rounded-sm border ${currentStyle.badge}`}>
+                              <span
+                                style={{ backgroundColor: currentStyle.badge, color: currentStyle.badgeText, borderColor: currentStyle.badgeBorder }}
+                                className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.2 rounded-sm border"
+                              >
                                 Pinned
                               </span>
                             )}
@@ -10667,7 +10699,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
 
                         {/* Note Content */}
-                        <p className={`text-xs font-normal leading-relaxed break-words ${currentStyle.text} ${note.done ? 'line-through opacity-70' : ''}`}>
+                        <p
+                          style={{ color: currentStyle.text }}
+                          className={`text-xs font-normal leading-relaxed break-words ${note.done ? 'line-through opacity-70' : ''}`}
+                        >
                           {note.text}
                         </p>
 
