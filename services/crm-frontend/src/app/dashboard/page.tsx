@@ -1389,7 +1389,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     groq_api_key: '',
     opencode_api_key: '',
     opencode_base_url: 'https://opencode.ai/zen/v1',
-    assistant_name: 'Rakshaya',
+    assistant_name: '',
     bot_goal: '',
     services_text: '',
     ai_prompt: '',

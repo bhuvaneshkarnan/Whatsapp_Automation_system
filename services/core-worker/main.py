@@ -214,7 +214,7 @@ def build_booking_admin_email_html(service_name: str, formatted_date: str, forma
   </div>
 
   <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
-    Boldlabs CRM
+    CRM Notification
   </div>
 </div>
 """
@@ -274,7 +274,7 @@ def build_cancellation_admin_email_html(service_name: str, formatted_date: str, 
   </div>
 
   <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
-    Boldlabs CRM
+    CRM Notification
   </div>
 </div>
 """
@@ -331,7 +331,7 @@ def build_reschedule_admin_email_html(service_name: str, formatted_date: str, fo
   </div>
 
   <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
-    Boldlabs CRM
+    CRM Notification
   </div>
 </div>
 """
@@ -448,7 +448,7 @@ def build_takeover_admin_email_html(customer_name: str, contact_phone: str, cust
   </div>
 
   <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
-    Boldlabs CRM Alerts
+    CRM Alerts
   </div>
 </div>
 """
@@ -479,7 +479,7 @@ def build_daily_digest_admin_email_html(date_str: str, today_bookings_count: int
   </div>
 
   <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #94a3b8;">
-    Boldlabs CRM Daily Digest
+    CRM Daily Digest
   </div>
 </div>
 """
@@ -1023,6 +1023,49 @@ class CoreWorker:
 
         return empty_slots_by_day
 
+    def _sanitize_tenant_response(self, text: str, tenant_slug: str, tenant_name: str, assistant_name: str) -> str:
+        """
+        Global strict tenant isolation firewall.
+        Scans and sanitizes outgoing text to guarantee that no tenant ever sends
+        another tenant's brand name, persona, pricing, or promotional copy.
+        """
+        if not text:
+            return ""
+
+        clean_slug = (tenant_slug or "").strip().lower()
+
+        # If tenant is NOT Boldlabs, absolutely purge any Boldlabs/Rakshaya artifacts
+        if clean_slug != "boldlabs":
+            if "rakshaya" in text.lower():
+                logger.warn("cross_tenant_sanitized_persona", tenant_slug=clean_slug, intercepted="Rakshaya")
+                text = re.sub(r'\brakshaya\b', assistant_name or "our assistant", text, flags=re.IGNORECASE)
+
+            if "boldlabs" in text.lower():
+                logger.warn("cross_tenant_sanitized_brand", tenant_slug=clean_slug, intercepted="Boldlabs")
+                text = re.sub(r'\bboldlabs\b', tenant_name or "our team", text, flags=re.IGNORECASE)
+                text = re.sub(r'https?://[^\s]*boldlabs[^\s]*', '', text, flags=re.IGNORECASE)
+                text = re.sub(r'\bgoboldlabs\.com\b', '', text, flags=re.IGNORECASE)
+                text = re.sub(r'\bboldlabs\.ai\b', '', text, flags=re.IGNORECASE)
+
+            # If rule engine default promotional pitch leaked
+            if "turns customer inquiries into confirmed bookings" in text.lower():
+                logger.warn("cross_tenant_sanitized_marketing_copy", tenant_slug=clean_slug)
+                text = f"Hello! How can I assist you with {tenant_name or 'our services'} today?"
+
+            if "3499 per month" in text.lower() or "rs 3499" in text.lower() or "₹3499" in text.lower() or "₹3,499" in text.lower():
+                logger.warn("cross_tenant_sanitized_pricing_copy", tenant_slug=clean_slug)
+                text = f"I would be happy to share our pricing details with you. Which of our services are you interested in?"
+
+        # If tenant IS Boldlabs, ensure clinic or medical terms from other clients don't leak into Boldlabs
+        elif clean_slug == "boldlabs":
+            clinic_terms = [r"\bdr\.?\s*sameer\b", r"\bmind\s*body\s*recovery\b", r"\bayurvedic\b", r"\bcupping therapy\b"]
+            for term in clinic_terms:
+                if re.search(term, text, re.IGNORECASE):
+                    logger.warn("cross_tenant_sanitized_clinic_copy", tenant_slug=clean_slug, term=term)
+                    text = re.sub(term, assistant_name or "Rakshaya", text, flags=re.IGNORECASE)
+
+        return text.strip()
+
     async def _generate_and_send_reply(
         self,
         tenant_id: str,
@@ -1070,20 +1113,20 @@ class CoreWorker:
                 "- This is the first greeting or message from this customer. Greet them warmly, state your name/role naturally, and ask how you can help."
             )
 
-        # 2. Retrieve customer profile & bookings memory
+        # 2. Retrieve customer profile & bookings memory with strict tenant scoping
         contact_row = await self.db_pool.fetchrow(
             """SELECT c.name, c.wa_profile_name, c.phone, c.tags, c.notes, c.metadata
                FROM conversations conv
-               JOIN contacts c ON c.id = conv.contact_id
-               WHERE conv.id = $1""",
-            conv_id,
+               JOIN contacts c ON c.id = conv.contact_id AND c.tenant_id = $2::uuid
+               WHERE conv.id = $1::uuid AND conv.tenant_id = $2::uuid""",
+            conv_id, tenant_id,
         )
         booking_rows = await self.db_pool.fetch(
             """SELECT service, start_time, status
                FROM bookings
-               WHERE contact_id = (SELECT contact_id FROM conversations WHERE id = $1)
+               WHERE tenant_id = $2::uuid AND contact_id = (SELECT contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid)
                ORDER BY start_time DESC LIMIT 3""",
-            conv_id,
+            conv_id, tenant_id,
         )
 
         # Check if we have a verified customer full name (not default placeholder)
@@ -1107,8 +1150,9 @@ class CoreWorker:
         tenant_currency_str = "INR"
         tenant_currency_sym = "₹"
         tenant_country_code = "+91"
-        tenant_row = await self.db_pool.fetchrow("SELECT name, settings FROM tenants WHERE id = $1::uuid", tenant_id)
+        tenant_row = await self.db_pool.fetchrow("SELECT name, slug, settings FROM tenants WHERE id = $1::uuid", tenant_id)
         tenant_name = (tenant_row["name"] if tenant_row and tenant_row.get("name") else "")
+        tenant_slug = (tenant_row["slug"] if tenant_row and tenant_row.get("slug") else "")
         tenant_st_row = tenant_row.get("settings") if tenant_row else None
         if tenant_st_row:
             if isinstance(tenant_st_row, str):
@@ -1305,12 +1349,12 @@ class CoreWorker:
             "  * NEVER create a new booking on an inquiry.\n"
             "  * NEVER reschedule, alter, or move their existing booking.\n"
             "  * NEVER output [ACTION:CREATE_BOOKING: ...] or [ACTION:RESCHEDULE_BOOKING: ...] under ANY circumstances.\n"
-            "  * NEVER say 'Your demo is now set for...', 'has been rescheduled to...', or 'is booked for...' as if you just executed an action.\n"
+            "  * NEVER say 'Your appointment is now set for...', 'has been rescheduled to...', or 'is booked for...' as if you just executed an action.\n"
             "- EXACT REQUIRED BEHAVIOR:\n"
             "  * Look directly at 'Known Bookings for THIS Customer' in the CUSTOMER PROFILE above.\n"
             "  * If they have an existing confirmed/upcoming booking:\n"
             "    State clearly in 1 friendly, natural sentence when their appointment is already scheduled:\n"
-            "    Example: 'Your Free Discovery Demo is scheduled for today, 05 Sep 2026 at 08:00 AM! Let me know if you need to make any changes or have any questions.'\n"
+            "    Example: 'Your appointment is scheduled for today, 05 Sep 2026 at 08:00 AM! Let me know if you need to make any changes or have any questions.'\n"
             "  * If they have NO active bookings listed:\n"
             "    State clearly in 1 short sentence: 'You don't have an active appointment scheduled right now. Would you like to book one?'\n\n"
             "5. MANDATORY ACTION TAG ON BOOKING CONFIRMATION:\n"
@@ -1353,8 +1397,19 @@ class CoreWorker:
                     except: tenant_st = {}
                 full_location = (tenant_st.get("full_location_text") or "").strip()
 
+        tenant_isolation_boundary = (
+            "### STRICT TENANT IDENTITY & DOMAIN ISOLATION PROTOCOL (ABSOLUTE MANDATORY DIRECTIVE):\n"
+            f"- Organization / Business Name: \"{tenant_name or 'this business'}\"\n"
+            f"- Assistant Persona: \"{assistant_name or 'the assistant'}\"\n"
+            "ZERO CROSS-TENANT OVERLAP & STRICT ENFORCEMENT:\n"
+            f"1. You represent ONLY '{tenant_name or 'this business'}' and NO OTHER company or client.\n"
+            "2. You MUST strictly and exclusively use the business information, services, pricing, and instructions provided in this prompt below.\n"
+            "3. Under NO circumstances should you mention, adopt, refer to, or use branding, personas, names, pricing, or workflows from any other business (including Boldlabs, Rakshaya, Mind Body Recovery, or other clinics/agencies) unless explicitly defined in this business's knowledge base below."
+        )
+
         prompt_blocks = [
             time_context,
+            tenant_isolation_boundary,
             f"You are {assistant_name or 'the assistant'}, representing {tenant_name or 'this business'} directly on WhatsApp chat.",
             conversation_state_block,
             memory_block,
@@ -1572,6 +1627,8 @@ class CoreWorker:
                 else:
                     return f"{12 if hh == 0 else hh:02d}:{mm} AM"
             response_text = re.sub(r'\b([01]?\d|2[0-3]):([0-5]\d)(?!\s*(?:am|pm|AM|PM))\b', _repl_12hr, response_text)
+            # Global strict tenant isolation firewall check
+            response_text = self._sanitize_tenant_response(response_text, tenant_slug, tenant_name, assistant_name)
 
         # Persist outbound message
         out_msg_id = await self.db_pool.fetchval(
@@ -1833,7 +1890,7 @@ class CoreWorker:
                         title=f"📅 New Booking: {name}",
                         body=f"{service_name} on {formatted_d} at {formatted_t}",
                         notif_type="booking",
-                        url="/boldlabs#bookings",
+                        url="/dashboard#bookings",
                         data={"contact_phone": contact_phone, "booking_id": booking_id}
                     )
                 )
@@ -2286,7 +2343,7 @@ class CoreWorker:
                         title=f"❌ Booking Cancelled: {name}",
                         body=f"{service_name} on {formatted_date} at {formatted_time} was cancelled.",
                         notif_type="booking_cancelled",
-                        url="/boldlabs#bookings",
+                        url="/dashboard#bookings",
                         data={"contact_phone": contact_phone, "booking_id": booking_id}
                     )
                 )
@@ -2498,7 +2555,7 @@ class CoreWorker:
                         title=f"🚨 Staff Takeover Requested: {name}",
                         body=f"{contact_phone} requested to speak with a human team member.",
                         notif_type="human_request",
-                        url="/boldlabs#inbox",
+                        url="/dashboard#inbox",
                         data={"contact_phone": contact_phone, "conversation_id": conv_id}
                     )
                 )
@@ -2651,7 +2708,7 @@ class CoreWorker:
                         title=f"🔄 Booking Rescheduled: {name}",
                         body=f"{service_name} moved to {formatted_date} at {formatted_time}.",
                         notif_type="booking_rescheduled",
-                        url="/boldlabs#bookings",
+                        url="/dashboard#bookings",
                         data={"contact_phone": contact_phone, "booking_id": booking_id}
                     )
                 )
@@ -3720,7 +3777,7 @@ class CoreWorker:
                         title=f"📢 Scheduled Campaign Sent: {c_name}",
                         body=f"Broadcast sent to {success_count} recipients.",
                         notif_type="marketing_completed",
-                        url="/boldlabs#marketing",
+                        url="/dashboard#marketing",
                         data={"campaign_name": c_name}
                     )
                 except Exception:

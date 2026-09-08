@@ -4329,7 +4329,7 @@ async def update_tenant_settings(
         
         cur_model = (ai_row["model"] if ai_row and ai_row["model"] else "gemini-3.1-flash-lite")
         cur_prompt = (ai_row["system_prompt"] if ai_row and ai_row["system_prompt"] else "")
-        cur_name = (ai_row["assistant_name"] if ai_row and ai_row["assistant_name"] else "Rakshaya")
+        cur_name = (ai_row["assistant_name"] if ai_row and ai_row["assistant_name"] else "Assistant")
         cur_goal = (ai_row["bot_goal"] if ai_row and ai_row["bot_goal"] else "")
         cur_services = (ai_row["services_text"] if ai_row and ai_row["services_text"] else "")
         cur_style = (ai_row["response_style"] if ai_row and ai_row["response_style"] else "short")
@@ -5280,7 +5280,7 @@ async def get_admin_tenant_details(tenant_id: str, admin_user: dict = Depends(ve
         },
         "ai_config": {
             "model": ai_cfg["model"] if ai_cfg else "gemini-1.5-flash",
-            "assistant_name": ai_cfg.get("assistant_name", "") if (ai_cfg and "assistant_name" in ai_cfg) else "Rakshaya",
+            "assistant_name": ai_cfg.get("assistant_name", "") if (ai_cfg and "assistant_name" in ai_cfg) else "Assistant",
             "bot_goal": ai_cfg.get("bot_goal", "") if (ai_cfg and "bot_goal" in ai_cfg) else "",
             "services_text": ai_cfg.get("services_text", "") if (ai_cfg and "services_text" in ai_cfg) else "",
             "system_prompt": ai_cfg["system_prompt"] if ai_cfg else "",

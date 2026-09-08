@@ -840,7 +840,7 @@ export default function SuperAdminClients() {
     groq_api_key: '',
     opencode_api_key: '',
     opencode_base_url: 'https://opencode.ai/zen/v1',
-    assistant_name: 'Rakshaya',
+    assistant_name: '',
     bot_goal: '',
     services_text: '',
     full_location_text: '',
@@ -2749,7 +2749,7 @@ export default function SuperAdminClients() {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div className="p-2.5 bg-surface-subtle border border-border rounded-sm">
                           <p className="text-[11px] font-medium text-text-muted">Assistant Name</p>
-                          <p className="font-mono text-xs font-semibold text-text-primary mt-0.5">{dbTenantSettings.assistant_name || 'Rakshaya'}</p>
+                          <p className="font-mono text-xs font-semibold text-text-primary mt-0.5">{dbTenantSettings.assistant_name || 'Assistant'}</p>
                         </div>
                         <div className="p-2.5 bg-surface-subtle border border-border rounded-sm">
                           <p className="text-[11px] font-medium text-text-muted">Primary Provider & Model</p>

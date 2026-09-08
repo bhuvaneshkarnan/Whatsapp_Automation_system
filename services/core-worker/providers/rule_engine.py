@@ -34,7 +34,7 @@ DEFAULT_RULES: list[Rule] = [
          "You're very welcome! Have a wonderful day ahead. 😊"),
 
     Rule("book",          85,  "keyword", r"\b(book|appointment|schedule|reserve|booking|consultation|call|demo)\b",
-         "I'd love to help you schedule a demo or consultation! 📅 What date and time works best for you?"),
+         "I'd love to help you schedule an appointment or consultation! 📅 What date and time works best for you?"),
 
     Rule("reschedule",    84,  "keyword", r"\b(reschedule|change.*appointment|move.*booking|shift.*appointment)\b",
          "Sure, I can help you reschedule. What new date and time would you prefer?"),
