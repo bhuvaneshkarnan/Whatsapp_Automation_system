@@ -1034,11 +1034,12 @@ async def list_customers(
             "google_task_id": r["google_task_id"],
             "google_calendar_event_id": r.get("google_calendar_event_id") if "google_calendar_event_id" in r else None,
             "last_visited": last_visit_dt.isoformat() if last_visit_dt else None,
+            "last_visit_date": last_visit_dt.isoformat() if last_visit_dt else None,
             "completed_bookings_count": completed_cnt,
             "total_bookings_count": total_cnt,
             "client_type": c_type,
             "last_visit_service": r["last_visit_service"] or None,
-            "last_visit_doctor": r["last_visit_doctor"] or None,
+            "last_visit_doctor": r["last_visit_doctor"] or r["preferred_doctor"] or None,
             "days_since_last_visit": days_since_last_visit,
             "retention_status": retention_status,
             "notes_count": r["notes_count"] or 0,
@@ -3181,6 +3182,21 @@ async def update_booking_status(
                 "UPDATE bookings SET status = $1, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
                 payload.status, booking_id, tenant_id
             )
+
+        # Update customer last_visited_at if booking is completed or attended
+        if payload.status in ("completed", "attended"):
+            try:
+                b_phone = booking.get("phone")
+                b_st = booking.get("start_time")
+                if b_phone and b_st:
+                    await conn.execute("""
+                        UPDATE customers 
+                        SET last_visited_at = GREATEST(COALESCE(last_visited_at, $1), $1), updated_at = now()
+                        WHERE tenant_id = $2::uuid 
+                          AND (phone = $3 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($3, '[^0-9]', '', 'g'), 10))
+                    """, b_st, tenant_id, b_phone)
+            except Exception as ex:
+                logger.warning("booking_update_customer_last_visited_warn", error=str(ex))
 
         # Build automated trigger message based on tenant branding
         patient_name = booking["name"] or "there"

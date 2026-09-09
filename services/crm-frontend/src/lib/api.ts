@@ -216,6 +216,7 @@ export interface Customer {
   google_task_id?: string | null;
   google_calendar_event_id?: string | null;
   last_visited?: string | null;
+  last_visit_date?: string | null;
   completed_bookings_count?: number;
   total_bookings_count?: number;
   client_type?: 'new_lead' | 'repeat';

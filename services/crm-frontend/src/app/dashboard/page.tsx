@@ -4162,9 +4162,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         name.toLowerCase().includes(searchQuery.toLowerCase());
       if (!matchesSearch) return false;
       if (filter === 'new') {
-        const isUnread = (c.unread_count || 0) > 0;
-        const isRecent = c.last_message_at ? (Date.now() - new Date(c.last_message_at).getTime() < 86400000) : false;
-        return isUnread || isRecent;
+        return (c.unread_count || 0) > 0;
       }
       if (filter === 'new_lead') {
         return c.client_type === 'new_lead' || (c.completed_bookings_count ?? 0) === 0;
@@ -7018,12 +7016,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             ? 'bg-surface text-text-primary border border-border-strong font-semibold shadow-subtle'
                             : 'text-text-secondary hover:text-text-primary'
                         }`}
-                        title="Unread or messages in last 24h"
+                        title="Unread messages"
                       >
                         <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 stroke-[1.8] shrink-0" /> Unread</span>
-                        {conversations.filter((c) => (c.unread_count || 0) > 0 || (c.last_message_at && (Date.now() - new Date(c.last_message_at).getTime() < 86400000))).length > 0 && (
+                        {conversations.filter((c) => (c.unread_count || 0) > 0).length > 0 && (
                           <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'new' ? 'bg-accent/10 text-accent font-semibold' : 'bg-surface-subtle text-text-muted'}`}>
-                            {conversations.filter((c) => (c.unread_count || 0) > 0 || (c.last_message_at && (Date.now() - new Date(c.last_message_at).getTime() < 86400000))).length}
+                            {conversations.filter((c) => (c.unread_count || 0) > 0).length}
                           </span>
                         )}
                       </button>
@@ -7390,7 +7388,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         const matchedCust = customers.find((c) => c.phone && c.phone.replace(/[^0-9]/g, '') === cleanPhone);
                         const isRepeat = selectedConv.client_type === 'repeat' || (selectedConv.completed_bookings_count ?? 0) > 0 || (matchedCust?.completed_bookings_count ?? 0) > 0;
                         const visitCount = selectedConv.completed_bookings_count ?? matchedCust?.completed_bookings_count ?? 0;
-                        const lastDate = selectedConv.last_visit_date || matchedCust?.last_visit_date;
+                        const lastDate = selectedConv.last_visit_date || matchedCust?.last_visit_date || matchedCust?.last_visited;
                         const lastService = selectedConv.last_visit_service || matchedCust?.last_visit_service;
                         const lastDoctor = selectedConv.last_visit_doctor || matchedCust?.last_visit_doctor || selectedConv.preferred_doctor || matchedCust?.preferred_doctor;
                         const retentionStatus = matchedCust?.retention_status;
@@ -9608,7 +9606,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           `"${(c.location || '').replace(/"/g, '""')}"`,
                           c.completed_bookings_count || 0,
                           c.total_bookings_count || 0,
-                          c.last_visit_date ? new Date(c.last_visit_date).toLocaleDateString() : '',
+                          (c.last_visit_date || c.last_visited) ? new Date(c.last_visit_date || c.last_visited!).toLocaleDateString() : '',
                           `"${(c.last_visit_service || '').replace(/"/g, '""')}"`,
                           c.days_since_last_visit != null ? c.days_since_last_visit : '',
                           c.retention_status || '',
@@ -9910,24 +9908,34 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                                 {/* Last Visit Details */}
                                 <td className="p-2.5 text-[11px]">
-                                  {cust.last_visit_date ? (
-                                    <div>
-                                      <div className="font-medium text-text-primary">
-                                        {new Date(cust.last_visit_date).toLocaleDateString()}
-                                        {cust.days_since_last_visit != null && (
-                                          <span className="text-[10px] text-text-muted font-normal ml-1 font-mono">
-                                            ({cust.days_since_last_visit}d ago)
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div className="text-[10px] text-text-secondary truncate max-w-[160px] mt-0.5">
-                                        {cust.last_visit_service || 'Consultation'}
-                                        {cust.last_visit_doctor && <span> • Dr. {cust.last_visit_doctor}</span>}
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <span className="text-text-muted text-[11px]">—</span>
-                                  )}
+                                  {(() => {
+                                    const visitDate = cust.last_visit_date || cust.last_visited;
+                                    if (visitDate) {
+                                      const d = new Date(visitDate);
+                                      const formattedDate = !isNaN(d.getTime())
+                                        ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                        : visitDate;
+                                      const docRaw = cust.last_visit_doctor || cust.preferred_doctor;
+                                      const docName = docRaw ? docRaw.replace(/^Dr\.\s*/i, '').trim() : null;
+                                      return (
+                                        <div>
+                                          <div className="font-medium text-text-primary flex items-center gap-1">
+                                            <span>{formattedDate}</span>
+                                            {cust.days_since_last_visit != null && (
+                                              <span className="text-[10px] text-text-muted font-normal font-mono">
+                                                {cust.days_since_last_visit === 0 ? '(Today)' : cust.days_since_last_visit === 1 ? '(1d ago)' : `(${cust.days_since_last_visit}d ago)`}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="text-[10px] text-text-secondary truncate max-w-[170px] mt-0.5">
+                                            {cust.last_visit_service || 'Consultation'}
+                                            {docName && <span> • Dr. {docName}</span>}
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                    return <span className="text-text-muted text-[11px]">—</span>;
+                                  })()}
                                 </td>
 
                                 {/* Retention Status */}
