@@ -6913,7 +6913,7 @@ async def execute_marketing_broadcast(
                 await dispatch_push_notification(
                     pool=db_pool,
                     tenant_id=t_id,
-                    title=f"📢 Campaign Dispatched: {c_name}",
+                    title=f"Campaign Dispatched: {c_name}",
                     body=f"Broadcast campaign sent to {success_count} recipients.",
                     notif_type="marketing_completed",
                     url="/boldlabs#marketing",
@@ -7103,7 +7103,7 @@ async def test_marketing_trigger(
         sent = await _dispatch_single_marketing_wa(
             tenant_id=tenant_id,
             phone=admin_phone,
-            text=f"🔔 [TEST TRIGGER: {trig['name']}]",
+            text=f"[TEST TRIGGER: {trig['name']}]",
             template_name=tpl_name,
             template_params=params
         )
@@ -8526,7 +8526,7 @@ async def send_test_push_notification(
     res = await dispatch_push_notification(
         pool=db_pool,
         tenant_id=tenant_id,
-        title="🔔 Boldlabs CRM Notification Active",
+        title="Boldlabs CRM Notification Active",
         body="Real background notifications are working! You will receive instant alerts even with the browser closed.",
         notif_type="system",
         url="/boldlabs#inbox"

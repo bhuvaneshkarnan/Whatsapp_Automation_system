@@ -58,6 +58,7 @@ import {
   Braces,
   FileCode,
   CheckSquare,
+  XCircle,
   ShieldAlert,
   Loader2,
   Stethoscope,
@@ -2370,11 +2371,11 @@ export default function SuperAdminClients() {
 
                     <div className="space-y-2 text-[11px]">
                       <div className="p-2 rounded bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300">
-                        <span className="font-semibold block mb-0.5">❌ Blocked (Unnatural / Robotic):</span>
+                        <span className="font-semibold flex items-center gap-1.5 mb-0.5"><XCircle className="w-3.5 h-3.5 text-rose-600 stroke-[2] shrink-0" /> Blocked (Unnatural / Robotic):</span>
                         "Hi again! Thanks for sharing. Do you find it harder to fall asleep, stay asleep, or both?"
                       </div>
                       <div className="p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300">
-                        <span className="font-semibold block mb-0.5">✅ Active Flow (Real Human Style):</span>
+                        <span className="font-semibold flex items-center gap-1.5 mb-0.5"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 stroke-[2] shrink-0" /> Active Flow (Real Human Style):</span>
                         "Thanks for sharing that! Do you find it harder to fall asleep, stay asleep, or both?"
                       </div>
                     </div>
@@ -2595,7 +2596,7 @@ export default function SuperAdminClients() {
                   title="Auto-Provision All 11 Meta Templates as 100% Utility"
                 >
                   <Sparkles className={`w-3.5 h-3.5 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
-                  <span>{isSyncingMetaTemplates ? 'Syncing...' : '⚡ Auto-Provision Meta (Utility)'}</span>
+                  <span>{isSyncingMetaTemplates ? 'Syncing...' : 'Auto-Provision Meta (Utility)'}</span>
                 </button>
 
                 {/* Edit in Configure Drawer */}
@@ -3001,7 +3002,7 @@ export default function SuperAdminClients() {
                                 className="px-3 py-1 bg-accent hover:bg-accent/90 text-white rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer shrink-0 disabled:opacity-50"
                               >
                                 <Sparkles className={`w-3.5 h-3.5 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
-                                <span>{isSyncingMetaTemplates ? 'Syncing...' : '⚡ Sync Meta'}</span>
+                                <span>{isSyncingMetaTemplates ? 'Syncing...' : 'Sync Meta'}</span>
                               </button>
                             </>
                           )}
@@ -3014,7 +3015,7 @@ export default function SuperAdminClients() {
                           <div className="flex-1 space-y-1">
                             <p className="font-semibold">Meta Template Auto-Sync Completed ({metaSyncResult.industry?.toUpperCase()} Industry Preset)</p>
                             <p className="text-emerald-700">
-                              ✓ <strong>{metaSyncResult.already_present_count}</strong> active in Meta &bull; <strong>{metaSyncResult.created_count}</strong> newly provisioned as UTILITY &bull; <strong>{metaSyncResult.failed_count}</strong> failed.
+                              <strong>{metaSyncResult.already_present_count}</strong> active in Meta &bull; <strong>{metaSyncResult.created_count}</strong> newly provisioned as UTILITY &bull; <strong>{metaSyncResult.failed_count}</strong> failed.
                             </p>
                             {metaSyncResult.created_count > 0 && (
                               <p className="text-[11px] text-emerald-600 font-mono">
@@ -4005,7 +4006,7 @@ export default function SuperAdminClients() {
                                 title="Provision all missing templates in Meta as UTILITY"
                               >
                                 <Sparkles className={`w-3 h-3 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
-                                <span>{isSyncingMetaTemplates ? 'Syncing...' : '⚡ Sync Meta'}</span>
+                                <span>{isSyncingMetaTemplates ? 'Syncing...' : 'Sync Meta'}</span>
                               </button>
                             </>
                           )}
@@ -5395,7 +5396,7 @@ export default function SuperAdminClients() {
                           return;
                         }
                         const priceStr = (activePaymentModalTenant.monthly_price || 3499).toLocaleString();
-                        const msg = `Hello ${activePaymentModalTenant.name},\n\nYour AI WhatsApp Automation System with Boldlabs is now fully setup and ready!\n\nYou can review and activate your monthly subscription (${activePaymentModalTenant.plan?.toUpperCase() || 'PRO'} - ₹${priceStr}/month) using your secure Razorpay checkout link below:\n\n👉 ${activePaymentModalTenant.razorpay_short_url}\n\nPlease let us know once completed so we can confirm your live activation. Thank you!`;
+                        const msg = `Hello ${activePaymentModalTenant.name},\n\nYour AI WhatsApp Automation System with Boldlabs is now fully setup and ready!\n\nYou can review and activate your monthly subscription (${activePaymentModalTenant.plan?.toUpperCase() || 'PRO'} - ₹${priceStr}/month) using your secure Razorpay checkout link below:\n\nPayment Link: ${activePaymentModalTenant.razorpay_short_url}\n\nPlease let us know once completed so we can confirm your live activation. Thank you!`;
                         window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
                       }}
                       className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"

@@ -63,6 +63,7 @@ import {
   XCircle,
   CalendarDays,
   ArrowUpRight,
+  ArrowDownLeft,
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
@@ -943,11 +944,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       });
 
       setIsPushSubscribed(true);
-      setActionNotice('🔔 Real Web Push enabled! You will receive alerts even with the browser closed.');
+      setActionNotice('Real Web Push enabled! You will receive alerts even with the browser closed.');
 
       // Fire an immediate confirmation notification banner
       try {
-        await reg.showNotification(`🔔 ${settingsForm.name || 'CRM'} Web Push Enabled`, {
+        await reg.showNotification(`${settingsForm.name || 'CRM'} Web Push Enabled`, {
           body: 'Real-time notifications are now active on your laptop!',
           icon: '/favicon.ico',
           badge: '/favicon.ico',
@@ -976,7 +977,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           if ('serviceWorker' in navigator) {
             const reg = await navigator.serviceWorker.ready;
             if (reg) {
-              await reg.showNotification(`🔔 ${settingsForm.name || 'CRM'} Live Alert`, {
+              await reg.showNotification(`${settingsForm.name || 'CRM'} Live Alert`, {
                 body: 'Real notification is active on this device!',
                 icon: '/favicon.ico',
                 badge: '/favicon.ico',
@@ -994,7 +995,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
       // 2. Dispatches real backend VAPID Web Push via Google FCM / Apple Push
       await notificationsApi.sendTest();
-      setActionNotice('🔔 Test push sent! If not visible on screen, check Windows Action Center (bottom right) or Mac Notifications.');
+      setActionNotice('Test push sent! If not visible on screen, check Windows Action Center (bottom right) or Mac Notifications.');
       setTimeout(fetchNotifications, 1000);
     } catch (err: any) {
       setActionNotice(`Test push failed: ${err.message || err}`);
@@ -5453,8 +5454,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   {/* Tooltip on hover */}
                                   <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col bg-gray-900 text-white text-[10px] rounded-md px-2.5 py-1.5 shadow-xl pointer-events-none z-20 whitespace-nowrap border border-white/10">
                                     <span className="font-semibold border-b border-white/20 pb-0.5 mb-0.5">{t.day}</span>
-                                    <span>📥 Inbound: {t.inbound}</span>
-                                    <span>📤 Outbound: {t.outbound}</span>
+                                    <span className="flex items-center gap-1.5"><ArrowDownLeft className="w-3 h-3 text-emerald-400 stroke-[2]" /> Inbound: {t.inbound}</span>
+                                    <span className="flex items-center gap-1.5"><ArrowUpRight className="w-3 h-3 text-blue-400 stroke-[2]" /> Outbound: {t.outbound}</span>
                                     <span className="font-medium pt-0.5 border-t border-white/20 mt-0.5">Total: {t.total}</span>
                                   </div>
                                   {/* Bars */}
@@ -6193,7 +6194,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       className="w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer"
                                       title={`Follow-up with ${cust.name || cust.phone} (${timeInfo.formatted})`}
                                     >
-                                      {timeInfo.formatted} · 📞 {cust.name || cust.phone}
+                                      <span className="inline-flex items-center gap-1 truncate"><Phone className="w-2.5 h-2.5 shrink-0 stroke-[1.8]" /> {timeInfo.formatted} · {cust.name || cust.phone}</span>
                                     </button>
                                   );
                                 }
@@ -6213,7 +6214,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     }`}
                                     title={`Task: ${t.title} (Click to toggle completed)`}
                                   >
-                                    {t.completed ? '✓' : '□'} {t.title}
+                                    <span className="inline-flex items-center gap-1 truncate">{t.completed ? <CheckSquare className="w-2.5 h-2.5 shrink-0 stroke-[1.8]" /> : <Square className="w-2.5 h-2.5 shrink-0 stroke-[1.8]" />} {t.title}</span>
                                   </button>
                                 );
                               })}
@@ -6307,7 +6308,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 className="px-1.5 py-0.5 rounded-xs bg-blue-50 border border-blue-200 text-blue-800 text-[10px] flex items-center justify-between gap-1 cursor-pointer hover:bg-blue-100 transition-colors"
                                 title={`Follow-up: ${cust.name || cust.phone}`}
                               >
-                                <span className="truncate font-medium">📞 {cust.name || cust.phone}</span>
+                                <span className="truncate font-medium flex items-center gap-1"><Phone className="w-2.5 h-2.5 shrink-0 stroke-[1.8]" /> {cust.name || cust.phone}</span>
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -6336,7 +6337,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 }`}
                                 title={`Task: ${t.title}`}
                               >
-                                <span className="truncate font-medium">{t.completed ? '✓' : '□'} {t.title}</span>
+                                <span className="truncate font-medium flex items-center gap-1">{t.completed ? <CheckSquare className="w-2.5 h-2.5 shrink-0 stroke-[1.8]" /> : <Square className="w-2.5 h-2.5 shrink-0 stroke-[1.8]" />} {t.title}</span>
                                 {t.customer_phone && (
                                   <button
                                     type="button"
@@ -6473,7 +6474,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           title={`Follow-up with ${cust.name || cust.phone} (${tInfo.formatted})`}
                                         >
                                           <div className="flex items-center justify-between gap-1 font-semibold">
-                                            <span className="truncate">📞 {cust.name || cust.phone}</span>
+                                            <span className="truncate flex items-center gap-1"><Phone className="w-2.5 h-2.5 shrink-0 stroke-[1.8]" /> {cust.name || cust.phone}</span>
                                             <button
                                               type="button"
                                               onClick={(e) => {
@@ -6505,7 +6506,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         }`}
                                       >
                                         <div className="flex items-center justify-between gap-1">
-                                          <p className="font-medium truncate">{t.completed ? '✓' : '□'} {t.title}</p>
+                                          <p className="font-medium truncate flex items-center gap-1">{t.completed ? <CheckSquare className="w-2.5 h-2.5 shrink-0 stroke-[1.8]" /> : <Square className="w-2.5 h-2.5 shrink-0 stroke-[1.8]" />} {t.title}</p>
                                           {t.customer_phone && (
                                             <button
                                               type="button"
@@ -6652,7 +6653,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 className="p-2.5 rounded-sm border bg-blue-50/70 border-blue-200 text-blue-900 flex items-center justify-between gap-2 cursor-pointer hover:bg-blue-100/70 transition-colors"
                               >
                                 <div className="min-w-0 flex-1">
-                                  <p className="text-xs font-semibold truncate">📞 {cust.name || cust.phone}</p>
+                                  <p className="text-xs font-semibold truncate flex items-center gap-1.5"><Phone className="w-3 h-3 shrink-0 stroke-[1.8]" /> {cust.name || cust.phone}</p>
                                   <p className="text-[11px] text-blue-700 truncate">{cust.health_concern || 'Follow-up Call'}</p>
                                 </div>
                                 <div className="flex items-center gap-1 shrink-0">
@@ -6977,7 +6978,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         }`}
                         title="First-time leads / inquiries"
                       >
-                        <span>🌱 Leads</span>
+                        <span className="flex items-center gap-1"><UserPlus className="w-3.5 h-3.5 stroke-[1.8] shrink-0" /> Leads</span>
                         {(() => {
                           const count = conversations.filter((c) => c.client_type === 'new_lead' || (!c.client_type && (c.completed_bookings_count ?? 0) === 0)).length;
                           return count > 0 ? (
@@ -6998,7 +6999,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         }`}
                         title="Repeat clients with completed bookings"
                       >
-                        <span>⭐ Repeat</span>
+                        <span className="flex items-center gap-1"><UserCheck className="w-3.5 h-3.5 stroke-[1.8] shrink-0" /> Repeat</span>
                         {(() => {
                           const count = conversations.filter((c) => c.client_type === 'repeat' || (c.completed_bookings_count ?? 0) > 0).length;
                           return count > 0 ? (
@@ -7019,7 +7020,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         }`}
                         title="Unread or messages in last 24h"
                       >
-                        <span>📬 Unread</span>
+                        <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 stroke-[1.8] shrink-0" /> Unread</span>
                         {conversations.filter((c) => (c.unread_count || 0) > 0 || (c.last_message_at && (Date.now() - new Date(c.last_message_at).getTime() < 86400000))).length > 0 && (
                           <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'new' ? 'bg-accent/10 text-accent font-semibold' : 'bg-surface-subtle text-text-muted'}`}>
                             {conversations.filter((c) => (c.unread_count || 0) > 0 || (c.last_message_at && (Date.now() - new Date(c.last_message_at).getTime() < 86400000))).length}
@@ -7082,14 +7083,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     if (isRepeat) {
                                       return (
                                         <span className="text-[9px] font-bold px-1 py-0.2 rounded-xs bg-amber-50 text-amber-700 border border-amber-200 shrink-0 flex items-center gap-0.5" title={`Repeat client (${visitCount} completed session${visitCount === 1 ? '' : 's'})`}>
-                                          <span>⭐ Repeat</span>
+                                          <UserCheck className="w-2.5 h-2.5 stroke-[2] shrink-0" />
+                                          <span>Repeat</span>
                                           {visitCount > 0 && <span className="font-mono">({visitCount})</span>}
                                         </span>
                                       );
                                     }
                                     return (
-                                      <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0" title="First-time lead">
-                                        🌱 Lead
+                                      <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 flex items-center gap-0.5" title="First-time lead">
+                                        <UserPlus className="w-2.5 h-2.5 stroke-[2] shrink-0" />
+                                        <span>Lead</span>
                                       </span>
                                     );
                                   })()}
@@ -7106,7 +7109,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 <div className="flex items-center gap-1.5">
                                   {conv.assigned_staff_name && (
                                     <span className="text-[9px] font-medium px-1 py-0.2 rounded-xs bg-surface-subtle text-text-muted border border-border flex items-center gap-0.5 max-w-[65px] truncate" title={`Assigned to ${conv.assigned_staff_name}`}>
-                                      👤 {conv.assigned_staff_name.split(' ')[0]}
+                                      <User className="w-2.5 h-2.5 stroke-[1.8] shrink-0 inline" /> {conv.assigned_staff_name.split(' ')[0]}
                                     </span>
                                   )}
                                   {(conv.unread_count || 0) > 0 && selectedConv?.id !== conv.id && (
@@ -7402,13 +7405,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <div className="flex items-center gap-1.5 shrink-0">
                                 {isRepeat ? (
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                                    <Star className="w-3 h-3 text-amber-600 fill-amber-500" />
+                                    <UserCheck className="w-3 h-3 text-amber-700 stroke-[2]" />
                                     <span>Repeat Client</span>
                                     {visitCount > 0 && <span className="font-mono">({visitCount} sessions)</span>}
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
-                                    <Sparkles className="w-3 h-3 text-emerald-600" />
+                                    <UserPlus className="w-3 h-3 text-emerald-700 stroke-[2]" />
                                     <span>New Lead</span>
                                   </span>
                                 )}
@@ -7949,12 +7952,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         <span className="font-medium text-text-primary text-[11px]">{cust.name || 'Customer'}</span>
                                         {(cust.completed_bookings_count ?? 0) > 0 || cust.client_type === 'repeat' ? (
                                           <span className="text-[9px] font-bold px-1 py-0.2 rounded-xs bg-amber-50 text-amber-700 border border-amber-200 shrink-0 flex items-center gap-0.5" title={`Repeat client (${cust.completed_bookings_count ?? 0} completed visits)`}>
-                                            <span>⭐ Repeat</span>
+                                            <UserCheck className="w-2.5 h-2.5 stroke-[2] shrink-0" />
+                                            <span>Repeat</span>
                                             {(cust.completed_bookings_count ?? 0) > 0 && <span className="font-mono">({cust.completed_bookings_count})</span>}
                                           </span>
                                         ) : (
-                                          <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                                            🌱 Lead
+                                          <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 flex items-center gap-0.5" title="First-time lead">
+                                            <UserPlus className="w-2.5 h-2.5 stroke-[2] shrink-0" />
+                                            <span>Lead</span>
                                           </span>
                                         )}
                                       </div>
@@ -8714,12 +8719,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         <span className="font-semibold text-text-primary text-[11px]">{cust.name || 'Customer'}</span>
                                         {(cust.completed_bookings_count ?? 0) > 0 || cust.client_type === 'repeat' ? (
                                           <span className="text-[9px] font-bold px-1 py-0.2 rounded-xs bg-amber-50 text-amber-700 border border-amber-200 shrink-0 flex items-center gap-0.5">
-                                            <span>⭐ Repeat</span>
+                                            <UserCheck className="w-2.5 h-2.5 stroke-[2] shrink-0" />
+                                            <span>Repeat</span>
                                             {(cust.completed_bookings_count ?? 0) > 0 && <span className="font-mono">({cust.completed_bookings_count})</span>}
                                           </span>
                                         ) : (
-                                          <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                                            🌱 Lead
+                                          <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 flex items-center gap-0.5">
+                                            <UserPlus className="w-2.5 h-2.5 stroke-[2] shrink-0" />
+                                            <span>Lead</span>
                                           </span>
                                         )}
                                       </div>
@@ -12477,7 +12484,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     disabled={isRescheduling}
                     className="w-full py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-sm text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors disabled:opacity-50"
                   >
-                    {isRescheduling ? 'Rescheduling & Syncing...' : '🔄 Confirm Reschedule & Send Confirmation'}
+                    {isRescheduling ? (
+                      'Rescheduling & Syncing...'
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 stroke-[2] shrink-0" />
+                        <span>Confirm Reschedule & Send Confirmation</span>
+                      </>
+                    )}
                   </button>
                 </div>
 
@@ -13307,7 +13321,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
                       Current Presets ({presetEditList.length})
                     </label>
-                    <span className="text-[10px] text-text-muted">Click ✕ to remove any preset</span>
+                    <span className="inline-flex items-center gap-1 text-[10px] text-text-muted">Click <X className="w-2.5 h-2.5 inline stroke-[2]" /> to remove any preset</span>
                   </div>
                   <div className="p-3 bg-surface-subtle border border-border rounded-sm min-h-[90px] max-h-[220px] overflow-y-auto flex flex-wrap gap-1.5 items-start content-start">
                     {presetEditList.length === 0 ? (
@@ -13448,7 +13462,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
                       Current {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff'} ({doctorEditList.length})
                     </label>
-                    <span className="text-[10px] text-text-muted">Click ✕ to remove</span>
+                    <span className="inline-flex items-center gap-1 text-[10px] text-text-muted">Click <X className="w-2.5 h-2.5 inline stroke-[2]" /> to remove</span>
                   </div>
                   <div className="p-3 bg-surface-subtle border border-border rounded-sm min-h-[90px] max-h-[220px] overflow-y-auto flex flex-wrap gap-1.5 items-start content-start">
                     {doctorEditList.length === 0 ? (

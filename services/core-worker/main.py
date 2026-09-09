@@ -51,11 +51,18 @@ structlog.configure(
 logger = structlog.get_logger(service="core-worker")
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
-messages_processed = Counter("core_messages_processed_total", "Messages processed", ["tenant", "status"])
-ai_requests        = Counter("core_ai_requests_total", "AI requests", ["tenant", "provider"])
-processing_time    = Histogram("core_processing_seconds", "End-to-end processing time", ["tenant"],
-                               buckets=[0.5, 1, 2, 3, 5, 8, 10, 15, 30])
-wa_sends           = Counter("core_wa_sends_total", "WhatsApp messages sent", ["tenant", "status"])
+try:
+    messages_processed = Counter("core_messages_processed_total", "Messages processed", ["tenant", "status"])
+    ai_requests        = Counter("core_ai_requests_total", "AI requests", ["tenant", "provider"])
+    processing_time    = Histogram("core_processing_seconds", "End-to-end processing time", ["tenant"],
+                                   buckets=[0.5, 1, 2, 3, 5, 8, 10, 15, 30])
+    wa_sends           = Counter("core_wa_sends_total", "WhatsApp messages sent", ["tenant", "status"])
+except Exception:
+    from prometheus_client import REGISTRY
+    messages_processed = REGISTRY._names_to_collectors.get("core_messages_processed_total")
+    ai_requests        = REGISTRY._names_to_collectors.get("core_ai_requests_total")
+    processing_time    = REGISTRY._names_to_collectors.get("core_processing_seconds")
+    wa_sends           = REGISTRY._names_to_collectors.get("core_wa_sends_total")
 
 # ── Gmail Direct Dispatch & Email Builders ─────────────────────────────────────
 def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_body: str):
@@ -1887,7 +1894,7 @@ class CoreWorker:
                     dispatch_push_notification(
                         pool=self.db_pool,
                         tenant_id=tenant_id,
-                        title=f"📅 New Booking: {name}",
+                        title=f"New Booking: {name}",
                         body=f"{service_name} on {formatted_d} at {formatted_t}",
                         notif_type="booking",
                         url="/dashboard#bookings",
@@ -2340,7 +2347,7 @@ class CoreWorker:
                     dispatch_push_notification(
                         pool=self.db_pool,
                         tenant_id=tenant_id,
-                        title=f"❌ Booking Cancelled: {name}",
+                        title=f"Booking Cancelled: {name}",
                         body=f"{service_name} on {formatted_date} at {formatted_time} was cancelled.",
                         notif_type="booking_cancelled",
                         url="/dashboard#bookings",
@@ -2552,7 +2559,7 @@ class CoreWorker:
                     dispatch_push_notification(
                         pool=self.db_pool,
                         tenant_id=tenant_id,
-                        title=f"🚨 Staff Takeover Requested: {name}",
+                        title=f"Staff Takeover Requested: {name}",
                         body=f"{contact_phone} requested to speak with a human team member.",
                         notif_type="human_request",
                         url="/dashboard#inbox",
@@ -2705,7 +2712,7 @@ class CoreWorker:
                     dispatch_push_notification(
                         pool=self.db_pool,
                         tenant_id=tenant_id,
-                        title=f"🔄 Booking Rescheduled: {name}",
+                        title=f"Booking Rescheduled: {name}",
                         body=f"{service_name} moved to {formatted_date} at {formatted_time}.",
                         notif_type="booking_rescheduled",
                         url="/dashboard#bookings",
@@ -3804,7 +3811,7 @@ class CoreWorker:
                     await dispatch_push_notification(
                         pool=self.db_pool,
                         tenant_id=tenant_id,
-                        title=f"📢 Scheduled Campaign Sent: {c_name}",
+                        title=f"Scheduled Campaign Sent: {c_name}",
                         body=f"Broadcast sent to {success_count} recipients.",
                         notif_type="marketing_completed",
                         url="/dashboard#marketing",
