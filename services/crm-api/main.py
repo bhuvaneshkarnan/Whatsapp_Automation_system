@@ -188,16 +188,35 @@ ALGORITHM = "HS256"
 
 async def get_tenant_id(
     authorization: Optional[str] = Header(None),
-    x_tenant_id: Optional[str] = Header(None)
+    x_tenant_id: Optional[str] = Header(None),
+    x_tenant_slug: Optional[str] = Header(None)
 ) -> str:
     """
-    Secure tenant scoping dependency:
-    - Decodes and validates the caller's JWT bearer token.
-    - If user is super_admin, allows managing any tenant specified by X-Tenant-ID header.
+    Secure dynamic tenant scoping dependency:
+    - Decodes and validates caller's JWT bearer token.
+    - Dynamically resolves tenant by X-Tenant-ID or X-Tenant-Slug header via DB.
+    - If user is super_admin, allows managing any tenant specified by X-Tenant-ID or X-Tenant-Slug.
     - If user is a standard tenant user/admin, strictly scopes to the JWT's tenant_id claim.
-      Rejects any spoofed X-Tenant-ID header with 403 Forbidden.
+      Rejects any spoofed X-Tenant-ID or X-Tenant-Slug header with 403 Forbidden.
     """
     clean_requested_id = x_tenant_id.split(",")[0].strip() if x_tenant_id else None
+    clean_requested_slug = x_tenant_slug.split(",")[0].strip().lower() if x_tenant_slug else None
+
+    # Dynamically resolve slug to tenant ID if slug was provided
+    slug_resolved_id = None
+    if clean_requested_slug and db_pool:
+        try:
+            row = await db_pool.fetchrow(
+                "SELECT id FROM tenants WHERE LOWER(slug) = $1", clean_requested_slug
+            )
+            if row:
+                slug_resolved_id = str(row["id"])
+        except Exception as e:
+            logger.warning("slug_resolution_in_auth_failed", slug=clean_requested_slug, error=str(e))
+
+    # If requested_id wasn't provided but slug was resolved, adopt slug's tenant ID
+    if not clean_requested_id and slug_resolved_id:
+        clean_requested_id = slug_resolved_id
 
     # 1. Bearer Token Verification
     if authorization and authorization.startswith("Bearer "):
@@ -218,7 +237,7 @@ async def get_tenant_id(
                 return clean_requested_id
             if token_tenant:
                 return str(token_tenant)
-            raise HTTPException(status_code=400, detail="X-Tenant-ID header required for super_admin")
+            raise HTTPException(status_code=400, detail="X-Tenant-ID or X-Tenant-Slug header required for super_admin")
 
         # Regular tenant user: token_tenant MUST be present
         if not token_tenant:
@@ -226,12 +245,26 @@ async def get_tenant_id(
 
         token_tenant_str = str(token_tenant)
 
-        # Anti-Spoofing Guard: If client sent a different X-Tenant-ID header, reject!
+        # Anti-Spoofing Guard: If client sent a different X-Tenant-ID or X-Tenant-Slug header, reject!
         if clean_requested_id and clean_requested_id.lower() != token_tenant_str.lower():
             logger.warning(
                 "cross_tenant_access_blocked",
                 token_tenant=token_tenant_str,
                 requested_tenant=clean_requested_id,
+                requested_slug=clean_requested_slug,
+                user_id=payload.get("sub"),
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: Cross-tenant data access is prohibited."
+            )
+
+        if slug_resolved_id and slug_resolved_id.lower() != token_tenant_str.lower():
+            logger.warning(
+                "cross_tenant_slug_access_blocked",
+                token_tenant=token_tenant_str,
+                slug_resolved_tenant=slug_resolved_id,
+                requested_slug=clean_requested_slug,
                 user_id=payload.get("sub"),
             )
             raise HTTPException(
@@ -4306,6 +4339,7 @@ class TenantSettingsUpdate(BaseModel):
     template_client_followup: Optional[str] = None
     google_review_link: Optional[str] = None
     allow_text_fallback: Optional[bool] = False
+    disable_template_text_fallback: Optional[bool] = True
     
     google_client_id: Optional[str] = None
     google_client_secret: Optional[str] = None
@@ -4462,6 +4496,7 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         "template_client_followup": wa_data.get("template_client_followup") or tenant_settings.get("template_client_followup", "client_followup_checkin"),
         "google_review_link": tenant_settings.get("google_review_link", wa_data.get("google_review_link", "")),
         "allow_text_fallback": tenant_settings.get("allow_text_fallback", False) if tenant_settings.get("allow_text_fallback") is not None else False,
+        "disable_template_text_fallback": tenant_settings.get("disable_template_text_fallback", True) if tenant_settings.get("disable_template_text_fallback") is not None else True,
         
         # Google Calendar
         "google_client_id": gcal_data.get("client_id", ""),
@@ -4549,6 +4584,7 @@ async def update_tenant_settings(
         if payload.template_admin_daily_digest is not None: cur_settings["template_admin_daily_digest"] = payload.template_admin_daily_digest.strip()
         if payload.template_client_followup is not None: cur_settings["template_client_followup"] = payload.template_client_followup.strip()
         if payload.allow_text_fallback is not None: cur_settings["allow_text_fallback"] = payload.allow_text_fallback
+        if payload.disable_template_text_fallback is not None: cur_settings["disable_template_text_fallback"] = payload.disable_template_text_fallback
 
         await conn.execute(
             "UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid",
@@ -4589,6 +4625,7 @@ async def update_tenant_settings(
         if payload.google_review_link is not None: wa_data["google_review_link"] = payload.google_review_link.strip()
         if payload.primary_model_provider is not None: wa_data["primary_model_provider"] = payload.primary_model_provider.strip()
         if payload.allow_text_fallback is not None: wa_data["allow_text_fallback"] = payload.allow_text_fallback
+        if payload.disable_template_text_fallback is not None: wa_data["disable_template_text_fallback"] = payload.disable_template_text_fallback
 
         if wa_row:
             await conn.execute("UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid", json.dumps(wa_data), wa_cred_id)
@@ -5436,6 +5473,8 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
             "country_code": "+91",
             "currency": "INR",
             "currency_symbol": "₹",
+            "allow_text_fallback": False,
+            "disable_template_text_fallback": True,
             "template_booking_confirmation": payload.template_booking_confirmation.strip() if payload.template_booking_confirmation else "booking_confirmationn",
             "template_booking_reschedule_confirmation": payload.template_reschedule_confirmation.strip() if payload.template_reschedule_confirmation else "booking_reschedule_confirmation",
             "template_cancellation_confirmation": payload.template_cancellation_confirmation.strip() if payload.template_cancellation_confirmation else "cancellation_confirmation",
@@ -5448,6 +5487,16 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
             "template_admin_human_request": payload.template_admin_human_request.strip() if payload.template_admin_human_request else "admin_human_request",
             "template_admin_daily_digest": "admin_daily_digest",
             "template_client_followup_checkin": "client_followup_checkin",
+            "taxonomy": {
+                "staff_label": "Doctor / Consultant" if ind == "clinic" else "Staff Member",
+                "client_label": "Patient" if ind == "clinic" else "Customer",
+                "client_plural": "Patients" if ind == "clinic" else "Customers",
+                "requirement_label": "Health Concern" if ind == "clinic" else "Requirement",
+                "event_label": "Appointment" if ind == "clinic" else "Meeting",
+                "booking_cta": "+ Book Appointment",
+                "doctor_presets": [],
+                "staff_presets": [],
+            },
         }
 
         # Transactional insert
@@ -5474,6 +5523,8 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
                     "verify_token": payload.verify_token.strip() if payload.verify_token else (slug + "_verify_token"),
                     "full_location_text": full_location,
                     "admin_whatsapp_number": payload.admin_whatsapp_number.strip() if payload.admin_whatsapp_number else "",
+                    "allow_text_fallback": False,
+                    "disable_template_text_fallback": True,
                     "template_booking_confirmation": payload.template_booking_confirmation.strip() if payload.template_booking_confirmation else "booking_confirmationn",
                     "template_booking_reschedule_confirmation": payload.template_reschedule_confirmation.strip() if payload.template_reschedule_confirmation else "booking_reschedule_confirmation",
                     "template_cancellation_confirmation": payload.template_cancellation_confirmation.strip() if payload.template_cancellation_confirmation else "cancellation_confirmation",

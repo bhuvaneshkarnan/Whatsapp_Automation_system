@@ -3,10 +3,69 @@
 
 const BASE = '';
 
-const KNOWN_SLUG_MAP: Record<string, string> = {
+// System routes that are NOT tenant slugs
+const SYSTEM_ROUTES = new Set([
+  'login',
+  'admin',
+  'bhuvanesh',
+  'api',
+  'webhooks',
+  '_next',
+  'dashboard',
+  'favicon.ico',
+  '',
+]);
+
+// Dynamic slug-to-ID cache populated at runtime and synced with localStorage
+let dynamicSlugCache: Record<string, string> = {
   boldlabs: '05f469a7-2089-425c-8fce-1a56002d5272',
   mindbodyrecovery: 'b97ca3e5-7d43-44cf-8021-6e3659def878',
 };
+
+// Seed dynamic cache from localStorage if available
+if (typeof window !== 'undefined') {
+  try {
+    const stored = localStorage.getItem('tenant_slug_map');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (typeof parsed === 'object' && parsed !== null) {
+        dynamicSlugCache = { ...dynamicSlugCache, ...parsed };
+      }
+    }
+  } catch {
+    // Ignore storage parse error
+  }
+}
+
+/**
+ * Dynamically register a slug-to-ID mapping into memory and localStorage.
+ * Used whenever a tenant is resolved, fetched, or created.
+ */
+export function registerTenantSlug(slug: string, id: string): void {
+  if (!slug || !id) return;
+  const cleanSlug = slug.toLowerCase().trim();
+  const cleanId = id.trim();
+  dynamicSlugCache[cleanSlug] = cleanId;
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem('tenant_slug_map');
+      const map = stored ? JSON.parse(stored) : {};
+      map[cleanSlug] = cleanId;
+      localStorage.setItem('tenant_slug_map', JSON.stringify(map));
+    } catch {
+      // Ignore storage errors
+    }
+  }
+}
+
+/**
+ * Get tenant ID synchronously for a given slug if already cached.
+ */
+export function getCachedTenantId(slug: string): string | null {
+  if (!slug) return null;
+  const cleanSlug = slug.toLowerCase().trim();
+  return dynamicSlugCache[cleanSlug] || null;
+}
 
 function getAuthHeaders(): Record<string, string> {
   if (typeof window === 'undefined') return {};
@@ -14,20 +73,34 @@ function getAuthHeaders(): Record<string, string> {
   let tenantId = localStorage.getItem('tenant_id');
 
   // Strict route-based workspace synchronization:
-  // If the browser URL path is /[slug] (e.g. /boldlabs or /mindbodyrecovery),
-  // lock X-Tenant-ID directly to that workspace so cross-tenant storage bleed cannot occur.
-  const firstPath = window.location.pathname.split('/')[1]?.toLowerCase().trim();
-  if (firstPath && KNOWN_SLUG_MAP[firstPath]) {
-    tenantId = KNOWN_SLUG_MAP[firstPath];
-    if (localStorage.getItem('tenant_id') !== tenantId) {
-      localStorage.setItem('tenant_id', tenantId);
-      localStorage.setItem('tenant_slug', firstPath);
+  // If the browser URL path is /[slug] (e.g. /boldlabs, /mindbodyrecovery, or any future tenant),
+  // dynamically lock headers directly to that workspace so cross-tenant storage bleed cannot occur.
+  const firstPath = window.location.pathname.split('/')[1]?.toLowerCase().trim() || '';
+  const isTenantRoute = firstPath && !SYSTEM_ROUTES.has(firstPath);
+
+  let activeSlug: string | null = null;
+
+  if (isTenantRoute) {
+    activeSlug = firstPath;
+    const resolvedId = dynamicSlugCache[firstPath];
+    if (resolvedId) {
+      tenantId = resolvedId;
+      if (localStorage.getItem('tenant_id') !== tenantId) {
+        localStorage.setItem('tenant_id', tenantId);
+        localStorage.setItem('tenant_slug', firstPath);
+      }
+    } else {
+      // CRITICAL: We are on a tenant route /[slug], but this slug's UUID is NOT in cache yet.
+      // NEVER fall back to a stale/different tenant's UUID from localStorage!
+      // Setting tenantId to null ensures we do NOT accidentally send an old tenant's UUID.
+      tenantId = null;
     }
   }
 
   return {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(tenantId ? { 'X-Tenant-ID': tenantId } : {}),
+    ...(activeSlug ? { 'X-Tenant-Slug': activeSlug } : {}),
   };
 }
 
@@ -557,7 +630,12 @@ export const crm = {
   resolveTenantBySlug: (slug: string) =>
     request<{ id: string; name: string; slug: string; plan?: string; is_active?: boolean }>(
       `/api/v1/crm/tenants/resolve/${encodeURIComponent(slug)}`
-    ),
+    ).then((res) => {
+      if (res && res.id && res.slug) {
+        registerTenantSlug(res.slug, res.id);
+      }
+      return res;
+    }),
 
   updateSettings: (data: Partial<TenantSettingsResponse>) =>
     request<TenantSettingsResponse>('/api/v1/crm/settings', {

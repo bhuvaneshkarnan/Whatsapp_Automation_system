@@ -26,6 +26,8 @@ import {
   StaffUser,
   LiveCalendarAvailabilityResponse,
   LiveCalendarSlot,
+  registerTenantSlug,
+  getCachedTenantId,
 } from '@/lib/api';
 import {
   MessageSquare,
@@ -1991,25 +1993,27 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // ── Teams & Staff that were ACTUALLY added by the user / clinic ─────────────────
   const addedTeams = useMemo(() => {
-    const list: { id: string; label: string; kind: 'team' | 'staff' | 'specialty' }[] = [];
-
     // Helper to normalize staff names and avoid duplicate entries like "Dr. Sameer" and "Dr. Sameer (Lead Consultant)"
     const normalizeName = (s: string) => s.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
 
-    // 1. Roles & assigned specialties from team accounts added in Team & Sales
+    // 1. Only actual team members added to this workspace (excluding super admin and current admin user)
     const addedMembers = (teamList || []).filter((m) => m.id !== user?.id && m.role !== 'super_admin');
+    
+    // If the clinic has not created/added any team members yet, show 0 added teams
+    if (addedMembers.length === 0) {
+      return [];
+    }
+
+    const list: { id: string; label: string; kind: 'team' | 'staff' | 'specialty' }[] = [];
     const rolesPresent = new Set<string>();
 
     addedMembers.forEach((m) => {
-      // Role-based team grouping
+      // Role-based functional team grouping
       if (m.role === 'sales') rolesPresent.add('Sales Team');
       else if (m.role === 'marketing') rolesPresent.add('Marketing Team');
-      else if (m.role === 'doctor') {
-        const staffName = currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() : 'Doctor';
-        rolesPresent.add(`${staffName} Team`);
-      } else if (m.role === 'receptionist') rolesPresent.add('Front Desk Team');
+      else if (m.role === 'receptionist') rolesPresent.add('Front Desk Team');
       else if (m.role === 'agent') rolesPresent.add('Support Team');
-      else if (m.role && m.role !== 'admin' && m.role !== 'super_admin') {
+      else if (m.role && m.role !== 'admin' && m.role !== 'super_admin' && m.role !== 'doctor') {
         rolesPresent.add(`${m.role.charAt(0).toUpperCase() + m.role.slice(1)} Team`);
       }
 
@@ -2026,12 +2030,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         });
       }
 
-      // Individual added staff member by name
+      // Individual added staff/doctor member by name (cleaned of parenthesized suffixes)
       if (m.display_name && m.display_name.trim()) {
-        const name = m.display_name.trim();
-        const norm = normalizeName(name);
-        if (!list.some((item) => normalizeName(item.label) === norm)) {
-          list.push({ id: `staff:${name}`, label: name, kind: 'staff' });
+        const cleanName = m.display_name.replace(/\s*\([^)]*\)/g, '').trim();
+        const norm = cleanName.toLowerCase();
+        if (cleanName && !list.some((item) => normalizeName(item.label) === norm)) {
+          list.push({ id: `staff:${cleanName}`, label: cleanName, kind: 'staff' });
         }
       }
     });
@@ -2042,25 +2046,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       }
     });
 
-    // 2. Staff / Doctors configured in clinic presets
-    const configuredStaff = Array.isArray(settingsForm.taxonomy?.staff_presets)
-      ? settingsForm.taxonomy.staff_presets
-      : Array.isArray(settingsForm.taxonomy?.doctor_presets)
-      ? settingsForm.taxonomy.doctor_presets
-      : [];
-    configuredStaff.forEach((st: string) => {
-      if (st && st.trim()) {
-        const cleanSt = st.replace(/\s*\([^)]*\)/g, '').trim();
-        const norm = cleanSt.toLowerCase();
-        // If an entry with this normalized name already exists, do not add duplicate
-        if (!list.some((item) => normalizeName(item.label) === norm)) {
-          list.push({ id: `staff:${cleanSt}`, label: cleanSt, kind: 'staff' });
-        }
-      }
-    });
-
     return list;
-  }, [teamList, user?.id, currentTaxonomy.staff_label, settingsForm.taxonomy?.staff_presets, settingsForm.taxonomy?.doctor_presets]);
+  }, [teamList, user?.id, currentTaxonomy.staff_label]);
 
   // Reset selectedDepartment to 'all' if selected option is no longer present
   useEffect(() => {
@@ -2195,15 +2182,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         // Reset in-memory conversation and selection states on tenant load to avoid any UI overlap
         setSelectedConv(null);
         setMessages([]);
+        setConversations([]);
+        setCustomers([]);
+        setBookings([]);
+        setContacts([]);
+        setTeamList([]);
+        setSelectedDepartment('all');
 
-        const KNOWN_MAP: Record<string, string> = {
-          boldlabs: '05f469a7-2089-425c-8fce-1a56002d5272',
-          mindbodyrecovery: 'b97ca3e5-7d43-44cf-8021-6e3659def878',
-        };
+        // Check if target slug is already cached
+        let activeTenantId = targetSlug ? getCachedTenantId(targetSlug) : null;
 
-        // If target slug is known, immediately sync localStorage before executing any API calls
-        if (targetSlug && KNOWN_MAP[targetSlug]) {
-          localStorage.setItem('tenant_id', KNOWN_MAP[targetSlug]);
+        if (targetSlug && activeTenantId) {
+          localStorage.setItem('tenant_id', activeTenantId);
           localStorage.setItem('tenant_slug', targetSlug);
         }
 
@@ -2212,6 +2202,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           const userSlug = (data.tenant_slug || '').toLowerCase().trim();
           if (data.tenant_id) {
             localStorage.setItem('tenant_id', data.tenant_id);
+            if (userSlug) registerTenantSlug(userSlug, data.tenant_id);
           }
           if (userSlug) {
             localStorage.setItem('tenant_slug', userSlug);
@@ -2225,28 +2216,30 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             }
           }
         } 
-        // 2. Super Admin: Workspace resolution and switching
+        // 2. Super Admin: Dynamic workspace resolution and switching
         else if (data.role === 'super_admin') {
           if (targetSlug) {
-            if (KNOWN_MAP[targetSlug]) {
-              localStorage.setItem('tenant_id', KNOWN_MAP[targetSlug]);
-              localStorage.setItem('tenant_slug', targetSlug);
-            } else {
+            if (!activeTenantId) {
               try {
-                // Resolve target slug to tenant_id so all API calls are scoped to the intended client
+                // Dynamically resolve target slug to tenant_id before executing any scoped API queries
                 const resolved = await crm.resolveTenantBySlug(targetSlug);
                 if (resolved && resolved.id) {
+                  activeTenantId = resolved.id;
+                  registerTenantSlug(targetSlug, resolved.id);
                   localStorage.setItem('tenant_id', resolved.id);
                   localStorage.setItem('tenant_slug', resolved.slug);
                 }
               } catch (err) {
                 console.warn('Could not resolve tenant by slug:', targetSlug, err);
               }
+            } else {
+              localStorage.setItem('tenant_id', activeTenantId);
+              localStorage.setItem('tenant_slug', targetSlug);
             }
           } else if (typeof window !== 'undefined') {
-            // Visiting /dashboard without slug: default to user's home tenant
+            // Visiting /dashboard without slug: default to user's home tenant or resolved boldlabs
             const defaultSlug = data.tenant_slug || 'boldlabs';
-            const defaultId = data.tenant_id || KNOWN_MAP['boldlabs'];
+            const defaultId = data.tenant_id || getCachedTenantId(defaultSlug);
             if (defaultId) localStorage.setItem('tenant_id', defaultId);
             if (defaultSlug) {
               localStorage.setItem('tenant_slug', defaultSlug);

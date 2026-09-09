@@ -33,6 +33,14 @@
     {
       "source": "/webhooks/:path*",
       "destination": "http://168.138.172.197/webhooks/:path*"
+    },
+    {
+      "source": "/:slug/book",
+      "destination": "/dashboard/book"
+    },
+    {
+      "source": "/:slug((?!api|webhooks|_next|dashboard|login|bhuvanesh|admin|favicon).*)",
+      "destination": "/dashboard"
     }
   ]
 }
