@@ -823,6 +823,7 @@ export interface TenantSettingsResponse {
   template_admin_daily_digest?: string;
   template_client_followup?: string;
   google_review_link?: string;
+  allow_text_fallback?: boolean;
   
   google_client_id?: string;
   google_client_secret?: string;

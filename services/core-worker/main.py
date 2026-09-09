@@ -2022,17 +2022,7 @@ class CoreWorker:
                         )
                         logger.info("admin_notification_template_sent", template=admin_template, to=clean_admin_phone)
                     except Exception as e:
-                        logger.warning("admin_notification_template_failed_trying_text", error=str(e))
-                        try:
-                            await send_text(
-                                phone_number_id=creds["phone_number_id"],
-                                access_token=creds["access_token"],
-                                to=clean_admin_phone,
-                                body=admin_alert_text,
-                            )
-                            logger.info("admin_whatsapp_alert_text_sent", to=clean_admin_phone)
-                        except Exception as e2:
-                            logger.error("admin_whatsapp_alert_failed", error=str(e2))
+                        logger.warning("admin_notification_template_failed_text_suppressed", error=str(e), template=admin_template)
 
             # 3. Google Calendar Event Creation & Email Invite to Both Customer & Admin
             gcal_row = await self.db_pool.fetchrow(
@@ -2488,17 +2478,7 @@ class CoreWorker:
                         )
                         logger.info("admin_cancellation_template_sent", template=admin_cancel_template, to=clean_admin_phone)
                     except Exception as e:
-                        logger.warning("admin_cancellation_template_failed_trying_text", error=str(e))
-                        try:
-                            await send_text(
-                                phone_number_id=creds["phone_number_id"],
-                                access_token=creds["access_token"],
-                                to=clean_admin_phone,
-                                body=admin_cancel_text,
-                            )
-                            logger.info("admin_cancellation_alert_text_sent", to=clean_admin_phone)
-                        except Exception as e2:
-                            logger.error("admin_cancellation_alert_failed", error=str(e2))
+                        logger.warning("admin_cancellation_template_failed_text_suppressed", error=str(e), template=admin_cancel_template)
 
             # 5. Direct Gmail API Cancellation Email to Admin & Customer
             gcal_row = await self.db_pool.fetchrow(
@@ -2639,17 +2619,7 @@ class CoreWorker:
                     )
                     logger.info("admin_human_alert_template_sent", template=admin_template, to=clean_admin)
                 except Exception as e:
-                    logger.warning("admin_human_alert_template_failed_trying_text", error=str(e))
-                    try:
-                        await send_text(
-                            phone_number_id=creds["phone_number_id"],
-                            access_token=creds["access_token"],
-                            to=clean_admin,
-                            body=alert_text,
-                        )
-                        logger.info("admin_human_alert_text_sent", to=clean_admin)
-                    except Exception as e2:
-                        logger.error("admin_human_alert_failed", error=str(e2))
+                    logger.warning("admin_human_alert_template_failed_text_suppressed", error=str(e), template=admin_template)
         except Exception as e:
             logger.error("execute_admin_human_alert_failed", error=str(e))
 
@@ -2889,21 +2859,7 @@ class CoreWorker:
                     )
                     logger.info("reschedule_template_sent_to_customer", template=template_name, to=contact_phone)
                 except Exception as e:
-                    logger.warning("reschedule_template_send_failed", error=str(e), template=template_name)
-                    try:
-                        customer_fallback_text = (
-                            f"Hello {name}, your {service_name} appointment has been rescheduled to {formatted_date} at {formatted_time}. "
-                            f"If you need to make any changes, just reply to this chat. We look forward to seeing you."
-                        )
-                        await send_text(
-                            phone_number_id=creds["phone_number_id"],
-                            access_token=creds["access_token"],
-                            to=contact_phone,
-                            body=customer_fallback_text,
-                        )
-                        logger.info("reschedule_fallback_text_sent_to_customer", to=contact_phone)
-                    except Exception as e2:
-                        logger.error("reschedule_fallback_text_failed", error=str(e2))
+                    logger.warning("reschedule_template_send_failed_text_suppressed", error=str(e), template=template_name)
 
                 # Send Admin Reschedule Alert
                 admin_phone = (creds.get("admin_whatsapp_number") or "").strip()
@@ -2915,14 +2871,6 @@ class CoreWorker:
                     if not clean_admin_phone.startswith("+"):
                         clean_admin_phone = f"+91{clean_admin_phone}" if len(clean_admin_phone) == 10 else f"+{clean_admin_phone}"
 
-                    admin_resched_text = (
-                        f"🔄 *Booking Rescheduled Notice!* 📅\n\n"
-                        f"• *Customer:* {name}\n"
-                        f"• *Phone:* {contact_phone}\n"
-                        f"• *Service:* {service_name}\n"
-                        f"• *New Date & Time:* {formatted_date} at {formatted_time}\n\n"
-                        f"✅ Google Calendar and CRM have been updated with the new slot."
-                    )
                     # Send Meta Template FIRST (immune to 24h customer window)
                     admin_template = (
                         creds.get("template_admin_reschedule_notice") or
@@ -2966,17 +2914,7 @@ class CoreWorker:
                             )
                             logger.info("admin_reschedule_fallback_template_sent", template=fallback_template, to=clean_admin_phone)
                         except Exception as e_fb:
-                            logger.warning("admin_reschedule_fallback_template_failed_trying_text", error=str(e_fb))
-                            try:
-                                await send_text(
-                                    phone_number_id=creds["phone_number_id"],
-                                    access_token=creds["access_token"],
-                                    to=clean_admin_phone,
-                                    body=admin_resched_text,
-                                )
-                                logger.info("admin_reschedule_alert_text_sent", to=clean_admin_phone)
-                            except Exception as e2:
-                                logger.error("admin_reschedule_alert_failed", error=str(e2))
+                            logger.warning("admin_reschedule_fallback_template_failed_text_suppressed", error=str(e_fb))
         except Exception as e:
             logger.error("execute_ai_reschedule_failed", error=str(e), tenant_id=tenant_id)
 
@@ -3493,27 +3431,7 @@ class CoreWorker:
                         )
                         logger.info("2hr_appointment_reminder_template_sent", booking_id=booking_id, to=contact_phone)
                     except Exception as e:
-                        logger.warning("reminder_template_send_failed_fallback_to_text", error=str(e), template=template_name)
-                        reminder_text = (
-                            f"Hi {name}! ⏰ This is a friendly reminder that your *{service_name}* appointment "
-                            f"is in 2 hours today at *{formatted_time}*. We look forward to seeing you!"
-                        )
-                        try:
-                            await send_text(
-                                phone_number_id=creds["phone_number_id"],
-                                access_token=creds["access_token"],
-                                to=contact_phone,
-                                body=reminder_text,
-                            )
-                            if conv_id:
-                                await self.db_pool.execute(
-                                    """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
-                                       VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
-                                    str(uuid.uuid4()), conv_id, tenant_id, reminder_text
-                                )
-                            logger.info("2hr_appointment_reminder_text_sent", booking_id=booking_id, to=contact_phone)
-                        except Exception as e2:
-                            logger.error("reminder_text_send_failed", error=str(e2))
+                        logger.warning("reminder_template_send_failed_text_suppressed", error=str(e), template=template_name)
         except Exception as e:
             logger.error("process_appointment_reminders_failed", error=str(e))
 
@@ -3710,19 +3628,11 @@ class CoreWorker:
                     except Exception as te:
                         logger.warning("scheduled_reschedule_nudge_template_failed_fallback_text", error=str(te))
 
-                # 4. Fallback to freeform text ONLY if allowed (disallowed for review_request)
+                # 4. Strict policy: Never fallback to freeform text for scheduled template jobs
                 if not sent_via_template:
-                    if job_type == "review_request":
-                        logger.info("scheduled_review_request_template_failed_suppressed_text", job_id=str(job["id"]))
-                        await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'failed' WHERE id = $1", job["id"])
-                        continue
-                    message = self._build_scheduled_message(dict(job))
-                    await send_text(
-                        phone_number_id=creds["phone_number_id"],
-                        access_token=creds["access_token"],
-                        to=job["phone"],
-                        body=message,
-                    )
+                    logger.warning("scheduled_job_template_failed_text_suppressed", job_id=str(job["id"]), job_type=job_type)
+                    await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'failed' WHERE id = $1", job["id"])
+                    continue
 
                 await self.db_pool.execute(
                     "UPDATE scheduled_jobs SET status = 'sent', sent_at = now() WHERE id = $1",
@@ -3745,20 +3655,13 @@ class CoreWorker:
                         "SELECT id FROM conversations WHERE contact_id = $1 AND tenant_id = $2 LIMIT 1",
                         job["contact_id"], job["tenant_id"]
                     )
-                    if conv_row:
-                        if sent_via_template and template_name:
-                            logged_body = f"[Template: {template_name}]"
-                            await self.db_pool.execute(
-                                """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
-                                    VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, $5, $6::jsonb, 'sent', false)""",
-                                str(uuid.uuid4()), conv_row["id"], job["tenant_id"], logged_body, template_name, json.dumps(components)
-                            )
-                        elif message:
-                            await self.db_pool.execute(
-                                """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
-                                    VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
-                                str(uuid.uuid4()), conv_row["id"], job["tenant_id"], message
-                            )
+                    if conv_row and sent_via_template and template_name:
+                        logged_body = f"[Template: {template_name}]"
+                        await self.db_pool.execute(
+                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
+                                VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, $5, $6::jsonb, 'sent', false)""",
+                            str(uuid.uuid4()), conv_row["id"], job["tenant_id"], logged_body, template_name, json.dumps(components)
+                        )
 
                 logger.info("scheduled_job_sent", job_id=str(job["id"]), job_type=job["job_type"])
             except Exception as e:

@@ -2639,28 +2639,19 @@ async def create_booking(
             except Exception as e:
                 logger.error("manual_booking_wa_template_error", error=str(e))
 
-            # 2. Fallback to direct text ONLY if template failed
+            # 2. Text fallback is strictly suppressed for message templates
             if not template_sent:
-                try:
-                    import httpx
-                    async with httpx.AsyncClient(timeout=8.0) as client:
-                        res_txt = await client.post(
-                            url,
-                            headers=headers,
-                            json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_wa_phone, "type": "text", "text": {"body": confirmation_msg}}
-                        )
-                        logger.info("manual_booking_wa_text_fallback_response", status=res_txt.status_code, text=res_txt.text)
-                except Exception as e:
-                    logger.error("manual_booking_wa_text_error", error=str(e))
+                logger.info("manual_booking_wa_text_fallback_suppressed", template=tpl_name, phone=clean_wa_phone)
 
-        # Record confirmation message in DB
-        msg_id = str(uuid.uuid4())
-        await conn.execute(
-            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
-               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
-            msg_id, conv_id, tenant_id, confirmation_msg
-        )
-        await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+        # Record confirmation message in DB if template was sent
+        if template_sent:
+            msg_id = str(uuid.uuid4())
+            await conn.execute(
+                """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
+                   VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, $5, $6::jsonb, 'sent', false)""",
+                msg_id, conv_id, tenant_id, f"[Template: {tpl_name}]", tpl_name, json.dumps(tpl_params or [])
+            )
+            await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
 
         # 4b. Send Business Address & Google Maps Location (if configured)
         full_location = (creds.get("full_location_text") or tenant_settings.get("full_location_text") or "").strip()
@@ -2719,12 +2710,7 @@ async def create_booking(
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     admin_res = await client.post(url, headers=headers, json=admin_payload_tpl)
                     if admin_res.status_code not in (200, 201):
-                        # Fallback to direct text for admin
-                        await client.post(
-                            url,
-                            headers=headers,
-                            json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_admin_phone, "type": "text", "text": {"body": admin_notify_msg}}
-                        )
+                        logger.warning("admin_booking_wa_template_failed_text_suppressed", status=admin_res.status_code, text=admin_res.text)
             except Exception as e:
                 logger.error("admin_booking_wa_notify_error", error=str(e))
 
@@ -2896,9 +2882,13 @@ async def dispatch_automated_status_whatsapp(
     delay_seconds: int = 0,
     template_name: Optional[str] = None,
     template_params: Optional[list] = None,
-    allow_text_fallback: bool = True,
+    allow_text_fallback: bool = False,
 ):
     try:
+        # Strict global policy: never use fallback text when a message template is designated
+        if template_name:
+            allow_text_fallback = False
+
         if delay_seconds > 0:
             logger.info("delayed_automated_wa_scheduled", tenant_id=tenant_id, delay=delay_seconds, phone=phone, template=template_name)
             await asyncio.sleep(delay_seconds)
@@ -2915,6 +2905,9 @@ async def dispatch_automated_status_whatsapp(
                     try: d = json.loads(d)
                     except: d = {}
                 creds = dict(d)
+
+            if creds.get("allow_text_fallback") is False or creds.get("disable_template_text_fallback") is True:
+                allow_text_fallback = False
 
             clean_phone = re.sub(r'[^0-9]', '', str(phone))
             if len(clean_phone) == 10:
@@ -2937,6 +2930,7 @@ async def dispatch_automated_status_whatsapp(
                     ]
                     payload = {
                         "messaging_product": "whatsapp",
+                        "recipient_type": "individual",
                         "to": clean_phone,
                         "type": "template",
                         "template": {
@@ -2972,11 +2966,11 @@ async def dispatch_automated_status_whatsapp(
                                             template_sent = True
                                             logger.info("automated_status_template_param_retry_succeeded", template=template_name, phone=clean_phone)
                     except Exception as e:
-                        logger.warning("template_dispatch_failed_trying_text", error=str(e), template=template_name)
+                        logger.warning("template_dispatch_failed", error=str(e), template=template_name)
 
-                # 2. Fallback to Text ONLY if template was not sent AND allow_text_fallback is True
+                # 2. Strict policy: Do NOT fallback to text when a template is used
                 if not template_sent:
-                    if allow_text_fallback and text:
+                    if not template_name and allow_text_fallback and text:
                         try:
                             async with httpx.AsyncClient(timeout=10.0) as client:
                                 res_txt = await client.post(
@@ -3028,7 +3022,7 @@ async def dispatch_automated_status_whatsapp(
                         msg_id, conv_id, tenant_id, logged_body, template_name, json.dumps(template_params or [])
                     )
                     await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
-                elif allow_text_fallback and text:
+                elif not template_name and allow_text_fallback and text:
                     await conn.execute(
                         """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
                            VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
@@ -3129,26 +3123,7 @@ async def dispatch_admin_reschedule_whatsapp(
 
             # 3. Fallback to direct WhatsApp text
             if not admin_sent:
-                admin_resched_text = (
-                    f"🔄 *Booking Rescheduled Notice!*\n\n"
-                    f"• *Customer:* {customer_name}\n"
-                    f"• *Phone:* {customer_phone}\n"
-                    f"• *Service:* {service_name}\n"
-                    f"• *New Date & Time:* {formatted_date} at {formatted_time}\n\n"
-                    f"✅ Google Calendar and CRM have been updated with the new slot."
-                )
-                await client.post(
-                    url,
-                    headers=headers,
-                    json={
-                        "messaging_product": "whatsapp",
-                        "recipient_type": "individual",
-                        "to": clean_admin_phone.replace("+", ""),
-                        "type": "text",
-                        "text": {"body": admin_resched_text}
-                    }
-                )
-                logger.info("crm_admin_reschedule_text_fallback_sent", to=clean_admin_phone)
+                logger.warning("crm_admin_reschedule_template_failed_text_fallback_suppressed", to=clean_admin_phone)
     except Exception as e:
         logger.error("crm_admin_reschedule_wa_failed", error=str(e))
 
@@ -3230,26 +3205,7 @@ async def dispatch_admin_cancellation_whatsapp(
                 admin_sent = True
 
             if not admin_sent:
-                admin_cancel_text = (
-                    f"⚠️ *Booking Cancelled Notice!*\n\n"
-                    f"• *Customer:* {customer_name}\n"
-                    f"• *Phone:* {customer_phone}\n"
-                    f"• *Service:* {service_name}\n"
-                    f"• *Cancelled Slot:* {formatted_date} at {formatted_time}\n\n"
-                    f"❌ The booking has been marked cancelled in CRM and removed from Google Calendar."
-                )
-                await client.post(
-                    url,
-                    headers=headers,
-                    json={
-                        "messaging_product": "whatsapp",
-                        "recipient_type": "individual",
-                        "to": clean_admin_phone.replace("+", ""),
-                        "type": "text",
-                        "text": {"body": admin_cancel_text}
-                    }
-                )
-                logger.info("crm_admin_cancellation_text_fallback_sent", to=clean_admin_phone)
+                logger.warning("crm_admin_cancellation_template_failed_text_fallback_suppressed", to=clean_admin_phone)
     except Exception as e:
         logger.error("crm_admin_cancellation_wa_failed", error=str(e))
 
@@ -4349,6 +4305,7 @@ class TenantSettingsUpdate(BaseModel):
     template_admin_daily_digest: Optional[str] = None
     template_client_followup: Optional[str] = None
     google_review_link: Optional[str] = None
+    allow_text_fallback: Optional[bool] = False
     
     google_client_id: Optional[str] = None
     google_client_secret: Optional[str] = None
@@ -4504,6 +4461,7 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         "template_admin_daily_digest": wa_data.get("template_admin_daily_digest") or tenant_settings.get("template_admin_daily_digest", "admin_daily_digest"),
         "template_client_followup": wa_data.get("template_client_followup") or tenant_settings.get("template_client_followup", "client_followup_checkin"),
         "google_review_link": tenant_settings.get("google_review_link", wa_data.get("google_review_link", "")),
+        "allow_text_fallback": tenant_settings.get("allow_text_fallback", False) if tenant_settings.get("allow_text_fallback") is not None else False,
         
         # Google Calendar
         "google_client_id": gcal_data.get("client_id", ""),
@@ -4590,6 +4548,7 @@ async def update_tenant_settings(
         if payload.template_review_request is not None: cur_settings["template_review_request"] = payload.template_review_request.strip()
         if payload.template_admin_daily_digest is not None: cur_settings["template_admin_daily_digest"] = payload.template_admin_daily_digest.strip()
         if payload.template_client_followup is not None: cur_settings["template_client_followup"] = payload.template_client_followup.strip()
+        if payload.allow_text_fallback is not None: cur_settings["allow_text_fallback"] = payload.allow_text_fallback
 
         await conn.execute(
             "UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid",
@@ -4629,6 +4588,7 @@ async def update_tenant_settings(
         if payload.template_client_followup is not None: wa_data["template_client_followup"] = payload.template_client_followup.strip()
         if payload.google_review_link is not None: wa_data["google_review_link"] = payload.google_review_link.strip()
         if payload.primary_model_provider is not None: wa_data["primary_model_provider"] = payload.primary_model_provider.strip()
+        if payload.allow_text_fallback is not None: wa_data["allow_text_fallback"] = payload.allow_text_fallback
 
         if wa_row:
             await conn.execute("UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid", json.dumps(wa_data), wa_cred_id)
@@ -9052,21 +9012,22 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                 template_name=customer_tpl,
                 template_params=customer_params
             )
-            # If template dispatch failed or not configured, fallback to direct text
+            # Text fallback is strictly suppressed for message templates
             if not tpl_resp:
-                await dispatch_whatsapp_message(tenant_id, clean_phone, text=wa_text)
+                logger.info("public_booking_wa_text_fallback_suppressed", template=customer_tpl, phone=clean_phone)
 
-            # Record message in conversation history
-            try:
-                msg_body_record = f"[Template: {customer_tpl}] {service_name} on {date_str} at {time_str}" if tpl_resp else wa_text
-                await conn.execute(
-                    """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
-                       VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'outbound', 'template', $3, 'sent', false)""",
-                    conv_id, tenant_id, msg_body_record
-                )
-                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
-            except Exception as db_msg_err:
-                logger.warning("public_booking_msg_record_failed", error=str(db_msg_err))
+            # Record message in conversation history if template was sent
+            if tpl_resp:
+                try:
+                    msg_body_record = f"[Template: {customer_tpl}]"
+                    await conn.execute(
+                        """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
+                           VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'outbound', 'template', $3, $4, $5::jsonb, 'sent', false)""",
+                        conv_id, tenant_id, msg_body_record, customer_tpl, json.dumps(customer_params or [])
+                    )
+                    await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                except Exception as db_msg_err:
+                    logger.warning("public_booking_msg_record_failed", error=str(db_msg_err))
 
             # 5b. Send location details if configured
             full_location = (wa_creds.get("full_location_text") or t_settings.get("full_location_text") or "").strip()
