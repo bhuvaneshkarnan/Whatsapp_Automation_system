@@ -118,6 +118,12 @@ export interface Conversation {
   assigned_to?: string | null;
   assigned_staff_name?: string | null;
   assigned_staff_email?: string | null;
+  client_type?: 'new_lead' | 'repeat';
+  completed_bookings_count?: number;
+  last_visit_date?: string | null;
+  last_visit_service?: string | null;
+  last_visit_doctor?: string | null;
+  preferred_doctor?: string | null;
 }
 
 export interface DashboardAnalyticsData {
@@ -210,6 +216,13 @@ export interface Customer {
   google_task_id?: string | null;
   google_calendar_event_id?: string | null;
   last_visited?: string | null;
+  completed_bookings_count?: number;
+  total_bookings_count?: number;
+  client_type?: 'new_lead' | 'repeat';
+  last_visit_service?: string | null;
+  last_visit_doctor?: string | null;
+  days_since_last_visit?: number | null;
+  retention_status?: 'active' | 'due' | 'lapsed' | 'new';
   notes_count?: number;
   latest_note?: string | null;
   last_chat_at?: string | null;
@@ -428,6 +441,12 @@ export const crm = {
         assigned_to: c.assigned_to || null,
         assigned_staff_name: c.assigned_staff_name || null,
         assigned_staff_email: c.assigned_staff_email || null,
+        client_type: c.client_type || 'new_lead',
+        completed_bookings_count: c.completed_bookings_count || 0,
+        last_visit_date: c.last_visit_date || null,
+        last_visit_service: c.last_visit_service || null,
+        last_visit_doctor: c.last_visit_doctor || null,
+        preferred_doctor: c.preferred_doctor || null,
       }));
     } catch {
       return [];
@@ -546,6 +565,7 @@ export const crm = {
     status?: string;
     lead_probability?: string;
     preferred_doctor?: string;
+    client_type?: string;
     q?: string;
     limit?: number;
   }): Promise<Customer[]> => {
@@ -554,6 +574,7 @@ export const crm = {
       if (filters?.status && filters.status !== 'all') params.set('status', filters.status);
       if (filters?.lead_probability && filters.lead_probability !== 'all') params.set('lead_probability', filters.lead_probability);
       if (filters?.preferred_doctor && filters.preferred_doctor !== 'all') params.set('preferred_doctor', filters.preferred_doctor);
+      if (filters?.client_type && filters.client_type !== 'all') params.set('client_type', filters.client_type);
       if (filters?.q) params.set('q', filters.q);
       if (filters?.limit) params.set('limit', String(filters.limit));
       const qs = params.toString();
@@ -585,6 +606,30 @@ export const crm = {
     request<{ status: string; message: string; id: string }>(`/api/v1/crm/customers/${customerId}/followup`, {
       method: 'DELETE',
     }),
+
+  getCustomerBookings: async (customerId: string): Promise<{
+    bookings: any[];
+    total_revenue: number;
+    total_sessions: number;
+    completed_sessions: number;
+  }> => {
+    try {
+      const data = await request<any>(`/api/v1/crm/customers/${customerId}/bookings`);
+      if (Array.isArray(data)) {
+        const completed = data.filter((b: any) => b.status === 'completed' || b.status === 'attended');
+        const rev = completed.reduce((acc: number, b: any) => acc + (Number(b.price) || 0), 0);
+        return {
+          bookings: data,
+          total_revenue: rev,
+          total_sessions: data.length,
+          completed_sessions: completed.length,
+        };
+      }
+      return data || { bookings: [], total_revenue: 0, total_sessions: 0, completed_sessions: 0 };
+    } catch {
+      return { bookings: [], total_revenue: 0, total_sessions: 0, completed_sessions: 0 };
+    }
+  },
 
   getCustomerNotes: async (customerId: string): Promise<CustomerNote[]> => {
     try {

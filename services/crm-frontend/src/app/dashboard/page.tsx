@@ -745,12 +745,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const pathname = usePathname();
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
   
-  // Navigation: overview | inbox | bookings | calendar | customers | followup | marketing | settings | team
-  const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'followup' | 'marketing' | 'settings' | 'team'>(() => {
+  // Navigation: overview | inbox | bookings | calendar | customers | repeat_clients | followup | marketing | settings | team
+  const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'repeat_clients' | 'followup' | 'marketing' | 'settings' | 'team'>(() => {
     if (typeof window !== 'undefined') {
       try {
         const hash = window.location.hash.replace('#', '');
-        const validTabs = ['overview', 'inbox', 'bookings', 'calendar', 'customers', 'followup', 'marketing', 'settings', 'team'];
+        const validTabs = ['overview', 'inbox', 'bookings', 'calendar', 'customers', 'repeat_clients', 'followup', 'marketing', 'settings', 'team'];
         if (hash && validTabs.includes(hash)) {
           return hash as any;
         }
@@ -1139,6 +1139,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [followupProbabilityFilter, setFollowupProbabilityFilter] = useState<string>('all');
   const [followupDoctorFilter, setFollowupDoctorFilter] = useState<string>('all');
   const [followupSearch, setFollowupSearch] = useState<string>('');
+  const [customerClientTypeFilter, setCustomerClientTypeFilter] = useState<string>('all');
+
+  // Repeat Clients Workspace State
+  const [repeatHealthFilter, setRepeatHealthFilter] = useState<'all' | 'active' | 'due' | 'lapsed' | 'vip'>('all');
+  const [repeatDoctorFilter, setRepeatDoctorFilter] = useState<string>('all');
+  const [repeatSearch, setRepeatSearch] = useState<string>('');
 
   // Selected Customer Detail Drawer
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -1342,7 +1348,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'new' | 'important'>('all');
+  const [filter, setFilter] = useState<'all' | 'new' | 'new_lead' | 'repeat' | 'important'>('all');
 
   // Feature 1: Analytics & Reports State
   const [analyticsPeriod, setAnalyticsPeriod] = useState<'7d' | '30d' | '90d' | 'this_month' | 'all'>('30d');
@@ -2259,7 +2265,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       loadBookings();
     } else if (activeNav === 'calendar') {
       loadCalendarData();
-    } else if (activeNav === 'customers') {
+    } else if (activeNav === 'customers' || activeNav === 'repeat_clients') {
       loadContacts();
       loadCustomers();
     } else if (activeNav === 'followup') {
@@ -2300,14 +2306,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // Refetch customers when filter state changes (Instant responsive filtering)
   useEffect(() => {
-    if (activeNav === 'customers' || activeNav === 'followup') {
+    if (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients') {
       loadCustomers();
     }
-  }, [activeNav, followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupSearch]);
+  }, [activeNav, followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupSearch, customerClientTypeFilter]);
 
   // Refetch tasks when task filter changes
   useEffect(() => {
-    if (activeNav === 'customers' || activeNav === 'followup') {
+    if (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients') {
       loadTasks();
     }
   }, [activeNav, taskFilter]);
@@ -2430,8 +2436,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           // silent
         }
 
-        // 3. Real-time Customers directory automatic live sync (when on customers or followup tab)
-        if (activeNav === 'customers' || activeNav === 'followup') {
+        // 3. Real-time Customers directory automatic live sync (when on customers, followup, or repeat_clients tab)
+        if (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients') {
           try {
             const fresh = await crm.getCustomers({
               status: followupStatusFilter,
@@ -2464,7 +2470,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
         // 4. Real-time live customer drawer chat polling (if drawer is open)
         const currentCustId = selectedCustomerRef.current?.id;
-        if (currentCustId && (activeNav === 'customers' || activeNav === 'followup')) {
+        if (currentCustId && (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients')) {
           try {
             const freshChat = await crm.getCustomerChat(currentCustId);
             if (isMounted && freshChat && selectedCustomerRef.current?.id === currentCustId) {
@@ -2551,7 +2557,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     };
 
     // Fast 1200ms polling for live Inbox, 2500ms for Bookings / Calendar / Customers tabs, 5000ms for other sections
-    const pollIntervalMs = activeNav === 'inbox' ? 1200 : (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'bookings' || activeNav === 'calendar' ? 2500 : 5000);
+    const pollIntervalMs = activeNav === 'inbox' ? 1200 : (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients' || activeNav === 'bookings' || activeNav === 'calendar' ? 2500 : 5000);
     const interval = setInterval(poll, pollIntervalMs);
 
     // Instant poll on tab focus / visibility restore
@@ -3745,7 +3751,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
-  function navigateTo(tab: 'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'followup' | 'marketing' | 'settings' | 'team') {
+  function navigateTo(tab: 'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'repeat_clients' | 'followup' | 'marketing' | 'settings' | 'team') {
     setActiveNav(tab);
     if (typeof window !== 'undefined') {
       try {
@@ -4158,6 +4164,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         const isUnread = (c.unread_count || 0) > 0;
         const isRecent = c.last_message_at ? (Date.now() - new Date(c.last_message_at).getTime() < 86400000) : false;
         return isUnread || isRecent;
+      }
+      if (filter === 'new_lead') {
+        return c.client_type === 'new_lead' || (c.completed_bookings_count ?? 0) === 0;
+      }
+      if (filter === 'repeat') {
+        return c.client_type === 'repeat' || (c.completed_bookings_count ?? 0) > 0;
       }
       if (filter === 'important') {
         return importantConvIds.includes(c.id);
@@ -4742,7 +4754,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
           <div className="hidden sm:flex items-center gap-2 pl-4 border-l border-border">
             <span className="text-[13px] font-medium text-text-muted">
-              / {activeNav === 'overview' ? 'Overview' : activeNav === 'inbox' ? 'Chats' : activeNav === 'bookings' ? 'Bookings' : activeNav === 'calendar' ? 'Calendar schedule' : activeNav === 'customers' ? 'Customer directory' : activeNav === 'followup' ? 'Customer Followup' : activeNav === 'marketing' ? 'Marketing' : activeNav === 'team' ? 'Team & Sales' : 'Settings'}
+              / {activeNav === 'overview' ? 'Overview' : activeNav === 'inbox' ? 'Chats' : activeNav === 'bookings' ? 'Bookings' : activeNav === 'calendar' ? 'Calendar schedule' : activeNav === 'customers' ? 'Customer directory' : activeNav === 'repeat_clients' ? 'Repeat Clients' : activeNav === 'followup' ? 'Customer Followup' : activeNav === 'marketing' ? 'Marketing' : activeNav === 'team' ? 'Team & Sales' : 'Settings'}
             </span>
           </div>
         </div>
@@ -5083,6 +5095,27 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 >
                   <Users className="w-4 h-4 stroke-[1.5] shrink-0" />
                   <span>{currentTaxonomy.client_plural || 'Customers'}</span>
+                </button>
+              )}
+
+              {canManageCustomers && (
+                <button
+                  onClick={() => navigateTo('repeat_clients')}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                    activeNav === 'repeat_clients'
+                      ? 'bg-surface-subtle text-text-primary font-semibold'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <UserCheck className={`w-4 h-4 stroke-[1.5] shrink-0 ${activeNav === 'repeat_clients' ? 'text-amber-500' : 'text-text-muted'}`} />
+                    <span>Repeat Clients</span>
+                  </div>
+                  {customers.filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat').length > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/10 text-amber-600 font-semibold border border-amber-500/20 font-mono">
+                      {customers.filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat').length}
+                    </span>
+                  )}
                 </button>
               )}
 
@@ -6918,11 +6951,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     />
 
                     {/* ── Compact & Clean Segmentation Filter Bar ── */}
-                    <div className="flex items-center p-0.5 bg-surface-subtle rounded-sm border border-border gap-1">
+                    <div className="flex items-center p-0.5 bg-surface-subtle rounded-sm border border-border gap-0.5 overflow-x-auto no-scrollbar">
                       <button
                         type="button"
                         onClick={() => setFilter('all')}
-                        className={`flex-1 py-1 px-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                        className={`flex-1 py-1 px-1.5 text-[11px] font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
                           filter === 'all'
                             ? 'bg-surface text-text-primary border border-border-strong font-semibold shadow-subtle'
                             : 'text-text-secondary hover:text-text-primary'
@@ -6936,14 +6969,57 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       <button
                         type="button"
+                        onClick={() => setFilter('new_lead')}
+                        className={`flex-1 py-1 px-1.5 text-[11px] font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
+                          filter === 'new_lead'
+                            ? 'bg-surface text-emerald-800 border border-emerald-300 font-semibold shadow-subtle'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                        title="First-time leads / inquiries"
+                      >
+                        <span>🌱 Leads</span>
+                        {(() => {
+                          const count = conversations.filter((c) => c.client_type === 'new_lead' || (!c.client_type && (c.completed_bookings_count ?? 0) === 0)).length;
+                          return count > 0 ? (
+                            <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'new_lead' ? 'bg-emerald-100 text-emerald-800 font-semibold' : 'bg-surface-subtle text-text-muted'}`}>
+                              {count}
+                            </span>
+                          ) : null;
+                        })()}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setFilter('repeat')}
+                        className={`flex-1 py-1 px-1.5 text-[11px] font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
+                          filter === 'repeat'
+                            ? 'bg-surface text-amber-900 border border-amber-300 font-semibold shadow-subtle'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                        title="Repeat clients with completed bookings"
+                      >
+                        <span>⭐ Repeat</span>
+                        {(() => {
+                          const count = conversations.filter((c) => c.client_type === 'repeat' || (c.completed_bookings_count ?? 0) > 0).length;
+                          return count > 0 ? (
+                            <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'repeat' ? 'bg-amber-100 text-amber-800 font-semibold' : 'bg-surface-subtle text-text-muted'}`}>
+                              {count}
+                            </span>
+                          ) : null;
+                        })()}
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => setFilter('new')}
-                        className={`flex-1 py-1 px-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
+                        className={`flex-1 py-1 px-1.5 text-[11px] font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
                           filter === 'new'
                             ? 'bg-surface text-text-primary border border-border-strong font-semibold shadow-subtle'
                             : 'text-text-secondary hover:text-text-primary'
                         }`}
+                        title="Unread or messages in last 24h"
                       >
-                        <span>New</span>
+                        <span>📬 Unread</span>
                         {conversations.filter((c) => (c.unread_count || 0) > 0 || (c.last_message_at && (Date.now() - new Date(c.last_message_at).getTime() < 86400000))).length > 0 && (
                           <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'new' ? 'bg-accent/10 text-accent font-semibold' : 'bg-surface-subtle text-text-muted'}`}>
                             {conversations.filter((c) => (c.unread_count || 0) > 0 || (c.last_message_at && (Date.now() - new Date(c.last_message_at).getTime() < 86400000))).length}
@@ -6954,14 +7030,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setFilter('important')}
-                        className={`flex-1 py-1 px-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
+                        className={`py-1 px-1.5 text-[11px] font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
                           filter === 'important'
-                            ? 'bg-surface text-text-primary border border-border-strong font-semibold shadow-subtle'
+                            ? 'bg-surface text-amber-800 border border-border-strong font-semibold shadow-subtle'
                             : 'text-text-secondary hover:text-text-primary'
                         }`}
+                        title="Starred conversations"
                       >
                         <Star className={`w-3 h-3 stroke-[1.5] shrink-0 ${importantConvIds.length > 0 ? 'text-amber-500 fill-amber-500' : 'text-text-muted'}`} />
-                        <span>Important</span>
                         {importantConvIds.length > 0 && (
                           <span className={`text-[10px] font-mono px-1 rounded-sm ${filter === 'important' ? 'bg-amber-100 text-amber-800 font-semibold' : 'bg-surface-subtle text-text-muted'}`}>
                             {importantConvIds.length}
@@ -7001,14 +7077,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 <div className="flex items-center gap-1.5 min-w-0">
                                   <p className="font-medium text-xs text-text-primary truncate">{conv.contact_name || conv.contact_phone}</p>
                                   {(() => {
-                                    const cleanP = conv.contact_phone ? conv.contact_phone.replace(/[^0-9]/g, '') : '';
-                                    if (!cleanP) return null;
-                                    const inCrm = Array.isArray(customers) && customers.some((c) => c && c.phone && c.phone.replace(/[^0-9]/g, '') === cleanP);
-                                    return inCrm ? (
-                                      <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                                        CRM
+                                    const isRepeat = conv.client_type === 'repeat' || (conv.completed_bookings_count ?? 0) > 0;
+                                    const visitCount = conv.completed_bookings_count ?? 0;
+                                    if (isRepeat) {
+                                      return (
+                                        <span className="text-[9px] font-bold px-1 py-0.2 rounded-xs bg-amber-50 text-amber-700 border border-amber-200 shrink-0 flex items-center gap-0.5" title={`Repeat client (${visitCount} completed session${visitCount === 1 ? '' : 's'})`}>
+                                          <span>⭐ Repeat</span>
+                                          {visitCount > 0 && <span className="font-mono">({visitCount})</span>}
+                                        </span>
+                                      );
+                                    }
+                                    return (
+                                      <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0" title="First-time lead">
+                                        🌱 Lead
                                       </span>
-                                    ) : null;
+                                    );
                                   })()}
                                 </div>
                                 <span
@@ -7295,6 +7378,134 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </button>
                         </div>
                       </div>
+
+                      {/* ── Active Chat Customer Intelligence Banner ── */}
+                      {(() => {
+                        const cleanPhone = (selectedConv.contact_phone || '').replace(/[^0-9]/g, '');
+                        const matchedCust = customers.find((c) => c.phone && c.phone.replace(/[^0-9]/g, '') === cleanPhone);
+                        const isRepeat = selectedConv.client_type === 'repeat' || (selectedConv.completed_bookings_count ?? 0) > 0 || (matchedCust?.completed_bookings_count ?? 0) > 0;
+                        const visitCount = selectedConv.completed_bookings_count ?? matchedCust?.completed_bookings_count ?? 0;
+                        const lastDate = selectedConv.last_visit_date || matchedCust?.last_visit_date;
+                        const lastService = selectedConv.last_visit_service || matchedCust?.last_visit_service;
+                        const lastDoctor = selectedConv.last_visit_doctor || matchedCust?.last_visit_doctor || selectedConv.preferred_doctor || matchedCust?.preferred_doctor;
+                        const retentionStatus = matchedCust?.retention_status;
+                        const daysSince = matchedCust?.days_since_last_visit;
+
+                        return (
+                          <div className={`px-3.5 py-2 border-b flex flex-wrap items-center justify-between gap-2 text-xs transition-colors shrink-0 ${
+                            isRepeat
+                              ? 'bg-amber-50/70 border-amber-200/80 text-amber-950'
+                              : 'bg-emerald-50/70 border-emerald-200/80 text-emerald-950'
+                          }`}>
+                            {/* Left: Intelligence Status & Details */}
+                            <div className="flex items-center gap-2 flex-wrap min-w-0">
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {isRepeat ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                    <Star className="w-3 h-3 text-amber-600 fill-amber-500" />
+                                    <span>Repeat Client</span>
+                                    {visitCount > 0 && <span className="font-mono">({visitCount} sessions)</span>}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
+                                    <Sparkles className="w-3 h-3 text-emerald-600" />
+                                    <span>New Lead</span>
+                                  </span>
+                                )}
+                              </div>
+
+                              {isRepeat ? (
+                                <div className="flex items-center gap-1.5 text-[11px] text-amber-900/90 font-medium">
+                                  {lastDate && (
+                                    <span>Last visited: <strong className="font-semibold">{new Date(lastDate).toLocaleDateString()}</strong>{daysSince != null ? ` (${daysSince}d ago)` : ''}</span>
+                                  )}
+                                  {lastService && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="truncate max-w-[130px] font-medium" title={lastService}>{lastService}</span>
+                                    </>
+                                  )}
+                                  {lastDoctor && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="text-amber-800 font-medium">Dr. {lastDoctor}</span>
+                                    </>
+                                  )}
+                                  {retentionStatus === 'active' && (
+                                    <span className="px-1.5 py-0.2 rounded-xs bg-emerald-100 text-emerald-800 text-[10px] font-semibold border border-emerald-200">Active Regular</span>
+                                  )}
+                                  {retentionStatus === 'due' && (
+                                    <span className="px-1.5 py-0.2 rounded-xs bg-amber-200 text-amber-900 text-[10px] font-semibold border border-amber-300">Due for Checkup</span>
+                                  )}
+                                  {retentionStatus === 'lapsed' && (
+                                    <span className="px-1.5 py-0.2 rounded-xs bg-rose-100 text-rose-800 text-[10px] font-semibold border border-rose-200">Lapsed (&gt;60d)</span>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5 text-[11px] text-emerald-900/90 font-medium">
+                                  <span>First-time inquiry</span>
+                                  {matchedCust?.lead_probability && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="capitalize font-semibold">{matchedCust.lead_probability} Lead</span>
+                                    </>
+                                  )}
+                                  {matchedCust?.health_concern && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="truncate max-w-[140px]">{matchedCust.health_concern}</span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Right: Instant 1-Click Action Buttons */}
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const tomorrow = new Date();
+                                  tomorrow.setDate(tomorrow.getDate() + 1);
+                                  const dStr = tomorrow.toISOString().split('T')[0];
+                                  setNewBookingForm({
+                                    contact_name: selectedConv.contact_name || matchedCust?.name || '',
+                                    contact_phone: selectedConv.contact_phone || matchedCust?.phone || '',
+                                    service: lastService || currentTaxonomy.default_service || 'General Consultation',
+                                    date: dStr,
+                                    time: '10:00',
+                                    price: 0,
+                                    notes: isRepeat ? 'Follow-up session for repeat client' : 'First appointment for new lead',
+                                  });
+                                  setIsAddBookingOpen(true);
+                                }}
+                                className="px-2 py-1 rounded-sm text-[11px] font-medium bg-white/90 hover:bg-white text-text-primary border border-border shadow-2xs hover:border-accent flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Schedule next session for this client"
+                              >
+                                <CalendarClock className="w-3 h-3 text-accent stroke-[1.8]" />
+                                <span>Book Session</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (matchedCust) {
+                                    handleSelectCustomer(matchedCust);
+                                    setShowCustomerHistoryModal(true);
+                                  } else {
+                                    openCustomerProfileByPhone(selectedConv.contact_phone, selectedConv.contact_name);
+                                  }
+                                }}
+                                className="px-2 py-1 rounded-sm text-[11px] font-medium bg-white/90 hover:bg-white text-text-primary border border-border shadow-2xs hover:border-accent flex items-center gap-1 transition-colors cursor-pointer"
+                                title="View complete customer history, past bookings and notes"
+                              >
+                                <FileText className="w-3 h-3 text-text-muted stroke-[1.8]" />
+                                <span>Profile & History</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* Chat Messages Stream */}
                       <div
@@ -7734,7 +7945,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     }`}
                                   >
                                     <td className="p-2.5 pl-4">
-                                      <div className="font-medium text-text-primary text-[11px]">{cust.name || 'Customer'}</div>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-medium text-text-primary text-[11px]">{cust.name || 'Customer'}</span>
+                                        {(cust.completed_bookings_count ?? 0) > 0 || cust.client_type === 'repeat' ? (
+                                          <span className="text-[9px] font-bold px-1 py-0.2 rounded-xs bg-amber-50 text-amber-700 border border-amber-200 shrink-0 flex items-center gap-0.5" title={`Repeat client (${cust.completed_bookings_count ?? 0} completed visits)`}>
+                                            <span>⭐ Repeat</span>
+                                            {(cust.completed_bookings_count ?? 0) > 0 && <span className="font-mono">({cust.completed_bookings_count})</span>}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                                            🌱 Lead
+                                          </span>
+                                        )}
+                                      </div>
                                       <div className="font-mono text-[10px] text-text-muted mt-0.5">{cust.phone}</div>
                                       {cust.last_chat_at && (
                                         <div className="text-[10px] text-text-secondary mt-0.5 flex items-center gap-1 font-mono" title={`Last WhatsApp: ${formatFullDateTimeDetailed(cust.last_chat_at)}`}>
@@ -8487,7 +8710,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     }`}
                                   >
                                     <td className="p-2.5 pl-4">
-                                      <div className="font-semibold text-text-primary text-[11px]">{cust.name || 'Customer'}</div>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-semibold text-text-primary text-[11px]">{cust.name || 'Customer'}</span>
+                                        {(cust.completed_bookings_count ?? 0) > 0 || cust.client_type === 'repeat' ? (
+                                          <span className="text-[9px] font-bold px-1 py-0.2 rounded-xs bg-amber-50 text-amber-700 border border-amber-200 shrink-0 flex items-center gap-0.5">
+                                            <span>⭐ Repeat</span>
+                                            {(cust.completed_bookings_count ?? 0) > 0 && <span className="font-mono">({cust.completed_bookings_count})</span>}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                                            🌱 Lead
+                                          </span>
+                                        )}
+                                      </div>
                                     </td>
                                     <td className="p-2.5 font-mono text-[11px] text-text-muted whitespace-nowrap">
                                       <div>{cust.phone}</div>
@@ -9331,6 +9566,475 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </button>
                     </div>
                   </form>
+                </div>
+              </div>
+            )}
+
+            {/* ── VIEW: REPEAT CLIENTS WORKSPACE ───────────────────── */}
+            {activeNav === 'repeat_clients' && (
+              <div className="flex-1 flex flex-col overflow-hidden space-y-3">
+                {/* Header with Title, Retention Strategy Overview, and Actions */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-border pb-2.5 pt-1">
+                  <div>
+                    <h3 className="font-semibold text-sm text-text-primary flex items-center gap-2">
+                      <UserCheck className="w-4 h-4 text-amber-500 stroke-[1.8]" />
+                      <span>Repeat & Retained {currentTaxonomy.client_plural || 'Clients'}</span>
+                    </h3>
+                    <p className="text-[11px] text-text-muted mt-0.5">
+                      Monitor patient retention, checkup velocity, track recurring visits, and re-engage regular clients.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Export Repeat Clients CSV */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const repeatList = customers.filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat');
+                        const headers = ['Name', 'Phone', 'Age', 'Location', 'Completed Visits', 'Total Bookings', 'Last Visit Date', 'Last Visit Service', 'Days Since Last Visit', 'Retention Status', 'Preferred Doctor'];
+                        const rows = repeatList.map(c => [
+                          `"${(c.name || '').replace(/"/g, '""')}"`,
+                          `"${c.phone}"`,
+                          c.age || '',
+                          `"${(c.location || '').replace(/"/g, '""')}"`,
+                          c.completed_bookings_count || 0,
+                          c.total_bookings_count || 0,
+                          c.last_visit_date ? new Date(c.last_visit_date).toLocaleDateString() : '',
+                          `"${(c.last_visit_service || '').replace(/"/g, '""')}"`,
+                          c.days_since_last_visit != null ? c.days_since_last_visit : '',
+                          c.retention_status || '',
+                          `"${(c.preferred_doctor || '').replace(/"/g, '""')}"`
+                        ]);
+                        const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+                        const encodedUri = encodeURI(csvContent);
+                        const link = document.createElement('a');
+                        link.setAttribute('href', encodedUri);
+                        link.setAttribute('download', `repeat_clients_${new Date().toISOString().split('T')[0]}.csv`);
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                      }}
+                      className="flex items-center gap-1.5 px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-sm transition-colors cursor-pointer"
+                      title="Export repeat client records to CSV"
+                    >
+                      <Download className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span>Export CSV</span>
+                    </button>
+
+                    {/* Schedule Booking */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const tomorrow = new Date();
+                        tomorrow.setDate(tomorrow.getDate() + 1);
+                        const dStr = tomorrow.toISOString().split('T')[0];
+                        setNewBookingForm({
+                          contact_name: '',
+                          contact_phone: '',
+                          service: currentTaxonomy.default_service || 'Consultation',
+                          date: dStr,
+                          time: '10:00',
+                          price: 0,
+                          notes: 'Repeat client appointment',
+                        });
+                        setIsAddBookingOpen(true);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer shrink-0"
+                    >
+                      <CalendarClock className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span>Book Appointment</span>
+                    </button>
+
+                    {/* Refresh */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        loadCustomers();
+                        loadBookings();
+                      }}
+                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Refresh"
+                    >
+                      <RotateCcw className={`w-3.5 h-3.5 ${loadingCustomers ? 'animate-spin' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* ── KPI Retention Metric Cards ── */}
+                {(() => {
+                  const allRepeat = customers.filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat');
+                  const activeCount = allRepeat.filter(c => c.retention_status === 'active' || (c.days_since_last_visit != null && c.days_since_last_visit <= 30)).length;
+                  const dueCount = allRepeat.filter(c => c.retention_status === 'due' || (c.days_since_last_visit != null && c.days_since_last_visit > 30 && c.days_since_last_visit <= 60)).length;
+                  const lapsedCount = allRepeat.filter(c => c.retention_status === 'lapsed' || (c.days_since_last_visit != null && c.days_since_last_visit > 60)).length;
+                  const vipCount = allRepeat.filter(c => (c.completed_bookings_count ?? 0) >= 3).length;
+
+                  return (
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-text-muted font-medium">Total Repeat</p>
+                          <p className="text-base font-bold text-text-primary mt-0.5">
+                            {allRepeat.length}
+                            <span className="text-[10px] text-amber-600 font-normal ml-1">
+                              ({customers.length ? Math.round((allRepeat.length / customers.length) * 100) : 0}% of base)
+                            </span>
+                          </p>
+                        </div>
+                        <UserCheck className="w-4 h-4 text-amber-500 stroke-[1.5]" />
+                      </div>
+
+                      <div className="p-3 bg-surface border border-emerald-200/70 bg-emerald-50/20 rounded-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-emerald-800 font-medium">Active (&lt;30d)</p>
+                          <p className="text-base font-bold text-emerald-900 mt-0.5">{activeCount}</p>
+                        </div>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 stroke-[1.5]" />
+                      </div>
+
+                      <div className="p-3 bg-surface border border-amber-200/70 bg-amber-50/20 rounded-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-amber-800 font-medium">Due for Checkup (30-60d)</p>
+                          <p className="text-base font-bold text-amber-900 mt-0.5">{dueCount}</p>
+                        </div>
+                        <Clock className="w-4 h-4 text-amber-600 stroke-[1.5]" />
+                      </div>
+
+                      <div className="p-3 bg-surface border border-rose-200/70 bg-rose-50/20 rounded-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-rose-800 font-medium">At-Risk / Lapsed (&gt;60d)</p>
+                          <p className="text-base font-bold text-rose-900 mt-0.5">{lapsedCount}</p>
+                        </div>
+                        <AlertCircle className="w-4 h-4 text-rose-600 stroke-[1.5]" />
+                      </div>
+
+                      <div className="p-3 bg-surface border border-purple-200/70 bg-purple-50/20 rounded-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] text-purple-800 font-medium">VIP Loyalists (3+)</p>
+                          <p className="text-base font-bold text-purple-900 mt-0.5">{vipCount}</p>
+                        </div>
+                        <Star className="w-4 h-4 text-purple-600 fill-purple-400 stroke-[1.5]" />
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* ── Retention Health Filter & Search Controls ── */}
+                <div className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 bg-surface border border-border rounded-sm">
+                  {/* Health Filter Pills */}
+                  <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5 max-w-full shrink-0">
+                    <span className="text-[11px] font-medium text-text-muted mr-1">Retention:</span>
+                    {[
+                      { key: 'all', label: 'All Repeat' },
+                      { key: 'active', label: 'Active (<30d)', dot: 'bg-emerald-500' },
+                      { key: 'due', label: 'Due for Checkup (30-60d)', dot: 'bg-amber-500' },
+                      { key: 'lapsed', label: 'At-Risk (>60d)', dot: 'bg-rose-500' },
+                      { key: 'vip', label: 'VIPs (3+ Visits)', dot: 'bg-purple-500' },
+                    ].map((st) => (
+                      <button
+                        key={st.key}
+                        type="button"
+                        onClick={() => setRepeatHealthFilter(st.key as any)}
+                        className={`px-2.5 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                          repeatHealthFilter === st.key
+                            ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
+                            : 'bg-surface border-border text-text-secondary hover:text-text-primary hover:bg-surface-subtle'
+                        }`}
+                      >
+                        {st.dot && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${st.dot}`} />}
+                        <span>{st.label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Doctor Filter & Search */}
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={repeatDoctorFilter}
+                      onChange={(e) => setRepeatDoctorFilter(e.target.value)}
+                      className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[150px]"
+                    >
+                      <option value="all">All Doctors / Staff</option>
+                      {availableDoctors.map((doc) => (
+                        <option key={doc} value={doc}>{doc}</option>
+                      ))}
+                    </select>
+
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
+                      <input
+                        type="text"
+                        placeholder="Search repeat clients..."
+                        value={repeatSearch}
+                        onChange={(e) => setRepeatSearch(e.target.value)}
+                        className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-48"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Repeat Clients Table & Drawer ── */}
+                <div className="flex-1 flex overflow-hidden gap-3">
+                  <div className="flex-1 overflow-y-auto border border-border rounded-sm bg-surface">
+                    <table className="w-full text-left text-xs min-w-[760px]">
+                      <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
+                        <tr>
+                          <th className="p-2.5 pl-4">Client & Contact</th>
+                          <th className="p-2.5">Visits & Loyalty</th>
+                          <th className="p-2.5">Last Visit Details</th>
+                          <th className="p-2.5">Retention Status</th>
+                          <th className="p-2.5">Assigned Staff</th>
+                          <th className="p-2.5">Health Requirement</th>
+                          <th className="p-2.5 text-right pr-4">Direct Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {loadingCustomers ? (
+                          <tr>
+                            <td colSpan={7} className="p-8 text-center text-text-muted">
+                              <div className="flex items-center justify-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                                <span>Loading repeat clients...</span>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (() => {
+                          const repeatList = (customers || []).filter((c) => {
+                            if (!c) return false;
+                            const isRepeat = (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat';
+                            if (!isRepeat) return false;
+
+                            if (repeatSearch) {
+                              const q = repeatSearch.toLowerCase();
+                              const matches =
+                                (c.name || '').toLowerCase().includes(q) ||
+                                (c.phone || '').toLowerCase().includes(q) ||
+                                (c.health_concern || '').toLowerCase().includes(q) ||
+                                (c.last_visit_service || '').toLowerCase().includes(q) ||
+                                (c.preferred_doctor || '').toLowerCase().includes(q);
+                              if (!matches) return false;
+                            }
+
+                            if (repeatDoctorFilter !== 'all') {
+                              const doc = c.last_visit_doctor || c.preferred_doctor || '';
+                              if (doc !== repeatDoctorFilter) return false;
+                            }
+
+                            if (repeatHealthFilter === 'active') {
+                              return c.retention_status === 'active' || (c.days_since_last_visit != null && c.days_since_last_visit <= 30);
+                            }
+                            if (repeatHealthFilter === 'due') {
+                              return c.retention_status === 'due' || (c.days_since_last_visit != null && c.days_since_last_visit > 30 && c.days_since_last_visit <= 60);
+                            }
+                            if (repeatHealthFilter === 'lapsed') {
+                              return c.retention_status === 'lapsed' || (c.days_since_last_visit != null && c.days_since_last_visit > 60);
+                            }
+                            if (repeatHealthFilter === 'vip') {
+                              return (c.completed_bookings_count ?? 0) >= 3;
+                            }
+
+                            return true;
+                          });
+
+                          if (repeatList.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={7} className="p-8 text-center text-text-muted space-y-1">
+                                  <UserCheck className="w-6 h-6 mx-auto text-text-muted stroke-[1.2] mb-1" />
+                                  <p className="font-medium text-text-secondary">No repeat clients found</p>
+                                  <p className="text-[11px]">
+                                    {repeatSearch || repeatHealthFilter !== 'all' || repeatDoctorFilter !== 'all'
+                                      ? 'Try clearing your filters or search term'
+                                      : 'Clients who complete appointments will automatically appear here as repeat clients.'}
+                                  </p>
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return repeatList.map((cust) => {
+                            const completedVisits = cust.completed_bookings_count ?? 0;
+                            const isVip = completedVisits >= 3;
+                            const isSelected = selectedCustomer?.id === cust.id;
+
+                            return (
+                              <tr
+                                key={cust.id}
+                                onClick={() => handleSelectCustomer(cust)}
+                                className={`cursor-pointer transition-colors duration-150 ${
+                                  isSelected ? 'bg-amber-50/40 border-l-2 border-l-amber-500' : 'hover:bg-surface-subtle/70'
+                                }`}
+                              >
+                                {/* Client & Contact */}
+                                <td className="p-2.5 pl-4">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-semibold text-text-primary text-[12px]">{cust.name || 'Client'}</span>
+                                    {isVip && (
+                                      <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-xs bg-purple-50 text-purple-700 border border-purple-200 shrink-0 flex items-center gap-0.5">
+                                        <Star className="w-2.5 h-2.5 text-purple-600 fill-purple-400" />
+                                        <span>VIP</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="font-mono text-[10px] text-text-muted mt-0.5">{cust.phone}</div>
+                                  {(cust.age || cust.location) && (
+                                    <div className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1">
+                                      {cust.age && <span>{cust.age}y</span>}
+                                      {cust.age && cust.location && <span>·</span>}
+                                      {cust.location && <span className="flex items-center gap-0.5"><MapPin className="w-2.5 h-2.5" />{cust.location}</span>}
+                                    </div>
+                                  )}
+                                </td>
+
+                                {/* Visits & Loyalty */}
+                                <td className="p-2.5 whitespace-nowrap">
+                                  <div className="flex items-center gap-1">
+                                    <span className="font-bold text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded-sm border border-amber-300/80 text-[11px]">
+                                      {completedVisits} completed
+                                    </span>
+                                    {cust.total_bookings_count != null && cust.total_bookings_count > completedVisits && (
+                                      <span className="text-[10px] text-text-muted font-mono" title={`${cust.total_bookings_count} total booked`}>
+                                        ({cust.total_bookings_count} total)
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+
+                                {/* Last Visit Details */}
+                                <td className="p-2.5 text-[11px]">
+                                  {cust.last_visit_date ? (
+                                    <div>
+                                      <div className="font-medium text-text-primary">
+                                        {new Date(cust.last_visit_date).toLocaleDateString()}
+                                        {cust.days_since_last_visit != null && (
+                                          <span className="text-[10px] text-text-muted font-normal ml-1 font-mono">
+                                            ({cust.days_since_last_visit}d ago)
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-[10px] text-text-secondary truncate max-w-[160px] mt-0.5">
+                                        {cust.last_visit_service || 'Consultation'}
+                                        {cust.last_visit_doctor && <span> • Dr. {cust.last_visit_doctor}</span>}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-text-muted text-[11px]">—</span>
+                                  )}
+                                </td>
+
+                                {/* Retention Status */}
+                                <td className="p-2.5 whitespace-nowrap">
+                                  {cust.retention_status === 'active' || (cust.days_since_last_visit != null && cust.days_since_last_visit <= 30) ? (
+                                    <span className="px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 w-fit">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                                      <span>Active Regular (&lt;30d)</span>
+                                    </span>
+                                  ) : cust.retention_status === 'due' || (cust.days_since_last_visit != null && cust.days_since_last_visit > 30 && cust.days_since_last_visit <= 60) ? (
+                                    <span className="px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1 w-fit">
+                                      <Clock className="w-2.5 h-2.5 text-amber-700" />
+                                      <span>Due for Checkup (30-60d)</span>
+                                    </span>
+                                  ) : cust.retention_status === 'lapsed' || (cust.days_since_last_visit != null && cust.days_since_last_visit > 60) ? (
+                                    <span className="px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 w-fit">
+                                      <AlertCircle className="w-2.5 h-2.5 text-rose-700" />
+                                      <span>At-Risk / Lapsed (&gt;60d)</span>
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded-sm text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                                      Repeat
+                                    </span>
+                                  )}
+                                </td>
+
+                                {/* Assigned Staff */}
+                                <td className="p-2.5 text-text-secondary whitespace-nowrap text-[11px]" onClick={(e) => e.stopPropagation()}>
+                                  <select
+                                    value={cust.preferred_doctor || ''}
+                                    onChange={(e) => handleUpdateCustomer(cust.id, { preferred_doctor: e.target.value })}
+                                    className="px-1.5 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[130px]"
+                                  >
+                                    <option value="">— Unassigned —</option>
+                                    {availableDoctors.map((doc) => (
+                                      <option key={doc} value={doc}>{doc}</option>
+                                    ))}
+                                  </select>
+                                </td>
+
+                                {/* Health Requirement */}
+                                <td className="p-2.5 text-[11px] text-text-secondary max-w-[150px] truncate" title={cust.health_concern || ''}>
+                                  {cust.health_concern || '—'}
+                                </td>
+
+                                {/* Direct Actions */}
+                                <td className="p-2.5 text-right pr-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center justify-end gap-1">
+                                    {/* Book Next Session */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const tomorrow = new Date();
+                                        tomorrow.setDate(tomorrow.getDate() + 1);
+                                        const dStr = tomorrow.toISOString().split('T')[0];
+                                        setNewBookingForm({
+                                          contact_name: cust.name || '',
+                                          contact_phone: cust.phone || '',
+                                          service: cust.last_visit_service || currentTaxonomy.default_service || 'Consultation',
+                                          date: dStr,
+                                          time: '10:00',
+                                          price: 0,
+                                          notes: `Follow-up session for repeat client (${completedVisits} previous visits)`,
+                                        });
+                                        setIsAddBookingOpen(true);
+                                      }}
+                                      className="px-2 py-1 text-[11px] font-medium bg-surface hover:bg-surface-subtle text-text-primary border border-border rounded-sm flex items-center gap-1 transition-colors cursor-pointer shadow-2xs hover:border-accent"
+                                      title="Book next appointment for this repeat client"
+                                    >
+                                      <CalendarClock className="w-3 h-3 text-accent stroke-[1.8]" />
+                                      <span>Book Next</span>
+                                    </button>
+
+                                    {/* Open WhatsApp Chat */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const cleanTarget = (cust.phone || '').replace(/[^0-9]/g, '');
+                                        const conv = conversations.find((c) => {
+                                          const p = (c.contact_phone || c.phone || '').replace(/[^0-9]/g, '');
+                                          return p === cleanTarget;
+                                        });
+                                        if (conv) {
+                                          selectConversation(conv);
+                                        } else {
+                                          setSearchQuery(cust.phone);
+                                        }
+                                        navigateTo('inbox');
+                                      }}
+                                      className="p-1 text-text-muted hover:text-accent hover:bg-surface-subtle border border-border rounded-sm transition-colors cursor-pointer"
+                                      title="Chat on WhatsApp"
+                                    >
+                                      <MessageSquare className="w-3.5 h-3.5 stroke-[1.5]" />
+                                    </button>
+
+                                    {/* View History Drawer */}
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        await handleSelectCustomer(cust);
+                                        setShowCustomerHistoryModal(true);
+                                      }}
+                                      className="p-1 text-text-muted hover:text-text-primary hover:bg-surface-subtle border border-border rounded-sm transition-colors cursor-pointer"
+                                      title="View customer session & revenue history"
+                                    >
+                                      <FileText className="w-3.5 h-3.5 stroke-[1.5]" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}
@@ -13505,7 +14209,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             type="button"
             onClick={() => navigateTo('customers')}
             className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
-              activeNav === 'customers' || activeNav === 'followup'
+              activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients'
                 ? 'text-accent font-semibold'
                 : 'text-text-muted hover:text-text-primary'
             }`}

@@ -841,6 +841,7 @@ async def list_customers(
     status: Optional[str] = None,
     lead_probability: Optional[str] = None,
     preferred_doctor: Optional[str] = None,
+    client_type: Optional[str] = None,
     q: Optional[str] = None,
     limit: int = Query(100, le=1000),
     offset: int = 0
@@ -895,6 +896,29 @@ async def list_customers(
             params.append(preferred_doctor)
             idx += 1
 
+        if client_type and client_type != "all":
+            if client_type == "repeat":
+                conditions.append("""
+                    (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                     WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                       AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) > 0
+                """)
+            elif client_type == "new_lead":
+                conditions.append("""
+                    (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                     WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                       AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) = 0
+                """)
+            elif client_type == "lapsed":
+                conditions.append("""
+                    (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                     WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                       AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) > 0
+                    AND (SELECT MAX(b.start_time) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                         WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                           AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) < (now() - interval '30 days')
+                """)
+
         if q and q.strip():
             conditions.append(f"(c.name ILIKE ${idx} OR c.phone ILIKE ${idx} OR c.health_concern ILIKE ${idx})")
             params.append(f"%{q.strip()}%")
@@ -911,6 +935,20 @@ async def list_customers(
                 (SELECT MAX(b.start_time) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
                  WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                    AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS calculated_last_visited,
+                (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                   AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS completed_bookings_count,
+                (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                   AND b.tenant_id = c.tenant_id) AS total_bookings_count,
+                (SELECT b.service FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                   AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')
+                 ORDER BY b.start_time DESC LIMIT 1) AS last_visit_service,
+                (SELECT b.staff_member FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                   AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')
+                 ORDER BY b.start_time DESC LIMIT 1) AS last_visit_doctor,
                 (SELECT ct.wa_profile_name FROM contacts ct 
                  WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                    AND ct.tenant_id = c.tenant_id LIMIT 1) AS wa_profile_name,
@@ -953,8 +991,33 @@ async def list_customers(
         """
         rows = await conn.fetch(query, *params)
 
-    return [
-        {
+    out = []
+    for r in rows:
+        completed_cnt = int(r["completed_bookings_count"] or 0)
+        total_cnt = int(r["total_bookings_count"] or 0)
+        is_repeat = completed_cnt > 0
+        c_type = "repeat" if is_repeat else "new_lead"
+        last_visit_dt = (r["last_visited_at"] or r["calculated_last_visited"])
+        days_since_last_visit = None
+        retention_status = "new"
+        if last_visit_dt:
+            try:
+                if hasattr(last_visit_dt, "tzinfo") and last_visit_dt.tzinfo is not None:
+                    from datetime import timezone
+                    diff_days = (datetime.now(timezone.utc) - last_visit_dt).days
+                else:
+                    diff_days = (datetime.utcnow() - last_visit_dt).days
+                days_since_last_visit = max(0, diff_days)
+                if days_since_last_visit <= 30:
+                    retention_status = "active"
+                elif days_since_last_visit <= 60:
+                    retention_status = "due"
+                else:
+                    retention_status = "lapsed"
+            except Exception:
+                pass
+
+        out.append({
             "id": str(r["id"]),
             "phone": r["phone"],
             "name": r["name"] or "Customer",
@@ -970,7 +1033,14 @@ async def list_customers(
             "followup_time": r["followup_time"] or "10:00 AM",
             "google_task_id": r["google_task_id"],
             "google_calendar_event_id": r.get("google_calendar_event_id") if "google_calendar_event_id" in r else None,
-            "last_visited": (r["last_visited_at"] or r["calculated_last_visited"]).isoformat() if (r["last_visited_at"] or r["calculated_last_visited"]) else None,
+            "last_visited": last_visit_dt.isoformat() if last_visit_dt else None,
+            "completed_bookings_count": completed_cnt,
+            "total_bookings_count": total_cnt,
+            "client_type": c_type,
+            "last_visit_service": r["last_visit_service"] or None,
+            "last_visit_doctor": r["last_visit_doctor"] or None,
+            "days_since_last_visit": days_since_last_visit,
+            "retention_status": retention_status,
             "notes_count": r["notes_count"] or 0,
             "latest_note": r["latest_note"] or None,
             "last_chat_at": (r["last_chat_at"] or r["last_messaged_at"]).isoformat() if (r["last_chat_at"] or r["last_messaged_at"]) else None,
@@ -978,9 +1048,8 @@ async def list_customers(
             "unread_count": r["unread_count"] or 0,
             "conversation_id": str(r["conversation_id"]) if r["conversation_id"] else None,
             "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-        }
-        for r in rows
-    ]
+        })
+    return out
 
 
 @app.post("/customers")
@@ -1375,6 +1444,61 @@ async def list_customer_notes(
         }
         for r in rows
     ]
+
+
+@app.get("/customers/{customer_id}/bookings")
+@app.get("/api/v1/crm/customers/{customer_id}/bookings")
+async def list_customer_bookings(
+    customer_id: str,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """List all appointment records (past and upcoming) for a specific customer."""
+    async with db_pool.acquire() as conn:
+        cust = await conn.fetchrow(
+            "SELECT id, phone, name FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            customer_id, tenant_id
+        )
+        if not cust:
+            raise HTTPException(404, "Customer not found")
+
+        phone = cust["phone"]
+        clean_phone = re.sub(r"[^0-9]", "", phone)
+        last10 = clean_phone[-10:] if len(clean_phone) >= 10 else clean_phone
+
+        rows = await conn.fetch(
+            """SELECT b.id, b.service, b.start_time, b.end_time, b.status, b.notes,
+                      b.staff_member, b.location, b.price, b.currency, b.created_at
+               FROM bookings b
+               JOIN contacts ct ON b.contact_id = ct.id
+               WHERE b.tenant_id = $1::uuid
+                 AND (ct.phone = $2 OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = $3)
+               ORDER BY b.start_time DESC""",
+            tenant_id, phone, last10
+        )
+        bookings_list = [
+            {
+                "id": str(r["id"]),
+                "service": r["service"],
+                "start_time": r["start_time"].isoformat() if r["start_time"] else None,
+                "end_time": r["end_time"].isoformat() if r["end_time"] else None,
+                "status": r["status"] or "confirmed",
+                "notes": r["notes"] or "",
+                "staff_member": r["staff_member"] or None,
+                "location": r["location"] or None,
+                "price": float(r["price"]) if r["price"] is not None else 0.0,
+                "currency": r["currency"] or "INR",
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in rows
+        ]
+        completed_b = [r for r in rows if r["status"] in ("completed", "attended")]
+        total_rev = sum((float(r["price"]) for r in completed_b if r["price"] is not None), 0.0)
+        return {
+            "bookings": bookings_list,
+            "total_revenue": total_rev,
+            "total_sessions": len(rows),
+            "completed_sessions": len(completed_b),
+        }
 
 
 @app.post("/customers/{customer_id}/notes")
@@ -3523,6 +3647,7 @@ async def delete_booking(
 
 
 @app.get("/conversations")
+@app.get("/api/v1/crm/conversations")
 async def list_conversations(
     tenant_id: str = Depends(get_tenant_id),
     status: Optional[str] = None,
@@ -3535,7 +3660,12 @@ async def list_conversations(
                    ct.name, ct.phone,
                    u.display_name as assigned_staff_name, u.email as assigned_staff_email,
                    (SELECT m.body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message,
-                   (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'inbound') as last_inbound_at
+                   (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'inbound') as last_inbound_at,
+                   (SELECT COUNT(*) FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS completed_bookings_count,
+                   (SELECT MAX(b.start_time) FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS last_visit_date,
+                   (SELECT b.service FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended') ORDER BY b.start_time DESC LIMIT 1) AS last_visit_service,
+                   (SELECT b.staff_member FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended') ORDER BY b.start_time DESC LIMIT 1) AS last_visit_doctor,
+                   (SELECT cust.preferred_doctor FROM customers cust WHERE cust.tenant_id = c.tenant_id AND (cust.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10)) LIMIT 1) AS preferred_doctor
             FROM conversations c
             JOIN contacts ct ON ct.id = c.contact_id
             LEFT JOIN users u ON u.id = c.assigned_to
@@ -3552,8 +3682,12 @@ async def list_conversations(
             args.extend([limit, offset])
 
         rows = await conn.fetch(query, *args)
-    return [
-        {
+
+    out = []
+    for r in rows:
+        completed_cnt = int(r["completed_bookings_count"] or 0)
+        c_type = "repeat" if completed_cnt > 0 else "new_lead"
+        out.append({
             "id": str(r["id"]),
             "status": r["status"] or "bot",
             "last_message_at": r["last_message_at"].isoformat() if r["last_message_at"] else None,
@@ -3567,9 +3701,14 @@ async def list_conversations(
             "assigned_to": str(r["assigned_to"]) if r["assigned_to"] else None,
             "assigned_staff_name": r["assigned_staff_name"] or None,
             "assigned_staff_email": r["assigned_staff_email"] or None,
-        }
-        for r in rows
-    ]
+            "completed_bookings_count": completed_cnt,
+            "client_type": c_type,
+            "last_visit_date": r["last_visit_date"].isoformat() if r["last_visit_date"] else None,
+            "last_visit_service": r["last_visit_service"] or None,
+            "last_visit_doctor": r["last_visit_doctor"] or None,
+            "preferred_doctor": r["preferred_doctor"] or r["last_visit_doctor"] or None,
+        })
+    return out
 
 
 async def mark_wa_message_as_read(phone_number_id: str, access_token: str, wa_message_id: str):
