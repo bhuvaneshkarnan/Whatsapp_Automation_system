@@ -1989,6 +1989,77 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     actions_label: settingsForm.taxonomy?.actions_label || 'Action',
   };
 
+  // ── Teams & Staff that were ACTUALLY added by the user / clinic ─────────────────
+  const addedTeams = useMemo(() => {
+    const list: { id: string; label: string; kind: 'team' | 'staff' | 'specialty' }[] = [];
+
+    // 1. Roles & assigned specialties from team accounts added in Team & Sales
+    const addedMembers = (teamList || []).filter((m) => m.id !== user?.id && m.role !== 'super_admin');
+    const rolesPresent = new Set<string>();
+
+    addedMembers.forEach((m) => {
+      // Role-based team grouping
+      if (m.role === 'sales') rolesPresent.add('Sales Team');
+      else if (m.role === 'marketing') rolesPresent.add('Marketing Team');
+      else if (m.role === 'doctor') {
+        const staffName = currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() : 'Doctor';
+        rolesPresent.add(`${staffName} Team`);
+      } else if (m.role === 'receptionist') rolesPresent.add('Front Desk Team');
+      else if (m.role === 'agent') rolesPresent.add('Support Team');
+      else if (m.role && m.role !== 'admin' && m.role !== 'super_admin') {
+        rolesPresent.add(`${m.role.charAt(0).toUpperCase() + m.role.slice(1)} Team`);
+      }
+
+      // Any explicit specialties/concerns assigned to this added member
+      if (Array.isArray(m.permissions?.assigned_health_concerns)) {
+        m.permissions.assigned_health_concerns.forEach((c: string) => {
+          if (c && c.trim()) {
+            const val = c.trim();
+            const label = val.toLowerCase().endsWith('team') ? val : `${val} Team`;
+            if (!list.some((item) => item.label.toLowerCase() === label.toLowerCase())) {
+              list.push({ id: `specialty:${val}`, label, kind: 'specialty' });
+            }
+          }
+        });
+      }
+
+      // Individual added staff member by name
+      if (m.display_name && m.display_name.trim()) {
+        const name = m.display_name.trim();
+        if (!list.some((item) => item.label.toLowerCase() === name.toLowerCase())) {
+          list.push({ id: `staff:${name}`, label: name, kind: 'staff' });
+        }
+      }
+    });
+
+    rolesPresent.forEach((roleLabel) => {
+      if (!list.some((item) => item.label.toLowerCase() === roleLabel.toLowerCase())) {
+        list.push({ id: `role:${roleLabel}`, label: roleLabel, kind: 'team' });
+      }
+    });
+
+    // 2. Staff / Doctors configured in clinic presets
+    const configuredStaff = Array.isArray(settingsForm.taxonomy?.staff_presets)
+      ? settingsForm.taxonomy.staff_presets
+      : Array.isArray(settingsForm.taxonomy?.doctor_presets)
+      ? settingsForm.taxonomy.doctor_presets
+      : [];
+    configuredStaff.forEach((st: string) => {
+      if (st && st.trim() && !list.some((item) => item.label.toLowerCase() === st.trim().toLowerCase())) {
+        list.push({ id: `staff:${st.trim()}`, label: st.trim(), kind: 'staff' });
+      }
+    });
+
+    return list;
+  }, [teamList, user?.id, currentTaxonomy.staff_label, settingsForm.taxonomy?.staff_presets, settingsForm.taxonomy?.doctor_presets]);
+
+  // Reset selectedDepartment to 'all' if selected option is no longer present
+  useEffect(() => {
+    if (selectedDepartment !== 'all' && !addedTeams.some((t) => t.label === selectedDepartment)) {
+      setSelectedDepartment('all');
+    }
+  }, [addedTeams, selectedDepartment]);
+
   const filteredTasks = tasks.filter((task) => {
     if (taskFilter === 'all') return true;
     if (taskFilter === 'completed') return task.completed;
@@ -4208,14 +4279,36 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         name.toLowerCase().includes(searchQuery.toLowerCase());
       if (!matchesSearch) return false;
       if (selectedDepartment !== 'all') {
+        const selected = addedTeams.find((item) => item.label === selectedDepartment || item.id === selectedDepartment);
+        const term = (selected ? selected.label : selectedDepartment).toLowerCase().replace(/\s+team$/i, '').trim();
+
         const phone = c.contact_phone || c.phone || '';
         const normPhone = phone.replace(/[^0-9]/g, '').slice(-10);
         const linkedCust = (customers || []).find((cu) => {
           const cuPhone = (cu.phone || '').replace(/[^0-9]/g, '').slice(-10);
           return cuPhone && cuPhone === normPhone;
         });
-        const concern = c.health_concern || linkedCust?.health_concern || '';
-        if (concern.trim().toLowerCase() !== selectedDepartment.trim().toLowerCase()) {
+
+        const assignedStaff = (c.assigned_staff_name || '').toLowerCase();
+        const preferredDoc = (linkedCust?.preferred_doctor || '').toLowerCase();
+        const concern = (c.health_concern || linkedCust?.health_concern || '').toLowerCase();
+
+        const matchesStaff = (assignedStaff && (assignedStaff.includes(term) || term.includes(assignedStaff))) ||
+                             (preferredDoc && (preferredDoc.includes(term) || term.includes(preferredDoc)));
+        const matchesConcern = concern && (concern.includes(term) || term.includes(concern));
+
+        let matchesRole = false;
+        if (selected?.kind === 'team') {
+          if (selected.label.toLowerCase().includes('sales')) {
+            const salesStaffNames = (teamList || []).filter(m => m.role === 'sales').map(m => (m.display_name || '').toLowerCase());
+            matchesRole = salesStaffNames.some(name => name && (assignedStaff.includes(name) || preferredDoc.includes(name)));
+          } else if (selected.label.toLowerCase().includes('marketing')) {
+            const mktStaffNames = (teamList || []).filter(m => m.role === 'marketing').map(m => (m.display_name || '').toLowerCase());
+            matchesRole = mktStaffNames.some(name => name && (assignedStaff.includes(name) || preferredDoc.includes(name)));
+          }
+        }
+
+        if (!matchesStaff && !matchesConcern && !matchesRole) {
           return false;
         }
       }
@@ -4248,13 +4341,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (!matchesSearch) return false;
 
     if (selectedDepartment !== 'all') {
+      const selected = addedTeams.find((item) => item.label === selectedDepartment || item.id === selectedDepartment);
+      const term = (selected ? selected.label : selectedDepartment).toLowerCase().replace(/\s+team$/i, '').trim();
+
       const bPhone = (b.contact_phone || '').replace(/[^0-9]/g, '').slice(-10);
       const linkedCust = (customers || []).find((cu) => {
         const cuPhone = (cu.phone || '').replace(/[^0-9]/g, '').slice(-10);
         return cuPhone && cuPhone === bPhone;
       });
-      const concern = (b as any).health_concern || linkedCust?.health_concern || '';
-      if (concern.trim().toLowerCase() !== selectedDepartment.trim().toLowerCase()) {
+
+      const doc = ((b as any).doctor || (b as any).assigned_doctor || linkedCust?.preferred_doctor || '').toLowerCase();
+      const concern = ((b as any).health_concern || (b as any).service || linkedCust?.health_concern || '').toLowerCase();
+
+      const matchesStaff = doc && (doc.includes(term) || term.includes(doc));
+      const matchesConcern = concern && (concern.includes(term) || term.includes(concern));
+
+      if (!matchesStaff && !matchesConcern) {
         return false;
       }
     }
@@ -4850,14 +4952,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 value={selectedDepartment}
                 onChange={(e) => setSelectedDepartment(e.target.value)}
                 className="bg-surface-subtle border border-border rounded-sm px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent cursor-pointer font-medium"
-                title="Filter entire CRM workspace by specialty / department"
+                title="Filter entire CRM workspace by team or staff"
               >
                 <option value="all">All Departments (Admin View)</option>
-                {availableHealthConcerns.map((concern) => (
-                  <option key={concern} value={concern}>
-                    {concern} Team
+                {addedTeams.length === 0 ? (
+                  <option value="" disabled>
+                    No teams added yet
                   </option>
-                ))}
+                ) : (
+                  addedTeams.map((item) => (
+                    <option key={item.id} value={item.label}>
+                      {item.label}
+                    </option>
+                  ))
+                )}
               </select>
             </div>
           )}
