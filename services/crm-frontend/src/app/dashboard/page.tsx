@@ -1993,6 +1993,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const addedTeams = useMemo(() => {
     const list: { id: string; label: string; kind: 'team' | 'staff' | 'specialty' }[] = [];
 
+    // Helper to normalize staff names and avoid duplicate entries like "Dr. Sameer" and "Dr. Sameer (Lead Consultant)"
+    const normalizeName = (s: string) => s.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+
     // 1. Roles & assigned specialties from team accounts added in Team & Sales
     const addedMembers = (teamList || []).filter((m) => m.id !== user?.id && m.role !== 'super_admin');
     const rolesPresent = new Set<string>();
@@ -2026,7 +2029,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       // Individual added staff member by name
       if (m.display_name && m.display_name.trim()) {
         const name = m.display_name.trim();
-        if (!list.some((item) => item.label.toLowerCase() === name.toLowerCase())) {
+        const norm = normalizeName(name);
+        if (!list.some((item) => normalizeName(item.label) === norm)) {
           list.push({ id: `staff:${name}`, label: name, kind: 'staff' });
         }
       }
@@ -2045,8 +2049,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       ? settingsForm.taxonomy.doctor_presets
       : [];
     configuredStaff.forEach((st: string) => {
-      if (st && st.trim() && !list.some((item) => item.label.toLowerCase() === st.trim().toLowerCase())) {
-        list.push({ id: `staff:${st.trim()}`, label: st.trim(), kind: 'staff' });
+      if (st && st.trim()) {
+        const cleanSt = st.replace(/\s*\([^)]*\)/g, '').trim();
+        const norm = cleanSt.toLowerCase();
+        // If an entry with this normalized name already exists, do not add duplicate
+        if (!list.some((item) => normalizeName(item.label) === norm)) {
+          list.push({ id: `staff:${cleanSt}`, label: cleanSt, kind: 'staff' });
+        }
       }
     });
 
