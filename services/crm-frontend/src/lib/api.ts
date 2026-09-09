@@ -3,10 +3,28 @@
 
 const BASE = '';
 
+const KNOWN_SLUG_MAP: Record<string, string> = {
+  boldlabs: '05f469a7-2089-425c-8fce-1a56002d5272',
+  mindbodyrecovery: 'b97ca3e5-7d43-44cf-8021-6e3659def878',
+};
+
 function getAuthHeaders(): Record<string, string> {
   if (typeof window === 'undefined') return {};
   const token = localStorage.getItem('auth_token');
-  const tenantId = localStorage.getItem('tenant_id');
+  let tenantId = localStorage.getItem('tenant_id');
+
+  // Strict route-based workspace synchronization:
+  // If the browser URL path is /[slug] (e.g. /boldlabs or /mindbodyrecovery),
+  // lock X-Tenant-ID directly to that workspace so cross-tenant storage bleed cannot occur.
+  const firstPath = window.location.pathname.split('/')[1]?.toLowerCase().trim();
+  if (firstPath && KNOWN_SLUG_MAP[firstPath]) {
+    tenantId = KNOWN_SLUG_MAP[firstPath];
+    if (localStorage.getItem('tenant_id') !== tenantId) {
+      localStorage.setItem('tenant_id', tenantId);
+      localStorage.setItem('tenant_slug', firstPath);
+    }
+  }
+
   return {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(tenantId ? { 'X-Tenant-ID': tenantId } : {}),

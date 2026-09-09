@@ -2836,13 +2836,7 @@ async def create_booking(
                        VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
                     tenant_id, booking_id, remind_2h
                 )
-            review_at = et_dt + timedelta(hours=1)
-            await conn.execute(
-                """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
-                   VALUES (gen_random_uuid(), $1::uuid, 'review_request', $2::uuid, $3, 'pending', now())""",
-                tenant_id, booking_id, review_at
-            )
-            logger.info("scheduled_reminder_and_review_jobs_queued", booking_id=booking_id)
+            logger.info("scheduled_reminder_jobs_queued", booking_id=booking_id)
         except Exception as e_job:
             logger.warning("scheduled_jobs_queue_failed", error=str(e_job))
 
@@ -2902,6 +2896,7 @@ async def dispatch_automated_status_whatsapp(
     delay_seconds: int = 0,
     template_name: Optional[str] = None,
     template_params: Optional[list] = None,
+    allow_text_fallback: bool = True,
 ):
     try:
         if delay_seconds > 0:
@@ -2979,18 +2974,21 @@ async def dispatch_automated_status_whatsapp(
                     except Exception as e:
                         logger.warning("template_dispatch_failed_trying_text", error=str(e), template=template_name)
 
-                # 2. Fallback to Text if template was not sent
+                # 2. Fallback to Text ONLY if template was not sent AND allow_text_fallback is True
                 if not template_sent:
-                    try:
-                        async with httpx.AsyncClient(timeout=10.0) as client:
-                            res_txt = await client.post(
-                                url,
-                                headers=headers,
-                                json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": text}}
-                            )
-                            logger.info("fallback_text_dispatch_response", status=res_txt.status_code, text=res_txt.text)
-                    except Exception as e:
-                        logger.error("automated_wa_text_dispatch_failed", error=str(e), phone=clean_phone)
+                    if allow_text_fallback and text:
+                        try:
+                            async with httpx.AsyncClient(timeout=10.0) as client:
+                                res_txt = await client.post(
+                                    url,
+                                    headers=headers,
+                                    json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": text}}
+                                )
+                                logger.info("fallback_text_dispatch_response", status=res_txt.status_code, text=res_txt.text)
+                        except Exception as e:
+                            logger.error("automated_wa_text_dispatch_failed", error=str(e), phone=clean_phone)
+                    else:
+                        logger.info("automated_wa_text_fallback_suppressed", template=template_name, phone=clean_phone)
 
             # Record message in database
             try:
@@ -3022,12 +3020,21 @@ async def dispatch_automated_status_whatsapp(
                         conv_id = str(conv_row["id"])
 
                 msg_id = str(uuid.uuid4())
-                await conn.execute(
-                    """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
-                       VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
-                    msg_id, conv_id, tenant_id, text
-                )
-                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                if template_sent and template_name:
+                    logged_body = f"[Template: {template_name}]"
+                    await conn.execute(
+                        """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
+                           VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, $5, $6::jsonb, 'sent', false)""",
+                        msg_id, conv_id, tenant_id, logged_body, template_name, json.dumps(template_params or [])
+                    )
+                    await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                elif allow_text_fallback and text:
+                    await conn.execute(
+                        """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
+                           VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
+                        msg_id, conv_id, tenant_id, text
+                    )
+                    await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
             except Exception as db_rec_err:
                 logger.warning("automated_msg_record_warn", error=str(db_rec_err))
             logger.info("automated_status_message_dispatched", tenant_id=tenant_id, phone=clean_phone, delay=delay_seconds, template_sent=template_sent)
@@ -3566,62 +3573,83 @@ async def update_booking_status(
             google_review_link = f"https://search.google.com/local/writereview?placeid={tenant_name.replace(' ', '+')}"
 
         if payload.status in ["completed", "attended"]:
-            # 10 seconds delay for post-service review request
-            delay_seconds = 10
-            review_link_block = f"\n\n⭐ *Leave a quick Google Review here:*\n{google_review_link}" if google_review_link else ""
-            automated_text = (
-                f"Hi {patient_name}, thank you for attending your {service_name} session with {tenant_name} today! 😊\n\n"
-                f"We hope you had a wonderful experience! Could you please take 30 seconds to share your review with us?{review_link_block}\n\n"
-                f"Your feedback helps us maintain the highest standard of service. Thank you for choosing {tenant_name}!"
-            )
-            dispatch_template = (
+            t_review_tpl = (
                 t_settings_dict.get("template_review_request") or
                 t_settings_dict.get("template_post_service_review") or
                 wa_data.get("template_review_request") or
-                wa_data.get("template_post_service_review") or
-                "review_request"
+                wa_data.get("template_post_service_review")
             )
-            dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", google_review_link]
-            # Update review_sent_at timestamp
-            await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid", booking_id)
+            # 1. If explicitly empty, none, or disabled: DO NOT SEND REVIEW REQUEST AT ALL
+            if not t_review_tpl or str(t_review_tpl).strip().lower() in ("", "none", "disabled", "off", "false"):
+                dispatch_template = None
+                automated_text = None
+                logger.info("review_request_disabled_or_empty_skipping", tenant_id=tenant_id, booking_id=booking_id)
+                # Cancel any pending review_request scheduled jobs for this booking
+                await conn.execute(
+                    "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND job_type = 'review_request' AND status = 'pending'",
+                    booking_id, tenant_id
+                )
+            # 2. If review has ALREADY been sent for this booking (review_sent_at is not null), DO NOT SEND AGAIN
+            elif booking.get("review_sent_at") is not None:
+                dispatch_template = None
+                automated_text = None
+                logger.info("review_request_already_sent_skipping_duplicate", tenant_id=tenant_id, booking_id=booking_id)
+            else:
+                delay_seconds = 10
+                review_link_block = f"\n\nGoogle Review link:\n{google_review_link}" if google_review_link else ""
+                automated_text = (
+                    f"Hi {patient_name}, thank you for attending your {service_name} session with {tenant_name} today.\n\n"
+                    f"We hope you had a wonderful experience! Could you please take 30 seconds to share your review with us?{review_link_block}\n\n"
+                    f"Your feedback helps us maintain the highest standard of service. Thank you for choosing {tenant_name}."
+                )
+                dispatch_template = str(t_review_tpl).strip()
+                dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", google_review_link]
+                # Update review_sent_at timestamp immediately to avoid race conditions
+                await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid", booking_id)
 
-            # Direct Review Email to Customer
-            try:
-                c_email = customer_email
-                if not c_email and booking.get("contact_id"):
-                    c_email = await conn.fetchval("SELECT metadata->>'email' FROM contacts WHERE id = $1::uuid", booking["contact_id"])
-                c_email = sanitize_and_fix_email(c_email)
-                if c_email and "@" in c_email:
-                    gcal_row = await conn.fetchrow(
-                        "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
-                        tenant_id
-                    )
-                    if gcal_row and gcal_row["credential_data"]:
-                        g_data = gcal_row["credential_data"]
-                        if isinstance(g_data, str):
-                            try: g_data = json.loads(g_data)
-                            except: g_data = {}
-                        if g_data.get("refresh_token") and g_data.get("client_id"):
-                            from google.oauth2.credentials import Credentials
-                            g_creds = Credentials(
-                                token=g_data.get("access_token"),
-                                refresh_token=g_data.get("refresh_token"),
-                                token_uri="https://oauth2.googleapis.com/token",
-                                client_id=g_data.get("client_id"),
-                                client_secret=g_data.get("client_secret"),
-                            )
-                            review_email_html = build_review_customer_email_html(
-                                service_name=service_name,
-                                formatted_date=date_str or "Today",
-                                formatted_time=clock_str or "Scheduled Time",
-                                name=patient_name,
-                                full_location=""
-                            )
-                            review_subject = f"Thank You: Your {service_name} Appointment with {tenant_name}"
-                            send_gmail_direct_notification(g_creds, c_email, review_subject, review_email_html)
-                            logger.info("crm_review_email_sent_to_customer", to=c_email)
-            except Exception as re_err:
-                logger.warning("crm_review_email_dispatch_failed", error=str(re_err))
+                # Cancel any pending scheduled_jobs for review_request for this booking since we are sending it now
+                await conn.execute(
+                    "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND job_type = 'review_request' AND status = 'pending'",
+                    booking_id, tenant_id
+                )
+
+                # Direct Review Email to Customer
+                try:
+                    c_email = customer_email
+                    if not c_email and booking.get("contact_id"):
+                        c_email = await conn.fetchval("SELECT metadata->>'email' FROM contacts WHERE id = $1::uuid", booking["contact_id"])
+                    c_email = sanitize_and_fix_email(c_email)
+                    if c_email and "@" in c_email:
+                        gcal_row = await conn.fetchrow(
+                            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+                            tenant_id
+                        )
+                        if gcal_row and gcal_row["credential_data"]:
+                            g_data = gcal_row["credential_data"]
+                            if isinstance(g_data, str):
+                                try: g_data = json.loads(g_data)
+                                except: g_data = {}
+                            if g_data.get("refresh_token") and g_data.get("client_id"):
+                                from google.oauth2.credentials import Credentials
+                                g_creds = Credentials(
+                                    token=g_data.get("access_token"),
+                                    refresh_token=g_data.get("refresh_token"),
+                                    token_uri="https://oauth2.googleapis.com/token",
+                                    client_id=g_data.get("client_id"),
+                                    client_secret=g_data.get("client_secret"),
+                                )
+                                review_email_html = build_review_customer_email_html(
+                                    service_name=service_name,
+                                    formatted_date=date_str or "Today",
+                                    formatted_time=clock_str or "Scheduled Time",
+                                    name=patient_name,
+                                    full_location=""
+                                )
+                                review_subject = f"Thank You: Your {service_name} Appointment with {tenant_name}"
+                                send_gmail_direct_notification(g_creds, c_email, review_subject, review_email_html)
+                                logger.info("crm_review_email_sent_to_customer", to=c_email)
+                except Exception as re_err:
+                    logger.warning("crm_review_email_dispatch_failed", error=str(re_err))
 
 
         elif payload.status in ["no_show", "no-show"]:
@@ -3642,7 +3670,7 @@ async def update_booking_status(
             delay_seconds = 0
             timing_line = f" on *{time_str}*" if time_str else ""
             automated_text = (
-                f"Hi {patient_name}, your booking for *{service_name}*{timing_line} is officially confirmed! ✅\n\n"
+                f"Hi {patient_name}, your booking for *{service_name}*{timing_line} is officially confirmed.\n\n"
                 f"Location: {tenant_name}\n\n"
                 f"We look forward to seeing you. Reply to this chat if you have any questions or need directions."
             )
@@ -3672,7 +3700,7 @@ async def update_booking_status(
             delay_seconds = 0
             timing_line = f" to {time_str}" if time_str else ""
             automated_text = (
-                f"Hi {patient_name}, your {service_name} booking has been successfully rescheduled{timing_line}! 🔄\n\n"
+                f"Hi {patient_name}, your {service_name} booking has been successfully rescheduled{timing_line}.\n\n"
                 f"If you need to make any further changes, please reply to this chat anytime.\n\n"
                 f"Best regards,\n{tenant_name}"
             )
@@ -3701,6 +3729,7 @@ async def update_booking_status(
                         conv_id, tenant_id, booking["contact_id"]
                     )
 
+            allow_text = payload.status not in ["completed", "attended"]
             background_tasks.add_task(
                 dispatch_automated_status_whatsapp,
                 tenant_id,
@@ -3710,6 +3739,7 @@ async def update_booking_status(
                 delay_seconds,
                 dispatch_template,
                 dispatch_params,
+                allow_text,
             )
 
         # Dispatch Admin WhatsApp notification if rescheduled or cancelled
@@ -4467,10 +4497,10 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         "template_admin_cancellation_notice": wa_data.get("template_admin_cancellation_notice") or tenant_settings.get("template_admin_cancellation_notice", "admin_cancellation_notice"),
         "template_reschedule_confirmation": wa_data.get("template_reschedule_confirmation") or tenant_settings.get("template_reschedule_confirmation", "booking_reschedule_confirmation"),
         "template_admin_reschedule_notice": wa_data.get("template_admin_reschedule_notice") or tenant_settings.get("template_admin_reschedule_notice", "admin_reschedule_notice"),
-        "template_post_service_review": wa_data.get("template_post_service_review") or tenant_settings.get("template_post_service_review", "post_service_review"),
+        "template_post_service_review": wa_data.get("template_post_service_review") if wa_data.get("template_post_service_review") is not None else tenant_settings.get("template_post_service_review", ""),
         "template_appointment_reminder": wa_data.get("template_appointment_reminder") or tenant_settings.get("template_appointment_reminder", "appointment_ramainder"),
         "template_reschedule_nudge": wa_data.get("template_reschedule_nudge") or tenant_settings.get("template_reschedule_nudge", "reschedule_nudge"),
-        "template_review_request": wa_data.get("template_review_request") or tenant_settings.get("template_review_request", "review_request"),
+        "template_review_request": wa_data.get("template_review_request") if wa_data.get("template_review_request") is not None else tenant_settings.get("template_review_request", ""),
         "template_admin_daily_digest": wa_data.get("template_admin_daily_digest") or tenant_settings.get("template_admin_daily_digest", "admin_daily_digest"),
         "template_client_followup": wa_data.get("template_client_followup") or tenant_settings.get("template_client_followup", "client_followup_checkin"),
         "google_review_link": tenant_settings.get("google_review_link", wa_data.get("google_review_link", "")),
@@ -8963,12 +8993,7 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                        VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
                     tenant_id, booking_id, remind_2h
                 )
-            review_at = et_dt + timedelta(hours=1)
-            await conn.execute(
-                """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
-                   VALUES (gen_random_uuid(), $1::uuid, 'review_request', $2::uuid, $3, 'pending', now())""",
-                tenant_id, booking_id, review_at
-            )
+            pass
         except Exception as e_job:
             logger.warning("public_booking_scheduled_jobs_failed", error=str(e_job))
 

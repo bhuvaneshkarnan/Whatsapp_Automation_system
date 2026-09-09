@@ -2112,6 +2112,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         const rawSlug = routeSlug || (params?.slug as string) || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : '') || '';
         const targetSlug = rawSlug && rawSlug !== 'dashboard' && rawSlug !== 'login' && rawSlug !== 'bhuvanesh' && rawSlug !== 'admin' ? rawSlug.toLowerCase().trim() : '';
 
+        // Reset in-memory conversation and selection states on tenant load to avoid any UI overlap
+        setSelectedConv(null);
+        setMessages([]);
+
+        const KNOWN_MAP: Record<string, string> = {
+          boldlabs: '05f469a7-2089-425c-8fce-1a56002d5272',
+          mindbodyrecovery: 'b97ca3e5-7d43-44cf-8021-6e3659def878',
+        };
+
+        // If target slug is known, immediately sync localStorage before executing any API calls
+        if (targetSlug && KNOWN_MAP[targetSlug]) {
+          localStorage.setItem('tenant_id', KNOWN_MAP[targetSlug]);
+          localStorage.setItem('tenant_slug', targetSlug);
+        }
+
         // 1. Regular client admin / agent: STRICT WORKSPACE LOCK
         if (data.role !== 'super_admin') {
           const userSlug = (data.tenant_slug || '').toLowerCase().trim();
@@ -2133,20 +2148,31 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         // 2. Super Admin: Workspace resolution and switching
         else if (data.role === 'super_admin') {
           if (targetSlug) {
-            try {
-              // Resolve target slug to tenant_id so all API calls are scoped to the intended client
-              const resolved = await crm.resolveTenantBySlug(targetSlug);
-              if (resolved && resolved.id) {
-                localStorage.setItem('tenant_id', resolved.id);
-                localStorage.setItem('tenant_slug', resolved.slug);
+            if (KNOWN_MAP[targetSlug]) {
+              localStorage.setItem('tenant_id', KNOWN_MAP[targetSlug]);
+              localStorage.setItem('tenant_slug', targetSlug);
+            } else {
+              try {
+                // Resolve target slug to tenant_id so all API calls are scoped to the intended client
+                const resolved = await crm.resolveTenantBySlug(targetSlug);
+                if (resolved && resolved.id) {
+                  localStorage.setItem('tenant_id', resolved.id);
+                  localStorage.setItem('tenant_slug', resolved.slug);
+                }
+              } catch (err) {
+                console.warn('Could not resolve tenant by slug:', targetSlug, err);
               }
-            } catch (err) {
-              console.warn('Could not resolve tenant by slug:', targetSlug, err);
             }
           } else if (typeof window !== 'undefined') {
-            const storedSlug = localStorage.getItem('tenant_slug') || data.tenant_slug;
-            if (storedSlug && (window.location.pathname === '/dashboard' || window.location.pathname === '/')) {
-              window.history.replaceState(null, '', `/${storedSlug}${window.location.hash || ''}`);
+            // Visiting /dashboard without slug: default to user's home tenant
+            const defaultSlug = data.tenant_slug || 'boldlabs';
+            const defaultId = data.tenant_id || KNOWN_MAP['boldlabs'];
+            if (defaultId) localStorage.setItem('tenant_id', defaultId);
+            if (defaultSlug) {
+              localStorage.setItem('tenant_slug', defaultSlug);
+              if (window.location.pathname === '/dashboard' || window.location.pathname === '/') {
+                window.history.replaceState(null, '', `/${defaultSlug}${window.location.hash || ''}`);
+              }
             }
           }
         }
@@ -2179,7 +2205,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           window.location.replace('/login');
         }
       });
-  }, []);
+  }, [routeSlug]);
 
   // Load Sticky Notes from localStorage (strictly isolated per tenant)
   useEffect(() => {

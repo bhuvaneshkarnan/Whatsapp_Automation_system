@@ -2151,12 +2151,6 @@ class CoreWorker:
                            VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
                         tenant_id, booking_id, remind_2h
                     )
-                review_at = et_dt + datetime.timedelta(hours=1)
-                await self.db_pool.execute(
-                    """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
-                       VALUES (gen_random_uuid(), $1::uuid, 'review_request', $2::uuid, $3, 'pending', now())""",
-                    tenant_id, booking_id, review_at
-                )
                 logger.info("ai_booking_scheduled_jobs_queued", booking_id=booking_id)
             except Exception as e_job:
                 logger.warning("ai_booking_scheduled_jobs_failed", error=str(e_job))
@@ -2862,13 +2856,7 @@ class CoreWorker:
                            WHERE booking_id = $2::uuid AND job_type = 'reminder'""",
                         reminder_time, booking_id
                     )
-                new_review_time = et_dt + datetime.timedelta(hours=1)
-                await self.db_pool.execute(
-                    """UPDATE scheduled_jobs
-                       SET scheduled_at = $1, status = 'pending'
-                       WHERE booking_id = $2::uuid AND job_type = 'review_request'""",
-                    new_review_time, booking_id
-                )
+                pass
             except Exception as e_rem:
                 logger.warning("reminder_job_reschedule_failed", error=str(e_rem))
 
@@ -3652,12 +3640,22 @@ class CoreWorker:
 
                 # 2. Review Request job: Send approved review_request template
                 elif job_type == "review_request" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+                    raw_tpl = creds.get("template_review_request") or t_st.get("template_review_request")
+                    if not raw_tpl or str(raw_tpl).strip().lower() in ("", "none", "disabled", "off", "false"):
+                        logger.info("scheduled_review_request_disabled_skipping", job_id=str(job["id"]))
+                        await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE id = $1", job["id"])
+                        continue
+
+                    # Deduplication: check if review was already sent for this booking
+                    if job.get("booking_id"):
+                        b_row = await self.db_pool.fetchrow("SELECT review_sent_at FROM bookings WHERE id = $1::uuid", job["booking_id"])
+                        if b_row and b_row["review_sent_at"]:
+                            logger.info("scheduled_review_already_sent_skipping", job_id=str(job["id"]))
+                            await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE id = $1", job["id"])
+                            continue
+
                     review_link = (t_st.get("google_review_link") or creds.get("google_review_link") or "").strip() or "https://g.page"
-                    template_name = (
-                        creds.get("template_review_request") or
-                        t_st.get("template_review_request") or
-                        "review_request"
-                    )
+                    template_name = str(raw_tpl).strip()
                     components = [
                         {
                             "type": "body",
@@ -3680,7 +3678,7 @@ class CoreWorker:
                         sent_via_template = True
                         logger.info("scheduled_review_template_sent", template=template_name, to=job["phone"])
                     except Exception as te:
-                        logger.warning("scheduled_review_template_failed_fallback_text", error=str(te))
+                        logger.warning("scheduled_review_template_failed_skip_text_fallback", error=str(te))
 
                 # 3. Reschedule Nudge job: Send approved reschedule_nudge template
                 elif job_type == "reschedule_nudge" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
@@ -3712,8 +3710,12 @@ class CoreWorker:
                     except Exception as te:
                         logger.warning("scheduled_reschedule_nudge_template_failed_fallback_text", error=str(te))
 
-                # 3. Fallback to freeform text if template wasn't sent
+                # 4. Fallback to freeform text ONLY if allowed (disallowed for review_request)
                 if not sent_via_template:
+                    if job_type == "review_request":
+                        logger.info("scheduled_review_request_template_failed_suppressed_text", job_id=str(job["id"]))
+                        await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'failed' WHERE id = $1", job["id"])
+                        continue
                     message = self._build_scheduled_message(dict(job))
                     await send_text(
                         phone_number_id=creds["phone_number_id"],
@@ -3732,6 +3734,11 @@ class CoreWorker:
                         "UPDATE bookings SET reminder_sent_at = now() WHERE id = $1::uuid",
                         booking_id
                     )
+                elif job_type == "review_request" and booking_id:
+                    await self.db_pool.execute(
+                        "UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid",
+                        booking_id
+                    )
 
                 if job.get("contact_id") and job.get("tenant_id"):
                     conv_row = await self.db_pool.fetchrow(
@@ -3739,12 +3746,19 @@ class CoreWorker:
                         job["contact_id"], job["tenant_id"]
                     )
                     if conv_row:
-                        logged_body = f"Template: {job_type}" if sent_via_template else message
-                        await self.db_pool.execute(
-                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
-                                VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
-                            str(uuid.uuid4()), conv_row["id"], job["tenant_id"], logged_body
-                        )
+                        if sent_via_template and template_name:
+                            logged_body = f"[Template: {template_name}]"
+                            await self.db_pool.execute(
+                                """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
+                                    VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, $5, $6::jsonb, 'sent', false)""",
+                                str(uuid.uuid4()), conv_row["id"], job["tenant_id"], logged_body, template_name, json.dumps(components)
+                            )
+                        elif message:
+                            await self.db_pool.execute(
+                                """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
+                                    VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
+                                str(uuid.uuid4()), conv_row["id"], job["tenant_id"], message
+                            )
 
                 logger.info("scheduled_job_sent", job_id=str(job["id"]), job_type=job["job_type"])
             except Exception as e:

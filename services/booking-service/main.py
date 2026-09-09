@@ -97,17 +97,11 @@ async def update_booking_status(booking_id: str, payload: BookingUpdateStatus):
                 payload.status, payload.cancellation_reason, booking_id
             )
 
-            # 4. Create scheduled jobs (reminder 24h before, review 1h after)
+            # 4. Create scheduled jobs (reminder 24h before)
             if payload.status == "confirmed":
                 await conn.execute(
                     """INSERT INTO scheduled_jobs (tenant_id, job_type, booking_id, scheduled_at)
                        SELECT tenant_id, 'reminder', id, start_time - INTERVAL '24 hours'
-                       FROM bookings WHERE id = $1""",
-                    booking_id
-                )
-                await conn.execute(
-                    """INSERT INTO scheduled_jobs (tenant_id, job_type, booking_id, scheduled_at)
-                       SELECT tenant_id, 'review_request', id, end_time + INTERVAL '1 hour'
                        FROM bookings WHERE id = $1""",
                     booking_id
                 )

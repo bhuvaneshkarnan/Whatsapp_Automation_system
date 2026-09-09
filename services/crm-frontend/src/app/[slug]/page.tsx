@@ -14,5 +14,6 @@ export default async function TenantDashboardPage({
   params: Promise<{ slug: string }> | { slug: string };
 }) {
   const resolvedParams = await params;
-  return <DashboardPage routeSlug={resolvedParams?.slug} />;
+  const currentSlug = resolvedParams?.slug?.toLowerCase() || 'default';
+  return <DashboardPage key={currentSlug} routeSlug={resolvedParams?.slug} />;
 }
