@@ -7065,59 +7065,61 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               selectConversation(conv);
                             }
                           }}
-                          className={`group w-full p-3 text-left transition-colors duration-150 cursor-pointer flex gap-2 items-center justify-between ${
+                          className={`group w-full py-2 px-2.5 text-left transition-colors duration-150 cursor-pointer flex gap-2 items-center justify-between ${
                             selectedConv?.id === conv.id ? 'bg-surface-subtle border-l-2 border-accent' : 'hover:bg-surface-subtle/50'
                           }`}
                         >
-                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                            <div className="w-8 h-8 rounded-full bg-surface-subtle text-text-secondary border border-border flex items-center justify-center font-semibold text-xs shrink-0">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <div className="w-7 h-7 rounded-full bg-surface-subtle text-text-secondary border border-border flex items-center justify-center font-medium text-[11px] shrink-0">
                               {conv.contact_name ? conv.contact_name[0].toUpperCase() : 'C'}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="flex justify-between items-center">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <p className="font-medium text-xs text-text-primary truncate">{conv.contact_name || conv.contact_phone}</p>
-                                  {(() => {
-                                    const isRepeat = conv.client_type === 'repeat' || (conv.completed_bookings_count ?? 0) > 0;
-                                    const visitCount = conv.completed_bookings_count ?? 0;
-                                    if (isRepeat) {
-                                      return (
-                                        <span className="text-[9px] font-bold px-1 py-0.2 rounded-xs bg-amber-50 text-amber-700 border border-amber-200 shrink-0 flex items-center gap-0.5" title={`Repeat client (${visitCount} completed session${visitCount === 1 ? '' : 's'})`}>
-                                          <UserCheck className="w-2.5 h-2.5 stroke-[2] shrink-0" />
-                                          <span>Repeat</span>
-                                          {visitCount > 0 && <span className="font-mono">({visitCount})</span>}
-                                        </span>
-                                      );
-                                    }
-                                    return (
-                                      <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 flex items-center gap-0.5" title="First-time lead">
-                                        <UserPlus className="w-2.5 h-2.5 stroke-[2] shrink-0" />
-                                        <span>Lead</span>
-                                      </span>
-                                    );
-                                  })()}
-                                </div>
+                              <div className="flex justify-between items-baseline gap-1.5">
+                                <p className="font-semibold text-xs text-text-primary truncate">
+                                  {conv.contact_name || conv.contact_phone}
+                                </p>
                                 <span
-                                  className="text-[11px] text-text-muted font-mono shrink-0"
+                                  className="text-[10px] text-text-muted font-mono shrink-0"
                                   title={formatFullDateTimeDetailed(conv.last_message_at)}
                                 >
                                   {formatConversationDate(conv.last_message_at)}
                                 </span>
                               </div>
-                              <div className="flex items-center justify-between mt-0.5">
-                                <p className="text-xs text-text-muted truncate font-mono">{conv.contact_phone}</p>
-                                <div className="flex items-center gap-1.5">
+                              <div className="flex items-center justify-between gap-1.5 mt-0.5">
+                                <p className="text-[11px] text-text-muted truncate font-mono">
+                                  {conv.contact_phone}
+                                </p>
+                                <div className="flex items-center gap-1 shrink-0">
                                   {conv.assigned_staff_name && (
-                                    <span className="text-[9px] font-medium px-1 py-0.2 rounded-xs bg-surface-subtle text-text-muted border border-border flex items-center gap-0.5 max-w-[65px] truncate" title={`Assigned to ${conv.assigned_staff_name}`}>
+                                    <span className="text-[9px] font-medium px-1 py-0.2 rounded bg-surface-subtle text-text-muted border border-border flex items-center gap-0.5 max-w-[65px] truncate" title={`Assigned to ${conv.assigned_staff_name}`}>
                                       <User className="w-2.5 h-2.5 stroke-[1.8] shrink-0 inline" /> {conv.assigned_staff_name.split(' ')[0]}
                                     </span>
                                   )}
+                                  {(() => {
+                                    const isRepeat = conv.client_type === 'repeat' || (conv.completed_bookings_count ?? 0) > 0;
+                                    const visitCount = conv.completed_bookings_count ?? 0;
+                                    if (isRepeat) {
+                                      return (
+                                        <span className="text-[9px] font-medium px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200/70 shrink-0 flex items-center gap-0.5" title={`Repeat client (${visitCount} completed session${visitCount === 1 ? '' : 's'})`}>
+                                          <UserCheck className="w-2.5 h-2.5 stroke-[2] shrink-0" />
+                                          <span>Repeat</span>
+                                          {visitCount > 0 && <span className="font-mono font-semibold">({visitCount})</span>}
+                                        </span>
+                                      );
+                                    }
+                                    return (
+                                      <span className="text-[9px] font-medium px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60 shrink-0 flex items-center gap-0.5" title="First-time lead">
+                                        <UserPlus className="w-2.5 h-2.5 stroke-[2] shrink-0" />
+                                        <span>Lead</span>
+                                      </span>
+                                    );
+                                  })()}
                                   {(conv.unread_count || 0) > 0 && selectedConv?.id !== conv.id && (
-                                    <span className="px-1.5 py-0.2 rounded-full bg-accent text-white text-[10px] font-bold min-w-[18px] text-center">
+                                    <span className="px-1.5 py-0.2 rounded-full bg-accent text-white text-[10px] font-bold min-w-[16px] text-center leading-tight">
                                       {conv.unread_count}
                                     </span>
                                   )}
-                                  <span className={`text-[10px] font-medium px-1.5 py-0.2 rounded-xs border ${
+                                  <span className={`text-[9px] font-medium px-1.5 py-0.2 rounded border ${
                                     conv.ai_enabled
                                       ? 'bg-status-success-bg text-status-success border-status-success-border'
                                       : 'bg-status-warning-bg text-status-warning border-status-warning-border'
