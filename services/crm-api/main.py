@@ -886,7 +886,7 @@ async def list_customers(
                     COALESCE(c.name, c.wa_profile_name, 'Customer'), 
                     'new', 
                     'warm',
-                    (SELECT MAX(m.created_at) FROM messages m JOIN conversations cv ON m.conversation_id = cv.id WHERE cv.contact_id = c.id),
+                    (SELECT MAX(m.created_at) FROM messages m JOIN conversations cv ON m.conversation_id = cv.id AND cv.tenant_id = c.tenant_id AND m.tenant_id = c.tenant_id WHERE cv.contact_id = c.id),
                     c.created_at, 
                     now()
                 FROM contacts c
@@ -926,22 +926,22 @@ async def list_customers(
         if client_type and client_type != "all":
             if client_type == "repeat":
                 conditions.append("""
-                    (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                    (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                      WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                        AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) > 0
                 """)
             elif client_type == "new_lead":
                 conditions.append("""
-                    (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                    (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                      WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                        AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) = 0
                 """)
             elif client_type == "lapsed":
                 conditions.append("""
-                    (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                    (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                      WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                        AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) > 0
-                    AND (SELECT MAX(b.start_time) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                    AND (SELECT MAX(b.start_time) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                          WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                            AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) < (now() - interval '30 days')
                 """)
@@ -971,46 +971,46 @@ async def list_customers(
                 c.id, c.tenant_id, c.phone, c.name, c.age, c.location, c.preferred_doctor, c.status,
                 c.health_concern, c.lead_probability, c.converted, c.followup_date,
                 c.followup_time, c.google_task_id, c.google_calendar_event_id, c.last_visited_at, c.last_messaged_at, c.created_at, c.updated_at,
-                (SELECT MAX(b.start_time) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                (SELECT MAX(b.start_time) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                  WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                    AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS calculated_last_visited,
-                (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                  WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                    AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS completed_bookings_count,
-                (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                  WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                    AND b.tenant_id = c.tenant_id) AS total_bookings_count,
-                (SELECT b.service FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                (SELECT b.service FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                  WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                    AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')
                  ORDER BY b.start_time DESC LIMIT 1) AS last_visit_service,
-                (SELECT b.staff_member FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                (SELECT b.staff_member FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                  WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                    AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')
                  ORDER BY b.start_time DESC LIMIT 1) AS last_visit_doctor,
                 (SELECT ct.wa_profile_name FROM contacts ct 
                  WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                    AND ct.tenant_id = c.tenant_id LIMIT 1) AS wa_profile_name,
-                (SELECT COUNT(*) FROM customer_notes cn WHERE cn.customer_id = c.id) AS notes_count,
-                (SELECT cn2.note_text FROM customer_notes cn2 WHERE cn2.customer_id = c.id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note,
+                (SELECT COUNT(*) FROM customer_notes cn WHERE cn.customer_id = c.id AND cn.tenant_id = c.tenant_id) AS notes_count,
+                (SELECT cn2.note_text FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note,
                 (SELECT MAX(m.created_at) FROM messages m 
-                 JOIN conversations cv ON m.conversation_id = cv.id 
-                 JOIN contacts ct ON cv.contact_id = ct.id 
+                 JOIN conversations cv ON m.conversation_id = cv.id AND cv.tenant_id = c.tenant_id
+                 JOIN contacts ct ON cv.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                  WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                   AND cv.tenant_id = c.tenant_id) AS last_chat_at,
+                   AND m.tenant_id = c.tenant_id) AS last_chat_at,
                 (SELECT m.body FROM messages m 
-                 JOIN conversations cv ON m.conversation_id = cv.id 
-                 JOIN contacts ct ON cv.contact_id = ct.id 
+                 JOIN conversations cv ON m.conversation_id = cv.id AND cv.tenant_id = c.tenant_id
+                 JOIN contacts ct ON cv.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                  WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                   AND cv.tenant_id = c.tenant_id
+                   AND m.tenant_id = c.tenant_id
                  ORDER BY m.created_at DESC LIMIT 1) AS last_message,
                 (SELECT cv.unread_count FROM conversations cv 
-                 JOIN contacts ct ON cv.contact_id = ct.id 
+                 JOIN contacts ct ON cv.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                  WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                    AND cv.tenant_id = c.tenant_id
                  ORDER BY cv.last_message_at DESC NULLS LAST LIMIT 1) AS unread_count,
                 (SELECT cv.id FROM conversations cv 
-                 JOIN contacts ct ON cv.contact_id = ct.id 
+                 JOIN contacts ct ON cv.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                  WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
                    AND cv.tenant_id = c.tenant_id
                  ORDER BY cv.last_message_at DESC NULLS LAST LIMIT 1) AS conversation_id
@@ -1019,10 +1019,10 @@ async def list_customers(
             ORDER BY 
                 COALESCE(
                     (SELECT MAX(m.created_at) FROM messages m 
-                     JOIN conversations cv ON m.conversation_id = cv.id 
-                     JOIN contacts ct ON cv.contact_id = ct.id 
+                     JOIN conversations cv ON m.conversation_id = cv.id AND cv.tenant_id = c.tenant_id
+                     JOIN contacts ct ON cv.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                      WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                       AND cv.tenant_id = c.tenant_id),
+                       AND m.tenant_id = c.tenant_id),
                     c.last_messaged_at,
                     c.created_at
                 ) DESC NULLS LAST
@@ -1175,7 +1175,7 @@ async def auto_route_lead_to_specialty(conn, tenant_id: str, phone: str, health_
         last10 = clean_p[-10:] if len(clean_p) >= 10 else clean_p
         conv = await conn.fetchrow("""
             SELECT c.id FROM conversations c
-            JOIN contacts ct ON ct.id = c.contact_id
+            JOIN contacts ct ON ct.id = c.contact_id AND ct.tenant_id = c.tenant_id
             WHERE c.tenant_id = $1::uuid
               AND (ct.phone = $2 OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = $3)
             LIMIT 1
@@ -1185,8 +1185,8 @@ async def auto_route_lead_to_specialty(conn, tenant_id: str, phone: str, health_
             await conn.execute("""
                 UPDATE conversations
                 SET assigned_to = $1, updated_at = now()
-                WHERE id = $2::uuid
-            """, rep_id, conv["id"])
+                WHERE id = $2::uuid AND tenant_id = $3::uuid
+            """, rep_id, conv["id"], tenant_id)
             logger.info("auto_routed_lead", concern=concern_clean, assigned_to=str(rep_id), conv_id=str(conv["id"]))
             return str(rep_id)
     except Exception as e:
@@ -1488,7 +1488,7 @@ async def list_all_customer_notes(
                 n.id, n.customer_id, n.author, n.note_text, COALESCE(n.color, 'slate') AS color, n.created_at,
                 c.name AS customer_name, c.phone AS customer_phone, c.preferred_doctor, c.status AS customer_status
             FROM customer_notes n
-            LEFT JOIN customers c ON n.customer_id = c.id
+            LEFT JOIN customers c ON n.customer_id = c.id AND c.tenant_id = n.tenant_id
             WHERE {where_clause}
             ORDER BY n.created_at DESC
             LIMIT ${idx} OFFSET ${idx + 1}
@@ -1563,7 +1563,7 @@ async def list_customer_bookings(
             """SELECT b.id, b.service, b.start_time, b.end_time, b.status, b.notes,
                       b.staff_member, b.location, b.price, b.currency, b.created_at
                FROM bookings b
-               JOIN contacts ct ON b.contact_id = ct.id
+               JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
                WHERE b.tenant_id = $1::uuid
                  AND (ct.phone = $2 OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = $3)
                ORDER BY b.start_time DESC""",
@@ -1679,7 +1679,7 @@ async def get_customer_chat_history(
         conv = await conn.fetchrow(
             """SELECT c.id, c.status, c.last_message_at, c.unread_count
                FROM conversations c
-               JOIN contacts ct ON c.contact_id = ct.id
+               JOIN contacts ct ON c.contact_id = ct.id AND ct.tenant_id = c.tenant_id
                WHERE c.tenant_id = $2::uuid
                  AND (
                    ct.phone = $1 
@@ -1712,9 +1712,9 @@ async def get_customer_chat_history(
             msg_rows = await conn.fetch(
                 """SELECT id, direction, content_type, body, status, ai_model_used, ai_used_fallback, created_at
                    FROM messages
-                   WHERE conversation_id = $1::uuid
+                   WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid
                    ORDER BY created_at ASC""",
-                conv_id
+                conv_id, tenant_id
             )
             if msg_rows:
                 first_msg_at = msg_rows[0]["created_at"].isoformat() if msg_rows[0]["created_at"] else None
@@ -1796,7 +1796,7 @@ async def get_customer_bookings(
             """SELECT b.id, b.service, b.start_time, b.end_time, b.status,
                       b.notes, b.price, b.currency, b.created_at
                FROM bookings b
-               JOIN contacts ct ON b.contact_id = ct.id
+               JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
                WHERE b.tenant_id = $1::uuid
                  AND REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g') = $2
                ORDER BY b.start_time DESC
@@ -1854,7 +1854,7 @@ async def list_tasks(
                 c.preferred_doctor, c.health_concern, c.lead_probability,
                 CASE WHEN t.due_date::date < CURRENT_DATE AND t.completed = false THEN true ELSE false END AS is_overdue
             FROM tasks t
-            LEFT JOIN customers c ON t.customer_id = c.id
+            LEFT JOIN customers c ON t.customer_id = c.id AND c.tenant_id = t.tenant_id
             WHERE {where_clause}
             ORDER BY t.completed ASC, t.due_date ASC
         """
@@ -2321,15 +2321,15 @@ async def delete_customer(
             if contact:
                 contact_id = contact["id"]
                 convs = await conn.fetch(
-                    "SELECT id FROM conversations WHERE contact_id = $1::uuid",
-                    contact_id
+                    "SELECT id FROM conversations WHERE contact_id = $1::uuid AND tenant_id = $2::uuid",
+                    contact_id, tenant_id
                 )
                 for c in convs:
-                    await conn.execute("DELETE FROM messages WHERE conversation_id = $1::uuid", c["id"])
-                await conn.execute("DELETE FROM conversations WHERE contact_id = $1::uuid", contact_id)
-                await conn.execute("DELETE FROM scheduled_jobs WHERE booking_id IN (SELECT id FROM bookings WHERE contact_id = $1::uuid)", contact_id)
-                await conn.execute("DELETE FROM bookings WHERE contact_id = $1::uuid", contact_id)
-                await conn.execute("DELETE FROM contacts WHERE id = $1::uuid", contact_id)
+                    await conn.execute("DELETE FROM messages WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid", c["id"], tenant_id)
+                await conn.execute("DELETE FROM conversations WHERE contact_id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
+                await conn.execute("DELETE FROM scheduled_jobs WHERE booking_id IN (SELECT id FROM bookings WHERE contact_id = $1::uuid AND tenant_id = $2::uuid) AND tenant_id = $2::uuid", contact_id, tenant_id)
+                await conn.execute("DELETE FROM bookings WHERE contact_id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
+                await conn.execute("DELETE FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
 
     return {"status": "ok", "deleted_id": customer_id}
 
@@ -2352,7 +2352,7 @@ async def list_bookings(
                    c.name as contact_name, c.phone as contact_phone,
                    (SELECT cu.health_concern FROM customers cu WHERE cu.tenant_id = b.tenant_id AND (cu.phone = c.phone OR RIGHT(REGEXP_REPLACE(cu.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10)) LIMIT 1) as customer_health_concern
             FROM bookings b
-            JOIN contacts c ON c.id = b.contact_id
+            JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
             WHERE b.tenant_id = $1::uuid
         """
         args = [tenant_id]
@@ -2660,13 +2660,13 @@ async def create_booking(
                VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
             msg_id, conv_id, tenant_id, confirmation_msg
         )
-        await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+        await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
 
         # 4b. Send Business Address & Google Maps Location (if configured)
         full_location = (creds.get("full_location_text") or tenant_settings.get("full_location_text") or "").strip()
 
         if full_location and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-            loc_msg = f"📍 *Location & Directions:*\n{full_location}"
+            loc_msg = f"*Location & Directions:*\n{full_location}"
             try:
                 import httpx
                 async with httpx.AsyncClient(timeout=8.0) as client:
@@ -2681,7 +2681,7 @@ async def create_booking(
                        VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
                     loc_id, conv_id, tenant_id, loc_msg
                 )
-                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
             except Exception as e:
                 logger.error("manual_booking_location_send_error", error=str(e))
 
@@ -3027,7 +3027,7 @@ async def dispatch_automated_status_whatsapp(
                        VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
                     msg_id, conv_id, tenant_id, text
                 )
-                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
             except Exception as db_rec_err:
                 logger.warning("automated_msg_record_warn", error=str(db_rec_err))
             logger.info("automated_status_message_dispatched", tenant_id=tenant_id, phone=clean_phone, delay=delay_seconds, template_sent=template_sent)
@@ -3268,9 +3268,9 @@ async def update_booking_status(
                       c.id as contact_id, c.name, c.phone,
                       t.name as tenant_name, t.settings as tenant_settings
                FROM bookings b
-               JOIN contacts c ON c.id = b.contact_id
-               JOIN tenants t ON t.id = b.tenant_id
-               WHERE b.id = $1::uuid AND b.tenant_id = $2::uuid""",
+                JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
+                JOIN tenants t ON t.id = b.tenant_id
+                WHERE b.id = $1::uuid AND b.tenant_id = $2::uuid""",
             booking_id, tenant_id
         )
         if not booking:
@@ -3774,9 +3774,9 @@ async def delete_booking(
 
         async with conn.transaction():
             # Clean up scheduled jobs associated with this booking
-            await conn.execute("DELETE FROM scheduled_jobs WHERE booking_id = $1::uuid", booking_id)
+            await conn.execute("DELETE FROM scheduled_jobs WHERE booking_id = $1::uuid AND tenant_id = $2::uuid", booking_id, tenant_id)
             # Remove any rescheduled_from pointers pointing to this booking
-            await conn.execute("UPDATE bookings SET rescheduled_from = NULL WHERE rescheduled_from = $1::uuid", booking_id)
+            await conn.execute("UPDATE bookings SET rescheduled_from = NULL WHERE rescheduled_from = $1::uuid AND tenant_id = $2::uuid", booking_id, tenant_id)
             # Delete the booking record
             await conn.execute("DELETE FROM bookings WHERE id = $1::uuid AND tenant_id = $2::uuid", booking_id, tenant_id)
 
@@ -3797,8 +3797,8 @@ async def list_conversations(
             SELECT c.id, c.status, c.last_message_at, c.unread_count, c.assigned_to,
                    ct.name, ct.phone,
                    u.display_name as assigned_staff_name, u.email as assigned_staff_email,
-                   (SELECT m.body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_message,
-                   (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'inbound') as last_inbound_at,
+                   (SELECT m.body FROM messages m WHERE m.conversation_id = c.id AND m.tenant_id = c.tenant_id ORDER BY m.created_at DESC LIMIT 1) as last_message,
+                   (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND m.tenant_id = c.tenant_id AND m.direction = 'inbound') as last_inbound_at,
                    (SELECT COUNT(*) FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS completed_bookings_count,
                    (SELECT MAX(b.start_time) FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS last_visit_date,
                    (SELECT b.service FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended') ORDER BY b.start_time DESC LIMIT 1) AS last_visit_service,
@@ -3806,8 +3806,8 @@ async def list_conversations(
                    (SELECT cust.preferred_doctor FROM customers cust WHERE cust.tenant_id = c.tenant_id AND (cust.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10)) LIMIT 1) AS preferred_doctor,
                    (SELECT cust.health_concern FROM customers cust WHERE cust.tenant_id = c.tenant_id AND (cust.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10)) LIMIT 1) AS health_concern
             FROM conversations c
-            JOIN contacts ct ON ct.id = c.contact_id
-            LEFT JOIN users u ON u.id = c.assigned_to
+            JOIN contacts ct ON ct.id = c.contact_id AND ct.tenant_id = c.tenant_id
+            LEFT JOIN users u ON u.id = c.assigned_to AND u.tenant_id = c.tenant_id
             WHERE c.tenant_id = $1::uuid
         """
         args = [tenant_id]
@@ -3965,7 +3965,7 @@ async def send_manual_message(
         conv = await conn.fetchrow(
             """SELECT c.id, c.status, ct.name as contact_name, ct.phone, t.name as tenant_name, t.settings as tenant_settings
                FROM conversations c
-               JOIN contacts ct ON ct.id = c.contact_id
+               JOIN contacts ct ON ct.id = c.contact_id AND ct.tenant_id = c.tenant_id
                JOIN tenants t ON t.id = c.tenant_id
                WHERE c.id = $1::uuid AND c.tenant_id = $2::uuid""",
             conv_id, tenant_id
@@ -4097,7 +4097,7 @@ async def send_manual_message(
         )
 
         # Update conversation last_message_at
-        await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+        await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
 
     return {
         "id": str(inserted["id"]),
@@ -4197,14 +4197,14 @@ async def delete_message(
 
         if delete_type == "for_everyone":
             await conn.execute(
-                "UPDATE messages SET body = '🚫 This message was deleted', status = 'deleted' WHERE id = $1::uuid",
-                msg_id
+                "UPDATE messages SET body = 'This message was deleted', status = 'deleted' WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                msg_id, tenant_id
             )
-            return {"status": "deleted", "id": msg_id, "delete_type": "for_everyone", "body": "🚫 This message was deleted"}
+            return {"status": "deleted", "id": msg_id, "delete_type": "for_everyone", "body": "This message was deleted"}
         else:
             await conn.execute(
-                "DELETE FROM messages WHERE id = $1::uuid",
-                msg_id
+                "DELETE FROM messages WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                msg_id, tenant_id
             )
             return {"status": "deleted", "id": msg_id, "delete_type": "for_me"}
 
@@ -4261,9 +4261,9 @@ async def search_messages(
         rows = await conn.fetch(
             """SELECT m.id, m.body, m.created_at, c.id as conversation_id, ct.name
                FROM messages m
-               JOIN conversations c ON c.id = m.conversation_id
-               JOIN contacts ct ON ct.id = c.contact_id
-               WHERE m.tenant_id = $1
+               JOIN conversations c ON c.id = m.conversation_id AND c.tenant_id = m.tenant_id
+               JOIN contacts ct ON ct.id = c.contact_id AND ct.tenant_id = m.tenant_id
+               WHERE m.tenant_id = $1::uuid
                  AND to_tsvector('english', coalesce(m.body, '')) @@ plainto_tsquery('english', $2)
                ORDER BY m.created_at DESC LIMIT $3""",
             tenant_id, q, limit
@@ -6950,7 +6950,7 @@ async def _dispatch_single_marketing_wa(
                        VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, $5, false)""",
                     msg_id, conv_id, tenant_id, msg_body_recorded, 'sent' if sent_ok else 'failed'
                 )
-                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                 await conn.execute(
                     """UPDATE customers SET last_messaged_at = now(), updated_at = now()
                        WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($2, 10))""",
@@ -9039,14 +9039,14 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                        VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'outbound', 'template', $3, 'sent', false)""",
                     conv_id, tenant_id, msg_body_record
                 )
-                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
             except Exception as db_msg_err:
                 logger.warning("public_booking_msg_record_failed", error=str(db_msg_err))
 
             # 5b. Send location details if configured
             full_location = (wa_creds.get("full_location_text") or t_settings.get("full_location_text") or "").strip()
             if full_location:
-                loc_msg = f"📍 *Location & Directions:*\n{full_location}"
+                loc_msg = f"*Location & Directions:*\n{full_location}"
                 await dispatch_whatsapp_message(tenant_id, clean_phone, text=loc_msg)
 
             # 5c. Push Admin WhatsApp Alert via Meta admin_notification template

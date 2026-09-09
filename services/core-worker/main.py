@@ -1811,12 +1811,12 @@ class CoreWorker:
 
             # Get contact_id
             contact_id = await self.db_pool.fetchval(
-                "SELECT contact_id FROM conversations WHERE id = $1::uuid", conv_id
+                "SELECT contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id
             )
 
             # If email not in booking action, check contact metadata
             if not customer_email and contact_id:
-                c_meta = await self.db_pool.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid", contact_id)
+                c_meta = await self.db_pool.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
                 if c_meta:
                     if isinstance(c_meta, str):
                         try: c_meta = json.loads(c_meta)
@@ -1949,7 +1949,7 @@ class CoreWorker:
                         full_location = (tenant_st.get("full_location_text") or "").strip()
 
                 if full_location:
-                    loc_msg = f"📍 *Location & Directions:*\n{full_location}"
+                    loc_msg = f"*Location & Directions:*\n{full_location}"
                     await asyncio.sleep(1.0)  # Brief pause so confirmation arrives first
                     try:
                         loc_wa_id = await send_text(
@@ -2294,6 +2294,7 @@ class CoreWorker:
                             SET assigned_to = $1, updated_at = now()
                             FROM contacts ct
                             WHERE ct.id = c.contact_id
+                              AND ct.tenant_id = $2::uuid
                               AND c.tenant_id = $2::uuid
                               AND c.assigned_to IS NULL
                               AND (ct.phone = $3 OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = $4)
@@ -2332,7 +2333,7 @@ class CoreWorker:
                 tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
             contact_id = await self.db_pool.fetchval(
-                "SELECT contact_id FROM conversations WHERE id = $1::uuid", conv_id
+                "SELECT contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id
             )
             if not contact_id:
                 return
@@ -2341,7 +2342,7 @@ class CoreWorker:
             booking = await self.db_pool.fetchrow(
                 """SELECT b.id, b.service, b.start_time, b.google_event_id
                    FROM bookings b
-                   LEFT JOIN contacts c ON c.id = b.contact_id
+                   LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
                    WHERE b.tenant_id = $1::uuid 
                      AND (b.contact_id = $2::uuid OR b.conversation_id = $3::uuid OR c.phone = $4 OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($4, '[^0-9]', '', 'g'), 10))
                      AND b.status = 'confirmed'
@@ -2687,7 +2688,7 @@ class CoreWorker:
                 tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
             contact_id = await self.db_pool.fetchval(
-                "SELECT contact_id FROM conversations WHERE id = $1::uuid", conv_id
+                "SELECT contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id
             )
             if not contact_id:
                 return
@@ -2696,7 +2697,7 @@ class CoreWorker:
             old_booking = await self.db_pool.fetchrow(
                 """SELECT b.id, b.service, b.google_event_id
                    FROM bookings b
-                   LEFT JOIN contacts c ON c.id = b.contact_id
+                   LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
                    WHERE b.tenant_id = $1::uuid
                      AND (b.contact_id = $2::uuid OR b.conversation_id = $3::uuid OR c.phone = $4 OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($4, '[^0-9]', '', 'g'), 10))
                      AND b.status = 'confirmed'
@@ -3109,7 +3110,7 @@ class CoreWorker:
                 """UPDATE customers c
                    SET last_messaged_at = NOW(), updated_at = NOW()
                    FROM contacts ct
-                   JOIN conversations cv ON cv.contact_id = ct.id
+                   JOIN conversations cv ON cv.contact_id = ct.id AND ct.tenant_id = cv.tenant_id
                    WHERE cv.id = $1::uuid
                      AND (c.phone = ct.phone OR RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10))
                      AND c.tenant_id = cv.tenant_id""",
@@ -3410,7 +3411,7 @@ class CoreWorker:
                           tc.credential_data as wa_creds,
                           t.settings as tenant_settings
                    FROM bookings b
-                   JOIN contacts c ON c.id = b.contact_id
+                   JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
                    JOIN tenants t ON t.id = b.tenant_id
                    JOIN tenant_credentials tc ON tc.tenant_id = b.tenant_id AND tc.provider = 'whatsapp'
                    WHERE b.status = 'confirmed'
@@ -3420,6 +3421,7 @@ class CoreWorker:
                      AND NOT EXISTS (
                          SELECT 1 FROM scheduled_jobs sj
                          WHERE sj.booking_id = b.id
+                           AND sj.tenant_id = b.tenant_id
                            AND sj.job_type = 'reminder'
                            AND sj.status = 'pending'
                      )
@@ -3536,8 +3538,8 @@ class CoreWorker:
                       tc.credential_data as wa_creds,
                       t.settings as tenant_settings
                FROM scheduled_jobs sj
-               JOIN bookings b ON b.id = sj.booking_id
-               JOIN contacts c ON c.id = b.contact_id
+               JOIN bookings b ON b.id = sj.booking_id AND b.tenant_id = sj.tenant_id
+               JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = sj.tenant_id
                JOIN tenants t ON t.id = sj.tenant_id
                JOIN tenant_credentials tc ON tc.tenant_id = sj.tenant_id AND tc.provider = 'whatsapp'
                WHERE sj.status = 'pending'
