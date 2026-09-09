@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useLayoutEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, Fragment } from 'react';
 import { useRouter, useParams, usePathname } from 'next/navigation';
 
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
@@ -803,6 +803,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>('default');
 
+  // ── Specialty / Department Filter State (Admin Department Switcher) ───────────
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
+
   // ── Quick Requirement / Concern Presets Editor Modal ───────────────────────
   const [presetEditModalOpen, setPresetEditModalOpen] = useState(false);
   const [presetEditList, setPresetEditList] = useState<string[]>([]);
@@ -1528,6 +1531,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     notification_email: '',
   });
 
+  const availableHealthConcerns = useMemo(() => {
+    const baseList = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+      ? settingsForm.taxonomy.requirement_presets
+      : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic);
+    const fromCustomers = (customers || []).map((c) => c.health_concern).filter((c): c is string => Boolean(c && c.trim()));
+    const set = new Set([...baseList, ...fromCustomers]);
+    return Array.from(set).filter(Boolean);
+  }, [settingsForm.taxonomy?.requirement_presets, settingsForm.industry, customers]);
+
   const [connectingGoogle, setConnectingGoogle] = useState(false);
   const [disconnectingGoogle, setDisconnectingGoogle] = useState(false);
 
@@ -1650,6 +1662,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       can_view_analytics: false,
       can_manage_settings: false,
       assigned_doctor: '',
+      assigned_health_concerns: [],
     },
   });
 
@@ -1775,7 +1788,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       display_name: '',
       role: 'sales',
       is_active: true,
-      permissions: getClientRoleDefaultPermissions('sales'),
+      permissions: {
+        ...getClientRoleDefaultPermissions('sales'),
+        assigned_health_concerns: [],
+      },
     });
     setTeamError('');
     setShowTeamModal(true);
@@ -1784,6 +1800,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   function handleOpenEditTeam(member: StaffUser) {
     setEditingTeamMember(member);
     const roleDefaults = getClientRoleDefaultPermissions(member.role, member.permissions?.assigned_doctor);
+    const rawConcerns = member.permissions?.assigned_health_concerns;
+    const assignedConcerns = Array.isArray(rawConcerns) ? rawConcerns : [];
     setTeamForm({
       email: member.email,
       password: '',
@@ -1800,6 +1818,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         can_view_analytics: member.permissions?.can_view_analytics !== undefined ? member.permissions.can_view_analytics : roleDefaults.can_view_analytics,
         can_manage_settings: member.permissions?.can_manage_settings !== undefined ? member.permissions.can_manage_settings : roleDefaults.can_manage_settings,
         assigned_doctor: member.permissions?.assigned_doctor || '',
+        assigned_health_concerns: assignedConcerns,
       },
     });
     setTeamError('');
@@ -2310,7 +2329,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients') {
       loadCustomers();
     }
-  }, [activeNav, followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupSearch, customerClientTypeFilter]);
+  }, [activeNav, followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupSearch, customerClientTypeFilter, selectedDepartment]);
 
   // Refetch tasks when task filter changes
   useEffect(() => {
@@ -2669,6 +2688,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         status: followupStatusFilter,
         lead_probability: followupProbabilityFilter,
         preferred_doctor: followupDoctorFilter,
+        health_concern: selectedDepartment !== 'all' ? selectedDepartment : undefined,
         q: followupSearch,
       });
       setCustomers(Array.isArray(data) ? data : []);
@@ -4161,6 +4181,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         phone.toLowerCase().includes(searchQuery.toLowerCase()) ||
         name.toLowerCase().includes(searchQuery.toLowerCase());
       if (!matchesSearch) return false;
+      if (selectedDepartment !== 'all') {
+        const phone = c.contact_phone || c.phone || '';
+        const normPhone = phone.replace(/[^0-9]/g, '').slice(-10);
+        const linkedCust = (customers || []).find((cu) => {
+          const cuPhone = (cu.phone || '').replace(/[^0-9]/g, '').slice(-10);
+          return cuPhone && cuPhone === normPhone;
+        });
+        const concern = c.health_concern || linkedCust?.health_concern || '';
+        if (concern.trim().toLowerCase() !== selectedDepartment.trim().toLowerCase()) {
+          return false;
+        }
+      }
       if (filter === 'new') {
         return (c.unread_count || 0) > 0;
       }
@@ -4188,6 +4220,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       (b.contact_phone || '').toLowerCase().includes(bookingSearch.toLowerCase()) ||
       (b.service || '').toLowerCase().includes(bookingSearch.toLowerCase());
     if (!matchesSearch) return false;
+
+    if (selectedDepartment !== 'all') {
+      const bPhone = (b.contact_phone || '').replace(/[^0-9]/g, '').slice(-10);
+      const linkedCust = (customers || []).find((cu) => {
+        const cuPhone = (cu.phone || '').replace(/[^0-9]/g, '').slice(-10);
+        return cuPhone && cuPhone === bPhone;
+      });
+      const concern = (b as any).health_concern || linkedCust?.health_concern || '';
+      if (concern.trim().toLowerCase() !== selectedDepartment.trim().toLowerCase()) {
+        return false;
+      }
+    }
 
     const isPast = b.start_time ? new Date(b.start_time).getTime() < Date.now() : false;
 
@@ -4651,14 +4695,29 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           )}
                         </td>
 
-                        <td className="py-2 px-2.5 text-xs whitespace-nowrap">
-                          {p.assigned_doctor ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 font-medium">
+                        <td className="py-2 px-2.5 text-xs">
+                          {Array.isArray(p.assigned_health_concerns) && p.assigned_health_concerns.length > 0 ? (
+                            <div className="flex flex-wrap gap-1 max-w-[220px]">
+                              {p.assigned_health_concerns.map((c: string) => (
+                                <span
+                                  key={c}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-medium whitespace-nowrap"
+                                  title={c}
+                                >
+                                  <HeartPulse className="w-2.5 h-2.5 shrink-0" />
+                                  <span>{c}</span>
+                                </span>
+                              ))}
+                            </div>
+                          ) : p.assigned_doctor ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 font-medium whitespace-nowrap">
                               <Stethoscope className="w-2.5 h-2.5" />
                               <span>{p.assigned_doctor}</span>
                             </span>
                           ) : isDoctor ? (
                             <span className="text-text-muted text-[11px] italic">All {staffLabel}s</span>
+                          ) : isSales ? (
+                            <span className="text-[10px] text-text-muted italic">All Concerns (General)</span>
                           ) : (
                             <span className="text-text-muted text-xs">—</span>
                           )}
@@ -4756,6 +4815,36 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               / {activeNav === 'overview' ? 'Overview' : activeNav === 'inbox' ? 'Chats' : activeNav === 'bookings' ? 'Bookings' : activeNav === 'calendar' ? 'Calendar schedule' : activeNav === 'customers' ? 'Customer directory' : activeNav === 'repeat_clients' ? 'Repeat Clients' : activeNav === 'followup' ? 'Customer Followup' : activeNav === 'marketing' ? 'Marketing' : activeNav === 'team' ? 'Team & Sales' : 'Settings'}
             </span>
           </div>
+
+          {/* Admin Department Switcher */}
+          {(user?.role === 'admin' || user?.role === 'super_admin') && (
+            <div className="hidden md:flex items-center gap-1.5 pl-3 border-l border-border">
+              <Building2 className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
+              <select
+                value={selectedDepartment}
+                onChange={(e) => setSelectedDepartment(e.target.value)}
+                className="bg-surface-subtle border border-border rounded-sm px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent cursor-pointer font-medium"
+                title="Filter entire CRM workspace by specialty / department"
+              >
+                <option value="all">All Departments (Admin View)</option>
+                {availableHealthConcerns.map((concern) => (
+                  <option key={concern} value={concern}>
+                    {concern} Team
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Sales Rep Active Specialty Indicator */}
+          {user?.role !== 'admin' && user?.role !== 'super_admin' && (user?.permissions?.assigned_health_concerns?.length ?? 0) > 0 && (
+            <div className="hidden md:flex items-center gap-1 pl-3 border-l border-border text-[11px]">
+              <span className="text-text-muted">Specialty:</span>
+              <span className="px-1.5 py-0.5 bg-accent/10 text-accent font-medium rounded-sm border border-accent/20">
+                {user?.permissions?.assigned_health_concerns?.join(', ')}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Right Action Profile */}
@@ -7091,6 +7180,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   {conv.assigned_staff_name && (
                                     <span className="text-[9px] font-medium px-1 py-0.2 rounded bg-surface-subtle text-text-muted border border-border flex items-center gap-0.5 max-w-[65px] truncate" title={`Assigned to ${conv.assigned_staff_name}`}>
                                       <User className="w-2.5 h-2.5 stroke-[1.8] shrink-0 inline" /> {conv.assigned_staff_name.split(' ')[0]}
+                                    </span>
+                                  )}
+                                  {conv.health_concern && (
+                                    <span
+                                      className="text-[9px] font-medium px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/40 shrink-0 flex items-center gap-0.5 max-w-[90px] truncate"
+                                      title={`Specialty: ${conv.health_concern}`}
+                                    >
+                                      <HeartPulse className="w-2.5 h-2.5 stroke-[2] shrink-0" />
+                                      <span className="truncate">{conv.health_concern}</span>
                                     </span>
                                   )}
                                   {(() => {
@@ -14028,6 +14126,56 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <p className="text-[10px] text-text-muted mt-0.5">
                       Limits visible appointments and follow-ups to this {(currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() : 'staff member').toLowerCase()}. Leave blank for all.
                     </p>
+                  </div>
+                )}
+
+                {(teamForm.role === 'sales' || teamForm.role === 'doctor' || (teamForm.permissions.assigned_health_concerns && teamForm.permissions.assigned_health_concerns.length > 0)) && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-medium text-text-primary">
+                        Assigned Health Concerns / Specialty Teams
+                      </label>
+                      <span className="text-[10px] text-text-muted">
+                        {(teamForm.permissions.assigned_health_concerns || []).length === 0
+                          ? 'All concerns visible'
+                          : `${teamForm.permissions.assigned_health_concerns?.length} selected`}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-text-muted mb-1.5">
+                      When assigned, this rep only sees chats, patients, and bookings matching these specialties. Leave unselected to grant access to all inquiries.
+                    </p>
+                    <div className="flex flex-wrap gap-1 p-2 bg-surface-subtle/50 border border-border rounded-sm">
+                      {availableHealthConcerns.map((concern) => {
+                        const currentAssigned: string[] = teamForm.permissions.assigned_health_concerns || [];
+                        const isSelected = currentAssigned.includes(concern);
+                        return (
+                          <button
+                            key={concern}
+                            type="button"
+                            onClick={() => {
+                              const next = isSelected
+                                ? currentAssigned.filter((c) => c !== concern)
+                                : [...currentAssigned, concern];
+                              setTeamForm({
+                                ...teamForm,
+                                permissions: {
+                                  ...teamForm.permissions,
+                                  assigned_health_concerns: next,
+                                },
+                              });
+                            }}
+                            className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors flex items-center gap-1 ${
+                              isSelected
+                                ? 'bg-accent text-white border-accent font-semibold shadow-xs'
+                                : 'bg-surface text-text-secondary border-border hover:border-accent/60 hover:text-text-primary'
+                            }`}
+                          >
+                            {isSelected && <Check className="w-2.5 h-2.5 stroke-[2]" />}
+                            <span>{concern}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
 

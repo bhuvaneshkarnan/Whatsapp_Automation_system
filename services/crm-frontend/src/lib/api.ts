@@ -124,6 +124,7 @@ export interface Conversation {
   last_visit_service?: string | null;
   last_visit_doctor?: string | null;
   preferred_doctor?: string | null;
+  health_concern?: string | null;
 }
 
 export interface DashboardAnalyticsData {
@@ -448,6 +449,7 @@ export const crm = {
         last_visit_service: c.last_visit_service || null,
         last_visit_doctor: c.last_visit_doctor || null,
         preferred_doctor: c.preferred_doctor || null,
+        health_concern: c.health_concern || null,
       }));
     } catch {
       return [];
@@ -567,6 +569,7 @@ export const crm = {
     lead_probability?: string;
     preferred_doctor?: string;
     client_type?: string;
+    health_concern?: string;
     q?: string;
     limit?: number;
   }): Promise<Customer[]> => {
@@ -576,6 +579,7 @@ export const crm = {
       if (filters?.lead_probability && filters.lead_probability !== 'all') params.set('lead_probability', filters.lead_probability);
       if (filters?.preferred_doctor && filters.preferred_doctor !== 'all') params.set('preferred_doctor', filters.preferred_doctor);
       if (filters?.client_type && filters.client_type !== 'all') params.set('client_type', filters.client_type);
+      if (filters?.health_concern && filters.health_concern !== 'all') params.set('health_concern', filters.health_concern);
       if (filters?.q) params.set('q', filters.q);
       if (filters?.limit) params.set('limit', String(filters.limit));
       const qs = params.toString();
@@ -901,6 +905,7 @@ export interface StaffPermissions {
   can_manage_settings?: boolean;
   can_manage_billing?: boolean;
   assigned_doctor?: string;
+  assigned_health_concerns?: string[];
   [key: string]: any;
 }
 

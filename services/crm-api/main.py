@@ -252,6 +252,31 @@ async def get_tenant_id(
     raise HTTPException(status_code=401, detail="Invalid authentication format.")
 
 
+async def get_caller_context(
+    authorization: Optional[str] = Header(None)
+) -> dict:
+    """Extract caller role and assigned_health_concerns from JWT for data scoping."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return {"role": "agent", "assigned_health_concerns": []}
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        from jose import jwt
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
+    except Exception:
+        return {"role": "agent", "assigned_health_concerns": []}
+    role = payload.get("role", "agent")
+    perms = payload.get("permissions", {})
+    if isinstance(perms, str):
+        try:
+            perms = json.loads(perms)
+        except Exception:
+            perms = {}
+    concerns = perms.get("assigned_health_concerns", []) if isinstance(perms, dict) else []
+    if not isinstance(concerns, list):
+        concerns = []
+    return {"role": role, "assigned_health_concerns": concerns}
+
+
 async def verify_super_admin(authorization: Optional[str] = Header(None)) -> dict:
     """Strict Super-Admin Gate: Only platform super_admin is authorized."""
     if not authorization or not authorization.startswith("Bearer "):
@@ -838,10 +863,12 @@ class TaskCreatePayload(BaseModel):
 @app.get("/api/v1/crm/customers")
 async def list_customers(
     tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context),
     status: Optional[str] = None,
     lead_probability: Optional[str] = None,
     preferred_doctor: Optional[str] = None,
     client_type: Optional[str] = None,
+    health_concern: Optional[str] = None,
     q: Optional[str] = None,
     limit: int = Query(100, le=1000),
     offset: int = 0
@@ -922,6 +949,18 @@ async def list_customers(
         if q and q.strip():
             conditions.append(f"(c.name ILIKE ${idx} OR c.phone ILIKE ${idx} OR c.health_concern ILIKE ${idx})")
             params.append(f"%{q.strip()}%")
+            idx += 1
+
+        if health_concern and health_concern != "all":
+            conditions.append(f"c.health_concern = ${idx}")
+            params.append(health_concern)
+            idx += 1
+
+        # Health concern isolation: non-admin staff with assigned_health_concerns only see matching patients
+        caller_concerns = caller.get("assigned_health_concerns", [])
+        if caller_concerns and caller.get("role") not in ("admin", "super_admin", "owner"):
+            conditions.append(f"c.health_concern = ANY(${idx}::text[])")
+            params.append(caller_concerns)
             idx += 1
 
         params.extend([limit, offset])
@@ -1101,7 +1140,58 @@ async def create_customer(
                 name = COALESCE(EXCLUDED.name, contacts.name)""",
             tenant_id, clean_phone, payload.name or "Customer"
         )
+        if payload.health_concern:
+            await auto_route_lead_to_specialty(conn, tenant_id, clean_phone, payload.health_concern)
     return {"status": "ok", "id": cust_id, "phone": clean_phone}
+
+
+async def auto_route_lead_to_specialty(conn, tenant_id: str, phone: str, health_concern: str):
+    """Auto-assigns conversation for a customer to matching sales rep by health concern (round-robin)."""
+    if not health_concern or not health_concern.strip():
+        return None
+    concern_clean = health_concern.strip()
+    try:
+        # Find active staff members whose permissions->assigned_health_concerns contains this concern
+        staff_rows = await conn.fetch("""
+            SELECT u.id, u.display_name, u.email,
+                   (SELECT COUNT(*) FROM conversations c WHERE c.assigned_to = u.id AND c.tenant_id = u.tenant_id) as active_assigned_count
+            FROM users u
+            WHERE u.tenant_id = $1::uuid
+              AND u.is_active = true
+              AND (u.role = 'sales' OR u.role = 'agent')
+              AND u.permissions->'assigned_health_concerns' ? $2
+            ORDER BY active_assigned_count ASC
+        """, tenant_id, concern_clean)
+
+        if not staff_rows:
+            return None
+
+        # Pick the rep with least current assignments (Round-Robin balance)
+        best_rep = staff_rows[0]
+        rep_id = best_rep["id"]
+
+        # Assign conversation for this customer
+        clean_p = re.sub(r"[^0-9]", "", phone)
+        last10 = clean_p[-10:] if len(clean_p) >= 10 else clean_p
+        conv = await conn.fetchrow("""
+            SELECT c.id FROM conversations c
+            JOIN contacts ct ON ct.id = c.contact_id
+            WHERE c.tenant_id = $1::uuid
+              AND (ct.phone = $2 OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = $3)
+            LIMIT 1
+        """, tenant_id, clean_p, last10)
+
+        if conv:
+            await conn.execute("""
+                UPDATE conversations
+                SET assigned_to = $1, updated_at = now()
+                WHERE id = $2::uuid
+            """, rep_id, conv["id"])
+            logger.info("auto_routed_lead", concern=concern_clean, assigned_to=str(rep_id), conv_id=str(conv["id"]))
+            return str(rep_id)
+    except Exception as e:
+        logger.warning("auto_route_lead_failed", error=str(e), health_concern=concern_clean)
+    return None
 
 
 @app.patch("/customers/{customer_id}")
@@ -1299,6 +1389,9 @@ async def update_customer(
                 )
                 if new_gtask_id:
                     await conn.execute("UPDATE customers SET google_task_id = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid", new_gtask_id, customer_id, tenant_id)
+
+        if payload.health_concern and row:
+            await auto_route_lead_to_specialty(conn, tenant_id, row["phone"], payload.health_concern)
 
     return {
         "status": "ok",
@@ -2243,8 +2336,10 @@ async def delete_customer(
 
 
 @app.get("/bookings")
+@app.get("/api/v1/crm/bookings")
 async def list_bookings(
     tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context),
     status: Optional[str] = None,
     limit: int = Query(50, le=1000),
     offset: int = 0
@@ -2254,7 +2349,8 @@ async def list_bookings(
         query = """
             SELECT b.id, b.service, b.start_time, b.end_time, b.status,
                    b.notes, b.price, b.currency, b.created_at,
-                   c.name as contact_name, c.phone as contact_phone
+                   c.name as contact_name, c.phone as contact_phone,
+                   (SELECT cu.health_concern FROM customers cu WHERE cu.tenant_id = b.tenant_id AND (cu.phone = c.phone OR RIGHT(REGEXP_REPLACE(cu.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10)) LIMIT 1) as customer_health_concern
             FROM bookings b
             JOIN contacts c ON c.id = b.contact_id
             WHERE b.tenant_id = $1::uuid
@@ -2270,22 +2366,47 @@ async def list_bookings(
             args.extend([limit, offset])
 
         rows = await conn.fetch(query, *args)
-    return [
-        {
-            "id": str(r["id"]),
-            "service": r["service"],
-            "start_time": r["start_time"].isoformat() if r["start_time"] else "",
-            "end_time": r["end_time"].isoformat() if r["end_time"] else "",
-            "status": r["status"],
-            "notes": r["notes"] or "",
-            "price": float(r["price"]) if r["price"] is not None else 0.0,
-            "currency": r["currency"] or "INR",
-            "contact_name": r["contact_name"] or "",
-            "contact_phone": r["contact_phone"] or "",
-            "created_at": r["created_at"].isoformat() if r["created_at"] else "",
-        }
-        for r in rows
-    ]
+
+    caller_concerns = caller.get("assigned_health_concerns", [])
+    is_admin = caller.get("role") in ("admin", "super_admin", "owner")
+
+    result = []
+    for r in rows:
+        c_concern = r["customer_health_concern"] or ""
+        # If user is a restricted sales rep and booking belongs to a different concern:
+        if caller_concerns and not is_admin and (c_concern not in caller_concerns):
+            result.append({
+                "id": str(r["id"]),
+                "service": "Reserved Slot",
+                "start_time": r["start_time"].isoformat() if r["start_time"] else "",
+                "end_time": r["end_time"].isoformat() if r["end_time"] else "",
+                "status": r["status"],
+                "notes": "Booked by another specialty team",
+                "price": 0.0,
+                "currency": r["currency"] or "INR",
+                "contact_name": "Occupied Slot",
+                "contact_phone": "",
+                "created_at": r["created_at"].isoformat() if r["created_at"] else "",
+                "is_occupied_only": True,
+                "health_concern": "Other Department",
+            })
+        else:
+            result.append({
+                "id": str(r["id"]),
+                "service": r["service"],
+                "start_time": r["start_time"].isoformat() if r["start_time"] else "",
+                "end_time": r["end_time"].isoformat() if r["end_time"] else "",
+                "status": r["status"],
+                "notes": r["notes"] or "",
+                "price": float(r["price"]) if r["price"] is not None else 0.0,
+                "currency": r["currency"] or "INR",
+                "contact_name": r["contact_name"] or "",
+                "contact_phone": r["contact_phone"] or "",
+                "created_at": r["created_at"].isoformat() if r["created_at"] else "",
+                "is_occupied_only": False,
+                "health_concern": c_concern or None,
+            })
+    return result
 
 
 class BookingCreatePayload(BaseModel):
@@ -3666,6 +3787,7 @@ async def delete_booking(
 @app.get("/api/v1/crm/conversations")
 async def list_conversations(
     tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context),
     status: Optional[str] = None,
     limit: int = Query(50, le=100),
     offset: int = 0
@@ -3681,21 +3803,35 @@ async def list_conversations(
                    (SELECT MAX(b.start_time) FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS last_visit_date,
                    (SELECT b.service FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended') ORDER BY b.start_time DESC LIMIT 1) AS last_visit_service,
                    (SELECT b.staff_member FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended') ORDER BY b.start_time DESC LIMIT 1) AS last_visit_doctor,
-                   (SELECT cust.preferred_doctor FROM customers cust WHERE cust.tenant_id = c.tenant_id AND (cust.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10)) LIMIT 1) AS preferred_doctor
+                   (SELECT cust.preferred_doctor FROM customers cust WHERE cust.tenant_id = c.tenant_id AND (cust.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10)) LIMIT 1) AS preferred_doctor,
+                   (SELECT cust.health_concern FROM customers cust WHERE cust.tenant_id = c.tenant_id AND (cust.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10)) LIMIT 1) AS health_concern
             FROM conversations c
             JOIN contacts ct ON ct.id = c.contact_id
             LEFT JOIN users u ON u.id = c.assigned_to
             WHERE c.tenant_id = $1::uuid
         """
         args = [tenant_id]
+        next_idx = 2
+
+        # Health concern isolation: non-admin staff only see conversations for their assigned concerns
+        caller_concerns = caller.get("assigned_health_concerns", [])
+        if caller_concerns and caller.get("role") not in ("admin", "super_admin", "owner"):
+            query += f""" AND EXISTS (
+                SELECT 1 FROM customers cu
+                WHERE cu.tenant_id = c.tenant_id
+                  AND (cu.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cu.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10))
+                  AND cu.health_concern = ANY(${next_idx}::text[])
+            )"""
+            args.append(caller_concerns)
+            next_idx += 1
+
         if status:
-            query += " AND c.status = $2"
+            query += f" AND c.status = ${next_idx}"
             args.append(status)
-            query += " ORDER BY c.last_message_at DESC NULLS LAST LIMIT $3 OFFSET $4"
-            args.extend([limit, offset])
-        else:
-            query += " ORDER BY c.last_message_at DESC NULLS LAST LIMIT $2 OFFSET $3"
-            args.extend([limit, offset])
+            next_idx += 1
+
+        query += f" ORDER BY c.last_message_at DESC NULLS LAST LIMIT ${next_idx} OFFSET ${next_idx + 1}"
+        args.extend([limit, offset])
 
         rows = await conn.fetch(query, *args)
 
@@ -3723,6 +3859,7 @@ async def list_conversations(
             "last_visit_service": r["last_visit_service"] or None,
             "last_visit_doctor": r["last_visit_doctor"] or None,
             "preferred_doctor": r["preferred_doctor"] or r["last_visit_doctor"] or None,
+            "health_concern": r["health_concern"] or None,
         })
     return out
 

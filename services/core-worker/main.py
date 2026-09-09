@@ -2272,6 +2272,35 @@ class CoreWorker:
             """
             await self.db_pool.execute(query, *params)
             logger.info("lead_analyzed_and_updated", phone=phone, lead_prob=lead_prob, status=status, concern=extracted_concern)
+
+            if extracted_concern:
+                try:
+                    staff_rows = await self.db_pool.fetch("""
+                        SELECT u.id
+                        FROM users u
+                        WHERE u.tenant_id = $1::uuid
+                          AND u.is_active = true
+                          AND (u.role = 'sales' OR u.role = 'agent')
+                          AND u.permissions->'assigned_health_concerns' ? $2
+                        ORDER BY (SELECT COUNT(*) FROM conversations c WHERE c.assigned_to = u.id AND c.tenant_id = u.tenant_id) ASC
+                        LIMIT 1
+                    """, tenant_id, extracted_concern.strip())
+                    if staff_rows:
+                        best_rep_id = staff_rows[0]["id"]
+                        clean_p = re.sub(r"[^0-9]", "", phone)
+                        last10 = clean_p[-10:] if len(clean_p) >= 10 else clean_p
+                        await self.db_pool.execute("""
+                            UPDATE conversations c
+                            SET assigned_to = $1, updated_at = now()
+                            FROM contacts ct
+                            WHERE ct.id = c.contact_id
+                              AND c.tenant_id = $2::uuid
+                              AND c.assigned_to IS NULL
+                              AND (ct.phone = $3 OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = $4)
+                        """, best_rep_id, tenant_id, clean_p, last10)
+                        logger.info("ai_auto_routed_conversation", rep_id=str(best_rep_id), concern=extracted_concern)
+                except Exception as ex:
+                    logger.warning("ai_auto_route_failed", error=str(ex))
         except Exception as e:
             logger.warning("lead_analysis_failed", error=str(e), phone=phone)
 
