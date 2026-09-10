@@ -1150,6 +1150,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [drawerDoctor, setDrawerDoctor] = useState('');
   const [savingDrawerAttributes, setSavingDrawerAttributes] = useState(false);
 
+  // Floating Staff / Doctor Assignment Popover state (unified with Chat Header design)
+  const [custAssignPopover, setCustAssignPopover] = useState<{
+    targetType: 'customer' | 'drawer' | 'add_form' | 'quick_crm';
+    customerId?: string;
+    currentValue: string;
+    top?: number;
+    bottom?: number;
+    left: number;
+  } | null>(null);
+  const [custAssignSearch, setCustAssignSearch] = useState('');
+
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [followupStatusFilter, setFollowupStatusFilter] = useState<string>('all');
@@ -2189,6 +2200,398 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             ))}
           </optgroup>
         )}
+      </>
+    );
+  }
+
+  function getStaffRoleMeta(nameOrId?: string | null) {
+    if (!nameOrId || !nameOrId.trim()) {
+      return {
+        role: 'unassigned' as const,
+        label: 'Unassigned',
+        badge: '',
+        colorClass: 'border-border bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary',
+        icon: Users,
+      };
+    }
+    const clean = nameOrId.trim().toLowerCase();
+
+    // Check teamDoctors
+    const teamDoc = categorizedStaffOptions.teamDoctors.find(
+      (d) => d.value.toLowerCase() === clean || (d.id && d.id === nameOrId)
+    );
+    if (teamDoc) {
+      return {
+        role: 'team_doctor' as const,
+        label: teamDoc.value,
+        badge: 'Doctor',
+        colorClass: 'border-blue-300 dark:border-blue-800/60 bg-blue-50/70 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-950/70',
+        icon: Stethoscope,
+      };
+    }
+
+    // Check sales
+    const sales = categorizedStaffOptions.sales.find(
+      (s) => s.value.toLowerCase() === clean || (s.id && s.id === nameOrId)
+    );
+    if (sales) {
+      return {
+        role: 'sales' as const,
+        label: sales.value,
+        badge: 'Sales',
+        colorClass: 'border-amber-300 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/70',
+        icon: User,
+      };
+    }
+
+    // Check predefinedDoctors
+    const presetDoc = categorizedStaffOptions.predefinedDoctors.find(
+      (p) => p.value.toLowerCase() === clean
+    );
+    if (presetDoc) {
+      return {
+        role: 'preset_doctor' as const,
+        label: presetDoc.value,
+        badge: 'Preset',
+        colorClass: 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70',
+        icon: Stethoscope,
+      };
+    }
+
+    // Check other (admin/staff)
+    const other = categorizedStaffOptions.other.find(
+      (o) => o.value.toLowerCase() === clean || (o.id && o.id === nameOrId)
+    );
+    if (other) {
+      return {
+        role: 'admin' as const,
+        label: other.value,
+        badge: 'Admin',
+        colorClass: 'border-purple-300 dark:border-purple-800/60 bg-purple-50/70 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-950/70',
+        icon: ShieldCheck,
+      };
+    }
+
+    // Fallback: custom preset doctor name
+    return {
+      role: 'preset_doctor' as const,
+      label: nameOrId,
+      badge: 'Doctor',
+      colorClass: 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70',
+      icon: Stethoscope,
+    };
+  }
+
+  const openCustomerAssignPopover = (
+    targetType: 'customer' | 'drawer' | 'add_form' | 'quick_crm',
+    customerId: string | undefined,
+    currentValue: string,
+    element: HTMLElement
+  ) => {
+    const rect = element.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const popoverHeight = 320;
+    const openUpwards = spaceBelow < popoverHeight && rect.top > popoverHeight;
+
+    const popoverWidth = 256;
+    let left = rect.left;
+    if (left + popoverWidth > window.innerWidth - 12) {
+      left = Math.max(12, window.innerWidth - popoverWidth - 12);
+    }
+
+    setCustAssignPopover({
+      targetType,
+      customerId,
+      currentValue: currentValue || '',
+      top: openUpwards ? undefined : Math.min(window.innerHeight - popoverHeight, rect.bottom + 4),
+      bottom: openUpwards ? window.innerHeight - rect.top + 4 : undefined,
+      left,
+    });
+    setCustAssignSearch('');
+  };
+
+  const handleSelectCustAssignStaff = async (staffVal: string) => {
+    if (!custAssignPopover) return;
+    const { targetType, customerId } = custAssignPopover;
+    setCustAssignPopover(null);
+    setCustAssignSearch('');
+
+    if (targetType === 'customer' && customerId) {
+      await handleUpdateCustomer(customerId, { preferred_doctor: staffVal });
+    } else if (targetType === 'drawer') {
+      setDrawerDoctor(staffVal);
+      if (selectedCustomer?.id) {
+        await handleUpdateCustomer(selectedCustomer.id, { preferred_doctor: staffVal });
+      }
+    } else if (targetType === 'add_form') {
+      setAddCustomerForm((prev) => ({ ...prev, preferred_doctor: staffVal }));
+    } else if (targetType === 'quick_crm') {
+      setQuickCrmDoctor(staffVal);
+    }
+  };
+
+  function renderStaffAssignTrigger({
+    value,
+    onClick,
+    className = '',
+    placeholder = 'Unassigned',
+    fullWidth = false,
+  }: {
+    value?: string | null;
+    onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
+    className?: string;
+    placeholder?: string;
+    fullWidth?: boolean;
+  }) {
+    const meta = getStaffRoleMeta(value);
+    const IconComponent = meta.icon;
+    const isAssigned = !!(value && value.trim());
+
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`px-2 py-0.5 rounded-sm text-[11px] font-medium border transition-colors cursor-pointer inline-flex items-center justify-between gap-1.5 shadow-xs ${meta.colorClass} ${
+          fullWidth ? 'w-full py-1.5 text-xs' : 'max-w-[155px]'
+        } ${className}`}
+        title={isAssigned ? `Assigned to: ${meta.label} (${meta.badge || 'Staff'})` : 'Click to assign staff or doctor'}
+      >
+        <div className="flex items-center gap-1.5 min-w-0 truncate">
+          <IconComponent className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate text-[11px] font-medium">
+            {isAssigned ? meta.label : placeholder}
+          </span>
+        </div>
+        <ChevronDown className="w-3 h-3 opacity-60 shrink-0 ml-0.5" />
+      </button>
+    );
+  }
+
+  function renderCustomerAssignPopover() {
+    if (!custAssignPopover) return null;
+    const q = custAssignSearch.trim().toLowerCase();
+    const currentVal = (custAssignPopover.currentValue || '').trim().toLowerCase();
+
+    const filteredTeamDoctors = categorizedStaffOptions.teamDoctors.filter((d) => !q || d.value.toLowerCase().includes(q));
+    const filteredSales = categorizedStaffOptions.sales.filter((s) => !q || s.value.toLowerCase().includes(q));
+    const filteredPresets = categorizedStaffOptions.predefinedDoctors.filter((p) => !q || p.value.toLowerCase().includes(q));
+    const filteredOther = categorizedStaffOptions.other.filter((o) => !q || o.value.toLowerCase().includes(q));
+
+    const totalCount =
+      categorizedStaffOptions.teamDoctors.length +
+      categorizedStaffOptions.sales.length +
+      categorizedStaffOptions.predefinedDoctors.length +
+      categorizedStaffOptions.other.length;
+
+    return (
+      <>
+        <div
+          className="fixed inset-0 z-[100]"
+          onClick={() => {
+            setCustAssignPopover(null);
+            setCustAssignSearch('');
+          }}
+        />
+        <div
+          className="fixed z-[101] w-64 bg-surface border border-border rounded-md shadow-2xl py-1 text-xs divide-y divide-border/40 animate-in fade-in zoom-in-95 duration-100"
+          style={{
+            top: custAssignPopover.top !== undefined ? `${custAssignPopover.top}px` : undefined,
+            bottom: custAssignPopover.bottom !== undefined ? `${custAssignPopover.bottom}px` : undefined,
+            left: `${custAssignPopover.left}px`,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="px-2.5 py-1.5 flex items-center justify-between bg-surface-subtle/40">
+            <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
+              Assign Staff / Doctor
+            </span>
+            {teamLoading && <RefreshCw className="w-2.5 h-2.5 animate-spin text-accent" />}
+          </div>
+
+          {/* Quick search input */}
+          {totalCount > 4 && (
+            <div className="p-1.5 bg-surface">
+              <div className="relative">
+                <Search className="w-3 h-3 text-text-muted absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={custAssignSearch}
+                  onChange={(e) => setCustAssignSearch(e.target.value)}
+                  placeholder="Search staff or doctor..."
+                  className="w-full pl-6 pr-2 py-0.5 text-[11px] bg-surface-subtle border border-border rounded text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Scrollable list */}
+          <div className="max-h-64 overflow-y-auto py-1 divide-y divide-border/20">
+            {/* Unassigned Option */}
+            {(!q || 'unassigned'.includes(q)) && (
+              <button
+                type="button"
+                onClick={() => handleSelectCustAssignStaff('')}
+                className={`w-full text-left px-2.5 py-1.5 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                  !currentVal ? 'text-accent font-semibold bg-accent/5' : 'text-text-secondary'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <UserX className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                  <span className="truncate text-[11px]">Unassigned</span>
+                </div>
+                {!currentVal && <Check className="w-3 h-3 text-accent shrink-0" />}
+              </button>
+            )}
+
+            {/* 1. Doctors (Team Login) */}
+            {filteredTeamDoctors.length > 0 && (
+              <div className="py-1">
+                <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
+                  Doctors (Team Login)
+                </div>
+                {filteredTeamDoctors.map((doc) => {
+                  const isActive = currentVal === doc.value.toLowerCase() || (doc.id && custAssignPopover.currentValue === doc.id);
+                  return (
+                    <button
+                      key={doc.value}
+                      type="button"
+                      onClick={() => handleSelectCustAssignStaff(doc.value)}
+                      className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                        isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Stethoscope className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                        <span className="truncate text-[11px]">{doc.value}</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0 ml-1">
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 font-medium">Doctor</span>
+                        {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* 2. Sales & Support */}
+            {filteredSales.length > 0 && (
+              <div className="py-1">
+                <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
+                  Sales & Support
+                </div>
+                {filteredSales.map((mem) => {
+                  const isActive = currentVal === mem.value.toLowerCase() || (mem.id && custAssignPopover.currentValue === mem.id);
+                  return (
+                    <button
+                      key={mem.value}
+                      type="button"
+                      onClick={() => handleSelectCustAssignStaff(mem.value)}
+                      className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                        isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <User className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span className="truncate text-[11px]">{mem.value}</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0 ml-1">
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 font-medium">Sales</span>
+                        {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* 3. Doctors (Presets) */}
+            {filteredPresets.length > 0 && (
+              <div className="py-1">
+                <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
+                  Doctors (Presets)
+                </div>
+                {filteredPresets.map((preset) => {
+                  const isActive = currentVal === preset.value.toLowerCase();
+                  return (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      onClick={() => handleSelectCustAssignStaff(preset.value)}
+                      className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                        isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Stethoscope className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <span className="truncate text-[11px]">{preset.value}</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0 ml-1">
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 font-medium">Preset</span>
+                        {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* 4. Staff & Administration */}
+            {filteredOther.length > 0 && (
+              <div className="py-1">
+                <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
+                  Staff & Administration
+                </div>
+                {filteredOther.map((mem) => {
+                  const isActive = currentVal === mem.value.toLowerCase() || (mem.id && custAssignPopover.currentValue === mem.id);
+                  return (
+                    <button
+                      key={mem.value}
+                      type="button"
+                      onClick={() => handleSelectCustAssignStaff(mem.value)}
+                      className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                        isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                        <span className="truncate text-[11px]">{mem.value}</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0 ml-1">
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 font-medium">Admin</span>
+                        {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Empty search results */}
+            {q && !filteredTeamDoctors.length && !filteredSales.length && !filteredPresets.length && !filteredOther.length && (
+              <div className="py-4 text-center text-text-muted text-[11px]">
+                No staff or doctors found matching &ldquo;{custAssignSearch}&rdquo;
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-2.5 py-1.5 bg-surface-subtle/30 flex items-center justify-between text-[10px]">
+            <button
+              type="button"
+              onClick={() => {
+                setCustAssignPopover(null);
+                openDoctorEditor();
+              }}
+              className="text-accent hover:underline font-medium flex items-center gap-1 cursor-pointer"
+            >
+              <Users className="w-3 h-3" /> Manage Staff & Presets
+            </button>
+          </div>
+        </div>
       </>
     );
   }
@@ -8929,13 +9332,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </td>
 
                                     <td className="p-2.5 text-text-secondary whitespace-nowrap text-[11px]" onClick={(e) => e.stopPropagation()}>
-                                      <select
-                                        value={cust.preferred_doctor || ''}
-                                        onChange={(e) => handleUpdateCustomer(cust.id, { preferred_doctor: e.target.value })}
-                                        className="px-1.5 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[155px]"
-                                      >
-                                        {renderStaffSelectOptions()}
-                                      </select>
+                                      {renderStaffAssignTrigger({
+                                        value: cust.preferred_doctor || '',
+                                        onClick: (e) => {
+                                          e.stopPropagation();
+                                          openCustomerAssignPopover('customer', cust.id, cust.preferred_doctor || '', e.currentTarget);
+                                        },
+                                        placeholder: 'Unassigned',
+                                      })}
                                     </td>
 
                                     <td className="p-2.5 text-text-secondary max-w-[150px] truncate" title={cust.health_concern}>
@@ -9170,22 +9574,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   </button>
                                 </div>
                                 <div className="space-y-1">
-                                  <select
-                                    value={drawerDoctor}
-                                    onChange={(e) => setDrawerDoctor(e.target.value)}
-                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer"
-                                  >
-                                    {renderStaffSelectOptions()}
-                                  </select>
-                                  {drawerDoctor && !availableDoctors.includes(drawerDoctor) && (
-                                    <input
-                                      type="text"
-                                      value={drawerDoctor}
-                                      onChange={(e) => setDrawerDoctor(e.target.value)}
-                                      placeholder="Custom staff name..."
-                                      className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                    />
-                                  )}
+                                  {renderStaffAssignTrigger({
+                                    value: drawerDoctor,
+                                    onClick: (e) => {
+                                      e.stopPropagation();
+                                      openCustomerAssignPopover('drawer', selectedCustomer?.id, drawerDoctor, e.currentTarget);
+                                    },
+                                    placeholder: `— Select ${currentTaxonomy.staff_label || 'Staff / Doctor'} —`,
+                                    fullWidth: true,
+                                  })}
                                 </div>
                               </div>
 
@@ -9702,8 +10099,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     <td className="p-2.5 text-text-secondary max-w-[160px] truncate text-[11px]" title={cust.health_concern}>
                                       {cust.health_concern || '—'}
                                     </td>
-                                    <td className="p-2.5 text-text-secondary whitespace-nowrap text-[11px]">
-                                      {cust.preferred_doctor || '—'}
+                                    <td className="p-2.5 text-text-secondary whitespace-nowrap text-[11px]" onClick={(e) => e.stopPropagation()}>
+                                      {renderStaffAssignTrigger({
+                                        value: cust.preferred_doctor || '',
+                                        onClick: (e) => {
+                                          e.stopPropagation();
+                                          openCustomerAssignPopover('customer', cust.id, cust.preferred_doctor || '', e.currentTarget);
+                                        },
+                                        placeholder: 'Unassigned',
+                                      })}
                                     </td>
                                     <td className="p-2.5" onClick={(e) => e.stopPropagation()}>
                                       <span className={`px-2 py-0.5 rounded-sm text-[10px] font-medium uppercase border ${
@@ -9879,22 +10283,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   </button>
                                 </div>
                                 <div className="space-y-1">
-                                  <select
-                                    value={drawerDoctor}
-                                    onChange={(e) => setDrawerDoctor(e.target.value)}
-                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer"
-                                  >
-                                    {renderStaffSelectOptions()}
-                                  </select>
-                                  {drawerDoctor && !availableDoctors.includes(drawerDoctor) && (
-                                    <input
-                                      type="text"
-                                      value={drawerDoctor}
-                                      onChange={(e) => setDrawerDoctor(e.target.value)}
-                                      placeholder="Custom staff name..."
-                                      className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                    />
-                                  )}
+                                  {renderStaffAssignTrigger({
+                                    value: drawerDoctor,
+                                    onClick: (e) => {
+                                      e.stopPropagation();
+                                      openCustomerAssignPopover('drawer', selectedCustomer?.id, drawerDoctor, e.currentTarget);
+                                    },
+                                    placeholder: `— Select ${currentTaxonomy.staff_label || 'Staff / Doctor'} —`,
+                                    fullWidth: true,
+                                  })}
                                 </div>
                               </div>
                               <button
@@ -10458,13 +10855,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             <span>Manage</span>
                           </button>
                         </div>
-                        <select
-                          value={addCustomerForm.preferred_doctor}
-                          onChange={(e) => setAddCustomerForm(p => ({...p, preferred_doctor: e.target.value}))}
-                          className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer"
-                        >
-                          {renderStaffSelectOptions(`— Select ${currentTaxonomy.staff_label || 'Staff / Doctor'} —`)}
-                        </select>
+                        {renderStaffAssignTrigger({
+                          value: addCustomerForm.preferred_doctor,
+                          onClick: (e) => {
+                            e.stopPropagation();
+                            openCustomerAssignPopover('add_form', undefined, addCustomerForm.preferred_doctor, e.currentTarget);
+                          },
+                          placeholder: `— Select ${currentTaxonomy.staff_label || 'Staff / Doctor'} —`,
+                          fullWidth: true,
+                        })}
                       </div>
                       <div>
                         <label className="block text-[11px] text-text-muted mb-1">Lead</label>
@@ -10936,13 +11335,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                                 {/* Assigned Staff */}
                                 <td className="p-2.5 text-text-secondary whitespace-nowrap text-[11px]" onClick={(e) => e.stopPropagation()}>
-                                  <select
-                                    value={cust.preferred_doctor || ''}
-                                    onChange={(e) => handleUpdateCustomer(cust.id, { preferred_doctor: e.target.value })}
-                                    className="px-1.5 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[155px]"
-                                  >
-                                    {renderStaffSelectOptions()}
-                                  </select>
+                                  {renderStaffAssignTrigger({
+                                    value: cust.preferred_doctor || '',
+                                    onClick: (e) => {
+                                      e.stopPropagation();
+                                      openCustomerAssignPopover('customer', cust.id, cust.preferred_doctor || '', e.currentTarget);
+                                    },
+                                    placeholder: 'Unassigned',
+                                  })}
                                 </td>
 
                                 {/* Health Requirement */}
@@ -14741,13 +15141,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <span>Manage</span>
                       </button>
                     </div>
-                    <select
-                      value={quickCrmDoctor}
-                      onChange={e => setQuickCrmDoctor(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs cursor-pointer"
-                    >
-                      {renderStaffSelectOptions('— Select Staff / Doctor —')}
-                    </select>
+                    {renderStaffAssignTrigger({
+                      value: quickCrmDoctor,
+                      onClick: (e) => {
+                        e.stopPropagation();
+                        openCustomerAssignPopover('quick_crm', undefined, quickCrmDoctor, e.currentTarget);
+                      },
+                      placeholder: '— Select Staff / Doctor —',
+                      fullWidth: true,
+                    })}
                   </div>
                 </div>
 
@@ -15436,6 +15838,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           </button>
         )}
       </nav>
+
+      {renderCustomerAssignPopover()}
 
       </div>
   );
