@@ -5638,16 +5638,8 @@ class TenantUpdate(BaseModel):
     verify_token: Optional[str] = None
 
 
-GLOBAL_DEFAULT_STRICT_RULES = """- CONTINUOUS CONVERSATION & ZERO RE-GREETING: Never say 'Hi again', 'Hello again', or re-greet in an ongoing chat. Greet only on the very first message; thereafter reply directly to what the customer said.
-- GOOGLE CALENDAR AVAILABILITY & FREE-TIME BOOKING: Check live availability from Google Calendar. Propose and book only during verified open free time. Never invent, hallucinate, or state incorrect, wrong, or occupied timeslots.
-- ZERO FALSE 'FULLY BOOKED' CLAIMS: If a day (including today) or time slot is not in the occupied list, it is open and available. Never falsely tell a customer that today or any day is 'fully booked' when the calendar has open hours remaining.
-- NEVER use em dashes or hyphens connecting clauses. Use a comma or short period instead.
-- Sound 100% human and conversational, like texting a real person on WhatsApp, NOT an AI bot.
-- Keep replies concise (1 to 2 short lines). Connect thoughts smoothly into a single natural sentence or paragraph without awkward line gaps.
-- CUT ALL AI CLICHES: Never say delve into, furthermore, moreover, in conclusion, it is important to note, I understand your concern, thank you for reaching out.
-- Ask only ONE thing at a time. Never stack multiple questions in a single reply.
-- Never use markdown bullet lists or bold numbered headers unless the customer explicitly asked for a list.
-- Use natural contractions (I'll, we'll, you'll, that's) and active voice."""
+GLOBAL_DEFAULT_STRICT_RULES = """- GOOGLE CALENDAR AVAILABILITY & FREE-TIME BOOKING: Check live availability from Google Calendar. Propose and book only during verified open free time. Never invent, hallucinate, or state incorrect, wrong, or occupied timeslots.
+- ZERO FALSE 'FULLY BOOKED' CLAIMS: If a day (including today) or time slot is not in the occupied list, it is open and available. Never falsely tell a customer that today or any day is 'fully booked' when the calendar has open hours remaining."""
 
 
 class SyncGlobalRulesPayload(BaseModel):
@@ -5688,19 +5680,14 @@ async def get_admin_global_rules(admin_user: dict = Depends(verify_super_admin))
                     "status": "Enforced Globally"
                 },
                 {
-                    "title": "Continuous Conversation & Zero Re-Greeting",
-                    "description": "The AI recognizes ongoing conversations (turn depth > 1). Strictly prohibits saying 'Hi again', 'Hello again', or re-introducing itself. Enforced both at the LLM prompt level and with a deterministic post-processing code guardrail.",
-                    "status": "Enforced Globally"
-                },
-                {
                     "title": "12-Hour Time Format Directive",
                     "description": "All dates and appointment times are quoted in 12-hour format with AM/PM (e.g. 10:00 AM, 06:30 PM). Military / 24-hour time is strictly forbidden.",
                     "status": "Enforced Globally"
                 },
                 {
-                    "title": "Real Human WhatsApp Texting Style",
-                    "description": "1 to 2 short lines, no awkward line gaps, no corporate clichés ('in conclusion', 'delve into', 'furthermore'), natural contractions, and em dashes (—) stripped.",
-                    "status": "Enforced Globally"
+                    "title": "Tenant Autonomous Tone & Behavior",
+                    "description": "Reply formatting follows a natural, human WhatsApp conversational style. Tone, sales style, greetings, and goals are autonomously governed by each tenant's custom AI instructions.",
+                    "status": "Tenant Autonomous"
                 }
             ]
         }

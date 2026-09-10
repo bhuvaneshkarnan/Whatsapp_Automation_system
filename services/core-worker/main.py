@@ -301,15 +301,8 @@ def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.dateti
 
 
 GLOBAL_DEFAULT_STRICT_RULES = (
-    "- CONTINUOUS CONVERSATION & ZERO RE-GREETING: Never say 'Hi again', 'Hello again', or re-greet in an ongoing chat. Greet only on the very first message; thereafter reply directly to what the customer said.\n"
     "- GOOGLE CALENDAR AVAILABILITY & FREE-TIME BOOKING: Check live availability from Google Calendar. Propose and book only during verified open free time. Never invent, hallucinate, or state incorrect, wrong, or occupied timeslots.\n"
-    "- NEVER use em dashes or hyphens connecting clauses. Use a comma or short period instead.\n"
-    "- Sound 100% human and conversational, like texting a real person on WhatsApp, NOT an AI bot.\n"
-    "- Keep replies concise (1 to 2 short lines). Connect thoughts smoothly into a single natural sentence or paragraph without awkward line gaps.\n"
-    "- CUT ALL AI CLICHES: Never say delve into, furthermore, moreover, in conclusion, it is important to note, I understand your concern, thank you for reaching out.\n"
-    "- Ask only ONE thing at a time. Never stack multiple questions in a single reply.\n"
-    "- Never use markdown bullet lists or bold numbered headers unless the customer explicitly asked for a list.\n"
-    "- Use natural contractions (I'll, we'll, you'll, that's) and active voice."
+    "- ZERO FALSE 'FULLY BOOKED' CLAIMS: If a day (including today) or time slot is not in the occupied list, it is open and available. Never falsely tell a customer that today or any day is 'fully booked' when the calendar has open hours remaining."
 )
 
 def _esc_html(val: Any) -> str:
@@ -1407,23 +1400,17 @@ class CoreWorker:
 
         # Determine conversation turn depth & ongoing state
         is_ongoing_conversation = len(history) > 1
-        if is_ongoing_conversation:
-            conversation_state_block = (
-                f"### CONVERSATION STATE: CONTINUOUS ONGOING CONVERSATION (Turn #{len(history)}):\n"
-                "- STRICT PROHIBITION: ABSOLUTELY DO NOT SAY 'Hi', 'Hello', 'Hey', 'Hi again', 'Hello again', OR RE-INTRODUCE YOURSELF.\n"
-                "- The greeting phase is ALREADY FINISHED. You and the customer already greeted each other earlier in this chat.\n"
-                "- A real human texting on WhatsApp NEVER repeatedly greets with 'Hi again!' on every single message. It sounds robotic, unnatural, and irritating.\n"
-                "- Respond DIRECTLY, naturally, and warmly to what the customer just said without any greetings."
-            )
-        else:
-            conversation_state_block = (
-                "### CONVERSATION STATE: FIRST INCOMING MESSAGE:\n"
-                "- This is the first greeting or message from this customer. Greet them warmly, state your name/role naturally, and ask how you can help."
-            )
+
+        # Clean humanized conversational WhatsApp texting format directive
+        humanized_format_block = (
+            "### CONVERSATION FORMAT & TONE:\n"
+            "- Reply naturally in a warm, human, conversational WhatsApp texting style.\n"
+            "- Follow this business's specific knowledge base, goals, services, tone, and instructions defined below."
+        )
 
         # 2. Retrieve customer profile & bookings memory with strict tenant scoping
         contact_row = await self.db_pool.fetchrow(
-            """SELECT c.name, c.wa_profile_name, c.phone, c.tags, c.notes, c.metadata
+            """SELECT c.id, c.name, c.wa_profile_name, c.phone, c.tags, c.notes, c.metadata
                FROM conversations conv
                JOIN contacts c ON c.id = conv.contact_id AND c.tenant_id = $2::uuid
                WHERE conv.id = $1::uuid AND conv.tenant_id = $2::uuid""",
@@ -1433,16 +1420,13 @@ class CoreWorker:
             """SELECT service, start_time, status
                FROM bookings
                WHERE tenant_id = $2::uuid AND contact_id = (SELECT contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid)
-               ORDER BY start_time DESC LIMIT 3""",
+               ORDER BY start_time DESC LIMIT 5""",
             conv_id, tenant_id,
         )
 
-        # Check if we have a verified customer full name (not default placeholder)
+        contact_id_val = contact_row["id"] if contact_row else None
         db_name = (contact_row["name"] or "").strip() if contact_row else ""
         wa_name = (contact_row["wa_profile_name"] or "").strip() if contact_row else ""
-        has_real_name = bool(db_name and db_name not in ["Valued Customer", "Client", "Customer"])
-        customer_name_display = db_name if has_real_name else (f"Not confirmed yet (WhatsApp handle: {wa_name})" if wa_name else "Unknown")
-        customer_name = db_name or wa_name or "Valued Customer"
 
         tags = (", ".join(contact_row["tags"])) if contact_row and contact_row.get("tags") else "None"
         notes = contact_row["notes"] if contact_row and contact_row.get("notes") else ""
@@ -1454,12 +1438,22 @@ class CoreWorker:
             except: meta_dict = {}
         customer_email = meta_dict.get("email") if isinstance(meta_dict, dict) else None
 
-        # Fetch age and location from customer record
+        # Fetch complete customer memory record (name, health_concern, doctor, status, age, location, etc.)
+        cust_row = None
         customer_age = None
         customer_location = None
+        customer_health_concern = None
+        customer_doctor = None
+        customer_status = None
+        customer_id_val = None
+        customer_notes_text = ""
+
         try:
             cust_row = await self.db_pool.fetchrow(
-                """SELECT age, location FROM customers
+                """SELECT id, name, age, location, health_concern, preferred_doctor,
+                          status, lead_probability, followup_date, followup_time,
+                          last_visited_at, last_messaged_at
+                   FROM customers
                    WHERE tenant_id = $1::uuid
                      AND (
                        phone = $2
@@ -1469,10 +1463,40 @@ class CoreWorker:
                 tenant_id, contact_phone
             )
             if cust_row:
+                customer_id_val = cust_row.get("id")
                 customer_age = cust_row.get("age")
-                customer_location = cust_row.get("location")
+                customer_location = (cust_row.get("location") or "").strip()
+                customer_health_concern = (cust_row.get("health_concern") or "").strip()
+                customer_doctor = (cust_row.get("preferred_doctor") or "").strip()
+                customer_status = (cust_row.get("status") or "").strip()
+
+                # Fetch recent clinic & staff notes for this customer
+                if customer_id_val:
+                    note_rows = await self.db_pool.fetch(
+                        """SELECT author, note_text, created_at
+                           FROM customer_notes
+                           WHERE customer_id = $1::uuid AND tenant_id = $2::uuid
+                           ORDER BY created_at DESC LIMIT 5""",
+                        customer_id_val, tenant_id
+                    )
+                    if note_rows:
+                        customer_notes_text = "; ".join(
+                            [f"[{n['author'] or 'Staff'}]: {n['note_text'].strip()}" for n in note_rows if n.get('note_text')]
+                        )
         except Exception as e_cquery:
             logger.warning("customer_row_query_failed", error=str(e_cquery))
+
+        # Check if we have a verified customer full name (customers table takes highest priority, then contacts)
+        cust_table_name = (cust_row.get("name") or "").strip() if cust_row else ""
+        confirmed_name = ""
+        for cand in [cust_table_name, db_name]:
+            if cand and cand not in ["Valued Customer", "Client", "Customer"]:
+                confirmed_name = cand
+                break
+
+        has_real_name = bool(confirmed_name)
+        customer_name_display = confirmed_name if has_real_name else (f"Not confirmed yet (WhatsApp handle: {wa_name})" if wa_name else "Unknown")
+        customer_name = confirmed_name or wa_name or "Valued Customer"
 
         # If age or location are not yet on file, scan recent conversation history
         if customer_age is None or not customer_location:
@@ -1495,8 +1519,17 @@ class CoreWorker:
                         phone=contact_phone,
                         age=customer_age,
                         location=customer_location,
+                        contact_id=contact_id_val,
                     )
                 )
+
+        # Determine if customer is an existing returning contact or a first-time inquiry
+        is_returning_customer = bool(
+            len(history) > 1 or
+            booking_rows or
+            customer_notes_text or
+            (cust_row and (confirmed_name or customer_health_concern or customer_doctor or customer_age is not None or customer_location))
+        )
 
         tenant_timezone_str = "Asia/Kolkata"
         tenant_currency_str = "INR"
@@ -1618,20 +1651,42 @@ class CoreWorker:
             "- NO TIME ASSUMPTION: If the customer asks for an appointment without giving a specific time, ask what time works best from the verified empty slots above."
         )
 
-        memory_block = (
-            "### CUSTOMER PROFILE & CONVERSATION MEMORY:\n"
-            f"- Customer Name: {customer_name_display}\n"
-            f"- Customer WhatsApp Phone: {contact_phone}\n"
-            f"- Customer Email on File: {customer_email if customer_email else 'Not provided yet (Ask for email)'}\n"
-            f"- Customer Age on File: {customer_age if customer_age is not None else 'Not provided yet'}\n"
-            f"- Customer Location / City on File: {customer_location if customer_location else 'Not provided yet'}\n"
-            f"- Known Bookings for THIS Customer: {booking_info}\n"
-            f"- CRM Tags: {tags}\n"
-            f"- Profile Notes: {notes if notes else 'None'}\n"
-            "- PERSISTENT MEMORY DIRECTIVE: You have persistent memory across this entire conversation history. "
-            "Remember everything the customer has mentioned (clinic details, enquiry handling, setup, questions, preferences). "
-            "NEVER re-ask questions they already answered in the history below. Continue the conversation fluidly using all prior context."
-        )
+        if is_returning_customer:
+            memory_block = (
+                "### CUSTOMER PROFILE & CONVERSATION MEMORY (RETURNING CUSTOMER ON FILE):\n"
+                f"- Returning Customer: YES (Known customer with active profile or history)\n"
+                f"- Customer Name: {confirmed_name if confirmed_name else customer_name_display}\n"
+                f"- Customer WhatsApp Phone: {contact_phone}\n"
+                f"- Health Concern / Reason for Visit: {customer_health_concern or 'Not specified yet'}\n"
+                f"- Assigned / Preferred Doctor: {customer_doctor or 'Not assigned yet'}\n"
+                f"- Patient / Lead Status: {customer_status or 'Active'}\n"
+                f"- Customer Age on File: {customer_age if customer_age is not None else 'Not provided yet'}\n"
+                f"- Customer Location / City on File: {customer_location if customer_location else 'Not provided yet'}\n"
+                f"- Customer Email on File: {customer_email if customer_email else 'Not provided yet'}\n"
+                f"- Known Bookings for THIS Customer: {booking_info}\n"
+                f"- CRM Tags: {tags}\n"
+                f"- Clinical & Staff Notes: {customer_notes_text or notes or 'None'}\n\n"
+                "### RETURNING CUSTOMER RECOGNITION PROTOCOL:\n"
+                "- THIS IS AN EXISTING / RETURNING CUSTOMER. DO NOT treat them as a stranger or re-introduce the business from scratch.\n"
+                "- When they greet ('Hi', 'Hello', 'Hey') or message, acknowledge them warmly and personally by name if known (e.g. 'Hi [Name]!').\n"
+                "- Do NOT ask generic first-time intro questions like 'How can I assist you with [Business Name]?'.\n"
+                "- Remember and seamlessly reference their known health concern, doctor, past appointments, or prior conversation context.\n"
+                "- PERSISTENT MEMORY DIRECTIVE: You have persistent memory across this entire customer relationship and chat history. "
+                "NEVER re-ask questions they already answered. Continue fluidly using all prior context."
+            )
+        else:
+            memory_block = (
+                "### CUSTOMER PROFILE & CONVERSATION MEMORY (NEW INQUIRY):\n"
+                "- Returning Customer: NO (First contact / New customer)\n"
+                f"- Customer Name: {customer_name_display}\n"
+                f"- Customer WhatsApp Phone: {contact_phone}\n"
+                f"- WhatsApp Handle: {wa_name or 'Unknown'}\n"
+                f"- Customer Email on File: {customer_email if customer_email else 'Not provided yet'}\n"
+                f"- Customer Age on File: {customer_age if customer_age is not None else 'Not provided yet'}\n"
+                f"- Customer Location / City on File: {customer_location if customer_location else 'Not provided yet'}\n"
+                f"- CRM Tags: {tags}\n"
+                "- Follow this business's opening instructions to warmly welcome them and understand their needs."
+            )
 
         assistant_name = ai_cfg.get("assistant_name") or "Assistant"
         custom_instructions = ai_cfg.get("system_prompt") or ""
@@ -1651,8 +1706,8 @@ class CoreWorker:
             "  [ACTION:RESCHEDULE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}]\n"
             "- CANCELLATION: When the customer explicitly asks to cancel their booking, append this action tag on a new line at the very end of your reply:\n"
             "  [ACTION:CANCEL_BOOKING]\n"
-            "- CUSTOMER DETAIL EXTRACTION: If the customer mentions their age or their location/city, append this action tag on a new line at the very end of your reply:\n"
-            "  [ACTION:CUSTOMER_INFO: {\"age\": <age as integer or null>, \"location\": \"<City or location>\"}]"
+            "- CUSTOMER DETAIL EXTRACTION: If the customer mentions or confirms their name, health concern / problem, preferred doctor, age, or location / city, append this action tag on a new line at the very end of your reply:\n"
+            "  [ACTION:CUSTOMER_INFO: {\"name\": \"<Customer Name or null>\", \"health_concern\": \"<Concern or null>\", \"preferred_doctor\": \"<Doctor or null>\", \"age\": <age as integer or null>, \"location\": \"<City or location or null>\"}]"
         )
 
         full_location = (creds.get("full_location_text") or "").strip() if creds else ""
@@ -1678,7 +1733,7 @@ class CoreWorker:
             time_context,
             tenant_isolation_boundary,
             f"You are {assistant_name or 'the assistant'}, representing {tenant_name or 'this business'} directly on WhatsApp chat.",
-            conversation_state_block,
+            humanized_format_block,
             memory_block,
             busy_slots_block,
         ]
@@ -1767,8 +1822,6 @@ class CoreWorker:
 
         if response_text:
             response_text = clean_llm_response(response_text)
-            if is_ongoing_conversation:
-                response_text = strip_repetitive_greetings(response_text)
             
             # 1. Intercept [ACTION:CANCEL_BOOKING] or AI confirmation phrases
             if "[ACTION:CANCEL_BOOKING]" in response_text or any(phrase in response_text.lower() for phrase in ["cancelled your booking", "have cancelled your", "booking has been cancelled", "appointment is cancelled", "appointment has been cancelled", "cancelled your appointment"]):
@@ -1791,9 +1844,21 @@ class CoreWorker:
                     c_info = json.loads(m_cust.group(1))
                     c_age = c_info.get("age")
                     c_loc = c_info.get("location")
-                    if c_age or c_loc:
+                    c_name = c_info.get("name")
+                    c_concern = c_info.get("health_concern")
+                    c_doc = c_info.get("preferred_doctor")
+                    if any([c_name, c_concern, c_doc, c_age is not None, c_loc]):
                         asyncio.create_task(
-                            self._update_customer_extracted_info(tenant_id, contact_phone, c_age, c_loc)
+                            self._update_customer_extracted_info(
+                                tenant_id=tenant_id,
+                                phone=contact_phone,
+                                age=c_age,
+                                location=c_loc,
+                                name=c_name,
+                                health_concern=c_concern,
+                                preferred_doctor=c_doc,
+                                contact_id=contact_id_val,
+                            )
                         )
                 except Exception as ex:
                     logger.warning("customer_info_parse_failed", error=str(ex))
@@ -1986,38 +2051,71 @@ class CoreWorker:
             logger.warning("lead_analysis_dispatch_failed", error=str(e_lead))
 
 
-    async def _update_customer_extracted_info(self, tenant_id: str, phone: str, age=None, location=None, contact_id=None):
-        """Auto-update customer age/location extracted from WhatsApp message, storing directly into Customers tab and Contacts."""
-        if not phone or (age is None and not location):
+    async def _update_customer_extracted_info(
+        self,
+        tenant_id: str,
+        phone: str,
+        age=None,
+        location=None,
+        contact_id=None,
+        name=None,
+        health_concern=None,
+        preferred_doctor=None,
+    ):
+        """Auto-update customer extracted details (name, health_concern, doctor, age, location) into Customers and Contacts."""
+        if not phone and not contact_id:
             return
         try:
             pool = self.db_pool
-            clean_digits = re.sub(r'\D', '', str(phone))
+            clean_digits = re.sub(r'\D', '', str(phone or ""))
             last10 = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
 
-            # Also update contact metadata if contact_id or phone known
+            # Also update contact metadata and name if contact_id or phone known
             try:
                 meta_updates = {}
                 if age is not None:
                     meta_updates["age"] = int(age)
                 if location:
                     meta_updates["location"] = str(location).strip()
-                
+                if health_concern:
+                    meta_updates["health_concern"] = str(health_concern).strip()
+                if preferred_doctor:
+                    meta_updates["preferred_doctor"] = str(preferred_doctor).strip()
+
                 if contact_id:
-                    await pool.execute(
-                        """UPDATE contacts 
-                           SET metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb 
-                           WHERE id = $2::uuid AND tenant_id = $3::uuid""",
-                        json.dumps(meta_updates), contact_id, tenant_id
-                    )
+                    if meta_updates:
+                        await pool.execute(
+                            """UPDATE contacts 
+                               SET metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb 
+                               WHERE id = $2::uuid AND tenant_id = $3::uuid""",
+                            json.dumps(meta_updates), contact_id, tenant_id
+                        )
+                    if name and name not in ["Valued Customer", "Client", "Customer"]:
+                        await pool.execute(
+                            """UPDATE contacts
+                               SET name = $1
+                               WHERE id = $2::uuid AND tenant_id = $3::uuid
+                                 AND (name IS NULL OR name = '' OR name = 'Valued Customer' OR name = 'Client' OR name = 'Customer')""",
+                            name.strip(), contact_id, tenant_id
+                        )
                 elif last10:
-                    await pool.execute(
-                        """UPDATE contacts 
-                           SET metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb 
-                           WHERE tenant_id = $2::uuid 
-                             AND (phone = $3 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4)""",
-                        json.dumps(meta_updates), tenant_id, phone, last10
-                    )
+                    if meta_updates:
+                        await pool.execute(
+                            """UPDATE contacts 
+                               SET metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb 
+                               WHERE tenant_id = $2::uuid 
+                                 AND (phone = $3 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4)""",
+                            json.dumps(meta_updates), tenant_id, phone, last10
+                        )
+                    if name and name not in ["Valued Customer", "Client", "Customer"]:
+                        await pool.execute(
+                            """UPDATE contacts
+                               SET name = $1
+                               WHERE tenant_id = $2::uuid
+                                 AND (phone = $3 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4)
+                                 AND (name IS NULL OR name = '' OR name = 'Valued Customer' OR name = 'Client' OR name = 'Customer')""",
+                            name.strip(), tenant_id, phone, last10
+                        )
             except Exception as meta_ex:
                 logger.debug("contact_metadata_update_minor_err", error=str(meta_ex))
 
@@ -2047,12 +2145,25 @@ class CoreWorker:
                     updates.append(f"location = ${p_idx}")
                     params.append(str(location).strip())
                     p_idx += 1
+                if name and name not in ["Valued Customer", "Client", "Customer"]:
+                    updates.append(f"name = CASE WHEN (name IS NULL OR name = '' OR name = 'Customer' OR name = 'Valued Customer') THEN ${p_idx} ELSE name END")
+                    params.append(str(name).strip())
+                    p_idx += 1
+                if health_concern:
+                    updates.append(f"health_concern = ${p_idx}")
+                    params.append(str(health_concern).strip())
+                    p_idx += 1
+                if preferred_doctor:
+                    updates.append(f"preferred_doctor = ${p_idx}")
+                    params.append(str(preferred_doctor).strip())
+                    p_idx += 1
                 if updates:
+                    updates.append("last_messaged_at = NOW()")
                     updates.append("updated_at = NOW()")
                     sql = f"UPDATE customers SET {', '.join(updates)} WHERE id = ${p_idx}::uuid AND tenant_id = ${p_idx + 1}::uuid"
                     params.extend([cust_id, tenant_id])
                     await pool.execute(sql, *params)
-                    logger.info("customer_info_auto_updated", phone=phone, age=age, location=location)
+                    logger.info("customer_info_auto_updated", phone=phone, age=age, location=location, name=name, health_concern=health_concern, preferred_doctor=preferred_doctor)
             else:
                 # Customer not found in customers table yet; upsert new row so it immediately appears on Customer tab
                 contact_name = None
@@ -2068,20 +2179,28 @@ class CoreWorker:
                         contact_name = c_row.get("name") or c_row.get("wa_profile_name")
                 except Exception:
                     pass
-                customer_name = contact_name or "Customer"
+                customer_name = (name if name and name not in ["Valued Customer", "Client", "Customer"] else None) or contact_name or "Customer"
 
                 await pool.execute(
                     """
-                    INSERT INTO customers (tenant_id, phone, name, status, lead_probability, age, location, last_messaged_at, created_at, updated_at)
-                    VALUES ($1::uuid, $2, $3, 'new', 'warm', $4, $5, NOW(), NOW(), NOW())
+                    INSERT INTO customers (tenant_id, phone, name, preferred_doctor, status, health_concern, lead_probability, age, location, last_messaged_at, created_at, updated_at)
+                    VALUES ($1::uuid, $2, $3, $4, 'new', $5, 'warm', $6, $7, NOW(), NOW(), NOW())
                     ON CONFLICT (tenant_id, phone) DO UPDATE
                     SET updated_at = NOW(),
+                        last_messaged_at = NOW(),
+                        name = COALESCE(NULLIF(EXCLUDED.name, 'Customer'), customers.name),
+                        preferred_doctor = COALESCE(EXCLUDED.preferred_doctor, customers.preferred_doctor),
+                        health_concern = COALESCE(EXCLUDED.health_concern, customers.health_concern),
                         age = COALESCE(EXCLUDED.age, customers.age),
                         location = COALESCE(EXCLUDED.location, customers.location)
                     """,
-                    tenant_id, clean_digits or phone, customer_name, int(age) if age is not None else None, str(location).strip() if location else None
+                    tenant_id, clean_digits or phone, customer_name,
+                    preferred_doctor.strip() if preferred_doctor else None,
+                    health_concern.strip() if health_concern else None,
+                    int(age) if age is not None else None,
+                    str(location).strip() if location else None
                 )
-                logger.info("customer_info_auto_created", phone=phone, age=age, location=location, name=customer_name)
+                logger.info("customer_info_auto_created", phone=phone, age=age, location=location, name=customer_name, health_concern=health_concern)
         except Exception as ex:
             logger.warning("customer_info_update_failed", error=str(ex))
 
@@ -2169,6 +2288,16 @@ class CoreWorker:
                         )
                     except Exception as e:
                         logger.warning("save_contact_name_failed", error=str(e))
+
+                asyncio.create_task(
+                    self._update_customer_extracted_info(
+                        tenant_id=tenant_id,
+                        phone=contact_phone,
+                        contact_id=contact_id,
+                        name=name if name not in ["Valued Customer", "Client", "Customer"] else None,
+                        health_concern=service_name if service_name else None,
+                    )
+                )
 
             # 1. Check if THIS contact already has an active booking at this time
             if contact_id:
