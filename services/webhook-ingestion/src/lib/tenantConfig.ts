@@ -17,8 +17,50 @@ export interface TenantWebhookConfig {
   appSecret: string;       // Meta App Secret for HMAC validation
 }
 
-// In-memory cache: slug → config (TTL 5 min)
-const cache = new Map<string, { config: TenantWebhookConfig; expiresAt: number }>();
+class LRUCache<K, V> {
+  private readonly max: number;
+  private readonly map = new Map<K, V>();
+
+  constructor(max = 500) {
+    this.max = max;
+  }
+
+  get(key: K): V | undefined {
+    const item = this.map.get(key);
+    if (item !== undefined) {
+      this.map.delete(key);
+      this.map.set(key, item);
+    }
+    return item;
+  }
+
+  set(key: K, value: V): void {
+    if (this.map.has(key)) {
+      this.map.delete(key);
+    } else if (this.map.size >= this.max) {
+      const oldestKey = this.map.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.map.delete(oldestKey);
+      }
+    }
+    this.map.set(key, value);
+  }
+
+  delete(key: K): boolean {
+    return this.map.delete(key);
+  }
+
+  clear(): void {
+    this.map.clear();
+  }
+
+  get size(): number {
+    return this.map.size;
+  }
+}
+
+// In-memory LRU cache: slug → config (max 500 entries, TTL 5 min)
+const cache = new LRUCache<string, { config: TenantWebhookConfig; expiresAt: number }>(500);
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
@@ -30,7 +72,12 @@ export async function getTenantWebhookConfig(
 ): Promise<TenantWebhookConfig | null> {
   const now = Date.now();
   const cached = cache.get(tenantSlug);
-  if (cached && cached.expiresAt > now) return cached.config;
+  if (cached) {
+    if (cached.expiresAt > now) {
+      return cached.config;
+    }
+    cache.delete(tenantSlug);
+  }
 
   try {
     const result = await pool.query(

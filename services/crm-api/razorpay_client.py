@@ -8,10 +8,27 @@ from typing import Optional, Dict, Any, List
 
 logger = structlog.get_logger("razorpay-client")
 
-RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_live_TY08mXjPJlDrY0")
-RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "BTmUduwrNmx20GnoM4LtBecR")
-RAZORPAY_PLAN_ID = os.getenv("RAZORPAY_PLAN_ID", "plan_TY0FkAowyFUgGw")
-RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "rzp_whsec_wh_2026_secure_key_8f10b7a")
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
+RAZORPAY_PLAN_ID = os.getenv("RAZORPAY_PLAN_ID")
+RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET")
+
+def validate_razorpay_config():
+    """Validates Razorpay environment variables in production."""
+    env = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "development").lower()
+    if env == "production":
+        missing = [
+            name for name, val in [
+                ("RAZORPAY_KEY_ID", RAZORPAY_KEY_ID),
+                ("RAZORPAY_KEY_SECRET", RAZORPAY_KEY_SECRET),
+                ("RAZORPAY_PLAN_ID", RAZORPAY_PLAN_ID),
+                ("RAZORPAY_WEBHOOK_SECRET", RAZORPAY_WEBHOOK_SECRET),
+            ] if not val
+        ]
+        if missing:
+            raise RuntimeError(f"Missing required Razorpay environment variable(s) in production: {', '.join(missing)}")
+
+validate_razorpay_config()
 
 BASE_URL = "https://api.razorpay.com/v1"
 

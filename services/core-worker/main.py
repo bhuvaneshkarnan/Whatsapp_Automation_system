@@ -15,7 +15,8 @@ import time
 import uuid
 import datetime
 from datetime import timezone
-from typing import Optional
+import html
+from typing import Optional, Any
 
 import asyncpg
 import redis.asyncio as aioredis
@@ -65,7 +66,7 @@ except Exception:
     wa_sends           = REGISTRY._names_to_collectors.get("core_wa_sends_total")
 
 # ── Gmail Direct Dispatch & Email Builders ─────────────────────────────────────
-def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_body: str):
+async def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_body: str):
     """Dispatches direct HTML email using authorized Google OAuth token via Gmail API."""
     if not to_email or "@" not in to_email:
         return None
@@ -75,13 +76,13 @@ def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_bo
         from email.mime.multipart import MIMEMultipart
         from googleapiclient.discovery import build
 
-        gmail_service = build("gmail", "v1", credentials=g_creds)
+        gmail_service = await asyncio.to_thread(build, "gmail", "v1", credentials=g_creds)
         msg = MIMEMultipart("alternative")
         msg["to"] = to_email.strip()
         msg["subject"] = subject
         msg.attach(MIMEText(html_body, "html"))
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
-        res = gmail_service.users().messages().send(userId="me", body={"raw": raw}).execute()
+        res = await asyncio.to_thread(lambda: gmail_service.users().messages().send(userId="me", body={"raw": raw}).execute())
         logger.info("gmail_email_notification_sent", to=to_email, msg_id=res.get("id"))
         return res
     except Exception as e:
@@ -122,6 +123,124 @@ def sanitize_and_fix_email(email: Optional[str]) -> Optional[str]:
     
     if re.match(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$', e):
         return e
+    return None
+
+
+# ── Customer Age & Location Auto-Extraction ───────────────────────────────────
+EXCLUDE_LOCATION_WORDS = {
+    'yesterday', 'today', 'tomorrow', 'morning', 'afternoon', 'evening', 'night', 
+    'next week', 'last week', 'last month', 'next month', 'year', 'years', 'days',
+    'work', 'home', 'office', 'detail', 'details', 'tamil', 'english', 'hindi', 'sleep', 
+    'recovery', 'consultation', 'therapy', 'boldlabs', 'mind body recovery',
+    'hospital', 'clinic', 'bed', 'pain', 'stress', 'depression', 'anxiety',
+    'start', 'beginning', 'scratch', 'advance', 'touch', 'call', 'chat',
+    'whatsapp', 'facebook', 'instagram', 'ad', 'ads', 'google', 'youtube',
+    'headache', 'insomnia', 'distrubnse', 'disturbance', 'problem', 'issues',
+    'now', 'then', 'here', 'there', 'somewhere', 'anywhere', 'appointment'
+}
+
+COMMON_CITIES = [
+    'Chennai', 'Bangalore', 'Bengaluru', 'Coimbatore', 'Madurai', 'Trichy', 'Tiruchirappalli', 
+    'Salem', 'Tiruppur', 'Erode', 'Vellore', 'Pondicherry', 'Puducherry', 'Kanchipuram', 
+    'Chengalpattu', 'Changalputtu', 'Rajapalayam', 'Tirunelveli', 'Nagercoil', 'Dindigul', 
+    'Thanjavur', 'Kumbakonam', 'Cuddalore', 'Hyderabad', 'Mumbai', 'Pune', 'Delhi', 'Kochi',
+    'Sriperumbudur', 'Tambaram', 'Avadi', 'Perumbakkam', 'Medavakkam', 'Velachery', 'Adyar',
+    'Anna Nagar', 'T Nagar', 'Mylapore', 'Guindy', 'Porur', 'Chromepet', 'Pallavaram'
+]
+
+def extract_age(text: Optional[str]) -> Optional[int]:
+    if not text or not isinstance(text, str):
+        return None
+    
+    # 1. Explicit age keywords: "age 24", "my age is 41", "age: 35", "age - 72", "age 24yrs"
+    m = re.search(r'\b(?:my\s+)?age\s*(?:is|:|=|-)?\s*(\d{1,2})\b', text, re.IGNORECASE)
+    if m:
+        val = int(m.group(1))
+        if 1 <= val <= 110:
+            return val
+            
+    # 2. "I am 24 years old", "iam 41", "i'm 28 yrs old", "i am 32", "im 25"
+    m = re.search(r'\b(?:i\s*am|i\'m|iam|im)\s+(\d{1,2})(?:\s*(?:years?|yrs?)(?:\s*old)?)?\b', text, re.IGNORECASE)
+    if m:
+        val = int(m.group(1))
+        if 5 <= val <= 110:
+            return val
+
+    # 3. Standalone "24yrs" or "24 yrs" (avoid duration phrases: "suffering for 2 years", "2 years ago", "more than 4yrs")
+    if not re.search(r'\b(?:for|since|past|last|from|more than|over)\s+\d+\s*(?:years?|yrs?)', text, re.IGNORECASE):
+        m = re.search(r'\b(\d{1,2})\s*(?:years?|yrs?)\s*(?:old)?\b', text, re.IGNORECASE)
+        if m:
+            val = int(m.group(1))
+            if 10 <= val <= 110:
+                return val
+
+    return None
+
+def clean_location_candidate(cand: Optional[str]) -> Optional[str]:
+    if not cand or not isinstance(cand, str):
+        return None
+    cand = cand.strip(' .,!?:;-_()[]{}"\'').strip()
+    # Strip conversational filler prefixes
+    cand = re.sub(r'^(?:yes|no|ok|okay|hi|hello|sorry|sir|madam|at|in|am|i\s*am|im|iam|we\s*r|we\s*are|but\s+i\s*am|but\s+am|but|and)\s+', '', cand, flags=re.IGNORECASE).strip()
+    cand = cand.strip(' .,!?:;-_()[]{}"\'').strip()
+    if not cand or len(cand) < 3 or len(cand) > 45:
+        return None
+    if re.search(r'\d', cand):
+        return None
+    if cand.lower() in EXCLUDE_LOCATION_WORDS:
+        return None
+    if any(w in cand.lower() for w in ['suffering', 'sleeping', 'disturb', 'technique', 'detail', 'service', 'cost', 'price', 'clinic', 'recovery', 'visit', 'treatment']):
+        return None
+    return cand.title()
+
+def extract_location(text: Optional[str]) -> Optional[str]:
+    if not text or not isinstance(text, str):
+        return None
+        
+    cleaned_text = re.sub(r'\b(?:suffering|disturbed|facing|recovering)\s+from\b', '', text, flags=re.IGNORECASE)
+    # Ignore visiting/travelling to clinic: e.g. 'come to chennai', 'visit your clinic in chennai'
+    cleaned_text = re.sub(r'\b(?:visit(?:ing)?|come|coming|travel(?:ling)?|go(?:ing)?)\s+(?:to|towards)\s+(?:your\s+clinic\s+(?:in|at)\s+|the\s+clinic\s+(?:in|at)\s+)?[A-Za-z\s]+', '', cleaned_text, flags=re.IGNORECASE)
+    
+    # 1. 'iam from changalputtu', 'from bangalore', 'i am from chennai'
+    m = re.search(r'\b(?:i\s*am\s+from|i\'m\s+from|iam\s+from|im\s+from|from)\s+([A-Za-z\s,]+?)(?:[.,!\n]|$)', cleaned_text, re.IGNORECASE)
+    if m:
+        loc = clean_location_candidate(m.group(1))
+        if loc:
+            return loc
+
+    # 2. 'staying in X', 'living in X', 'residing in X', 'we r in X', 'we are in X', 'i am in X', 'am in X'
+    m = re.search(r'\b(?:staying\s+in|living\s+in|residing\s+in|we\s+r\s+in|we\s+are\s+in|i\s*am\s+in|i\'m\s+in|iam\s+in|im\s+in|am\s+in)\s+([A-Za-z\s,]+?)(?:[.,!\n]|$)', cleaned_text, re.IGNORECASE)
+    if m:
+        loc = clean_location_candidate(m.group(1))
+        if loc:
+            return loc
+
+    # 3. 'am at X', 'i am at X' (e.g. 'Am at rajapalayam')
+    m = re.search(r'\b(?:i\s*am\s+at|i\'m\s+at|iam\s+at|im\s+at|am\s+at)\s+([A-Za-z\s,]+?)(?:[.,!\n]|$)', cleaned_text, re.IGNORECASE)
+    if m:
+        loc = clean_location_candidate(m.group(1))
+        if loc:
+            return loc
+
+    # 4. 'location: X', 'location is X', 'place: X', 'city: X', 'area: X'
+    m = re.search(r'\b(?:location|place|city|area)\s*(?:is|:|=|-)\s*([A-Za-z\s,]+?)(?:[.,!\n]|$)', cleaned_text, re.IGNORECASE)
+    if m:
+        loc = clean_location_candidate(m.group(1))
+        if loc:
+            return loc
+
+    # 5. Check for known Indian cities/localities
+    for city in COMMON_CITIES:
+        if re.search(r'\b' + re.escape(city) + r'\b', cleaned_text, re.IGNORECASE):
+            m = re.search(r'\b([A-Za-z\s,]+?\b' + re.escape(city) + r'(?:\s+[A-Za-z,]+)?)\b', cleaned_text, re.IGNORECASE)
+            if m:
+                cand = m.group(1).strip()
+                cand = re.sub(r'^(?:yes|no|ok|okay|hi|hello|age|\d+)\s*', '', cand, flags=re.IGNORECASE).strip()
+                cleaned = clean_location_candidate(cand)
+                if cleaned:
+                    return cleaned
+            return city.title()
+
     return None
 
 
@@ -193,9 +312,22 @@ GLOBAL_DEFAULT_STRICT_RULES = (
     "- Use natural contractions (I'll, we'll, you'll, that's) and active voice."
 )
 
+def _esc_html(val: Any) -> str:
+    """Escapes user input to prevent HTML injection in email templates."""
+    if val is None:
+        return ""
+    return html.escape(str(val))
+
+
 def build_booking_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str, notes: str, full_location: str) -> str:
-    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
-    notes_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Notes</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{notes}</td></tr>""" if notes and notes != "None" else ""
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    c_phone = _esc_html(contact_phone)
+    c_email = _esc_html(customer_email) if customer_email else 'Not provided'
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{_esc_html(full_location)}</td></tr>""" if full_location else ""
+    notes_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Notes</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{_esc_html(notes)}</td></tr>""" if notes and notes != "None" else ""
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
@@ -206,11 +338,11 @@ def build_booking_admin_email_html(service_name: str, formatted_date: str, forma
   
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not provided'}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{c_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_email}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{f_date} at {f_time}</td></tr>
       {loc_html}
       {notes_html}
     </table>
@@ -228,21 +360,26 @@ def build_booking_admin_email_html(service_name: str, formatted_date: str, forma
 
 
 def build_booking_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, full_location: str) -> str:
-    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    c_phone = _esc_html(contact_phone)
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{_esc_html(full_location)}</td></tr>""" if full_location else ""
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
     <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #047857; background-color: #ecfdf5; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Confirmed</div>
     <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Confirmed</h1>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, your appointment has been scheduled.</p>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {c_name}, your appointment has been scheduled.</p>
   </div>
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{f_date} at {f_time}</td></tr>
       {loc_html}
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone on File</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone on File</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_phone}</td></tr>
     </table>
   </div>
 
@@ -258,6 +395,12 @@ def build_booking_customer_email_html(service_name: str, formatted_date: str, fo
 
 
 def build_cancellation_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    c_phone = _esc_html(contact_phone)
+    c_email = _esc_html(customer_email) if customer_email else 'Not provided'
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
@@ -268,11 +411,11 @@ def build_cancellation_admin_email_html(service_name: str, formatted_date: str, 
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not provided'}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Cancelled Slot</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{c_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_email}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Cancelled Slot</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{f_date} at {f_time}</td></tr>
     </table>
   </div>
 
@@ -288,18 +431,22 @@ def build_cancellation_admin_email_html(service_name: str, formatted_date: str, 
 
 
 def build_cancellation_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str) -> str:
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
     <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; background-color: #f1f5f9; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Cancelled</div>
     <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Cancellation</h1>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, your appointment has been cancelled as requested.</p>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {c_name}, your appointment has been cancelled as requested.</p>
   </div>
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Cancelled Slot</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Cancelled Slot</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{f_date} at {f_time}</td></tr>
     </table>
   </div>
 
@@ -315,6 +462,12 @@ def build_cancellation_customer_email_html(service_name: str, formatted_date: st
 
 
 def build_reschedule_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    c_phone = _esc_html(contact_phone)
+    c_email = _esc_html(customer_email) if customer_email else 'Not provided'
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
@@ -325,11 +478,11 @@ def build_reschedule_admin_email_html(service_name: str, formatted_date: str, fo
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not provided'}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">New Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{c_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_email}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">New Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{f_date} at {f_time}</td></tr>
     </table>
   </div>
 
@@ -345,19 +498,23 @@ def build_reschedule_admin_email_html(service_name: str, formatted_date: str, fo
 
 
 def build_reschedule_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, full_location: str) -> str:
-    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{_esc_html(full_location)}</td></tr>""" if full_location else ""
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
     <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #1d4ed8; background-color: #eff6ff; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Rescheduled</div>
     <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Rescheduled</h1>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, your appointment has been updated to the new time slot.</p>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {c_name}, your appointment has been updated to the new time slot.</p>
   </div>
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">New Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">New Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{f_date} at {f_time}</td></tr>
       {loc_html}
     </table>
   </div>
@@ -374,21 +531,26 @@ def build_reschedule_customer_email_html(service_name: str, formatted_date: str,
 
 
 def build_reminder_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, full_location: str) -> str:
-    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    c_phone = _esc_html(contact_phone)
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{_esc_html(full_location)}</td></tr>""" if full_location else ""
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
     <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #0369a1; background-color: #f0f9ff; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Reminder</div>
     <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Upcoming Appointment Reminder</h1>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, this is a reminder for your upcoming session.</p>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {c_name}, this is a reminder for your upcoming session.</p>
   </div>
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{f_date} at {f_time}</td></tr>
       {loc_html}
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone on File</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone on File</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_phone}</td></tr>
     </table>
   </div>
 
@@ -404,19 +566,23 @@ def build_reminder_customer_email_html(service_name: str, formatted_date: str, f
 
 
 def build_review_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, full_location: str) -> str:
-    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{_esc_html(full_location)}</td></tr>""" if full_location else ""
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
     <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #047857; background-color: #ecfdf5; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Completed</div>
     <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Thank You for Your Visit</h1>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, thank you for attending your appointment.</p>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {c_name}, thank you for attending your appointment.</p>
   </div>
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Completed Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Completed Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{f_date} at {f_time}</td></tr>
       {loc_html}
     </table>
   </div>
@@ -433,6 +599,10 @@ def build_review_customer_email_html(service_name: str, formatted_date: str, for
 
 
 def build_takeover_admin_email_html(customer_name: str, contact_phone: str, customer_email: str, reason: str = "Client requested to speak with a staff member") -> str:
+    c_name = _esc_html(customer_name)
+    c_phone = _esc_html(contact_phone)
+    c_email = _esc_html(customer_email) if customer_email else 'Not on file'
+    c_reason = _esc_html(reason)
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
@@ -443,10 +613,10 @@ def build_takeover_admin_email_html(customer_name: str, contact_phone: str, cust
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Customer</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{customer_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not on file'}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Reason</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{reason}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Customer</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{c_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_email}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Reason</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_reason}</td></tr>
     </table>
   </div>
 
@@ -561,7 +731,8 @@ async def dispatch_push_notification(
                 }
             }
             try:
-                webpush(
+                await asyncio.to_thread(
+                    webpush,
                     subscription_info=sub_info,
                     data=payload_json,
                     vapid_private_key=VAPID_PRIVATE_KEY,
@@ -607,6 +778,7 @@ class CoreWorker:
     def __init__(self):
         self.db_pool: Optional[asyncpg.Pool] = None
         self.redis: Optional[aioredis.Redis] = None
+        self.in_flight_messages: set = set()
 
     async def start(self):
         # Connect DB and Redis
@@ -626,6 +798,12 @@ class CoreWorker:
 
         logger.info("core_worker_started", stream=STREAM_KEY, group=CONSUMER_GROUP)
 
+        # Recovery check on startup for marketing campaigns stuck in_progress from worker restart
+        try:
+            await self._recover_abandoned_campaigns()
+        except Exception as e_rec:
+            logger.warning("startup_campaign_recovery_failed", error=str(e_rec))
+
         # Start the stream consumer loop
         asyncio.create_task(self._consume_loop())
 
@@ -634,6 +812,36 @@ class CoreWorker:
 
         # Start the scheduled job checker (reminders, review requests)
         asyncio.create_task(self._scheduled_job_loop())
+
+    async def _recover_abandoned_campaigns(self):
+        """Finds campaigns stuck in_progress from worker restart and marks them failed for manual retry."""
+        try:
+            stuck_campaigns = await self.db_pool.fetch(
+                """SELECT id, tenant_id, campaign_name, sent_count, total_recipients
+                   FROM marketing_campaigns
+                   WHERE status = 'in_progress'"""
+            )
+            for camp in stuck_campaigns:
+                camp_id = camp["id"]
+                c_name = camp["campaign_name"] or "Campaign"
+                sent_cnt = camp["sent_count"] or 0
+                total = camp["total_recipients"] or 0
+                logger.warning(
+                    "recovering_abandoned_campaign",
+                    campaign_id=str(camp_id),
+                    campaign_name=c_name,
+                    sent_count=sent_cnt,
+                    total_recipients=total,
+                )
+                await self.db_pool.execute(
+                    """UPDATE marketing_campaigns
+                       SET status = 'failed'
+                       WHERE id = $1 AND status = 'in_progress'""",
+                    camp_id
+                )
+                logger.info("abandoned_campaign_marked_failed_for_retry", campaign_id=str(camp_id))
+        except Exception as e:
+            logger.error("recover_abandoned_campaigns_failed", error=str(e))
 
     async def _status_consume_loop(self):
         """
@@ -686,6 +894,9 @@ class CoreWorker:
                     if pending:
                         for _stream, p_messages in pending:
                             for msg_id, fields in p_messages:
+                                if msg_id in self.in_flight_messages:
+                                    continue
+                                self.in_flight_messages.add(msg_id)
                                 asyncio.create_task(self._handle_message(msg_id, fields))
                 except Exception as p_err:
                     logger.debug("pending_stream_check_skip", error=str(p_err))
@@ -701,6 +912,9 @@ class CoreWorker:
                 tasks = []
                 for _stream, messages in (results or []):
                     for msg_id, fields in messages:
+                        if msg_id in self.in_flight_messages:
+                            continue
+                        self.in_flight_messages.add(msg_id)
                         tasks.append(asyncio.create_task(self._handle_message(msg_id, fields)))
                 
                 if tasks:
@@ -776,7 +990,7 @@ class CoreWorker:
             msg_type = fields.get("type", "text")
             body_text = fields.get("body", "")
 
-            if msg_type in ["audio", "voice"] or (not body_text and fields.get("rawJson")):
+            if msg_type in ["audio", "voice"] or (not body_text and fields.get("rawJson")) or fields.get("rawJson"):
                 raw_data = {}
                 try:
                     raw_data = json.loads(fields.get("rawJson", "{}"))
@@ -814,8 +1028,73 @@ class CoreWorker:
                         logger.error("voice_note_transcription_failed", media_id=media_id, error=str(e))
                         body_text = "🎤 [Voice Note received]"
 
+                # Media / rich message fallback extraction if body_text is empty or just generic placeholder
+                if not body_text or not body_text.strip() or body_text in ["📷 [Photo]", "🎥 [Video]", "📄 [Document]", "🎤 [Voice Note]"]:
+                    if msg_type == "image" or "image" in raw_data:
+                        img_caption = raw_data.get("image", {}).get("caption")
+                        body_text = f"📷 {img_caption}" if img_caption else "📷 [Photo]"
+                    elif msg_type == "video" or "video" in raw_data:
+                        vid_caption = raw_data.get("video", {}).get("caption")
+                        body_text = f"🎥 {vid_caption}" if vid_caption else "🎥 [Video]"
+                    elif msg_type == "document" or "document" in raw_data:
+                        doc_obj = raw_data.get("document", {})
+                        fname = doc_obj.get("filename")
+                        d_caption = doc_obj.get("caption")
+                        if fname and d_caption:
+                            body_text = f"📄 {fname} - {d_caption}"
+                        elif fname:
+                            body_text = f"📄 {fname}"
+                        elif d_caption:
+                            body_text = f"📄 {d_caption}"
+                        else:
+                            body_text = "📄 [Document]"
+                    elif msg_type in ["audio", "voice"]:
+                        if not body_text:
+                            body_text = "🎤 [Voice Note received]"
+                    elif msg_type == "sticker" or "sticker" in raw_data:
+                        body_text = "🏷️ [Sticker]"
+                    elif msg_type == "location" or "location" in raw_data:
+                        loc_obj = raw_data.get("location", {})
+                        loc_name = loc_obj.get("name")
+                        loc_addr = loc_obj.get("address")
+                        lat = loc_obj.get("latitude")
+                        lng = loc_obj.get("longitude")
+                        if loc_name and loc_addr:
+                            body_text = f"📍 Location: {loc_name} ({loc_addr})"
+                        elif loc_name:
+                            body_text = f"📍 Location: {loc_name}"
+                        elif lat and lng:
+                            body_text = f"📍 Location: https://maps.google.com/?q={lat},{lng}"
+                        else:
+                            body_text = "📍 [Location shared]"
+                    elif msg_type == "contacts" or "contacts" in raw_data:
+                        c_list = raw_data.get("contacts", [])
+                        names = []
+                        for c in c_list:
+                            n = c.get("name", {}).get("formatted_name") or c.get("name", {}).get("first_name")
+                            p = (c.get("phones", [{}])[0].get("phone", "")) if c.get("phones") else ""
+                            if n and p: names.append(f"{n} ({p})")
+                            elif n: names.append(n)
+                            elif p: names.append(p)
+                        if names:
+                            body_text = f"👤 Contact shared: {', '.join(names)}"
+                        else:
+                            body_text = "👤 [Contact card shared]"
+                    elif msg_type == "reaction" or "reaction" in raw_data:
+                        emoji = raw_data.get("reaction", {}).get("emoji")
+                        body_text = f"Reaction: {emoji}" if emoji else "Reaction"
+
             # ── 5. Persist inbound message ────────────────────────────────────
             safe_content_type = "interactive" if msg_type in ["button", "interactive"] else (msg_type if msg_type in ['text', 'image', 'audio', 'video', 'document', 'template', 'interactive', 'sticker', 'location', 'button'] else 'text')
+            if not body_text or not body_text.strip():
+                if safe_content_type == "image": body_text = "📷 [Photo]"
+                elif safe_content_type == "video": body_text = "🎥 [Video]"
+                elif safe_content_type == "document": body_text = "📄 [Document]"
+                elif safe_content_type == "audio": body_text = "🎵 [Audio]"
+                elif safe_content_type == "sticker": body_text = "🏷️ [Sticker]"
+                elif safe_content_type == "location": body_text = "📍 [Location]"
+                else: body_text = "[Message]"
+
             await self._persist_message(
                 tenant_id=tenant_id,
                 conversation_id=conv_id,
@@ -841,6 +1120,21 @@ class CoreWorker:
                         except Exception as em_err:
                             logger.warning("persist_extracted_email_failed", error=str(em_err))
 
+            # ── 5c. Auto-detect & persist customer age & location directly to Customer Tab ───
+            if body_text:
+                inbound_age = extract_age(body_text)
+                inbound_loc = extract_location(body_text)
+                if inbound_age is not None or inbound_loc is not None:
+                    asyncio.create_task(
+                        self._update_customer_extracted_info(
+                            tenant_id=tenant_id,
+                            phone=fields.get("from") or "",
+                            age=inbound_age,
+                            location=inbound_loc,
+                            contact_id=contact_id,
+                        )
+                    )
+
             # ── 6. Route to AI or skip (human mode, paused automation, or subscription delinquent) ─────
             # Strict Gating: If unpaid/delinquent, AI auto-replies are held until payment is completed!
             if sub_delinquent:
@@ -859,10 +1153,16 @@ class CoreWorker:
                 )
 
             # ── 7. Update conversation timestamp ──────────────────────────────
-            await self.db_pool.execute(
-                "UPDATE conversations SET last_message_at = now(), unread_count = unread_count + 1 WHERE id = $1",
-                conv_id,
-            )
+            async with self.db_pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute(
+                        "SELECT id FROM conversations WHERE id = $1::uuid FOR UPDATE",
+                        conv_id,
+                    )
+                    await conn.execute(
+                        "UPDATE conversations SET last_message_at = now(), unread_count = unread_count + 1 WHERE id = $1::uuid",
+                        conv_id,
+                    )
 
             messages_processed.labels(tenant=tenant_id, status="success").inc()
             await self.redis.xack(STREAM_KEY, CONSUMER_GROUP, stream_msg_id)
@@ -873,6 +1173,7 @@ class CoreWorker:
             # ACK anyway to prevent poison-pill loop; dead letter handled by ops
             await self.redis.xack(STREAM_KEY, CONSUMER_GROUP, stream_msg_id)
         finally:
+            self.in_flight_messages.discard(stream_msg_id)
             elapsed = time.monotonic() - start
             processing_time.labels(tenant=tenant_id).observe(elapsed)
 
@@ -1153,6 +1454,50 @@ class CoreWorker:
             except: meta_dict = {}
         customer_email = meta_dict.get("email") if isinstance(meta_dict, dict) else None
 
+        # Fetch age and location from customer record
+        customer_age = None
+        customer_location = None
+        try:
+            cust_row = await self.db_pool.fetchrow(
+                """SELECT age, location FROM customers
+                   WHERE tenant_id = $1::uuid
+                     AND (
+                       phone = $2
+                       OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10)
+                     )
+                   LIMIT 1""",
+                tenant_id, contact_phone
+            )
+            if cust_row:
+                customer_age = cust_row.get("age")
+                customer_location = cust_row.get("location")
+        except Exception as e_cquery:
+            logger.warning("customer_row_query_failed", error=str(e_cquery))
+
+        # If age or location are not yet on file, scan recent conversation history
+        if customer_age is None or not customer_location:
+            for h in history:
+                if h.get("role") == "user":
+                    u_text = h.get("content") or ""
+                    if customer_age is None:
+                        found_a = extract_age(u_text)
+                        if found_a is not None:
+                            customer_age = found_a
+                    if not customer_location:
+                        found_l = extract_location(u_text)
+                        if found_l:
+                            customer_location = found_l
+            # If we found missing info from history, persist it in background
+            if customer_age is not None or customer_location:
+                asyncio.create_task(
+                    self._update_customer_extracted_info(
+                        tenant_id=tenant_id,
+                        phone=contact_phone,
+                        age=customer_age,
+                        location=customer_location,
+                    )
+                )
+
         tenant_timezone_str = "Asia/Kolkata"
         tenant_currency_str = "INR"
         tenant_currency_sym = "₹"
@@ -1175,11 +1520,11 @@ class CoreWorker:
                 tenant_country_code = tenant_st_row.get("country_code").strip()
 
         import datetime
+        import zoneinfo
         try:
-            import zoneinfo
-            tenant_tz = zoneinfo.ZoneInfo(tenant_timezone_str)
+            tenant_tz = zoneinfo.ZoneInfo(tenant_timezone_str or "Asia/Kolkata")
         except Exception:
-            tenant_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+            tenant_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
 
         booking_info = "No previous appointments."
         if booking_rows:
@@ -1278,6 +1623,8 @@ class CoreWorker:
             f"- Customer Name: {customer_name_display}\n"
             f"- Customer WhatsApp Phone: {contact_phone}\n"
             f"- Customer Email on File: {customer_email if customer_email else 'Not provided yet (Ask for email)'}\n"
+            f"- Customer Age on File: {customer_age if customer_age is not None else 'Not provided yet'}\n"
+            f"- Customer Location / City on File: {customer_location if customer_location else 'Not provided yet'}\n"
             f"- Known Bookings for THIS Customer: {booking_info}\n"
             f"- CRM Tags: {tags}\n"
             f"- Profile Notes: {notes if notes else 'None'}\n"
@@ -1292,106 +1639,19 @@ class CoreWorker:
         services_text = ai_cfg.get("services_text") or ""
         response_style = ai_cfg.get("response_style") or "short"
         methodology = ai_cfg.get("methodology") or "dogfooding"
-        strict_rules = (ai_cfg.get("strict_rules") or "").strip() or GLOBAL_DEFAULT_STRICT_RULES
-        if "CONTINUOUS CONVERSATION" not in strict_rules:
-            strict_rules = "- CONTINUOUS CONVERSATION & ZERO RE-GREETING: Never say 'Hi again', 'Hello again', or re-greet in an ongoing chat. Greet only on the very first message; thereafter reply directly to what the customer said.\n" + strict_rules
-        if "GOOGLE CALENDAR AVAILABILITY" not in strict_rules:
-            strict_rules = "- GOOGLE CALENDAR AVAILABILITY & FREE-TIME BOOKING: Check live availability from Google Calendar. Propose and book only during verified open free time. Never invent, hallucinate, or state incorrect, wrong, or occupied timeslots.\n" + strict_rules
+        strict_rules = (ai_cfg.get("strict_rules") or "").strip()
         objection_handling = ai_cfg.get("objection_handling") or ""
 
-        # Master Global Human Persona & Conversational Intelligence Engine
-        master_human_directives = (
-            "### MASTER HUMAN CONVERSATION & TEXTING RULES (MANDATORY FOR EVERY REPLY):\n"
-            "You are replying as a REAL PERSON representing the business on WhatsApp, NOT as an AI bot.\n"
-            "Always use the business name, tone, services, and verified details given to you in context. Never invent or assume business details on your own.\n\n"
-            "1. Continuous Conversation & Zero Re-Greeting Rule (ABSOLUTE MANDATORY):\n"
-            "- NEVER say 'Hi', 'Hello', 'Hey', 'Hi again', 'Hello again', or repeatedly greet the customer in an ongoing chat!\n"
-            "- You only introduce yourself or greet ONCE at the very first message of a brand new conversation.\n"
-            "- Once the customer has replied or the conversation is in progress (from message 2 onwards), DIVE DIRECTLY into the answer or question with empathy.\n"
-            "- Never say 'Hi again! Thanks for sharing...' or 'Hello again!'. Jump straight to: 'Thanks for sharing...' or 'Got it...'.\n\n"
-            "2. Sound Like a Real Person, Not a Script:\n"
-            "- Acknowledge what the person just said before moving on to your point, the way someone naturally reacts, rather than jumping straight into an answer.\n"
-            "- Small natural reactions are fine here and there (e.g., 'Oh got it', 'Makes total sense', 'Sure thing'), but keep them genuine.\n"
-            "- Match their energy and formality: casual gets casual back, while a worried or frustrated message gets genuine warmth and reassurance before a solution.\n"
-            "- Mirror the language and tone they wrote in (English, Hinglish, casual phrases, etc.).\n"
-            "- Ask ONE thing at a time. NEVER stack two or three questions into one message.\n"
-            "- Show real interest with a genuine follow-up instead of rushing them to the next step.\n\n"
-            "3. Natural WhatsApp Texting Style:\n"
-            "- Write like you're texting on your phone, not filing a corporate report.\n"
-            "- Keep replies concise and punchy (1 to 2 short sentences). Make every word count.\n"
-            "- DO NOT insert blank line gaps between short 1-2 sentence replies. Connect them smoothly into a single natural sentence or paragraph (e.g. 'Awesome, I have got that booked for you for today at 07:00 PM.' or 'Thanks for sharing that! Just to quickly check...'). Use a line gap ONLY when providing a list or separating distinct topics.\n"
-            "- NEVER use em dashes (—) or hyphens connecting clauses. Use a comma or short period instead.\n"
-            "- CUT ALL AI CLICHÉS and canned customer service lines: 'in conclusion', 'delve into', 'furthermore', 'moreover', 'it's important to note', 'game-changer', 'not just X, but Y', 'I understand your concern', 'thank you for reaching out'.\n"
-            "- Mix short and medium sentences. Skip bullet points and headers unless the user explicitly requested a list.\n"
-            "- Use natural contractions (I'll, we'll, you'll, that's). Prefer active voice. Be specific, not vague."
-        )
-
-        appointment_intelligence = (
-            "### APPOINTMENT INTELLIGENCE & CONFLICT PREVENTION (MANDATORY):\n\n"
-            "1. CUSTOMER ALREADY HAS AN UPCOMING BOOKING:\n"
-            "- If the customer already has an upcoming booking listed under 'Known Bookings for THIS Customer' and asks to book an appointment (e.g. 'Want to book appointment', 'I want an appointment', 'Can I book a call?'):\n"
-            "  * Remind them of their currently scheduled booking first, and ask if they want to reschedule that one or book an additional appointment!\n"
-            "  * Example: 'You already have an appointment scheduled for [Date & Time]! Did you want to reschedule that one, or book an additional slot?'\n"
-            "  * DO NOT create a new booking unless they confirm they want another additional booking or reschedule.\n\n"
-            "2. STRICT BOOKING GUARDRAIL — NEVER ASSUME OR INVENT DATE / TIME:\n"
-            "- If the customer does not have an upcoming booking and says 'Want to book appointment', 'I want an appointment', 'Can I book a slot?', or general booking intent:\n"
-            "  * DO NOT BOOK AN APPOINTMENT IMMEDIATELY.\n"
-            "  * DO NOT INVENT OR ASSUME A TIME OR DATE ON YOUR OWN (never assume today at 15:00, etc.).\n"
-            "  * NEVER output [ACTION:CREATE_BOOKING: ...] on a general request.\n"
-            "  * Instead, ask what day and time they prefer (and ask for their name/email if not on file), e.g.:\n"
-            "    'Sure thing! What day and time works best for you?'\n"
-            "    (or 'Sure! What day and time works best for you? Also please share your full name and email for the calendar invite.').\n\n"
-            "3. CONFLICT PREVENTION & LIVE CALENDAR FREE-TIME BOOKING (ZERO WRONG DATA):\n"
-            "- Only ONE appointment can be booked in any given time slot.\n"
-            "- Check the 'LIVE CALENDAR AVAILABILITY & OCCUPIED TIMESLOTS' list above before proposing or agreeing to any time.\n"
-            "- If a customer asks for a slot that is already occupied or busy on Google Calendar (or CRM), NEVER agree to that time.\n"
-            "- NEVER say incorrect, hallucinated, or wrong schedule data. Politely inform them:\n"
-            "  'That slot is already booked on our calendar. Would [suggest an available free time from open hours] work for you instead?'\n"
-            "- ZERO FALSE 'FULLY BOOKED' CLAIMS: NEVER tell a customer that today, tomorrow, or any day is 'fully booked' or 'full' unless that entire day is literally packed with back-to-back bookings in the occupied timeslots list above. If the calendar has open free hours, the business IS available!\n"
-            f"- Operating hours: strictly within business hours ({op_hours_display}).\n\n"
-            "4. INQUIRY ABOUT EXISTING APPOINTMENT ('When is my appointment?', 'What time is my call?', 'Do I have a booking?', 'Check my appointment', 'My appointment status'):\n"
-            "- CRITICAL GLOBAL DIRECTIVE: THIS IS AN INFORMATIONAL STATUS INQUIRY ONLY.\n"
-            "- The customer is ONLY asking what time or date their existing appointment is. THEY ARE NOT ASKING TO BOOK OR RESCHEDULE!\n"
-            "- STRICT PROHIBITIONS:\n"
-            "  * NEVER create a new booking on an inquiry.\n"
-            "  * NEVER reschedule, alter, or move their existing booking.\n"
-            "  * NEVER output [ACTION:CREATE_BOOKING: ...] or [ACTION:RESCHEDULE_BOOKING: ...] under ANY circumstances.\n"
-            "  * NEVER say 'Your appointment is now set for...', 'has been rescheduled to...', or 'is booked for...' as if you just executed an action.\n"
-            "- EXACT REQUIRED BEHAVIOR:\n"
-            "  * Look directly at 'Known Bookings for THIS Customer' in the CUSTOMER PROFILE above.\n"
-            "  * If they have an existing confirmed/upcoming booking:\n"
-            "    State clearly in 1 friendly, natural sentence when their appointment is already scheduled:\n"
-            "    Example: 'Your appointment is scheduled for today, 05 Sep 2026 at 08:00 AM! Let me know if you need to make any changes or have any questions.'\n"
-            "  * If they have NO active bookings listed:\n"
-            "    State clearly in 1 short sentence: 'You don't have an active appointment scheduled right now. Would you like to book one?'\n\n"
-            "5. MANDATORY ACTION TAG ON BOOKING CONFIRMATION:\n"
-            "- Once the customer has provided or confirmed their Date, Time, Name, and Email (e.g. user says 'Yes', 'Confirm', 'Today 7pm', etc.):\n"
-            "  You MUST append the booking action tag on a new line at the very end of your reply:\n"
+        # Action Tag Protocols (Executed by backend tools when appointments or details are confirmed)
+        action_tag_directives = (
+            "### ACTION TAG PROTOCOLS (Executed by system when appointments or contact details are confirmed):\n"
+            "- BOOKING CONFIRMATION: Once the customer has provided or confirmed their Date, Time, Name, and Email for an appointment, append this action tag on a new line at the very end of your reply:\n"
             "  [ACTION:CREATE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"<Notes>\"}]\n"
-            "- CRITICAL: If you tell the customer their appointment is booked or confirmed without this exact tag, the calendar invite CANNOT be generated!\n\n"
-            "6. CANCELLATION ACTIONS (MANDATORY):\n"
-            "- When a customer explicitly asks to cancel their booking (e.g. 'cancel my appointment', 'cancel it', 'want to cancell it', 'yes cancel'):\n"
-            "  * If they have an existing booking listed above: Confirm the cancellation politely in 1 short line, and MUST append on a new line:\n"
-            "    [ACTION:CANCEL_BOOKING]\n"
-            "- If they do not have an active booking: Let them know they don't have an active booking to cancel.\n\n"
-            "7. RESCHEDULE ACTIONS (MANDATORY):\n"
-            "- When a customer asks to change or reschedule their booking to a specific new Date & Time:\n"
-            "  * Check that the new slot is in the VERIFIED EMPTY SLOTS list above.\n"
-            "  * Confirm the new Date & Time politely in 1 short line, and MUST append on a new line:\n"
-            "    [ACTION:RESCHEDULE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}]\n"
-            "- When a customer asks or confirms they want to reschedule (e.g. 'Can I come today?' -> 'Reschedule it', 'reschedule to today', or 'reschedule my booking') WITHOUT giving a specific time:\n"
-            "  * Check the VERIFIED EMPTY SLOTS list for that day (e.g. TODAY).\n"
-            "  * NEVER claim the day is fully booked when empty slots exist!\n"
-            "  * Enthusiastically confirm that the day has open slots, and offer 2 to 3 verified empty slots for them to choose:\n"
-            f"    Example: 'Sure! Today we have open slots at [e.g. 02:00 PM, 04:30 PM, or 06:00 PM]. Which time would you prefer to come in?'\n\n"
-            "8. 12-HOUR TIME FORMAT DIRECTIVE (ABSOLUTE MANDATORY RULE):\n"
-            "- The entire business operates strictly in 12-HOUR TIME FORMAT.\n"
-            "- ALWAYS speak, quote, propose, and confirm appointments exclusively in 12-HOUR FORMAT WITH AM/PM (e.g., '10:00 AM', '02:30 PM', '07:00 PM').\n"
-            "- NEVER use military or 24-hour time (like 20:30, 19:00, or 14:00) when replying to customers.\n"
-            "- In the JSON action tag [ACTION:CREATE_BOOKING: ...] or [ACTION:RESCHEDULE_BOOKING: ...], pass time in either 12-hour format ('07:00 PM') or HH:MM ('19:00').\n\n"
-            "9. AUTOMATIC CUSTOMER DETAIL EXTRACTION (AGE & LOCATION):\n"
-            "- If the customer mentions their age (e.g. 'I am 26', 'age 32', '24 yrs old') or their location/city/area (e.g. 'from Anna Nagar, Chennai', 'living in Bangalore', 'from Delhi'):\n"
-            "  Append this action tag on a new line at the very end of your reply:\n"
+            "- RESCHEDULE CONFIRMATION: When the customer asks to reschedule their booking to a specific new Date & Time, append this action tag on a new line at the very end of your reply:\n"
+            "  [ACTION:RESCHEDULE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}]\n"
+            "- CANCELLATION: When the customer explicitly asks to cancel their booking, append this action tag on a new line at the very end of your reply:\n"
+            "  [ACTION:CANCEL_BOOKING]\n"
+            "- CUSTOMER DETAIL EXTRACTION: If the customer mentions their age or their location/city, append this action tag on a new line at the very end of your reply:\n"
             "  [ACTION:CUSTOMER_INFO: {\"age\": <age as integer or null>, \"location\": \"<City or location>\"}]"
         )
 
@@ -1411,7 +1671,7 @@ class CoreWorker:
             "ZERO CROSS-TENANT OVERLAP & STRICT ENFORCEMENT:\n"
             f"1. You represent ONLY '{tenant_name or 'this business'}' and NO OTHER company or client.\n"
             "2. You MUST strictly and exclusively use the business information, services, pricing, and instructions provided in this prompt below.\n"
-            "3. Under NO circumstances should you mention, adopt, refer to, or use branding, personas, names, pricing, or workflows from any other business (including Boldlabs, Rakshaya, Mind Body Recovery, or other clinics/agencies) unless explicitly defined in this business's knowledge base below."
+            "3. Under NO circumstances should you mention, adopt, refer to, or use branding, personas, names, pricing, or workflows from any other business unless explicitly defined in this business's knowledge base below."
         )
 
         prompt_blocks = [
@@ -1423,6 +1683,7 @@ class CoreWorker:
             busy_slots_block,
         ]
 
+        # 100% Tenant Autonomous Instructions & Configuration:
         if custom_instructions.strip():
             prompt_blocks.append(f"### BUSINESS KNOWLEDGE BASE & INSTRUCTIONS:\n{custom_instructions.strip()}")
 
@@ -1436,7 +1697,7 @@ class CoreWorker:
             prompt_blocks.append(f"### OBJECTION HANDLING STRATEGY:\n{objection_handling.strip()}")
 
         if strict_rules.strip():
-            prompt_blocks.append(f"### GLOBAL BOT STRICT RULES & NEGATIVE CONSTRAINTS:\n{strict_rules.strip()}")
+            prompt_blocks.append(f"### STRICT RULES & CONSTRAINTS:\n{strict_rules.strip()}")
 
         if response_style.strip():
             prompt_blocks.append(f"### CONVERSATION STYLE & TONE:\n{response_style.strip()}")
@@ -1447,17 +1708,8 @@ class CoreWorker:
         if full_location:
             prompt_blocks.append(f"### BUSINESS ADDRESS & LOCATION:\n{full_location}\n- Provide this exact address and directions whenever the customer asks where the business or clinic is located.")
 
-        # Supreme Authority Directives at the very bottom
-        prompt_blocks.append(master_human_directives)
-        prompt_blocks.append(appointment_intelligence)
-
-        prompt_blocks.append(
-            "### STRICT DOMAIN COMPLIANCE PROTOCOL (ABSOLUTE RULE):\n"
-            "1. You must STRICTLY and EXCLUSIVELY answer using ONLY the facts, instructions, services, and pricing provided in the knowledge base above.\n"
-            "2. If a customer asks a question outside what is provided in this prompt, politely state that our team can explain those details on a quick call, or answer that we do not offer that service. Never guess or provide out-of-the-box unlisted info.\n"
-            "3. NEVER invent, assume, or quote unlisted prices, discounts, or policies under any circumstance.\n"
-            "4. Reply ONLY as a real person in natural, concise WhatsApp texting style (1-2 short lines)."
-        )
+        # Essential Tool Action Tags (how the AI triggers backend actions when confirmed):
+        prompt_blocks.append(action_tag_directives)
 
         active_system_prompt = "\n\n".join(prompt_blocks)
 
@@ -1734,32 +1986,102 @@ class CoreWorker:
             logger.warning("lead_analysis_dispatch_failed", error=str(e_lead))
 
 
-    async def _update_customer_extracted_info(self, tenant_id: str, phone: str, age=None, location=None):
-        """Auto-update customer age/location extracted from WhatsApp message by AI."""
+    async def _update_customer_extracted_info(self, tenant_id: str, phone: str, age=None, location=None, contact_id=None):
+        """Auto-update customer age/location extracted from WhatsApp message, storing directly into Customers tab and Contacts."""
+        if not phone or (age is None and not location):
+            return
         try:
             pool = self.db_pool
+            clean_digits = re.sub(r'\D', '', str(phone))
+            last10 = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
+
+            # Also update contact metadata if contact_id or phone known
+            try:
+                meta_updates = {}
+                if age is not None:
+                    meta_updates["age"] = int(age)
+                if location:
+                    meta_updates["location"] = str(location).strip()
+                
+                if contact_id:
+                    await pool.execute(
+                        """UPDATE contacts 
+                           SET metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb 
+                           WHERE id = $2::uuid AND tenant_id = $3::uuid""",
+                        json.dumps(meta_updates), contact_id, tenant_id
+                    )
+                elif last10:
+                    await pool.execute(
+                        """UPDATE contacts 
+                           SET metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb 
+                           WHERE tenant_id = $2::uuid 
+                             AND (phone = $3 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4)""",
+                        json.dumps(meta_updates), tenant_id, phone, last10
+                    )
+            except Exception as meta_ex:
+                logger.debug("contact_metadata_update_minor_err", error=str(meta_ex))
+
+            # Query existing customer record by tenant and normalized phone
             row = await pool.fetchrow(
-                """SELECT id FROM customers 
+                """SELECT id, name FROM customers 
                    WHERE tenant_id = $1::uuid 
-                     AND (phone = $2 OR phone = replace($2, '+', '') OR ('+' || phone) = $2)
+                     AND (
+                       phone = $2 
+                       OR phone = $3 
+                       OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4
+                     )
                    LIMIT 1""",
-                tenant_id, phone
+                tenant_id, phone, clean_digits, last10
             )
-            if not row:
-                logger.info("customer_info_extract_no_customer", phone=phone)
-                return
-            cust_id = row["id"]
-            if age is not None:
+
+            if row:
+                cust_id = row["id"]
+                updates = []
+                params = []
+                p_idx = 1
+                if age is not None:
+                    updates.append(f"age = ${p_idx}")
+                    params.append(int(age))
+                    p_idx += 1
+                if location:
+                    updates.append(f"location = ${p_idx}")
+                    params.append(str(location).strip())
+                    p_idx += 1
+                if updates:
+                    updates.append("updated_at = NOW()")
+                    sql = f"UPDATE customers SET {', '.join(updates)} WHERE id = ${p_idx}::uuid AND tenant_id = ${p_idx + 1}::uuid"
+                    params.extend([cust_id, tenant_id])
+                    await pool.execute(sql, *params)
+                    logger.info("customer_info_auto_updated", phone=phone, age=age, location=location)
+            else:
+                # Customer not found in customers table yet; upsert new row so it immediately appears on Customer tab
+                contact_name = None
+                try:
+                    c_row = await pool.fetchrow(
+                        """SELECT name, wa_profile_name FROM contacts 
+                           WHERE tenant_id = $1::uuid 
+                             AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $3)
+                           LIMIT 1""",
+                        tenant_id, phone, last10
+                    )
+                    if c_row:
+                        contact_name = c_row.get("name") or c_row.get("wa_profile_name")
+                except Exception:
+                    pass
+                customer_name = contact_name or "Customer"
+
                 await pool.execute(
-                    "UPDATE customers SET age = $1, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
-                    int(age), cust_id, tenant_id
+                    """
+                    INSERT INTO customers (tenant_id, phone, name, status, lead_probability, age, location, last_messaged_at, created_at, updated_at)
+                    VALUES ($1::uuid, $2, $3, 'new', 'warm', $4, $5, NOW(), NOW(), NOW())
+                    ON CONFLICT (tenant_id, phone) DO UPDATE
+                    SET updated_at = NOW(),
+                        age = COALESCE(EXCLUDED.age, customers.age),
+                        location = COALESCE(EXCLUDED.location, customers.location)
+                    """,
+                    tenant_id, clean_digits or phone, customer_name, int(age) if age is not None else None, str(location).strip() if location else None
                 )
-            if location:
-                await pool.execute(
-                    "UPDATE customers SET location = $1, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
-                    str(location), cust_id, tenant_id
-                )
-            logger.info("customer_info_auto_updated", phone=phone, age=age, location=location)
+                logger.info("customer_info_auto_created", phone=phone, age=age, location=location, name=customer_name)
         except Exception as ex:
             logger.warning("customer_info_update_failed", error=str(ex))
 
@@ -2047,7 +2369,7 @@ class CoreWorker:
                             client_id=g_data.get("client_id"),
                             client_secret=g_data.get("client_secret"),
                         )
-                        g_service = build("calendar", "v3", credentials=g_creds)
+                        g_service = await asyncio.to_thread(build, "calendar", "v3", credentials=g_creds)
                         cal_id = g_data.get("calendar_id") or "primary"
                         
                         event_body = {
@@ -2084,7 +2406,7 @@ class CoreWorker:
                         if attendees:
                             event_body["attendees"] = attendees
                         
-                        event = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all").execute()
+                        event = await asyncio.to_thread(lambda: g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all").execute())
                         if event and event.get("id"):
                             await self.db_pool.execute(
                                 "UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid",
@@ -2106,7 +2428,7 @@ class CoreWorker:
                                 full_location=full_location,
                             )
                             admin_subject = f"[Admin Alert] New Booking: {service_name} - {name} ({formatted_date} at {formatted_time})"
-                            send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
+                            await send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
                         
                         # Send tailored copy to Customer
                         if customer_email and "@" in customer_email:
@@ -2119,7 +2441,7 @@ class CoreWorker:
                                 full_location=full_location,
                             )
                             customer_subject = f"Booking Confirmed: Your {service_name} Appointment on {formatted_date} at {formatted_time}"
-                            send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
+                            await send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
                             logger.info("booking_confirmation_email_sent_to_customer", to=customer_email, booking_id=booking_id)
 
                     except Exception as e:
@@ -2393,9 +2715,10 @@ class CoreWorker:
                                 client_id=g_data.get("client_id"),
                                 client_secret=g_data.get("client_secret"),
                             )
-                            g_service = build("calendar", "v3", credentials=g_creds)
+                            g_service = await asyncio.to_thread(build, "calendar", "v3", credentials=g_creds)
                             cal_id = g_data.get("calendar_id") or "primary"
-                            g_service.events().delete(calendarId=cal_id, eventId=booking["google_event_id"], sendUpdates="all").execute()
+                            del_req = g_service.events().delete(calendarId=cal_id, eventId=booking["google_event_id"], sendUpdates="all")
+                            await asyncio.to_thread(lambda: del_req.execute())
                             logger.info("google_calendar_event_deleted", event_id=booking["google_event_id"])
                         except Exception as e:
                             logger.warning("gcal_delete_event_failed", error=str(e))
@@ -2524,7 +2847,7 @@ class CoreWorker:
                                 customer_email=customer_email,
                             )
                             admin_subject = f"[Admin Notice] Booking Cancelled: {service_name} - {name} ({formatted_date} at {formatted_time})"
-                            send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
+                            await send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
 
                         customer_email = sanitize_and_fix_email(customer_email)
 
@@ -2537,7 +2860,7 @@ class CoreWorker:
                                 name=name,
                             )
                             customer_subject = f"Appointment Cancelled: {service_name} on {formatted_date}"
-                            send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
+                            await send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
                             logger.info("cancellation_email_sent_to_customer", to=customer_email)
                 except Exception as ge:
                     logger.warning("gmail_cancellation_dispatch_failed", error=str(ge))
@@ -2737,7 +3060,7 @@ class CoreWorker:
                             client_id=g_data.get("client_id"),
                             client_secret=g_data.get("client_secret"),
                         )
-                        g_service = build("calendar", "v3", credentials=g_creds)
+                        g_service = await asyncio.to_thread(build, "calendar", "v3", credentials=g_creds)
                         cal_id = g_data.get("calendar_id") or "primary"
                         event_body = {
                             "summary": f"{service_name} - {name} ({contact_phone})",
@@ -2753,10 +3076,12 @@ class CoreWorker:
                             "end": {"dateTime": et_dt.isoformat()},
                         }
                         if old_booking and old_booking.get("google_event_id"):
-                            g_service.events().patch(calendarId=cal_id, eventId=old_booking["google_event_id"], body=event_body, sendUpdates="all").execute()
+                            patch_req = g_service.events().patch(calendarId=cal_id, eventId=old_booking["google_event_id"], body=event_body, sendUpdates="all")
+                            await asyncio.to_thread(lambda: patch_req.execute())
                             logger.info("google_calendar_rescheduled_patched", event_id=old_booking["google_event_id"])
                         else:
-                            event = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all").execute()
+                            ins_req = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all")
+                            event = await asyncio.to_thread(lambda: ins_req.execute())
                             if event and event.get("id"):
                                 await self.db_pool.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid", event["id"], booking_id)
 
@@ -2795,7 +3120,7 @@ class CoreWorker:
                                 customer_email=customer_email,
                             )
                             admin_subject = f"[Admin Notice] Booking Rescheduled: {service_name} - {name} to {formatted_date} at {formatted_time}"
-                            send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
+                            await send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
                             logger.info("reschedule_email_sent_to_admin", to=admin_notif_email)
 
                         customer_email = sanitize_and_fix_email(customer_email)
@@ -2810,7 +3135,7 @@ class CoreWorker:
                                 full_location=full_location,
                             )
                             customer_subject = f"Reschedule Confirmed: Your {service_name} is now on {formatted_date} at {formatted_time}"
-                            send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
+                            await send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
                             logger.info("reschedule_email_sent_to_customer", to=customer_email)
 
                     except Exception as e:
@@ -3008,12 +3333,22 @@ class CoreWorker:
 
     async def _persist_message(self, tenant_id: str, conversation_id: str,
                                 wa_message_id: str, direction: str, body: str, content_type: str):
+        clean_body = str(body).strip() if (body and str(body).strip()) else ""
+        if not clean_body:
+            if content_type == "image": clean_body = "📷 [Photo]"
+            elif content_type == "video": clean_body = "🎥 [Video]"
+            elif content_type == "document": clean_body = "📄 [Document]"
+            elif content_type == "audio": clean_body = "🎵 [Audio]"
+            elif content_type == "sticker": clean_body = "🏷️ [Sticker]"
+            elif content_type == "location": clean_body = "📍 [Location]"
+            else: clean_body = "[Message]"
+
         await self.db_pool.execute(
             """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, status)
                VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, 'delivered')
                ON CONFLICT (wa_message_id) DO NOTHING""",
             str(uuid.uuid4()), conversation_id, tenant_id, wa_message_id,
-            direction, content_type, body,
+            direction, content_type, clean_body,
         )
         try:
             if direction == "inbound":
@@ -3205,40 +3540,47 @@ class CoreWorker:
             if not clean_phone or len(clean_phone) < 10:
                 return
 
+            if not creds or not creds.get("phone_number_id") or not creds.get("access_token") or str(creds.get("access_token", "")).startswith("EAAB_test"):
+                return
+
+            template_name = (creds.get("template_subscription_reminder") or "").strip()
+            if not template_name:
+                logger.error(
+                    "dispatch_platform_sub_reminder_skipped_no_template",
+                    tenant_id=tenant_id,
+                    stage=reminder_stage,
+                    phone=clean_phone,
+                    error="Meta 24-hour policy violation: Freeform text to admin is prohibited outside active window. An approved template is required."
+                )
+                return
+
             pay_url = payment_link or tenant.get("razorpay_short_url") or f"https://boldlabs.ai/pay/{tenant['slug']}"
             org_name = tenant["name"]
 
-            if reminder_stage == 1:
-                msg_text = (
-                    f"Hi {org_name} team,\n\n"
-                    f"Quick heads up from Boldlabs — your monthly subscription for your WhatsApp automation (₹3,499) "
-                    f"will renew in 2 days. No action needed if your card on file is active!\n\n"
-                    f"Link to view or update payment: {pay_url}\n\n"
-                    f"— Boldlabs Team"
-                )
-            elif reminder_stage == 4:
-                msg_text = (
-                    f"Hi {org_name} team,\n\n"
-                    f"Just checking in — your WhatsApp automation is still paused. We'd love to help get your AI assistant back up and handling inquiries for {org_name}.\n\n"
-                    f"If you need help with payment or have questions, reply to this message or update your payment here: {pay_url}\n\n"
-                    f"— Boldlabs Team"
-                )
-            else:
-                return
+            components = [
+                {
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": org_name},
+                        {"type": "text", "text": str(pay_url)},
+                    ]
+                }
+            ]
 
             await self.db_pool.execute(
                 "UPDATE tenants SET last_reminder_sent_at = now(), reminder_stage = $1 WHERE id = $2::uuid",
                 reminder_stage, tenant_id
             )
 
-            if creds and creds.get("phone_number_id") and creds.get("access_token"):
-                await send_text(
-                    phone_number_id=creds["phone_number_id"],
-                    access_token=creds["access_token"],
-                    to=clean_phone,
-                    body=msg_text
-                )
-                logger.info("sub_reminder_dispatched_via_worker", tenant_id=tenant_id, stage=reminder_stage, phone=clean_phone)
+            await send_template(
+                phone_number_id=creds["phone_number_id"],
+                access_token=creds["access_token"],
+                to=clean_phone,
+                template_name=template_name,
+                language_code="en",
+                components=components
+            )
+            logger.info("sub_reminder_dispatched_via_worker", tenant_id=tenant_id, stage=reminder_stage, phone=clean_phone, template=template_name)
         except Exception as e:
             logger.error("dispatch_platform_sub_reminder_failed", tenant_id=tenant_id, stage=reminder_stage, error=str(e))
 
@@ -3450,7 +3792,12 @@ class CoreWorker:
                JOIN tenant_credentials tc ON tc.tenant_id = sj.tenant_id AND tc.provider = 'whatsapp'
                WHERE sj.status = 'pending'
                  AND sj.scheduled_at <= now()
-                 AND b.status = 'confirmed'
+                 AND (
+                   (sj.job_type = 'reminder' AND b.status = 'confirmed')
+                   OR (sj.job_type = 'review_request' AND b.status IN ('completed', 'attended'))
+                   OR (sj.job_type = 'post_treatment_followup' AND b.status IN ('completed', 'attended'))
+                   OR (sj.job_type = 'reschedule_nudge' AND b.status IN ('no_show', 'no-show'))
+                 )
                LIMIT 20""",
         )
 
@@ -3598,6 +3945,38 @@ class CoreWorker:
                     except Exception as te:
                         logger.warning("scheduled_review_template_failed_skip_text_fallback", error=str(te))
 
+                # 2b. Post-Treatment Followup job: Send approved post_treatment_followup template
+                elif job_type == "post_treatment_followup" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+                    raw_tpl = creds.get("template_post_treatment_followup") or t_st.get("template_post_treatment_followup") or "post_treatment_followup"
+                    if not raw_tpl or str(raw_tpl).strip().lower() in ("", "none", "disabled", "off", "false"):
+                        logger.info("scheduled_post_treatment_followup_disabled_skipping", job_id=str(job["id"]))
+                        await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE id = $1", job["id"])
+                        continue
+
+                    template_name = str(raw_tpl).strip()
+                    components = [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": name},
+                                {"type": "text", "text": service},
+                            ]
+                        }
+                    ]
+                    try:
+                        await send_template(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=job["phone"],
+                            template_name=template_name,
+                            language_code="en",
+                            components=components,
+                        )
+                        sent_via_template = True
+                        logger.info("scheduled_post_treatment_followup_template_sent", template=template_name, to=job["phone"])
+                    except Exception as te:
+                        logger.warning("scheduled_post_treatment_followup_template_failed", error=str(te))
+
                 # 3. Reschedule Nudge job: Send approved reschedule_nudge template
                 elif job_type == "reschedule_nudge" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
                     template_name = (
@@ -3716,30 +4095,24 @@ class CoreWorker:
                     if not clean_p:
                         continue
                     try:
-                        if template_name and not text:
-                            components = []
-                            if template_params:
-                                components.append({
-                                    "type": "body",
-                                    "parameters": [{"type": "text", "text": str(param)} for param in template_params]
-                                })
-                            await send_template(
-                                phone_number_id=creds["phone_number_id"],
-                                access_token=creds["access_token"],
-                                to=clean_p,
-                                template_name=template_name,
-                                language_code="en",
-                                components=components if components else None
-                            )
-                        else:
-                            await send_text(
-                                phone_number_id=creds["phone_number_id"],
-                                access_token=creds["access_token"],
-                                to=clean_p,
-                                body=text or "Hello from our team!"
-                            )
+                        # Broadcast campaigns must always be sent as approved Meta templates to comply with Meta 24h messaging policy
+                        active_tpl = (template_name or "").strip() or "client_followup_checkin"
+                        components = []
+                        if template_params:
+                            components.append({
+                                "type": "body",
+                                "parameters": [{"type": "text", "text": str(param)} for param in template_params]
+                            })
+                        await send_template(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=clean_p,
+                            template_name=active_tpl,
+                            language_code="en",
+                            components=components if components else None
+                        )
                         success_count += 1
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(0.1)  # 100ms delay between dispatches to avoid tripping Meta rate limits
                     except Exception as e_send:
                         logger.error("scheduled_campaign_item_error", phone=clean_p, error=str(e_send))
 

@@ -5,7 +5,7 @@ from typing import Optional
 
 import asyncpg
 import structlog
-from fastapi import FastAPI, Depends, HTTPException, status, Form
+from fastapi import FastAPI, Depends, HTTPException, status, Form, Header
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -13,7 +13,9 @@ from pydantic import BaseModel
 
 logger = structlog.get_logger("auth-service")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://platform_user:devpassword@localhost:5432/whatsapp_platform")
-JWT_SECRET = os.getenv("JWT_SECRET", "super_secret_dev_key_only")
+JWT_SECRET = os.getenv("JWT_SECRET", "18d73e947ecf30719ab9a2c4e919fc892f36e5c74207429b4a9e82f5ad0e5e7f")
+if not os.getenv("JWT_SECRET"):
+    logger.warning("jwt_secret_unset_using_fallback", warning="JWT_SECRET is not set in environment! Using default fallback secret key.")
 ALGORITHM = "HS256"
 
 import bcrypt
@@ -25,6 +27,8 @@ db_pool: asyncpg.Pool
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db_pool
+    if not os.getenv("JWT_SECRET"):
+        logger.warning("jwt_secret_unset_startup_warning", warning="CRITICAL: JWT_SECRET environment variable is not set. Using hardcoded fallback secret.")
     db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=2)
     yield
     await db_pool.close()
@@ -75,9 +79,40 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 def health():
     return {"status": "ok"}
 
+async def verify_super_admin(
+    authorization: Optional[str] = Header(None)
+) -> dict:
+    """Validates caller's JWT and ensures role is super_admin."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Please provide a valid Bearer token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired session token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    role = payload.get("role")
+    if role != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super Admin privileges required to create users."
+        )
+    return payload
+
+
 @app.post("/users", status_code=201)
-async def create_user(user: UserCreate):
-    """Register a new user (agent) for a tenant."""
+async def create_user(
+    user: UserCreate,
+    caller: dict = Depends(verify_super_admin)
+):
+    """Register a new user (agent) for a tenant. Restricted to super_admin."""
     async with db_pool.acquire() as conn:
         hashed_pw = get_password_hash(user.password)
         try:
@@ -93,19 +128,38 @@ async def create_user(user: UserCreate):
 @app.post("/token", response_model=Token)
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    remember_me: bool = Form(False)
+    remember_me: bool = Form(False),
+    tenant_slug: Optional[str] = Form(None)
 ):
     """OAuth2 compatible token login, returns JWT."""
     username_clean = (form_data.username or "").strip().lower()
+    clean_tenant_slug = tenant_slug.strip().lower() if tenant_slug and tenant_slug.strip() else None
+
     async with db_pool.acquire() as conn:
-        user = await conn.fetchrow(
-            """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
-                      t.slug as tenant_slug, t.name as tenant_name
-               FROM users u
-               LEFT JOIN tenants t ON u.tenant_id = t.id
-               WHERE LOWER(TRIM(u.email)) = $1""",
-            username_clean
-        )
+        if clean_tenant_slug:
+            user = await conn.fetchrow(
+                """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
+                          t.slug as tenant_slug, t.name as tenant_name
+                   FROM users u
+                   LEFT JOIN tenants t ON u.tenant_id = t.id
+                   WHERE LOWER(TRIM(u.email)) = $1 AND LOWER(TRIM(t.slug)) = $2""",
+                username_clean, clean_tenant_slug
+            )
+        else:
+            users = await conn.fetch(
+                """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
+                          t.slug as tenant_slug, t.name as tenant_name
+                   FROM users u
+                   LEFT JOIN tenants t ON u.tenant_id = t.id
+                   WHERE LOWER(TRIM(u.email)) = $1""",
+                username_clean
+            )
+            if len(users) > 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Multiple organizations found for this email. Please specify your organization slug (tenant_slug) to log in."
+                )
+            user = users[0] if users else None
 
         if not user:
             raise HTTPException(

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/api';
 import AdminClientsPage from '../admin/clients/page';
-import { ShieldCheck, Lock, Mail, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, ArrowRight, ArrowLeft, AlertCircle, Loader2 } from 'lucide-react';
 
 export default function BhuvaneshAdminPortalPage() {
   const router = useRouter();
@@ -196,9 +196,18 @@ export default function BhuvaneshAdminPortalPage() {
         </div>
 
         {/* Footer */}
-        <p className="text-center text-[11px] text-slate-500 mt-6 tracking-wide">
-          &copy; {new Date().getFullYear()} Boldlabs CRM &bull; Secure Platform Operations
-        </p>
+        <div className="text-center mt-5 space-y-2">
+          <a
+            href="/login"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-emerald-400 transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 stroke-[1.5]" />
+            <span>Go to Client / Clinic CRM Login</span>
+          </a>
+          <p className="text-center text-[11px] text-slate-500 tracking-wide">
+            &copy; {new Date().getFullYear()} Boldlabs CRM &bull; Secure Platform Operations
+          </p>
+        </div>
       </div>
     </div>
   );

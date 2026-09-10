@@ -2,7 +2,9 @@
 WhatsApp sender — sends messages using the client's own phone number ID and access token.
 Each client has their own official WhatsApp Business number.
 """
+import asyncio
 import re
+from typing import Optional
 import httpx
 import structlog
 
@@ -10,6 +12,14 @@ logger = structlog.get_logger()
 
 GRAPH_API_VERSION = "v19.0"
 GRAPH_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
+
+_shared_client: Optional[httpx.AsyncClient] = None
+
+def get_shared_client() -> httpx.AsyncClient:
+    global _shared_client
+    if _shared_client is None or _shared_client.is_closed:
+        _shared_client = httpx.AsyncClient(timeout=15.0)
+    return _shared_client
 
 
 class WhatsAppSendError(Exception):
@@ -154,7 +164,8 @@ async def mark_as_read(
     wa_message_id: str,
 ) -> None:
     """Mark an inbound message as read (shows double blue ticks to sender)."""
-    async with httpx.AsyncClient(timeout=5) as client:
+    try:
+        client = get_shared_client()
         await client.post(
             f"{GRAPH_BASE}/{phone_number_id}/messages",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -163,7 +174,10 @@ async def mark_as_read(
                 "status": "read",
                 "message_id": wa_message_id,
             },
+            timeout=5.0,
         )
+    except Exception as e:
+        logger.warning("mark_as_read_failed", message_id=wa_message_id, error=str(e))
 
 
 async def _send(
@@ -172,28 +186,38 @@ async def _send(
     payload: dict,
     timeout: float,
 ) -> str:
-    """Core send function — posts to Meta Graph API."""
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+    """Core send function — posts to Meta Graph API with shared client and transient retry policy."""
+    client = get_shared_client()
+    url = f"{GRAPH_BASE}/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
+        try:
             response = await client.post(
-                f"{GRAPH_BASE}/{phone_number_id}/messages",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                },
+                url,
+                headers=headers,
                 json=payload,
+                timeout=timeout,
             )
-    except httpx.TimeoutException:
-        raise WhatsAppSendError(f"WhatsApp API timeout after {timeout}s")
-    except httpx.RequestError as e:
-        raise WhatsAppSendError(f"WhatsApp API request error: {e}")
+            if response.status_code not in (200, 201):
+                raise WhatsAppSendError(
+                    f"WhatsApp API error {response.status_code}: {response.text[:300]}"
+                )
 
-    if response.status_code not in (200, 201):
-        raise WhatsAppSendError(
-            f"WhatsApp API error {response.status_code}: {response.text[:300]}"
-        )
-
-    data = response.json()
-    wa_message_id = data.get("messages", [{}])[0].get("id", "")
-    logger.info("wa_message_sent", wa_message_id=wa_message_id, to=payload.get("to", "")[-4:])
-    return wa_message_id
+            data = response.json()
+            wa_message_id = data.get("messages", [{}])[0].get("id", "")
+            logger.info("wa_message_sent", wa_message_id=wa_message_id, to=payload.get("to", "")[-4:])
+            return wa_message_id
+        except (httpx.TimeoutException, httpx.RequestError) as e:
+            if attempt < max_attempts:
+                backoff = 0.5 * (2 ** (attempt - 1))
+                logger.warning("wa_send_transient_retry", attempt=attempt, backoff=backoff, error=str(e))
+                await asyncio.sleep(backoff)
+            else:
+                if isinstance(e, httpx.TimeoutException):
+                    raise WhatsAppSendError(f"WhatsApp API timeout after {timeout}s")
+                raise WhatsAppSendError(f"WhatsApp API request error: {e}")

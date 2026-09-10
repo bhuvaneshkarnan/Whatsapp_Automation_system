@@ -82,7 +82,28 @@ function getAuthHeaders(): Record<string, string> {
 
   if (isTenantRoute) {
     activeSlug = firstPath;
-    const resolvedId = dynamicSlugCache[firstPath];
+    let resolvedId = dynamicSlugCache[firstPath];
+    if (!resolvedId && typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('tenant_slug_map');
+        if (stored) {
+          const map = JSON.parse(stored);
+          if (map && map[firstPath]) {
+            resolvedId = map[firstPath];
+            dynamicSlugCache[firstPath] = resolvedId;
+          }
+        }
+      } catch {}
+      if (!resolvedId) {
+        const storedSlug = (localStorage.getItem('tenant_slug') || '').toLowerCase().trim();
+        const storedId = localStorage.getItem('tenant_id');
+        if (storedSlug === firstPath && storedId) {
+          resolvedId = storedId;
+          dynamicSlugCache[firstPath] = storedId;
+        }
+      }
+    }
+
     if (resolvedId) {
       tenantId = resolvedId;
       if (localStorage.getItem('tenant_id') !== tenantId) {
@@ -90,9 +111,8 @@ function getAuthHeaders(): Record<string, string> {
         localStorage.setItem('tenant_slug', firstPath);
       }
     } else {
-      // CRITICAL: We are on a tenant route /[slug], but this slug's UUID is NOT in cache yet.
-      // NEVER fall back to a stale/different tenant's UUID from localStorage!
-      // Setting tenantId to null ensures we do NOT accidentally send an old tenant's UUID.
+      // Slug UUID not resolved yet: send activeSlug in X-Tenant-Slug header
+      // so the backend can dynamically resolve it, while avoiding stale cross-tenant UUIDs.
       tenantId = null;
     }
   }
@@ -119,12 +139,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       mergedHeaders[k] = v;
     }
   }
-  const res = await fetch(`${BASE}${path}`, {
+  let res = await fetch(`${BASE}${path}`, {
     ...init,
     headers: mergedHeaders,
   });
+
+  // Transient 502/503 retry (e.g. backend container reloading)
+  if ((res.status === 502 || res.status === 503) && (!init?.method || init.method.toUpperCase() === 'GET')) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    res = await fetch(`${BASE}${path}`, {
+      ...init,
+      headers: mergedHeaders,
+    });
+  }
+
   if (!res.ok) {
     let errorMsg = `API Error (${res.status})`;
+    if (res.status === 502) {
+      errorMsg = 'Backend service is restarting. Please try again in a moment.';
+    } else if (res.status === 503) {
+      errorMsg = 'Service is temporarily unavailable. Please try again in a moment.';
+    }
     try {
       const errorJson = await res.json();
       if (typeof errorJson.detail === 'string') {
@@ -138,7 +173,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       }
     } catch {
       const text = await res.text().catch(() => '');
-      if (text) errorMsg = text;
+      if (text && !text.includes('<html>')) errorMsg = text;
     }
     throw new Error(errorMsg);
   }
@@ -269,6 +304,9 @@ export interface Message {
   id: string;
   direction: 'inbound' | 'outbound' | string;
   body: string;
+  content_type?: string;
+  media_url?: string | null;
+  template_name?: string | null;
   status?: string;
   created_at?: string;
   ai_generated?: boolean;
@@ -471,6 +509,8 @@ export const crm = {
     end_time?: string;
     price?: number;
     notes?: string;
+    staff_member?: string;
+    doctor_name?: string;
   }) =>
     request<{
       status: string;
@@ -484,12 +524,12 @@ export const crm = {
       body: JSON.stringify(data),
     }),
 
-  updateBookingStatus: (bookingId: string, status: string, start_time?: string, end_time?: string) =>
+  updateBookingStatus: (bookingId: string, status: string, start_time?: string, end_time?: string, send_review?: boolean) =>
     request<{ status: string; id: string; new_status: string }>(
       `/api/v1/crm/bookings/${bookingId}/status`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ status, start_time, end_time }),
+        body: JSON.stringify({ status, start_time, end_time, send_review }),
       }
     ),
 
@@ -901,6 +941,7 @@ export interface TenantSettingsResponse {
   template_admin_daily_digest?: string;
   template_client_followup?: string;
   google_review_link?: string;
+  enable_auto_review?: boolean;
   allow_text_fallback?: boolean;
   
   google_client_id?: string;

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth, crm } from '@/lib/api';
+import { auth, crm, registerTenantSlug } from '@/lib/api';
 import {
   MessageSquare,
   Lock,
@@ -47,6 +47,12 @@ export default function LoginPage() {
       if (res.tenant_slug) {
         localStorage.setItem('tenant_slug', res.tenant_slug);
       }
+      if (res.tenant_slug && res.tenant_id) {
+        registerTenantSlug(res.tenant_slug, res.tenant_id);
+      }
+
+      // Read optional redirect URL parameter
+      const redirectUrl = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('redirect') : null;
 
       // Check if logged in user is super_admin
       let userRole = res.role;
@@ -61,7 +67,22 @@ export default function LoginPage() {
         if (me.tenant_id) {
           localStorage.setItem('tenant_id', me.tenant_id);
         }
+        if (me.tenant_slug && me.tenant_id) {
+          registerTenantSlug(me.tenant_slug, me.tenant_id);
+        }
       } catch {}
+
+      // Handle explicit redirect target if provided (e.g. user was visiting /boldlabs)
+      if (redirectUrl && redirectUrl.startsWith('/') && !redirectUrl.startsWith('//')) {
+        // Guard: If regular client user was redirected to /bhuvanesh or /admin, route to their own workspace instead
+        if (userRole !== 'super_admin' && (redirectUrl.startsWith('/bhuvanesh') || redirectUrl.startsWith('/admin'))) {
+          const fallback = userSlug ? `/${userSlug}` : '/dashboard';
+          router.push(fallback);
+          return;
+        }
+        router.push(redirectUrl);
+        return;
+      }
 
       if (userRole === 'super_admin') {
         router.push('/bhuvanesh');
@@ -267,9 +288,18 @@ export default function LoginPage() {
         </div>
 
         {/* Footer */}
-        <p className="text-center text-xs text-text-muted mt-6">
-          &copy; {new Date().getFullYear()} Boldlabs CRM. All rights reserved.
-        </p>
+        <div className="text-center mt-5 space-y-2">
+          <a
+            href="/bhuvanesh"
+            className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-accent transition-colors"
+          >
+            <span>Platform Super Admin Portal</span>
+            <ArrowRight className="w-3 h-3 stroke-[1.5]" />
+          </a>
+          <p className="text-center text-xs text-text-muted">
+            &copy; {new Date().getFullYear()} Boldlabs CRM. All rights reserved.
+          </p>
+        </div>
       </div>
     </div>
   );

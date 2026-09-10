@@ -4,6 +4,10 @@ import uuid
 import json
 import asyncio
 import bcrypt
+import hmac
+import hashlib
+import base64
+import html
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, timedelta, time, timezone
@@ -122,6 +126,7 @@ async def lifespan(app: FastAPI):
                     created_at TIMESTAMPTZ DEFAULT now()
                 );
                 ALTER TABLE customer_notes ADD COLUMN IF NOT EXISTS color TEXT DEFAULT 'slate';
+                CREATE INDEX IF NOT EXISTS idx_customer_notes_tenant_cust ON customer_notes(tenant_id, customer_id);
 
                 CREATE TABLE IF NOT EXISTS tasks (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -135,6 +140,7 @@ async def lifespan(app: FastAPI):
                     created_at TIMESTAMPTZ DEFAULT now(),
                     updated_at TIMESTAMPTZ DEFAULT now()
                 );
+                CREATE INDEX IF NOT EXISTS idx_tasks_tenant_cust ON tasks(tenant_id, customer_id);
 
                 CREATE TABLE IF NOT EXISTS push_subscriptions (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -160,6 +166,35 @@ async def lifespan(app: FastAPI):
                 );
 
                 CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_uniq ON customers(tenant_id, phone);
+                CREATE INDEX IF NOT EXISTS idx_contacts_clean_phone ON contacts (tenant_id, (RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10)));
+                CREATE INDEX IF NOT EXISTS idx_customers_clean_phone ON customers (tenant_id, (RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10)));
+
+                CREATE EXTENSION IF NOT EXISTS btree_gist;
+                DO $do$
+                BEGIN
+                    ALTER TABLE bookings DROP CONSTRAINT IF EXISTS no_overlapping_confirmed_bookings;
+                    ALTER TABLE bookings
+                    ADD CONSTRAINT no_overlapping_confirmed_bookings
+                    EXCLUDE USING gist (
+                        tenant_id WITH =,
+                        (COALESCE(staff_member, 'general')) WITH =,
+                        tstzrange(start_time, end_time) WITH &&
+                    )
+                    WHERE (status = 'confirmed');
+                EXCEPTION
+                    WHEN others THEN
+                        RAISE NOTICE 'Could not re-create no_overlapping_confirmed_bookings constraint: %', SQLERRM;
+                END $do$;
+
+                DO $do$
+                BEGIN
+                    ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+                    ALTER TABLE users ADD CONSTRAINT users_role_check
+                        CHECK (role IN ('super_admin', 'owner', 'admin', 'sales', 'doctor', 'receptionist', 'marketing', 'agent', 'viewer'));
+                EXCEPTION
+                    WHEN others THEN
+                        RAISE NOTICE 'Could not update users_role_check constraint: %', SQLERRM;
+                END $do$;
 
                 -- Ensure all contacts have a corresponding record in customers table
                 INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, created_at, updated_at)
@@ -175,8 +210,19 @@ async def lifespan(app: FastAPI):
                 )
                 ON CONFLICT (tenant_id, phone) DO NOTHING;
             """)
+        if not os.getenv("JWT_SECRET"):
+            logger.warning("jwt_secret_unset_startup_warning", warning="CRITICAL: JWT_SECRET environment variable is not set. Using hardcoded fallback secret.")
     except Exception as e:
         logger.error("db_lifespan_init_error", error=str(e))
+
+    # Production startup validation checks
+    env = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "development").lower()
+    if env == "production":
+        if not os.getenv("VAPID_PRIVATE_KEY"):
+            raise RuntimeError("Missing required environment variable VAPID_PRIVATE_KEY in production.")
+        if hasattr(razorpay_client, "validate_razorpay_config"):
+            razorpay_client.validate_razorpay_config()
+
     yield
     await db_pool.close()
 
@@ -184,6 +230,8 @@ app = FastAPI(lifespan=lifespan, title="CRM API")
 
 # --- Auth dependencies ---
 JWT_SECRET = os.getenv("JWT_SECRET", "18d73e947ecf30719ab9a2c4e919fc892f36e5c74207429b4a9e82f5ad0e5e7f")
+if not os.getenv("JWT_SECRET"):
+    logger.warning("jwt_secret_unset_using_fallback", warning="JWT_SECRET is not set in environment! Using default fallback secret key.")
 ALGORITHM = "HS256"
 
 async def get_tenant_id(
@@ -288,26 +336,36 @@ async def get_tenant_id(
 async def get_caller_context(
     authorization: Optional[str] = Header(None)
 ) -> dict:
-    """Extract caller role and assigned_health_concerns from JWT for data scoping."""
+    """Extract caller role, permissions, and assigned specialties from JWT for data scoping."""
     if not authorization or not authorization.startswith("Bearer "):
-        return {"role": "agent", "assigned_health_concerns": []}
+        return {"user_id": None, "role": "agent", "assigned_health_concerns": [], "assigned_doctor": None, "permissions": {}}
     token = authorization.split(" ", 1)[1].strip()
     try:
         from jose import jwt
         payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
     except Exception:
-        return {"role": "agent", "assigned_health_concerns": []}
+        return {"user_id": None, "role": "agent", "assigned_health_concerns": [], "assigned_doctor": None, "permissions": {}}
     role = payload.get("role", "agent")
+    user_id = payload.get("sub")
     perms = payload.get("permissions", {})
     if isinstance(perms, str):
         try:
             perms = json.loads(perms)
         except Exception:
             perms = {}
-    concerns = perms.get("assigned_health_concerns", []) if isinstance(perms, dict) else []
+    if not isinstance(perms, dict):
+        perms = {}
+    concerns = perms.get("assigned_health_concerns", [])
     if not isinstance(concerns, list):
         concerns = []
-    return {"role": role, "assigned_health_concerns": concerns}
+    assigned_doc = perms.get("assigned_doctor") or None
+    return {
+        "user_id": user_id,
+        "role": role,
+        "assigned_health_concerns": concerns,
+        "assigned_doctor": assigned_doc,
+        "permissions": perms,
+    }
 
 
 async def verify_super_admin(authorization: Optional[str] = Header(None)) -> dict:
@@ -402,7 +460,7 @@ async def dispatch_whatsapp_message(
         return None
 
 # ── Gmail Direct Dispatch & Email Builders ─────────────────────────────────────
-def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_body: str):
+async def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_body: str):
     """Dispatches direct HTML email using authorized Google OAuth token via Gmail API."""
     if not to_email or "@" not in to_email:
         return None
@@ -412,13 +470,14 @@ def send_gmail_direct_notification(g_creds, to_email: str, subject: str, html_bo
         from email.mime.multipart import MIMEMultipart
         from googleapiclient.discovery import build
 
-        gmail_service = build("gmail", "v1", credentials=g_creds)
+        gmail_service = await asyncio.to_thread(build, "gmail", "v1", credentials=g_creds)
         msg = MIMEMultipart("alternative")
         msg["to"] = to_email.strip()
         msg["subject"] = subject
         msg.attach(MIMEText(html_body, "html"))
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
-        res = gmail_service.users().messages().send(userId="me", body={"raw": raw}).execute()
+        send_req = gmail_service.users().messages().send(userId="me", body={"raw": raw})
+        res = await asyncio.to_thread(lambda: send_req.execute())
         logger.info("gmail_email_notification_sent", to=to_email, msg_id=res.get("id"))
         return res
     except Exception as e:
@@ -462,9 +521,22 @@ def sanitize_and_fix_email(email: Optional[str]) -> Optional[str]:
     return None
 
 
+def _esc_html(val: Any) -> str:
+    """Escapes user input to prevent HTML injection in email templates."""
+    if val is None:
+        return ""
+    return html.escape(str(val))
+
+
 def build_booking_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str, notes: str, full_location: str) -> str:
-    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
-    notes_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Notes</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{notes}</td></tr>""" if notes and notes != "None" else ""
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    c_phone = _esc_html(contact_phone)
+    c_email = _esc_html(customer_email) if customer_email else 'Not provided'
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{_esc_html(full_location)}</td></tr>""" if full_location else ""
+    notes_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Notes</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{_esc_html(notes)}</td></tr>""" if notes and notes != "None" else ""
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
@@ -475,11 +547,11 @@ def build_booking_admin_email_html(service_name: str, formatted_date: str, forma
   
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not provided'}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{c_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_email}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{f_date} at {f_time}</td></tr>
       {loc_html}
       {notes_html}
     </table>
@@ -497,21 +569,26 @@ def build_booking_admin_email_html(service_name: str, formatted_date: str, forma
 
 
 def build_booking_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, full_location: str) -> str:
-    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    c_phone = _esc_html(contact_phone)
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{_esc_html(full_location)}</td></tr>""" if full_location else ""
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
     <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #047857; background-color: #ecfdf5; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Confirmed</div>
     <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Confirmed</h1>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, your appointment has been scheduled.</p>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {c_name}, your appointment has been scheduled.</p>
   </div>
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{f_date} at {f_time}</td></tr>
       {loc_html}
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone on File</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone on File</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_phone}</td></tr>
     </table>
   </div>
 
@@ -527,6 +604,12 @@ def build_booking_customer_email_html(service_name: str, formatted_date: str, fo
 
 
 def build_cancellation_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    c_phone = _esc_html(contact_phone)
+    c_email = _esc_html(customer_email) if customer_email else 'Not provided'
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
@@ -537,11 +620,11 @@ def build_cancellation_admin_email_html(service_name: str, formatted_date: str, 
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not provided'}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Cancelled Slot</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{c_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_email}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Cancelled Slot</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{f_date} at {f_time}</td></tr>
     </table>
   </div>
 
@@ -557,18 +640,22 @@ def build_cancellation_admin_email_html(service_name: str, formatted_date: str, 
 
 
 def build_cancellation_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str) -> str:
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
     <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; background-color: #f1f5f9; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Cancelled</div>
     <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Cancellation</h1>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, your appointment has been cancelled as requested.</p>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {c_name}, your appointment has been cancelled as requested.</p>
   </div>
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Cancelled Slot</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Cancelled Slot</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{f_date} at {f_time}</td></tr>
     </table>
   </div>
 
@@ -584,6 +671,12 @@ def build_cancellation_customer_email_html(service_name: str, formatted_date: st
 
 
 def build_reschedule_admin_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, customer_email: str) -> str:
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    c_phone = _esc_html(contact_phone)
+    c_email = _esc_html(customer_email) if customer_email else 'Not provided'
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
@@ -594,11 +687,11 @@ def build_reschedule_admin_email_html(service_name: str, formatted_date: str, fo
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not provided'}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">New Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Client Name</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{c_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_email}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">New Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{f_date} at {f_time}</td></tr>
     </table>
   </div>
 
@@ -614,19 +707,23 @@ def build_reschedule_admin_email_html(service_name: str, formatted_date: str, fo
 
 
 def build_reschedule_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, full_location: str) -> str:
-    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{_esc_html(full_location)}</td></tr>""" if full_location else ""
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
     <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #1d4ed8; background-color: #eff6ff; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Rescheduled</div>
     <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Appointment Rescheduled</h1>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, your appointment has been updated to the new time slot.</p>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {c_name}, your appointment has been updated to the new time slot.</p>
   </div>
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">New Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">New Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{f_date} at {f_time}</td></tr>
       {loc_html}
     </table>
   </div>
@@ -643,21 +740,26 @@ def build_reschedule_customer_email_html(service_name: str, formatted_date: str,
 
 
 def build_reminder_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, contact_phone: str, full_location: str) -> str:
-    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    c_phone = _esc_html(contact_phone)
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{_esc_html(full_location)}</td></tr>""" if full_location else ""
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
     <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #0369a1; background-color: #f0f9ff; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Reminder</div>
     <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Upcoming Appointment Reminder</h1>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, this is a reminder for your upcoming session.</p>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {c_name}, this is a reminder for your upcoming session.</p>
   </div>
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{f_date} at {f_time}</td></tr>
       {loc_html}
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone on File</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone on File</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_phone}</td></tr>
     </table>
   </div>
 
@@ -673,19 +775,23 @@ def build_reminder_customer_email_html(service_name: str, formatted_date: str, f
 
 
 def build_review_customer_email_html(service_name: str, formatted_date: str, formatted_time: str, name: str, full_location: str) -> str:
-    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{full_location}</td></tr>""" if full_location else ""
+    s_name = _esc_html(service_name)
+    f_date = _esc_html(formatted_date)
+    f_time = _esc_html(formatted_time)
+    c_name = _esc_html(name)
+    loc_html = f"""<tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Location</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{_esc_html(full_location)}</td></tr>""" if full_location else ""
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
     <div style="display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #047857; background-color: #ecfdf5; padding: 3px 8px; border-radius: 4px; margin-bottom: 8px;">Completed</div>
     <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #0f172a; line-height: 1.3;">Thank You for Your Visit</h1>
-    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {name}, thank you for attending your appointment.</p>
+    <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748b;">Hello {c_name}, thank you for attending your appointment.</p>
   </div>
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Completed Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{service_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{formatted_date} at {formatted_time}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Completed Service</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{s_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Date and Time</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{f_date} at {f_time}</td></tr>
       {loc_html}
     </table>
   </div>
@@ -702,6 +808,10 @@ def build_review_customer_email_html(service_name: str, formatted_date: str, for
 
 
 def build_takeover_admin_email_html(customer_name: str, contact_phone: str, customer_email: str, reason: str = "Client requested to speak with a staff member") -> str:
+    c_name = _esc_html(customer_name)
+    c_phone = _esc_html(contact_phone)
+    c_email = _esc_html(customer_email) if customer_email else 'Not on file'
+    c_reason = _esc_html(reason)
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background-color: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 8px;">
   <div style="margin-bottom: 20px;">
@@ -712,10 +822,10 @@ def build_takeover_admin_email_html(customer_name: str, contact_phone: str, cust
 
   <div style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 12px 0; margin: 20px 0;">
     <table style="width: 100%; border-collapse: collapse;">
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Customer</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{customer_name}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{contact_phone}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{customer_email or 'Not on file'}</td></tr>
-      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Reason</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{reason}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500; width: 35%;">Customer</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 600;">{c_name}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Phone</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_phone}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Email</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_email}</td></tr>
+      <tr><td style="padding: 8px 0; color: #64748b; font-size: 13px; font-weight: 500;">Reason</td><td style="padding: 8px 0; color: #0f172a; font-size: 14px; font-weight: 500;">{c_reason}</td></tr>
     </table>
   </div>
 
@@ -958,29 +1068,14 @@ async def list_customers(
 
         if client_type and client_type != "all":
             if client_type == "repeat":
-                conditions.append("""
-                    (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                     WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                       AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) > 0
-                """)
+                conditions.append("COALESCE(b_stats.completed_bookings_count, 0) > 0")
             elif client_type == "new_lead":
-                conditions.append("""
-                    (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                     WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                       AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) = 0
-                """)
+                conditions.append("COALESCE(b_stats.completed_bookings_count, 0) = 0")
             elif client_type == "lapsed":
-                conditions.append("""
-                    (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                     WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                       AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) > 0
-                    AND (SELECT MAX(b.start_time) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                         WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                           AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) < (now() - interval '30 days')
-                """)
+                conditions.append("COALESCE(b_stats.completed_bookings_count, 0) > 0 AND b_stats.calculated_last_visited < (now() - interval '30 days')")
 
         if q and q.strip():
-            conditions.append(f"(c.name ILIKE ${idx} OR c.phone ILIKE ${idx} OR c.health_concern ILIKE ${idx})")
+            conditions.append(f"(c.name ILIKE ${idx} OR c.phone ILIKE ${idx} OR c.health_concern ILIKE ${idx} OR c.location ILIKE ${idx})")
             params.append(f"%{q.strip()}%")
             idx += 1
 
@@ -996,66 +1091,95 @@ async def list_customers(
             params.append(caller_concerns)
             idx += 1
 
+        # Doctor assignment isolation: non-admin staff with assigned_doctor only see matching patients
+        caller_doc = caller.get("assigned_doctor")
+        if caller_doc and caller.get("role") not in ("admin", "super_admin", "owner") and not preferred_doctor:
+            conditions.append(f"c.preferred_doctor = ${idx}")
+            params.append(caller_doc)
+            idx += 1
+
         params.extend([limit, offset])
         where_clause = " AND ".join(conditions)
 
         query = f"""
+            WITH contact_booking_agg AS (
+                SELECT 
+                    b.contact_id,
+                    COUNT(CASE WHEN b.status IN ('completed', 'attended') THEN 1 END) AS completed_bookings_count,
+                    COUNT(*) AS total_bookings_count,
+                    MAX(CASE WHEN b.status IN ('completed', 'attended') THEN b.start_time END) AS calculated_last_visited
+                FROM bookings b
+                WHERE b.tenant_id = $1::uuid
+                GROUP BY b.contact_id
+            )
             SELECT 
                 c.id, c.tenant_id, c.phone, c.name, c.age, c.location, c.preferred_doctor, c.status,
                 c.health_concern, c.lead_probability, c.converted, c.followup_date,
                 c.followup_time, c.google_task_id, c.google_calendar_event_id, c.last_visited_at, c.last_messaged_at, c.created_at, c.updated_at,
-                (SELECT MAX(b.start_time) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                   AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS calculated_last_visited,
-                (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                   AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS completed_bookings_count,
-                (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                   AND b.tenant_id = c.tenant_id) AS total_bookings_count,
-                (SELECT b.service FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                   AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')
-                 ORDER BY b.start_time DESC LIMIT 1) AS last_visit_service,
-                (SELECT b.staff_member FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                   AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')
-                 ORDER BY b.start_time DESC LIMIT 1) AS last_visit_doctor,
-                (SELECT ct.wa_profile_name FROM contacts ct 
-                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                   AND ct.tenant_id = c.tenant_id LIMIT 1) AS wa_profile_name,
-                (SELECT COUNT(*) FROM customer_notes cn WHERE cn.customer_id = c.id AND cn.tenant_id = c.tenant_id) AS notes_count,
-                (SELECT cn2.note_text FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note,
-                (SELECT MAX(m.created_at) FROM messages m 
-                 JOIN conversations cv ON m.conversation_id = cv.id AND cv.tenant_id = c.tenant_id
-                 JOIN contacts ct ON cv.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                   AND m.tenant_id = c.tenant_id) AS last_chat_at,
-                (SELECT m.body FROM messages m 
-                 JOIN conversations cv ON m.conversation_id = cv.id AND cv.tenant_id = c.tenant_id
-                 JOIN contacts ct ON cv.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                   AND m.tenant_id = c.tenant_id
-                 ORDER BY m.created_at DESC LIMIT 1) AS last_message,
-                (SELECT cv.unread_count FROM conversations cv 
-                 JOIN contacts ct ON cv.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                   AND cv.tenant_id = c.tenant_id
-                 ORDER BY cv.last_message_at DESC NULLS LAST LIMIT 1) AS unread_count,
-                (SELECT cv.id FROM conversations cv 
-                 JOIN contacts ct ON cv.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                 WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                   AND cv.tenant_id = c.tenant_id
-                 ORDER BY cv.last_message_at DESC NULLS LAST LIMIT 1) AS conversation_id
+                b_stats.calculated_last_visited,
+                COALESCE(b_stats.completed_bookings_count, 0) AS completed_bookings_count,
+                COALESCE(b_stats.total_bookings_count, 0) AS total_bookings_count,
+                b_last.last_visit_service,
+                b_last.last_visit_doctor,
+                ct_match.wa_profile_name,
+                notes_info.notes_count,
+                notes_info.latest_note,
+                msg_info.last_chat_at,
+                msg_info.last_message,
+                cv_info.unread_count,
+                cv_info.conversation_id
             FROM customers c
+            LEFT JOIN LATERAL (
+                SELECT ct.id AS contact_id, ct.wa_profile_name
+                FROM contacts ct
+                WHERE ct.tenant_id = c.tenant_id
+                  AND (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
+                LIMIT 1
+            ) ct_match ON true
+            LEFT JOIN contact_booking_agg b_stats ON b_stats.contact_id = ct_match.contact_id
+            LEFT JOIN LATERAL (
+                SELECT b.service AS last_visit_service, b.staff_member AS last_visit_doctor
+                FROM bookings b
+                WHERE b.tenant_id = c.tenant_id AND b.contact_id = ct_match.contact_id
+                  AND b.status IN ('completed', 'attended')
+                ORDER BY b.start_time DESC LIMIT 1
+            ) b_last ON true
+            LEFT JOIN LATERAL (
+                SELECT 
+                    COUNT(*) AS notes_count,
+                    (SELECT cn2.note_text FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note
+                FROM customer_notes cn
+                WHERE cn.customer_id = c.id AND cn.tenant_id = c.tenant_id
+            ) notes_info ON true
+            LEFT JOIN LATERAL (
+                SELECT cv.id AS conversation_id, cv.unread_count
+                FROM conversations cv
+                WHERE cv.tenant_id = c.tenant_id AND cv.contact_id = ct_match.contact_id
+                ORDER BY cv.last_message_at DESC NULLS LAST LIMIT 1
+            ) cv_info ON true
+            LEFT JOIN LATERAL (
+                SELECT m.created_at AS last_chat_at,
+                       COALESCE(
+                           NULLIF(TRIM(m.body), ''),
+                           CASE 
+                               WHEN m.content_type = 'image' THEN '📷 [Photo]'
+                               WHEN m.content_type = 'video' THEN '🎥 [Video]'
+                               WHEN m.content_type = 'document' THEN '📄 [Document]'
+                               WHEN m.content_type = 'audio' THEN '🎵 [Audio]'
+                               WHEN m.content_type = 'sticker' THEN '🏷️ [Sticker]'
+                               WHEN m.content_type = 'location' THEN '📍 [Location]'
+                               WHEN m.template_name IS NOT NULL AND m.template_name != '' THEN '📋 [Template]'
+                               ELSE '[Message]'
+                           END
+                       ) AS last_message
+                FROM messages m
+                WHERE m.tenant_id = c.tenant_id AND m.conversation_id = cv_info.conversation_id
+                ORDER BY m.created_at DESC LIMIT 1
+            ) msg_info ON true
             WHERE {where_clause}
             ORDER BY 
                 COALESCE(
-                    (SELECT MAX(m.created_at) FROM messages m 
-                     JOIN conversations cv ON m.conversation_id = cv.id AND cv.tenant_id = c.tenant_id
-                     JOIN contacts ct ON cv.contact_id = ct.id AND ct.tenant_id = c.tenant_id
-                     WHERE (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))
-                       AND m.tenant_id = c.tenant_id),
+                    msg_info.last_chat_at,
                     c.last_messaged_at,
                     c.created_at
                 ) DESC NULLS LAST
@@ -1358,12 +1482,13 @@ async def update_customer(
                         token=None, refresh_token=r_token, token_uri="https://oauth2.googleapis.com/token",
                         client_id=c_id, client_secret=c_secret
                     )
-                    t_svc = build("tasks", "v1", credentials=creds)
+                    t_svc = await asyncio.to_thread(build, "tasks", "v1", credentials=creds)
                     for ot in old_tasks:
                         gt_id = ot["google_task_id"]
                         if gt_id and not gt_id.startswith("gtask_"):
                             try:
-                                t_svc.tasks().delete(tasklist="@default", task=gt_id).execute()
+                                del_req = t_svc.tasks().delete(tasklist="@default", task=gt_id)
+                                await asyncio.to_thread(lambda: del_req.execute())
                             except Exception:
                                 pass
                 except Exception as ex:
@@ -1398,15 +1523,16 @@ async def update_customer(
                             token=None, refresh_token=r_token, token_uri="https://oauth2.googleapis.com/token",
                             client_id=c_id, client_secret=c_secret
                         )
-                        t_svc = build("tasks", "v1", credentials=creds)
-                        t_res = t_svc.tasks().insert(
+                        t_svc = await asyncio.to_thread(build, "tasks", "v1", credentials=creds)
+                        ins_req = t_svc.tasks().insert(
                             tasklist="@default",
                             body={
                                 "title": f"Follow-up: {row['name'] or 'Customer'}",
                                 "notes": f"Phone: {row['phone']}\nHealth Concern: {row['health_concern'] or 'General'}\nLead: {row['lead_probability']}\nFollow-up: {row['followup_date']} at {f_time_str}",
                                 "due": due_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
                             }
-                        ).execute()
+                        )
+                        t_res = await asyncio.to_thread(lambda: ins_req.execute())
                         if t_res and t_res.get("id"):
                             new_gtask_id = t_res["id"]
                     except Exception as ex:
@@ -1464,11 +1590,13 @@ async def delete_customer_followup(customer_id: str, tenant_id: str = Depends(ge
                     from google.oauth2.credentials import Credentials
                     from googleapiclient.discovery import build
                     creds = Credentials(token=None, refresh_token=r_token, token_uri="https://oauth2.googleapis.com/token", client_id=c_id, client_secret=c_secret)
-                    t_svc = build("tasks", "v1", credentials=creds)
+                    t_svc = await asyncio.to_thread(build, "tasks", "v1", credentials=creds)
                     for ot in old_tasks:
                         gt_id = ot["google_task_id"]
                         if gt_id and not gt_id.startswith("gtask_"):
-                            try: t_svc.tasks().delete(tasklist="@default", task=gt_id).execute()
+                            try:
+                                del_req = t_svc.tasks().delete(tasklist="@default", task=gt_id)
+                                await asyncio.to_thread(lambda: del_req.execute())
                             except: pass
             except Exception as e:
                 logger.warning("google_task_delete_on_clear_error", error=str(e))
@@ -1743,7 +1871,7 @@ async def get_customer_chat_history(
                 conv["id"], tenant_id
             )
             msg_rows = await conn.fetch(
-                """SELECT id, direction, content_type, body, status, ai_model_used, ai_used_fallback, created_at
+                """SELECT id, direction, content_type, body, media_url, template_name, status, ai_model_used, ai_used_fallback, created_at
                    FROM messages
                    WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid
                    ORDER BY created_at ASC""",
@@ -1752,17 +1880,30 @@ async def get_customer_chat_history(
             if msg_rows:
                 first_msg_at = msg_rows[0]["created_at"].isoformat() if msg_rows[0]["created_at"] else None
                 last_msg_at = msg_rows[-1]["created_at"].isoformat() if msg_rows[-1]["created_at"] else None
-                messages = [
-                    {
+                messages = []
+                for m in msg_rows:
+                    b = m["body"]
+                    if not b or not str(b).strip():
+                        ct = m.get("content_type")
+                        if ct == "image": b = "📷 [Photo]"
+                        elif ct == "video": b = "🎥 [Video]"
+                        elif ct == "document": b = "📄 [Document]"
+                        elif ct == "audio": b = "🎵 [Audio]"
+                        elif ct == "sticker": b = "🏷️ [Sticker]"
+                        elif ct == "location": b = "📍 [Location]"
+                        elif m.get("template_name"): b = f"📋 [Template: {m['template_name']}]"
+                        else: b = "[Message]"
+                    messages.append({
                         "id": str(m["id"]),
                         "direction": m["direction"],
-                        "body": m["body"],
+                        "content_type": m.get("content_type") or "text",
+                        "body": b,
+                        "media_url": m.get("media_url"),
+                        "template_name": m.get("template_name"),
                         "status": m["status"],
                         "ai_generated": bool(m.get("ai_model_used") or m.get("ai_used_fallback")),
                         "created_at": m["created_at"].isoformat() if m["created_at"] else None,
-                    }
-                    for m in msg_rows
-                ]
+                    })
 
     return {
         "customer_id": customer_id,
@@ -1987,7 +2128,7 @@ async def create_task(
                 )
                 if payload.sync_google_tasks:
                     try:
-                        tasks_service = build("tasks", "v1", credentials=creds)
+                        tasks_service = await asyncio.to_thread(build, "tasks", "v1", credentials=creds)
                         task_notes = payload.description or ""
                         if cust_info:
                             c_parts = []
@@ -1995,14 +2136,15 @@ async def create_task(
                             if cust_info.get("phone"): c_parts.append(f"Phone: {cust_info['phone']}")
                             if c_parts:
                                 task_notes = f"{task_notes}\n\n{' | '.join(c_parts)}" if task_notes else " | ".join(c_parts)
-                        gt_res = tasks_service.tasks().insert(
+                        ins_task_req = tasks_service.tasks().insert(
                             tasklist="@default",
                             body={
                                 "title": payload.title.strip(),
                                 "notes": task_notes.strip(),
                                 "due": due_iso
                             }
-                        ).execute()
+                        )
+                        gt_res = await asyncio.to_thread(lambda: ins_task_req.execute())
                         if gt_res and gt_res.get("id"):
                             google_task_id = gt_res["id"]
                     except Exception as e_gt:
@@ -2013,7 +2155,7 @@ async def create_task(
 
                 if payload.sync_google_calendar:
                     try:
-                        cal_service = build("calendar", "v3", credentials=creds)
+                        cal_service = await asyncio.to_thread(build, "calendar", "v3", credentials=creds)
                         start_time = due_dt.strftime("%Y-%m-%dT%H:%M:%SZ") if not due_dt.tzinfo else due_dt.isoformat()
                         end_dt = due_dt + timedelta(minutes=30)
                         end_time = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ") if not end_dt.tzinfo else end_dt.isoformat()
@@ -2024,7 +2166,7 @@ async def create_task(
                             if cust_info.get("phone"): c_parts.append(f"Phone: {cust_info['phone']}")
                             if c_parts:
                                 cal_desc = f"{cal_desc}\n\n{' | '.join(c_parts)}" if cal_desc else " | ".join(c_parts)
-                        event_res = cal_service.events().insert(
+                        ins_cal_req = cal_service.events().insert(
                             calendarId="primary",
                             body={
                                 "summary": payload.title.strip(),
@@ -2032,7 +2174,8 @@ async def create_task(
                                 "start": {"dateTime": start_time},
                                 "end": {"dateTime": end_time}
                             }
-                        ).execute()
+                        )
+                        event_res = await asyncio.to_thread(lambda: ins_cal_req.execute())
                         if event_res and event_res.get("id"):
                             google_event_id = event_res["id"]
                     except Exception as e_cal:
@@ -2100,15 +2243,17 @@ async def delete_task(
                         )
                         if google_task_id and not google_task_id.startswith("gtask_"):
                             try:
-                                t_svc = build("tasks", "v1", credentials=creds)
-                                t_svc.tasks().delete(tasklist="@default", task=google_task_id).execute()
+                                t_svc = await asyncio.to_thread(build, "tasks", "v1", credentials=creds)
+                                del_task_req = t_svc.tasks().delete(tasklist="@default", task=google_task_id)
+                                await asyncio.to_thread(lambda: del_task_req.execute())
                             except Exception as e_gt:
                                 logger.warning("delete_google_task_error", error=str(e_gt))
 
                         if google_event_id:
                             try:
-                                c_svc = build("calendar", "v3", credentials=creds)
-                                c_svc.events().delete(calendarId="primary", eventId=google_event_id).execute()
+                                c_svc = await asyncio.to_thread(build, "calendar", "v3", credentials=creds)
+                                del_cal_req = c_svc.events().delete(calendarId="primary", eventId=google_event_id)
+                                await asyncio.to_thread(lambda: del_cal_req.execute())
                             except Exception as e_cal:
                                 logger.warning("delete_google_event_error", error=str(e_cal))
                 except Exception as ex:
@@ -2201,7 +2346,7 @@ async def sync_customer_to_google_tasks(
 
             # 1. Google Tasks API dispatch
             try:
-                tasks_service = build("tasks", "v1", credentials=creds)
+                tasks_service = await asyncio.to_thread(build, "tasks", "v1", credentials=creds)
                 task_body = {
                     "title": f"Follow-up: {cust['name'] or 'Customer'}",
                     "notes": f"Phone: {cust['phone']}\nHealth Concern: {cust['health_concern'] or 'General'}\nLead: {cust['lead_probability'].upper() if cust['lead_probability'] else 'WARM'}\nFollow-up: {cust['followup_date']} at {cust['followup_time'] or '10:00 AM'}",
@@ -2210,17 +2355,20 @@ async def sync_customer_to_google_tasks(
                 # If task already existed on Google, update it rather than inserting a duplicate
                 if cust.get("google_task_id") and not str(cust["google_task_id"]).startswith("gtask_"):
                     try:
-                        res = tasks_service.tasks().update(tasklist="@default", task=cust["google_task_id"], body=task_body).execute()
+                        up_req = tasks_service.tasks().update(tasklist="@default", task=cust["google_task_id"], body=task_body)
+                        res = await asyncio.to_thread(lambda: up_req.execute())
                         if res and res.get("id"):
                             google_task_id = res["id"]
                             logger.info("google_task_updated_successfully", task_id=google_task_id, customer_id=customer_id)
                     except Exception as ex_t_up:
                         logger.info("google_task_update_fallback_insert", error=str(ex_t_up))
-                        res = tasks_service.tasks().insert(tasklist="@default", body=task_body).execute()
+                        ins_req = tasks_service.tasks().insert(tasklist="@default", body=task_body)
+                        res = await asyncio.to_thread(lambda: ins_req.execute())
                         if res and res.get("id"):
                             google_task_id = res["id"]
                 else:
-                    res = tasks_service.tasks().insert(tasklist="@default", body=task_body).execute()
+                    ins_req = tasks_service.tasks().insert(tasklist="@default", body=task_body)
+                    res = await asyncio.to_thread(lambda: ins_req.execute())
                     if res and res.get("id"):
                         google_task_id = res["id"]
                         logger.info("google_task_created_successfully", task_id=google_task_id, customer_id=customer_id)
@@ -2229,7 +2377,7 @@ async def sync_customer_to_google_tasks(
 
             # 2. Google Calendar API dispatch
             try:
-                cal_service = build("calendar", "v3", credentials=creds)
+                cal_service = await asyncio.to_thread(build, "calendar", "v3", credentials=creds)
                 f_time_str = cust["followup_time"] or "10:00 AM"
                 f_date_val = cust["followup_date"] or (datetime.utcnow().date() + timedelta(days=1))
                 t_obj = time(10, 0)
@@ -2264,11 +2412,14 @@ async def sync_customer_to_google_tasks(
                 }
                 if google_cal_id and not google_cal_id.startswith("gcal_"):
                     try:
-                        cal_res = cal_service.events().update(calendarId="primary", eventId=google_cal_id, body=cal_event_body).execute()
+                        cal_up_req = cal_service.events().update(calendarId="primary", eventId=google_cal_id, body=cal_event_body)
+                        cal_res = await asyncio.to_thread(lambda: cal_up_req.execute())
                     except Exception:
-                        cal_res = cal_service.events().insert(calendarId="primary", body=cal_event_body).execute()
+                        cal_ins_req = cal_service.events().insert(calendarId="primary", body=cal_event_body)
+                        cal_res = await asyncio.to_thread(lambda: cal_ins_req.execute())
                 else:
-                    cal_res = cal_service.events().insert(calendarId="primary", body=cal_event_body).execute()
+                    cal_ins_req = cal_service.events().insert(calendarId="primary", body=cal_event_body)
+                    cal_res = await asyncio.to_thread(lambda: cal_ins_req.execute())
                 if cal_res and cal_res.get("id"):
                     google_cal_id = cal_res["id"]
                     logger.info("google_calendar_followup_synced", event_id=google_cal_id, customer_id=customer_id)
@@ -2329,40 +2480,44 @@ async def sync_customer_to_google_tasks(
 @app.delete("/api/v1/crm/customers/{customer_id}")
 async def delete_customer(
     customer_id: str,
-    tenant_id: str = Depends(get_tenant_id)
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
 ):
     """Permanently delete a customer record and all related notes and tasks."""
+    if caller.get("role") not in ("admin", "owner", "super_admin"):
+        raise HTTPException(status_code=403, detail="Admin privileges required to delete a customer.")
     async with db_pool.acquire() as conn:
-        cust = await conn.fetchrow(
-            "SELECT phone FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid",
-            customer_id, tenant_id
-        )
-        if not cust:
-            raise HTTPException(404, "Customer not found")
-
-        phone = cust["phone"]
-        await conn.execute("DELETE FROM customer_notes WHERE customer_id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
-        await conn.execute("DELETE FROM tasks WHERE customer_id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
-        await conn.execute("DELETE FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
-
-        # Also remove contact and conversations if present
-        if phone:
-            contact = await conn.fetchrow(
-                "SELECT id FROM contacts WHERE phone = $1 AND tenant_id = $2::uuid",
-                phone, tenant_id
+        async with conn.transaction():
+            cust = await conn.fetchrow(
+                "SELECT phone FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                customer_id, tenant_id
             )
-            if contact:
-                contact_id = contact["id"]
-                convs = await conn.fetch(
-                    "SELECT id FROM conversations WHERE contact_id = $1::uuid AND tenant_id = $2::uuid",
-                    contact_id, tenant_id
+            if not cust:
+                raise HTTPException(404, "Customer not found")
+
+            phone = cust["phone"]
+            await conn.execute("DELETE FROM customer_notes WHERE customer_id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
+            await conn.execute("DELETE FROM tasks WHERE customer_id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
+            await conn.execute("DELETE FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
+
+            # Also remove contact and conversations if present
+            if phone:
+                contact = await conn.fetchrow(
+                    "SELECT id FROM contacts WHERE phone = $1 AND tenant_id = $2::uuid",
+                    phone, tenant_id
                 )
-                for c in convs:
-                    await conn.execute("DELETE FROM messages WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid", c["id"], tenant_id)
-                await conn.execute("DELETE FROM conversations WHERE contact_id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
-                await conn.execute("DELETE FROM scheduled_jobs WHERE booking_id IN (SELECT id FROM bookings WHERE contact_id = $1::uuid AND tenant_id = $2::uuid) AND tenant_id = $2::uuid", contact_id, tenant_id)
-                await conn.execute("DELETE FROM bookings WHERE contact_id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
-                await conn.execute("DELETE FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
+                if contact:
+                    contact_id = contact["id"]
+                    convs = await conn.fetch(
+                        "SELECT id FROM conversations WHERE contact_id = $1::uuid AND tenant_id = $2::uuid",
+                        contact_id, tenant_id
+                    )
+                    for c in convs:
+                        await conn.execute("DELETE FROM messages WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid", c["id"], tenant_id)
+                    await conn.execute("DELETE FROM conversations WHERE contact_id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
+                    await conn.execute("DELETE FROM scheduled_jobs WHERE booking_id IN (SELECT id FROM bookings WHERE contact_id = $1::uuid AND tenant_id = $2::uuid) AND tenant_id = $2::uuid", contact_id, tenant_id)
+                    await conn.execute("DELETE FROM bookings WHERE contact_id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
+                    await conn.execute("DELETE FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
 
     return {"status": "ok", "deleted_id": customer_id}
 
@@ -2380,7 +2535,7 @@ async def list_bookings(
     """List appointments/bookings joined with contacts for this tenant."""
     async with db_pool.acquire() as conn:
         query = """
-            SELECT b.id, b.service, b.start_time, b.end_time, b.status,
+            SELECT b.id, b.service, b.staff_member, b.start_time, b.end_time, b.status,
                    b.notes, b.price, b.currency, b.created_at,
                    c.name as contact_name, c.phone as contact_phone,
                    (SELECT cu.health_concern FROM customers cu WHERE cu.tenant_id = b.tenant_id AND (cu.phone = c.phone OR RIGHT(REGEXP_REPLACE(cu.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10)) LIMIT 1) as customer_health_concern
@@ -2401,16 +2556,22 @@ async def list_bookings(
         rows = await conn.fetch(query, *args)
 
     caller_concerns = caller.get("assigned_health_concerns", [])
+    caller_doc = caller.get("assigned_doctor")
     is_admin = caller.get("role") in ("admin", "super_admin", "owner")
 
     result = []
     for r in rows:
         c_concern = r["customer_health_concern"] or ""
-        # If user is a restricted sales rep and booking belongs to a different concern:
-        if caller_concerns and not is_admin and (c_concern not in caller_concerns):
+        doc_val = r["staff_member"] or ""
+        # If user is a restricted sales rep or doctor and booking belongs to a different concern/doctor:
+        is_restricted_concern = bool(caller_concerns and not is_admin and (c_concern not in caller_concerns))
+        is_restricted_doc = bool(caller_doc and not is_admin and doc_val and (doc_val.lower() != caller_doc.lower()))
+        if is_restricted_concern or is_restricted_doc:
             result.append({
                 "id": str(r["id"]),
                 "service": "Reserved Slot",
+                "staff_member": "Staff",
+                "doctor": "Staff",
                 "start_time": r["start_time"].isoformat() if r["start_time"] else "",
                 "end_time": r["end_time"].isoformat() if r["end_time"] else "",
                 "status": r["status"],
@@ -2427,6 +2588,8 @@ async def list_bookings(
             result.append({
                 "id": str(r["id"]),
                 "service": r["service"],
+                "staff_member": doc_val,
+                "doctor": doc_val,
                 "start_time": r["start_time"].isoformat() if r["start_time"] else "",
                 "end_time": r["end_time"].isoformat() if r["end_time"] else "",
                 "status": r["status"],
@@ -2450,6 +2613,126 @@ class BookingCreatePayload(BaseModel):
     end_time: Optional[str] = None
     price: Optional[float] = 0.0
     notes: Optional[str] = ""
+    staff_member: Optional[str] = None
+    doctor_name: Optional[str] = None
+
+
+async def create_google_calendar_event(
+    conn,
+    tenant_id: str,
+    booking_id: str,
+    service_name: str,
+    clean_name: str,
+    clean_phone: str,
+    notes: str,
+    st_dt: datetime,
+    et_dt: datetime,
+    customer_email: Optional[str] = None,
+    source: str = "CRM",
+    date_str: str = "",
+    clock_str: str = "",
+    full_location: str = ""
+) -> Optional[str]:
+    """Sync an appointment to Google Calendar if tenant credentials are configured."""
+    try:
+        gcal_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+            tenant_id
+        )
+        if not gcal_row or not gcal_row["credential_data"]:
+            return None
+
+        g_data = gcal_row["credential_data"]
+        if isinstance(g_data, str):
+            try: g_data = json.loads(g_data)
+            except: g_data = {}
+
+        if not g_data.get("refresh_token") or not g_data.get("client_id"):
+            return None
+
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+
+        g_creds = Credentials(
+            token=g_data.get("access_token"),
+            refresh_token=g_data.get("refresh_token"),
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=g_data.get("client_id"),
+            client_secret=g_data.get("client_secret"),
+        )
+        g_service = await asyncio.to_thread(build, "calendar", "v3", credentials=g_creds)
+        cal_id = g_data.get("calendar_id") or "primary"
+
+        event_body = {
+            "summary": f"{service_name.strip()} - {clean_name} ({clean_phone})",
+            "description": f"Appointment Booked via {source}\n\n• Client: {clean_name}\n• Phone: {clean_phone}\n• Service: {service_name.strip()}\n• Notes: {notes or 'None'}",
+            "start": {"dateTime": st_dt.isoformat()},
+            "end": {"dateTime": et_dt.isoformat()},
+        }
+
+        attendees = []
+        notif_email = g_data.get("notification_email")
+        if notif_email and "@" in notif_email:
+            attendees.append({"email": notif_email})
+
+        if customer_email and "@" in customer_email and customer_email.lower() != (notif_email or "").lower():
+            attendees.append({"email": customer_email})
+
+        if attendees:
+            event_body["attendees"] = attendees
+
+        insert_event_req = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all")
+        event = await asyncio.to_thread(lambda: insert_event_req.execute())
+        event_id = event.get("id") if event else None
+        if event_id:
+            await conn.execute(
+                "UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid",
+                event_id, booking_id
+            )
+            logger.info("google_calendar_event_created", event_id=event_id, booking_id=booking_id, source=source)
+
+        # Send Gmail direct notifications if configured
+        cust_clean_email = sanitize_and_fix_email(customer_email) if customer_email else None
+        fmt_date = date_str or st_dt.strftime("%d %b %Y")
+        fmt_time = clock_str or st_dt.strftime("%I:%M %p")
+
+        if notif_email and "@" in notif_email:
+            try:
+                admin_email_html = build_booking_admin_email_html(
+                    service_name=service_name.strip(),
+                    formatted_date=fmt_date,
+                    formatted_time=fmt_time,
+                    name=clean_name,
+                    contact_phone=clean_phone,
+                    customer_email=cust_clean_email,
+                    notes=notes or "",
+                    full_location=full_location,
+                )
+                admin_subject = f"[Admin Alert] New Booking: {service_name.strip()} - {clean_name} ({fmt_date} at {fmt_time})"
+                await send_gmail_direct_notification(g_creds, notif_email, admin_subject, admin_email_html)
+            except Exception as e_adm_mail:
+                logger.warning("gcal_admin_email_failed", error=str(e_adm_mail))
+
+        if cust_clean_email and "@" in cust_clean_email:
+            try:
+                customer_email_html = build_booking_customer_email_html(
+                    service_name=service_name.strip(),
+                    formatted_date=fmt_date,
+                    formatted_time=fmt_time,
+                    name=clean_name,
+                    contact_phone=clean_phone,
+                    full_location=full_location,
+                )
+                customer_subject = f"Booking Confirmed: Your {service_name.strip()} Appointment on {fmt_date} at {fmt_time}"
+                await send_gmail_direct_notification(g_creds, cust_clean_email, customer_subject, customer_email_html)
+                logger.info("crm_booking_confirmation_email_sent_to_customer", to=cust_clean_email, booking_id=booking_id)
+            except Exception as e_cust_mail:
+                logger.warning("gcal_customer_email_failed", error=str(e_cust_mail))
+
+        return event_id
+    except Exception as e:
+        logger.error("google_calendar_event_creation_failed", error=str(e), booking_id=booking_id)
+        return None
 
 
 @app.post("/bookings")
@@ -2534,24 +2817,34 @@ async def create_booking(
                 conv_id, tenant_id, contact_id
             )
 
-        # Double Booking Conflict Check
-        conflict = await conn.fetchrow(
-            """SELECT id, service, start_time, end_time FROM bookings
-               WHERE tenant_id = $1::uuid AND status = 'confirmed'
-                 AND start_time < $3 AND end_time > $2""",
-            tenant_id, st_dt, et_dt
-        )
-        if conflict:
-            c_time = conflict["start_time"].strftime("%I:%M %p")
-            raise HTTPException(409, f"Timeslot conflict: An appointment for '{conflict['service']}' is already scheduled at {c_time}.")
-
-        # 2. Insert booking
+        # Double Booking Conflict Check & Insert in a single transaction (Bug 2 Fix)
         booking_id = str(uuid.uuid4())
-        await conn.execute(
-            """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency)
-               VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, $9, 'INR')""",
-            booking_id, tenant_id, contact_id, conv_id, payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0)
-        )
+        staff = (payload.doctor_name or payload.staff_member or "").strip() or None
+        async with conn.transaction():
+            conflict = await conn.fetchrow(
+                """SELECT id, service, start_time, end_time FROM bookings
+                   WHERE tenant_id = $1::uuid AND status = 'confirmed'
+                     AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
+                     AND start_time < $3 AND end_time > $2
+                   FOR UPDATE""",
+                tenant_id, st_dt, et_dt, staff
+            )
+            if conflict:
+                c_start = conflict["start_time"]
+                if hasattr(c_start, "astimezone"):
+                    c_start = c_start.astimezone(tenant_tz)
+                c_time = c_start.strftime("%I:%M %p")
+                raise HTTPException(409, f"Timeslot conflict: An appointment for '{conflict['service']}' is already scheduled at {c_time}.")
+
+            # 2. Insert booking
+            try:
+                await conn.execute(
+                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, $9, 'INR', $10)""",
+                    booking_id, tenant_id, contact_id, conv_id, payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0), staff
+                )
+            except asyncpg.exceptions.ExclusionViolationError:
+                raise HTTPException(409, "Timeslot conflict: Another appointment was just booked for this time range.")
 
         # 2b. Auto-link/upsert customer in CRM by phone so booking history is visible on customer profile
         try:
@@ -2562,16 +2855,23 @@ async def create_booking(
             if not existing_cust:
                 new_cust_id = str(uuid.uuid4())
                 await conn.execute(
-                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, converted, health_concern, followup_date, followup_time, created_at, updated_at)
-                       VALUES ($1::uuid, $2::uuid, $3, $4, 'converted', 'hot', true, $5, CURRENT_DATE + 7, '10:00 AM', now(), now())
-                       ON CONFLICT (tenant_id, phone) DO UPDATE SET status = 'converted', converted = true, lead_probability = 'hot', updated_at = now()""",
-                    new_cust_id, tenant_id, clean_phone, clean_name, payload.service.strip() or "General Consultation"
+                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, converted, health_concern, preferred_doctor, followup_date, followup_time, created_at, updated_at)
+                       VALUES ($1::uuid, $2::uuid, $3, $4, 'converted', 'hot', true, $5, $6, CURRENT_DATE + 7, '10:00 AM', now(), now())
+                       ON CONFLICT (tenant_id, phone) DO UPDATE SET status = 'converted', converted = true, lead_probability = 'hot', preferred_doctor = COALESCE(customers.preferred_doctor, EXCLUDED.preferred_doctor), updated_at = now()""",
+                    new_cust_id, tenant_id, clean_phone, clean_name, payload.service.strip() or "General Consultation", staff
                 )
             else:
-                # Update status to converted and name if customer record has no name yet
+                # Update status to converted, name if empty, and link preferred_doctor if assigned
                 await conn.execute(
-                    "UPDATE customers SET name = COALESCE(NULLIF(name, ''), $1), status = 'converted', converted = true, lead_probability = 'hot', updated_at = now() WHERE id = $2::uuid",
-                    clean_name, str(existing_cust["id"])
+                    """UPDATE customers 
+                       SET name = COALESCE(NULLIF(name, ''), $1), 
+                           status = 'converted', 
+                           converted = true, 
+                           lead_probability = 'hot', 
+                           preferred_doctor = COALESCE(preferred_doctor, $2),
+                           updated_at = now() 
+                       WHERE id = $3::uuid""",
+                    clean_name, staff, str(existing_cust["id"])
                 )
         except Exception as e_cust_link:
             logger.warning("booking_customer_auto_link_warn", error=str(e_cust_link))
@@ -2603,12 +2903,12 @@ async def create_booking(
             creds = dict(d)
 
         # Timezone formatting
-        tz_name = tenant_settings.get("timezone", "Asia/Kolkata").strip()
+        tz_name = (tenant_settings.get("timezone") or "Asia/Kolkata").strip()
         import zoneinfo
         try:
-            local_tz = zoneinfo.ZoneInfo(tz_name)
+            local_tz = zoneinfo.ZoneInfo(tz_name or "Asia/Kolkata")
         except Exception:
-            local_tz = timezone(timedelta(hours=5, minutes=30))
+            local_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
 
         if hasattr(st_dt, "astimezone"):
             st_local = st_dt.astimezone(local_tz)
@@ -2748,95 +3048,28 @@ async def create_booking(
                 logger.error("admin_booking_wa_notify_error", error=str(e))
 
         # 6. Trigger Google Calendar Sync (if configured)
-        try:
-            gcal_row = await conn.fetchrow(
-                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
-                tenant_id
-            )
-            if gcal_row and gcal_row["credential_data"]:
-                g_data = gcal_row["credential_data"]
-                if isinstance(g_data, str):
-                    try: g_data = json.loads(g_data)
-                    except: g_data = {}
+        contact_meta = contact_row.get("metadata") if contact_row else {}
+        if isinstance(contact_meta, str):
+            try: contact_meta = json.loads(contact_meta)
+            except: contact_meta = {}
+        cust_email = contact_meta.get("email") if isinstance(contact_meta, dict) else None
 
-                if g_data.get("refresh_token") and g_data.get("client_id"):
-                    try:
-                        from google.oauth2.credentials import Credentials
-                        from googleapiclient.discovery import build
-                        
-                        g_creds = Credentials(
-                            token=g_data.get("access_token"),
-                            refresh_token=g_data.get("refresh_token"),
-                            token_uri="https://oauth2.googleapis.com/token",
-                            client_id=g_data.get("client_id"),
-                            client_secret=g_data.get("client_secret"),
-                        )
-                        g_service = build("calendar", "v3", credentials=g_creds)
-                        cal_id = g_data.get("calendar_id") or "primary"
-                        
-                        event_body = {
-                            "summary": f"{payload.service.strip()} - {clean_name} ({clean_phone})",
-                            "description": f"Appointment Booked via CRM\n\n• Client: {clean_name}\n• Phone: {clean_phone}\n• Service: {payload.service.strip()}\n• Notes: {payload.notes or 'None'}",
-                            "start": {"dateTime": st_dt.isoformat()},
-                            "end": {"dateTime": et_dt.isoformat()},
-                        }
-                        
-                        attendees = []
-                        notif_email = g_data.get("notification_email")
-                        if notif_email and "@" in notif_email:
-                            attendees.append({"email": notif_email})
-
-                        contact_meta = contact_row.get("metadata") if contact_row else {}
-                        if isinstance(contact_meta, str):
-                            try: contact_meta = json.loads(contact_meta)
-                            except: contact_meta = {}
-                        cust_email = contact_meta.get("email") if isinstance(contact_meta, dict) else None
-                        if cust_email and "@" in cust_email and cust_email.lower() != (notif_email or "").lower():
-                            attendees.append({"email": cust_email})
-
-                        if attendees:
-                            event_body["attendees"] = attendees
-                        
-                        event = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all").execute()
-                        if event and event.get("id"):
-                            await conn.execute(
-                                "UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid",
-                                event["id"], booking_id
-                            )
-                            logger.info("google_calendar_event_created_from_crm", event_id=event["id"], booking_id=booking_id)
-
-                        # Direct Gmail API Confirmation Email to Admin & Customer from CRM
-                        cust_email = sanitize_and_fix_email(cust_email)
-                        if notif_email and "@" in notif_email:
-                            admin_email_html = build_booking_admin_email_html(
-                                service_name=payload.service.strip(),
-                                formatted_date=date_str,
-                                formatted_time=clock_str,
-                                name=clean_name,
-                                contact_phone=clean_phone,
-                                customer_email=cust_email,
-                                notes=payload.notes or "",
-                                full_location=full_location,
-                            )
-                            admin_subject = f"[Admin Alert] New Booking: {payload.service.strip()} - {clean_name} ({date_str} at {clock_str})"
-                            send_gmail_direct_notification(g_creds, notif_email, admin_subject, admin_email_html)
-
-                        if cust_email and "@" in cust_email:
-                            customer_email_html = build_booking_customer_email_html(
-                                service_name=payload.service.strip(),
-                                formatted_date=date_str,
-                                formatted_time=clock_str,
-                                name=clean_name,
-                                contact_phone=clean_phone,
-                                full_location=full_location,
-                            )
-                            customer_subject = f"Booking Confirmed: Your {payload.service.strip()} Appointment on {date_str} at {clock_str}"
-                            send_gmail_direct_notification(g_creds, cust_email, customer_subject, customer_email_html)
-                            logger.info("crm_booking_confirmation_email_sent_to_customer", to=cust_email, booking_id=booking_id)
-                    except Exception as e:
-                        logger.error("google_calendar_sync_error_from_crm", error=str(e), booking_id=booking_id)
-        except Exception as e:
-            logger.warning("calendar_sync_trigger_error", error=str(e))
+        await create_google_calendar_event(
+            conn=conn,
+            tenant_id=tenant_id,
+            booking_id=booking_id,
+            service_name=payload.service.strip(),
+            clean_name=clean_name,
+            clean_phone=clean_phone,
+            notes=payload.notes or "",
+            st_dt=st_dt,
+            et_dt=et_dt,
+            customer_email=cust_email,
+            source="CRM",
+            date_str=date_str,
+            clock_str=clock_str,
+            full_location=full_location
+        )
 
         # Schedule automatic 24h & 2h reminders and post-session review request
         try:
@@ -2906,6 +3139,7 @@ class BookingStatusPayload(BaseModel):
     status: str
     start_time: Optional[str] = None
     end_time: Optional[str] = None
+    send_review: Optional[bool] = None
 
 async def dispatch_automated_status_whatsapp(
     tenant_id: str,
@@ -3027,7 +3261,7 @@ async def dispatch_automated_status_whatsapp(
                     if not c_row:
                         c_id = str(uuid.uuid4())
                         await conn.execute(
-                            "INSERT INTO contacts (id, tenant_id, phone, name) VALUES ($1::uuid, $2::uuid, $3, 'Super Admin')",
+                            "INSERT INTO contacts (id, tenant_id, phone, name) VALUES ($1::uuid, $2::uuid, $3, 'Customer')",
                             c_id, tenant_id, clean_phone
                         )
                     else:
@@ -3373,9 +3607,10 @@ async def update_booking_status(
                                 client_id=g_data.get("client_id"),
                                 client_secret=g_data.get("client_secret"),
                             )
-                            g_service = build("calendar", "v3", credentials=g_creds)
+                            g_service = await asyncio.to_thread(build, "calendar", "v3", credentials=g_creds)
                             cal_id = g_data.get("calendar_id") or "primary"
-                            g_service.events().delete(calendarId=cal_id, eventId=booking["google_event_id"], sendUpdates="all").execute()
+                            del_cal_req = g_service.events().delete(calendarId=cal_id, eventId=booking["google_event_id"], sendUpdates="all")
+                            await asyncio.to_thread(lambda: del_cal_req.execute())
                             logger.info("google_calendar_event_deleted_on_cancellation", event_id=booking["google_event_id"])
 
                             # Direct Gmail API Cancellation Email to Admin & Customer
@@ -3399,7 +3634,7 @@ async def update_booking_status(
                                     customer_email=customer_email,
                                 )
                                 admin_subject = f"[Admin Notice] Booking Cancelled: {service_name} - {patient_name} ({date_str} at {clock_str})"
-                                send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
+                                await send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
 
                             customer_email = sanitize_and_fix_email(customer_email)
 
@@ -3412,7 +3647,7 @@ async def update_booking_status(
                                     name=patient_name,
                                 )
                                 customer_subject = f"Appointment Cancelled: {service_name} on {date_str}"
-                                send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
+                                await send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
                                 logger.info("crm_cancellation_email_sent_to_customer", to=customer_email)
                 except Exception as e:
                     logger.warning("google_calendar_cancellation_sync_failed", error=str(e))
@@ -3453,7 +3688,7 @@ async def update_booking_status(
                             client_id=g_data.get("client_id"),
                             client_secret=g_data.get("client_secret"),
                         )
-                        g_service = build("calendar", "v3", credentials=g_creds)
+                        g_service = await asyncio.to_thread(build, "calendar", "v3", credentials=g_creds)
                         cal_id = g_data.get("calendar_id") or "primary"
                         st_iso = booking["start_time"].isoformat()
                         et_val = booking.get("end_time") or (booking["start_time"] + timedelta(minutes=30))
@@ -3472,15 +3707,18 @@ async def update_booking_status(
                         }
                         if booking.get("google_event_id"):
                             try:
-                                g_service.events().patch(calendarId=cal_id, eventId=booking["google_event_id"], body=event_body, sendUpdates="all").execute()
+                                patch_req = g_service.events().patch(calendarId=cal_id, eventId=booking["google_event_id"], body=event_body, sendUpdates="all")
+                                await asyncio.to_thread(lambda: patch_req.execute())
                                 logger.info("google_calendar_reschedule_patched", event_id=booking["google_event_id"])
                             except Exception as patch_err:
                                 logger.warning("google_calendar_patch_failed_inserting", error=str(patch_err))
-                                event = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all").execute()
+                                ins_req = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all")
+                                event = await asyncio.to_thread(lambda: ins_req.execute())
                                 if event and event.get("id"):
                                     await conn.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid", event["id"], booking_id)
                         else:
-                            event = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all").execute()
+                            ins_req = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all")
+                            event = await asyncio.to_thread(lambda: ins_req.execute())
                             if event and event.get("id"):
                                 await conn.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid", event["id"], booking_id)
 
@@ -3510,7 +3748,7 @@ async def update_booking_status(
                                 customer_email=customer_email,
                             )
                             admin_subject = f"[Admin Notice] Booking Rescheduled: {service_name} - {patient_name} to {date_str} at {clock_str}"
-                            send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
+                            await send_gmail_direct_notification(g_creds, admin_notif_email, admin_subject, admin_email_html)
                             logger.info("crm_reschedule_email_sent_to_admin", to=admin_notif_email)
 
                         # Send tailored copy to Customer
@@ -3537,7 +3775,7 @@ async def update_booking_status(
                                 full_location=full_loc,
                             )
                             customer_subject = f"Reschedule Confirmed: Your {service_name} is now on {date_str} at {clock_str}"
-                            send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
+                            await send_gmail_direct_notification(g_creds, customer_email, customer_subject, customer_email_html)
                             logger.info("crm_reschedule_email_sent_to_customer", to=customer_email)
             except Exception as e_gcal:
                 logger.warning("crm_reschedule_gcal_email_failed", error=str(e_gcal))
@@ -3562,83 +3800,94 @@ async def update_booking_status(
             google_review_link = f"https://search.google.com/local/writereview?placeid={tenant_name.replace(' ', '+')}"
 
         if payload.status in ["completed", "attended"]:
-            t_review_tpl = (
-                t_settings_dict.get("template_review_request") or
-                t_settings_dict.get("template_post_service_review") or
-                wa_data.get("template_review_request") or
-                wa_data.get("template_post_service_review")
-            )
-            # 1. If explicitly empty, none, or disabled: DO NOT SEND REVIEW REQUEST AT ALL
-            if not t_review_tpl or str(t_review_tpl).strip().lower() in ("", "none", "disabled", "off", "false"):
+            auto_review_enabled = t_settings_dict.get("enable_auto_review", True) if t_settings_dict.get("enable_auto_review") is not None else True
+            # Check if caller explicitly opted out (send_review=False) or if tenant settings disabled auto-reviews
+            if payload.send_review is False or (payload.send_review is None and not auto_review_enabled):
                 dispatch_template = None
                 automated_text = None
-                logger.info("review_request_disabled_or_empty_skipping", tenant_id=tenant_id, booking_id=booking_id)
-                # Cancel any pending review_request scheduled jobs for this booking
+                logger.info("review_request_suppressed_by_caller_or_settings", tenant_id=tenant_id, booking_id=booking_id, send_review=payload.send_review, auto_review_enabled=auto_review_enabled)
                 await conn.execute(
                     "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND job_type = 'review_request' AND status = 'pending'",
                     booking_id, tenant_id
                 )
-            # 2. If review has ALREADY been sent for this booking (review_sent_at is not null), DO NOT SEND AGAIN
-            elif booking.get("review_sent_at") is not None:
-                dispatch_template = None
-                automated_text = None
-                logger.info("review_request_already_sent_skipping_duplicate", tenant_id=tenant_id, booking_id=booking_id)
             else:
-                delay_seconds = 10
-                review_link_block = f"\n\nGoogle Review link:\n{google_review_link}" if google_review_link else ""
-                automated_text = (
-                    f"Hi {patient_name}, thank you for attending your {service_name} session with {tenant_name} today.\n\n"
-                    f"We hope you had a wonderful experience! Could you please take 30 seconds to share your review with us?{review_link_block}\n\n"
-                    f"Your feedback helps us maintain the highest standard of service. Thank you for choosing {tenant_name}."
+                t_review_tpl = (
+                    t_settings_dict.get("template_review_request") or
+                    t_settings_dict.get("template_post_service_review") or
+                    wa_data.get("template_review_request") or
+                    wa_data.get("template_post_service_review")
                 )
-                dispatch_template = str(t_review_tpl).strip()
-                dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", google_review_link]
-                # Update review_sent_at timestamp immediately to avoid race conditions
-                await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid", booking_id)
+                # 1. If explicitly empty, none, or disabled: DO NOT SEND REVIEW REQUEST AT ALL
+                if not t_review_tpl or str(t_review_tpl).strip().lower() in ("", "none", "disabled", "off", "false"):
+                    dispatch_template = None
+                    automated_text = None
+                    logger.info("review_request_disabled_or_empty_skipping", tenant_id=tenant_id, booking_id=booking_id)
+                    # Cancel any pending review_request scheduled jobs for this booking
+                    await conn.execute(
+                        "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND job_type = 'review_request' AND status = 'pending'",
+                        booking_id, tenant_id
+                    )
+                # 2. If review has ALREADY been sent for this booking (review_sent_at is not null), DO NOT SEND AGAIN
+                elif booking.get("review_sent_at") is not None:
+                    dispatch_template = None
+                    automated_text = None
+                    logger.info("review_request_already_sent_skipping_duplicate", tenant_id=tenant_id, booking_id=booking_id)
+                else:
+                    delay_seconds = 10
+                    review_link_block = f"\n\nGoogle Review link:\n{google_review_link}" if google_review_link else ""
+                    automated_text = (
+                        f"Hi {patient_name}, thank you for attending your {service_name} session with {tenant_name} today.\n\n"
+                        f"We hope you had a wonderful experience! Could you please take 30 seconds to share your review with us?{review_link_block}\n\n"
+                        f"Your feedback helps us maintain the highest standard of service. Thank you for choosing {tenant_name}."
+                    )
+                    dispatch_template = str(t_review_tpl).strip()
+                    dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", google_review_link]
+                    # Update review_sent_at timestamp immediately to avoid race conditions
+                    await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid", booking_id)
 
-                # Cancel any pending scheduled_jobs for review_request for this booking since we are sending it now
-                await conn.execute(
-                    "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND job_type = 'review_request' AND status = 'pending'",
-                    booking_id, tenant_id
-                )
+                    # Cancel any pending scheduled_jobs for review_request for this booking since we are sending it now
+                    await conn.execute(
+                        "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND job_type = 'review_request' AND status = 'pending'",
+                        booking_id, tenant_id
+                    )
 
-                # Direct Review Email to Customer
-                try:
-                    c_email = customer_email
-                    if not c_email and booking.get("contact_id"):
-                        c_email = await conn.fetchval("SELECT metadata->>'email' FROM contacts WHERE id = $1::uuid", booking["contact_id"])
-                    c_email = sanitize_and_fix_email(c_email)
-                    if c_email and "@" in c_email:
-                        gcal_row = await conn.fetchrow(
-                            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
-                            tenant_id
-                        )
-                        if gcal_row and gcal_row["credential_data"]:
-                            g_data = gcal_row["credential_data"]
-                            if isinstance(g_data, str):
-                                try: g_data = json.loads(g_data)
-                                except: g_data = {}
-                            if g_data.get("refresh_token") and g_data.get("client_id"):
-                                from google.oauth2.credentials import Credentials
-                                g_creds = Credentials(
-                                    token=g_data.get("access_token"),
-                                    refresh_token=g_data.get("refresh_token"),
-                                    token_uri="https://oauth2.googleapis.com/token",
-                                    client_id=g_data.get("client_id"),
-                                    client_secret=g_data.get("client_secret"),
-                                )
-                                review_email_html = build_review_customer_email_html(
-                                    service_name=service_name,
-                                    formatted_date=date_str or "Today",
-                                    formatted_time=clock_str or "Scheduled Time",
-                                    name=patient_name,
-                                    full_location=""
-                                )
-                                review_subject = f"Thank You: Your {service_name} Appointment with {tenant_name}"
-                                send_gmail_direct_notification(g_creds, c_email, review_subject, review_email_html)
-                                logger.info("crm_review_email_sent_to_customer", to=c_email)
-                except Exception as re_err:
-                    logger.warning("crm_review_email_dispatch_failed", error=str(re_err))
+                    # Direct Review Email to Customer
+                    try:
+                        c_email = customer_email
+                        if not c_email and booking.get("contact_id"):
+                            c_email = await conn.fetchval("SELECT metadata->>'email' FROM contacts WHERE id = $1::uuid", booking["contact_id"])
+                        c_email = sanitize_and_fix_email(c_email)
+                        if c_email and "@" in c_email:
+                            gcal_row = await conn.fetchrow(
+                                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+                                tenant_id
+                            )
+                            if gcal_row and gcal_row["credential_data"]:
+                                g_data = gcal_row["credential_data"]
+                                if isinstance(g_data, str):
+                                    try: g_data = json.loads(g_data)
+                                    except: g_data = {}
+                                if g_data.get("refresh_token") and g_data.get("client_id"):
+                                    from google.oauth2.credentials import Credentials
+                                    g_creds = Credentials(
+                                        token=g_data.get("access_token"),
+                                        refresh_token=g_data.get("refresh_token"),
+                                        token_uri="https://oauth2.googleapis.com/token",
+                                        client_id=g_data.get("client_id"),
+                                        client_secret=g_data.get("client_secret"),
+                                    )
+                                    review_email_html = build_review_customer_email_html(
+                                        service_name=service_name,
+                                        formatted_date=date_str or "Today",
+                                        formatted_time=clock_str or "Scheduled Time",
+                                        name=patient_name,
+                                        full_location=""
+                                    )
+                                    review_subject = f"Thank You: Your {service_name} Appointment with {tenant_name}"
+                                    await send_gmail_direct_notification(g_creds, c_email, review_subject, review_email_html)
+                                    logger.info("crm_review_email_sent_to_customer", to=c_email)
+                    except Exception as re_err:
+                        logger.warning("crm_review_email_dispatch_failed", error=str(re_err))
 
 
         elif payload.status in ["no_show", "no-show"]:
@@ -3771,12 +4020,15 @@ async def update_booking_status(
 @app.delete("/api/v1/crm/bookings/{booking_id}")
 async def delete_booking(
     booking_id: str,
-    tenant_id: str = Depends(get_tenant_id)
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
 ):
     """
     Permanently delete a booking.
     Strict rule: Only cancelled bookings can be deleted.
     """
+    if caller.get("role") not in ("admin", "owner", "super_admin"):
+        raise HTTPException(status_code=403, detail="Admin privileges required to delete a booking.")
     async with db_pool.acquire() as conn:
         booking = await conn.fetchrow(
             "SELECT id, status FROM bookings WHERE id = $1::uuid AND tenant_id = $2::uuid",
@@ -3816,7 +4068,19 @@ async def list_conversations(
             SELECT c.id, c.status, c.last_message_at, c.unread_count, c.assigned_to,
                    ct.name, ct.phone,
                    u.display_name as assigned_staff_name, u.email as assigned_staff_email,
-                   (SELECT m.body FROM messages m WHERE m.conversation_id = c.id AND m.tenant_id = c.tenant_id ORDER BY m.created_at DESC LIMIT 1) as last_message,
+                   (SELECT COALESCE(
+                       NULLIF(TRIM(m.body), ''),
+                       CASE 
+                           WHEN m.content_type = 'image' THEN '📷 [Photo]'
+                           WHEN m.content_type = 'video' THEN '🎥 [Video]'
+                           WHEN m.content_type = 'document' THEN '📄 [Document]'
+                           WHEN m.content_type = 'audio' THEN '🎵 [Audio]'
+                           WHEN m.content_type = 'sticker' THEN '🏷️ [Sticker]'
+                           WHEN m.content_type = 'location' THEN '📍 [Location]'
+                           WHEN m.template_name IS NOT NULL AND m.template_name != '' THEN '📋 [Template]'
+                           ELSE '[Message]'
+                       END
+                   ) FROM messages m WHERE m.conversation_id = c.id AND m.tenant_id = c.tenant_id ORDER BY m.created_at DESC LIMIT 1) as last_message,
                    (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND m.tenant_id = c.tenant_id AND m.direction = 'inbound') as last_inbound_at,
                    (SELECT COUNT(*) FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS completed_bookings_count,
                    (SELECT MAX(b.start_time) FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS last_visit_date,
@@ -3832,17 +4096,28 @@ async def list_conversations(
         args = [tenant_id]
         next_idx = 2
 
-        # Health concern isolation: non-admin staff only see conversations for their assigned concerns
+        # Health concern isolation: non-admin staff only see conversations for their assigned concerns or directly assigned to them
         caller_concerns = caller.get("assigned_health_concerns", [])
+        caller_user_id = caller.get("user_id")
         if caller_concerns and caller.get("role") not in ("admin", "super_admin", "owner"):
-            query += f""" AND EXISTS (
-                SELECT 1 FROM customers cu
-                WHERE cu.tenant_id = c.tenant_id
-                  AND (cu.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cu.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10))
-                  AND cu.health_concern = ANY(${next_idx}::text[])
-            )"""
-            args.append(caller_concerns)
-            next_idx += 1
+            if caller_user_id:
+                query += f""" AND (EXISTS (
+                    SELECT 1 FROM customers cu
+                    WHERE cu.tenant_id = c.tenant_id
+                      AND (cu.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cu.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10))
+                      AND cu.health_concern = ANY(${next_idx}::text[])
+                ) OR c.assigned_to = ${next_idx + 1}::uuid)"""
+                args.extend([caller_concerns, caller_user_id])
+                next_idx += 2
+            else:
+                query += f""" AND EXISTS (
+                    SELECT 1 FROM customers cu
+                    WHERE cu.tenant_id = c.tenant_id
+                      AND (cu.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cu.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10))
+                      AND cu.health_concern = ANY(${next_idx}::text[])
+                )"""
+                args.append(caller_concerns)
+                next_idx += 1
 
         if status:
             query += f" AND c.status = ${next_idx}"
@@ -3870,7 +4145,7 @@ async def list_conversations(
             "contact_name": r["name"] or "",
             "contact_phone": r["phone"] or "",
             "assigned_to": str(r["assigned_to"]) if r["assigned_to"] else None,
-            "assigned_staff_name": r["assigned_staff_name"] or None,
+            "assigned_staff_name": r["assigned_staff_name"] or r["assigned_staff_email"] or None,
             "assigned_staff_email": r["assigned_staff_email"] or None,
             "completed_bookings_count": completed_cnt,
             "client_type": c_type,
@@ -3953,13 +4228,31 @@ async def get_messages(
                             )
 
         rows = await conn.fetch(
-            """SELECT id, direction, body, status, created_at
+            """SELECT id, direction, content_type, body, media_url, template_name, status, created_at
                FROM messages
                WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid
                ORDER BY created_at DESC LIMIT $3 OFFSET $4""",
             conv_id, tenant_id, limit, offset
         )
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["id"] = str(d["id"])
+        if d.get("created_at") and hasattr(d["created_at"], "isoformat"):
+            d["created_at"] = d["created_at"].isoformat()
+        b = d.get("body")
+        if not b or not str(b).strip():
+            ct = d.get("content_type")
+            if ct == "image": d["body"] = "📷 [Photo]"
+            elif ct == "video": d["body"] = "🎥 [Video]"
+            elif ct == "document": d["body"] = "📄 [Document]"
+            elif ct == "audio": d["body"] = "🎵 [Audio]"
+            elif ct == "sticker": d["body"] = "🏷️ [Sticker]"
+            elif ct == "location": d["body"] = "📍 [Location]"
+            elif d.get("template_name"): d["body"] = f"📋 [Template: {d['template_name']}]"
+            else: d["body"] = "[Message]"
+        out.append(d)
+    return out
 
 
 class MessageCreate(BaseModel):
@@ -4014,6 +4307,7 @@ async def send_manual_message(
         msg_id = str(uuid.uuid4())
         wa_id = None
         status = "sent"
+        send_error_detail = None
 
         # Attempt to send via Meta WhatsApp API if credentials present
         if creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
@@ -4052,6 +4346,10 @@ async def send_manual_message(
                         if resp.status_code in (200, 201):
                             data = resp.json()
                             wa_id = data.get("messages", [{}])[0].get("id")
+                        else:
+                            status = "failed"
+                            send_error_detail = resp.text
+                            logger.error("manual_send_template_failed", status=resp.status_code, body=resp.text)
                 else:
                     # 2. Standard text message with 24h automatic fallback to follow-up template
                     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -4099,9 +4397,18 @@ async def send_manual_message(
                                 data = resp_f.json()
                                 wa_id = data.get("messages", [{}])[0].get("id")
                                 logger.info("sent_followup_template_due_to_24h_window", conv_id=conv_id, template=f_tpl)
+                            else:
+                                status = "failed"
+                                send_error_detail = resp_f.text
+                                logger.error("manual_send_followup_failed", status=resp_f.status_code, body=resp_f.text)
+                        else:
+                            status = "failed"
+                            send_error_detail = resp.text
+                            logger.error("manual_send_text_failed", status=resp.status_code, body=resp.text)
             except Exception as e:
                 logger.error("manual_send_error", error=str(e))
                 status = "failed"
+                send_error_detail = str(e)
 
         # Insert message row
         body_to_save = payload.body.strip() if has_body else f"[Template: {payload.template_name}]"
@@ -4117,6 +4424,17 @@ async def send_manual_message(
 
         # Update conversation last_message_at
         await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+
+    if status == "failed":
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "status": "failed",
+                "message": "Failed to dispatch WhatsApp message via Meta API",
+                "id": str(inserted["id"]),
+                "error": send_error_detail or "Meta API rejected message dispatch"
+            }
+        )
 
     return {
         "id": str(inserted["id"]),
@@ -4172,27 +4490,31 @@ async def assign_conversation(
 async def delete_conversation(
     conv_id: str,
     delete_type: str = Query("for_everyone", pattern="^(for_me|for_everyone)$"),
-    tenant_id: str = Depends(get_tenant_id)
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
 ):
     """Delete a conversation and its messages. Unlinks any linked appointments."""
+    if caller.get("role") not in ("admin", "owner", "super_admin"):
+        raise HTTPException(status_code=403, detail="Admin privileges required to delete a conversation.")
     async with db_pool.acquire() as conn:
-        # Unlink any linked bookings
-        await conn.execute(
-            "UPDATE bookings SET conversation_id = NULL WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid",
-            conv_id, tenant_id
-        )
-        # Delete messages
-        await conn.execute(
-            "DELETE FROM messages WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid",
-            conv_id, tenant_id
-        )
-        # Delete conversation
-        res = await conn.execute(
-            "DELETE FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid",
-            conv_id, tenant_id
-        )
-        if res == "DELETE 0":
-            raise HTTPException(404, "Conversation not found")
+        async with conn.transaction():
+            # Unlink any linked bookings
+            await conn.execute(
+                "UPDATE bookings SET conversation_id = NULL WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid",
+                conv_id, tenant_id
+            )
+            # Delete messages
+            await conn.execute(
+                "DELETE FROM messages WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid",
+                conv_id, tenant_id
+            )
+            # Delete conversation
+            res = await conn.execute(
+                "DELETE FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                conv_id, tenant_id
+            )
+            if res == "DELETE 0":
+                raise HTTPException(404, "Conversation not found")
     return {"status": "deleted", "id": conv_id, "delete_type": delete_type}
 
 
@@ -4200,12 +4522,15 @@ async def delete_conversation(
 async def delete_message(
     msg_id: str,
     delete_type: str = Query("for_everyone", pattern="^(for_me|for_everyone)$"),
-    tenant_id: str = Depends(get_tenant_id)
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
 ):
     """Delete an individual message.
     'for_everyone': replaces body with '🚫 This message was deleted' like official WhatsApp.
     'for_me': permanently wipes message from CRM database.
     """
+    if caller.get("role") not in ("admin", "owner", "super_admin"):
+        raise HTTPException(status_code=403, detail="Admin privileges required to delete a message.")
     async with db_pool.acquire() as conn:
         msg_row = await conn.fetchrow(
             "SELECT id, conversation_id, direction, wa_message_id FROM messages WHERE id = $1::uuid AND tenant_id = $2::uuid",
@@ -4249,6 +4574,52 @@ async def update_conversation_status(
         if result == "UPDATE 0":
             raise HTTPException(404, "Conversation not found")
     return {"status": "updated", "conv_status": new_status, "ai_enabled": new_status == "bot"}
+
+
+class AssignConversationRequest(BaseModel):
+    assigned_to: Optional[str] = None
+
+
+@app.patch("/conversations/{conv_id}/assign")
+@app.patch("/api/v1/crm/conversations/{conv_id}/assign")
+async def assign_conversation(
+    conv_id: str,
+    payload: AssignConversationRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Assign or unassign a conversation to a staff member in this organization."""
+    async with db_pool.acquire() as conn:
+        assigned_to_uuid = None
+        assigned_staff_name = None
+        if payload.assigned_to and payload.assigned_to.strip():
+            try:
+                user_uuid = uuid.UUID(payload.assigned_to.strip())
+            except (ValueError, AttributeError):
+                raise HTTPException(400, "Invalid staff user ID")
+            staff_row = await conn.fetchrow(
+                "SELECT id, display_name, email FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                user_uuid, tenant_id
+            )
+            if not staff_row:
+                raise HTTPException(404, "Staff member not found in this organization")
+            assigned_to_uuid = str(user_uuid)
+            assigned_staff_name = staff_row["display_name"] or staff_row["email"]
+
+        res = await conn.execute(
+            """UPDATE conversations
+               SET assigned_to = $1::uuid, updated_at = now()
+               WHERE id = $2::uuid AND tenant_id = $3::uuid""",
+            assigned_to_uuid, conv_id, tenant_id
+        )
+        if res == "UPDATE 0":
+            raise HTTPException(404, "Conversation not found")
+
+        return {
+            "status": "updated",
+            "conversation_id": conv_id,
+            "assigned_to": assigned_to_uuid,
+            "assigned_staff_name": assigned_staff_name,
+        }
 
 
 class ToggleAllPayload(BaseModel):
@@ -4338,6 +4709,7 @@ class TenantSettingsUpdate(BaseModel):
     template_admin_daily_digest: Optional[str] = None
     template_client_followup: Optional[str] = None
     google_review_link: Optional[str] = None
+    enable_auto_review: Optional[bool] = None
     allow_text_fallback: Optional[bool] = False
     disable_template_text_fallback: Optional[bool] = True
     
@@ -4354,7 +4726,10 @@ class TenantSettingsUpdate(BaseModel):
 
 
 @app.get("/settings")
-async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
+async def get_tenant_settings(
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
     """Retrieve full settings for the currently logged-in tenant / client."""
     async with db_pool.acquire() as conn:
         tenant = await conn.fetchrow("SELECT id, name, slug, plan, is_active, settings FROM tenants WHERE id = $1::uuid", tenant_id)
@@ -4437,6 +4812,27 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
             tenant_id
         )
 
+    def mask_secret(val: Optional[str]) -> str:
+        if not val:
+            return ""
+        s = str(val).strip()
+        if not s:
+            return ""
+        if len(s) <= 4:
+            return "••••"
+        return "••••••••" + s[-4:]
+
+    caller_role = caller.get("role") if isinstance(caller, dict) else "admin"
+    is_privileged = caller_role in ("admin", "owner", "super_admin")
+
+    res_meta_access_token = wa_data.get("access_token", "") if is_privileged else mask_secret(wa_data.get("access_token", ""))
+    res_meta_app_secret = wa_data.get("app_secret", "") if is_privileged else mask_secret(wa_data.get("app_secret", ""))
+    res_gemini_key = gem_key if is_privileged else mask_secret(gem_key)
+    res_groq_key = groq_key if is_privileged else mask_secret(groq_key)
+    res_opencode_key = opencode_key if is_privileged else mask_secret(opencode_key)
+    res_google_client_secret = gcal_data.get("client_secret", "") if is_privileged else mask_secret(gcal_data.get("client_secret", ""))
+    res_google_refresh_token = gcal_data.get("refresh_token", "") if is_privileged else mask_secret(gcal_data.get("refresh_token", ""))
+
     return {
         "tenant_id": str(tenant["id"]),
         "name": tenant["name"],
@@ -4447,18 +4843,18 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         # Meta WhatsApp
         "meta_phone_id": wa_data.get("phone_number_id", ""),
         "meta_waba_id": wa_data.get("waba_id", ""),
-        "meta_access_token": wa_data.get("access_token", ""),
-        "meta_app_secret": wa_data.get("app_secret", ""),
-        "verify_token": wa_data.get("verify_token", ""),
+        "meta_access_token": res_meta_access_token,
+        "meta_app_secret": res_meta_app_secret,
+        "verify_token": wa_data.get("verify_token", "") if is_privileged else mask_secret(wa_data.get("verify_token", "")),
         "has_access_token": bool(wa_data.get("access_token")),
         "has_app_secret": bool(wa_data.get("app_secret")),
         
         # AI Config & BYOK
         "primary_model_provider": wa_data.get("primary_model_provider", "groq" if groq_key else "gemini"),
         "ai_model": ai_cfg.get("model", "gemini-3.1-flash-lite"),
-        "gemini_api_key": gem_key,
-        "groq_api_key": groq_key,
-        "opencode_api_key": opencode_key,
+        "gemini_api_key": res_gemini_key,
+        "groq_api_key": res_groq_key,
+        "opencode_api_key": res_opencode_key,
         "opencode_base_url": opencode_base,
         "has_gemini_key": bool(gem_key),
         "has_groq_key": bool(groq_key),
@@ -4495,13 +4891,14 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
         "template_admin_daily_digest": wa_data.get("template_admin_daily_digest") or tenant_settings.get("template_admin_daily_digest", "admin_daily_digest"),
         "template_client_followup": wa_data.get("template_client_followup") or tenant_settings.get("template_client_followup", "client_followup_checkin"),
         "google_review_link": tenant_settings.get("google_review_link", wa_data.get("google_review_link", "")),
+        "enable_auto_review": tenant_settings.get("enable_auto_review", True) if tenant_settings.get("enable_auto_review") is not None else True,
         "allow_text_fallback": tenant_settings.get("allow_text_fallback", False) if tenant_settings.get("allow_text_fallback") is not None else False,
         "disable_template_text_fallback": tenant_settings.get("disable_template_text_fallback", True) if tenant_settings.get("disable_template_text_fallback") is not None else True,
         
         # Google Calendar
         "google_client_id": gcal_data.get("client_id", ""),
-        "google_client_secret": gcal_data.get("client_secret", ""),
-        "google_refresh_token": gcal_data.get("refresh_token", ""),
+        "google_client_secret": res_google_client_secret,
+        "google_refresh_token": res_google_refresh_token,
         "google_calendar_id": gcal_data.get("calendar_id", "primary"),
         "notification_email": gcal_data.get("notification_email") or tenant_settings.get("notification_email", ""),
         "google_calendar_configured": bool(gcal_data.get("client_id") and gcal_data.get("refresh_token")),
@@ -4531,11 +4928,16 @@ async def get_tenant_settings(tenant_id: str = Depends(get_tenant_id)):
 
 
 @app.put("/settings")
+@app.patch("/settings")
 async def update_tenant_settings(
     payload: TenantSettingsUpdate,
-    tenant_id: str = Depends(get_tenant_id)
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
 ):
     """Update settings & credentials for the currently logged-in tenant."""
+    caller_role = caller.get("role") if isinstance(caller, dict) else "admin"
+    if caller_role not in ("admin", "owner", "super_admin"):
+        raise HTTPException(status_code=403, detail="Admin privileges required to update settings.")
     async with db_pool.acquire() as conn:
         # 1. Update tenant table settings & branding
         if payload.name:
@@ -4563,6 +4965,7 @@ async def update_tenant_settings(
         if payload.notification_email is not None: cur_settings["notification_email"] = payload.notification_email.strip()
         if payload.admin_whatsapp_number is not None: cur_settings["admin_whatsapp_number"] = payload.admin_whatsapp_number.strip()
         if payload.google_review_link is not None: cur_settings["google_review_link"] = payload.google_review_link.strip()
+        if payload.enable_auto_review is not None: cur_settings["enable_auto_review"] = payload.enable_auto_review
         if payload.full_location_text is not None: cur_settings["full_location_text"] = payload.full_location_text.strip()
         if payload.industry is not None: cur_settings["industry"] = payload.industry.strip()
         if payload.taxonomy is not None: cur_settings["taxonomy"] = payload.taxonomy
@@ -4728,7 +5131,7 @@ async def update_tenant_settings(
                 response_style, methodology, strict_rules, objection_handling
             )
 
-    return await get_tenant_settings(tenant_id)
+    return await get_tenant_settings(tenant_id, caller=caller if isinstance(caller, dict) else {"role": "admin"})
 
 
 # ── Google OAuth 2.0 1-Click Calendar Sync ────────────────────────────────────
@@ -4784,7 +5187,21 @@ async def init_google_oauth(
 
     scopes = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile openid"
     src = (payload.source or "dashboard").strip()
-    state_payload = f"{effective_tenant_id}:{src}"
+
+    # Sign state parameter with HMAC-SHA256 containing tenant_id, a random nonce, and an expiry timestamp
+    state_nonce = os.urandom(16).hex()
+    state_exp = int(datetime.now(timezone.utc).timestamp()) + 600  # 10 minutes expiry
+    state_payload_dict = {
+        "tenant_id": effective_tenant_id,
+        "source": src,
+        "nonce": state_nonce,
+        "exp": state_exp
+    }
+    state_raw_json = json.dumps(state_payload_dict, separators=(',', ':'))
+    state_b64 = base64.urlsafe_b64encode(state_raw_json.encode("utf-8")).decode("utf-8").rstrip("=")
+    state_sig = hmac.new(JWT_SECRET.encode("utf-8"), state_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+    state_payload = f"{state_b64}.{state_sig}"
+
     auth_url = (
         f"https://accounts.google.com/o/oauth2/v2/auth?"
         f"client_id={c_id}&"
@@ -4805,19 +5222,44 @@ async def google_oauth_callback(
     error: Optional[str] = None
 ):
     """Exchange authorization code for refresh token and save to tenant credentials."""
-    state_str = state or ""
-    is_admin = False
-    tenant_id = state_str
-    if ":" in state_str:
-        parts = state_str.split(":", 1)
-        tenant_id = parts[0]
-        if parts[1] == "admin":
-            is_admin = True
+    # Strict verification of cryptographic state signature, nonce, and expiry
+    if not state or "." not in state:
+        logger.error("google_oauth_callback_missing_or_malformed_state", state=state)
+        raise HTTPException(status_code=400, detail="Invalid or missing OAuth state parameter.")
 
+    try:
+        parts = state.split(".", 1)
+        state_b64, state_sig = parts[0], parts[1]
+        expected_sig = hmac.new(JWT_SECRET.encode("utf-8"), state_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected_sig, state_sig):
+            logger.error("google_oauth_callback_state_signature_mismatch", state=state)
+            raise HTTPException(status_code=400, detail="OAuth state signature verification failed.")
+
+        padded_b64 = state_b64 + "=" * ((4 - len(state_b64) % 4) % 4)
+        raw_json = base64.urlsafe_b64decode(padded_b64.encode("utf-8")).decode("utf-8")
+        state_data = json.loads(raw_json)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("google_oauth_callback_state_decode_error", error=str(e), state=state)
+        raise HTTPException(status_code=400, detail=f"Corrupt or invalid OAuth state parameter: {str(e)}")
+
+    if not state_data.get("nonce"):
+        raise HTTPException(status_code=400, detail="OAuth state missing nonce.")
+
+    exp_ts = state_data.get("exp")
+    if not exp_ts or int(datetime.now(timezone.utc).timestamp()) > int(exp_ts):
+        raise HTTPException(status_code=400, detail="OAuth state has expired. Please initiate connection again.")
+
+    tenant_id = state_data.get("tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="OAuth state missing tenant context.")
+
+    is_admin = (state_data.get("source") == "admin")
     base_redir = f"{APP_BASE_URL}/admin/clients" if is_admin else f"{APP_BASE_URL}/dashboard"
     t_param = f"&tenant_id={tenant_id}" if is_admin else ""
 
-    if error or not code or not tenant_id:
+    if error or not code:
         logger.error("google_oauth_callback_error", error=error, state=state)
         return RedirectResponse(f"{base_redir}?gcal_error={error or 'missing_code'}{t_param}")
 
@@ -4896,8 +5338,13 @@ async def google_oauth_callback(
 
 
 @app.post("/oauth/google/disconnect")
-async def disconnect_google_calendar(tenant_id: str = Depends(get_tenant_id)):
+async def disconnect_google_calendar(
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
     """Disconnect Google Calendar sync for this tenant."""
+    if caller.get("role") not in ("admin", "owner", "super_admin"):
+        raise HTTPException(status_code=403, detail="Admin privileges required to disconnect Google Calendar.")
     async with db_pool.acquire() as conn:
         g_row = await conn.fetchrow(
             "SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar'",
@@ -5051,6 +5498,8 @@ async def get_live_calendar_availability(
         # Format operating hours
         ot_raw = tenant_st.get("opening_time", "09:00")
         ct_raw = tenant_st.get("closing_time", "20:00")
+        ot_parts = ["09", "00"]
+        ct_parts = ["20", "00"]
         try:
             ot_parts = str(ot_raw).split(":")
             ct_parts = str(ct_raw).split(":")
@@ -5058,6 +5507,8 @@ async def get_live_calendar_availability(
             ct_fmt = datetime(2000, 1, 1, int(ct_parts[0]), int(ct_parts[1]) if len(ct_parts) > 1 else 0).strftime("%I:%M %p")
             op_hours_str = f"{ot_fmt} – {ct_fmt}"
         except Exception:
+            ot_parts = ["09", "00"]
+            ct_parts = ["20", "00"]
             op_hours_str = "09:00 AM – 08:00 PM"
 
         # Compute exact verified live empty slots for next 7 days from Google Calendar and CRM
@@ -5261,42 +5712,12 @@ async def sync_admin_global_rules(
     payload: Optional[SyncGlobalRulesPayload] = None,
     admin_user: dict = Depends(verify_super_admin)
 ):
-    """Syncs master global strict rules and operating hours to all tenant organizations in PostgreSQL."""
-    rules_to_apply = (payload.strict_rules.strip() if payload and payload.strict_rules else None) or GLOBAL_DEFAULT_STRICT_RULES
-    async with db_pool.acquire() as conn:
-        tenant_ids = [r['id'] for r in await conn.fetch("SELECT id FROM tenants")]
-        updated_count = 0
-        for tid in tenant_ids:
-            existing = await conn.fetchval("SELECT 1 FROM ai_config WHERE tenant_id = $1::uuid", tid)
-            if existing:
-                await conn.execute(
-                    "UPDATE ai_config SET strict_rules = $1, updated_at = now() WHERE tenant_id = $2::uuid",
-                    rules_to_apply, tid
-                )
-            else:
-                await conn.execute(
-                    """INSERT INTO ai_config (tenant_id, model, system_prompt, assistant_name, bot_goal, services_text, strict_rules, response_style, methodology, temperature, max_tokens)
-                       VALUES ($1::uuid, 'gemini-1.5-flash', 'You are the official assistant.', 'Assistant', 'Assist customers', '', $2, 'short', 'dogfooding', 0.3, 500)""",
-                    tid, rules_to_apply
-                )
-            
-            # If global opening/closing time is provided, update tenant settings
-            if payload and (payload.opening_time is not None or payload.closing_time is not None):
-                t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tid)
-                t_st = safe_json_loads(t_row["settings"]) if t_row and t_row["settings"] else {}
-                if payload.opening_time is not None:
-                    t_st["opening_time"] = payload.opening_time.strip()
-                if payload.closing_time is not None:
-                    t_st["closing_time"] = payload.closing_time.strip()
-                await conn.execute("UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid", json.dumps(t_st), tid)
-
-            updated_count += 1
-            
-        return {
-            "status": "success",
-            "message": f"Successfully synced global strict rules & operating hours to {updated_count} organization(s).",
-            "updated_count": updated_count
-        }
+    """Each client organization independently and autonomously manages its own AI instructions, prompt, and strict rules."""
+    return {
+        "status": "success",
+        "message": "Global AI rule override is disabled. Each tenant organization autonomously follows its own AI instructions.",
+        "updated_count": 0
+    }
 
 
 @app.get("/admin/tenants")
@@ -5738,13 +6159,14 @@ async def reset_admin_tenant_password(tenant_id: str, payload: PasswordReset, ad
 @app.get("/admin/tenants/{tenant_id}/settings")
 async def get_admin_tenant_settings(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
     """Retrieve full settings for a specific client organization as Super Admin."""
-    return await get_tenant_settings(tenant_id)
+    return await get_tenant_settings(tenant_id, caller={"role": "super_admin"})
 
 
 @app.put("/admin/tenants/{tenant_id}/settings")
+@app.patch("/admin/tenants/{tenant_id}/settings")
 async def update_admin_tenant_settings(tenant_id: str, payload: TenantSettingsUpdate, admin_user: dict = Depends(verify_super_admin)):
     """Update all settings & credentials for a specific client organization directly from Super Admin."""
-    return await update_tenant_settings(payload, tenant_id)
+    return await update_tenant_settings(payload, tenant_id, caller={"role": "super_admin"})
 
 
 
@@ -6557,7 +6979,7 @@ async def handle_razorpay_webhook(
                       </p>
                     </div>
                     """
-                    send_gmail_direct_notification(
+                    await send_gmail_direct_notification(
                         g_creds, target_email,
                         f"Payment Confirmed: Your WhatsApp Automation Workspace is Active ({t_name})",
                         email_html
@@ -6906,53 +7328,48 @@ async def _dispatch_single_marketing_wa(
         msg_body_recorded = text or "Marketing announcement"
         sent_ok = False
 
-        if template_name and template_name.strip():
-            tpl = template_name.strip()
-            params = template_params or []
-            tpl_payload = {
-                "messaging_product": "whatsapp",
-                "to": clean_p,
-                "type": "template",
-                "template": {
-                    "name": tpl,
-                    "language": {"code": "en"},
-                    "components": [
-                        {
-                            "type": "body",
-                            "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in params]
-                        }
-                    ] if params else []
-                }
+        if not template_name or not template_name.strip():
+            logger.error(
+                "marketing_dispatch_failed_no_template",
+                tenant_id=tenant_id,
+                phone=clean_p,
+                error="Meta 24-hour messaging policy prohibits freeform text for marketing dispatches; approved template is required."
+            )
+            return False
+
+        tpl = template_name.strip()
+        params = template_params or []
+        tpl_payload = {
+            "messaging_product": "whatsapp",
+            "to": clean_p,
+            "type": "template",
+            "template": {
+                "name": tpl,
+                "language": {"code": "en"},
+                "components": [
+                    {
+                        "type": "body",
+                        "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in params]
+                    }
+                ] if params else []
             }
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    r = await client.post(url, headers=headers, json=tpl_payload)
-                    if r.status_code in (200, 201):
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.post(url, headers=headers, json=tpl_payload)
+                if r.status_code in (200, 201):
+                    sent_ok = True
+                    msg_body_recorded = f"[Template: {tpl}]"
+                elif "132000" in r.text or "132001" in r.text or "does not exist in" in r.text:
+                    tpl_payload["template"]["language"] = {"code": "en_US"}
+                    r2 = await client.post(url, headers=headers, json=tpl_payload)
+                    if r2.status_code in (200, 201):
                         sent_ok = True
                         msg_body_recorded = f"[Template: {tpl}]"
-                    elif "132000" in r.text or "132001" in r.text or "does not exist in" in r.text:
-                        tpl_payload["template"]["language"] = {"code": "en_US"}
-                        r2 = await client.post(url, headers=headers, json=tpl_payload)
-                        if r2.status_code in (200, 201):
-                            sent_ok = True
-                            msg_body_recorded = f"[Template: {tpl}]"
-            except Exception as e:
-                logger.error("marketing_template_error", phone=clean_p, error=str(e))
-        else:
-            txt_payload = {
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": clean_p,
-                "type": "text",
-                "text": {"body": text or "Hello! Here is an update from our team."}
-            }
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    r = await client.post(url, headers=headers, json=txt_payload)
-                    if r.status_code in (200, 201):
-                        sent_ok = True
-            except Exception as e:
-                logger.error("marketing_text_error", phone=clean_p, error=str(e))
+                else:
+                    logger.error("marketing_template_dispatch_rejected", phone=clean_p, status=r.status_code, body=r.text)
+        except Exception as e:
+            logger.error("marketing_template_error", phone=clean_p, error=str(e))
 
         # Record in conversation & messages
         try:
@@ -7048,8 +7465,13 @@ async def execute_marketing_broadcast(
     data: MarketingBroadcastPayload,
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context),
 ):
     """Dispatch or schedule a bulk marketing campaign to targeted customer phone numbers."""
+    perms = caller.get("permissions", {})
+    can_mkt = bool(perms.get("can_manage_marketing")) if isinstance(perms, dict) else False
+    if caller.get("role") not in ("admin", "owner", "super_admin", "marketing") and not can_mkt:
+        raise HTTPException(status_code=403, detail="Marketing or admin privileges required to dispatch broadcast campaigns.")
     if not data.recipient_phones:
         raise HTTPException(status_code=400, detail="At least one recipient phone number is required.")
     
@@ -7147,8 +7569,16 @@ async def execute_marketing_broadcast(
 @app.delete("/campaigns/{campaign_id}")
 @app.delete("/marketing/campaigns/{campaign_id}")
 @app.delete("/api/v1/marketing/campaigns/{campaign_id}")
-async def delete_marketing_campaign(campaign_id: str, tenant_id: str = Depends(get_tenant_id)):
+async def delete_marketing_campaign(
+    campaign_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
     """Delete or cancel a marketing campaign."""
+    perms = caller.get("permissions", {})
+    can_mkt = bool(perms.get("can_manage_marketing")) if isinstance(perms, dict) else False
+    if caller.get("role") not in ("admin", "owner", "super_admin", "marketing") and not can_mkt:
+        raise HTTPException(status_code=403, detail="Marketing or admin privileges required to delete a marketing campaign.")
     async with db_pool.acquire() as conn:
         await conn.execute(
             "DELETE FROM marketing_campaigns WHERE id = $1::uuid AND tenant_id = $2::uuid",
@@ -7358,9 +7788,14 @@ async def get_dashboard_analytics(
         human_msgs = msg_counts["human_messages"] or 0
         ai_autonomous_rate = round((ai_msgs / outbound_msgs * 100), 1) if outbound_msgs > 0 else 0.0
 
-        # 2. Daily Message Traffic Time Series
+        # 2. Daily Message Traffic Time Series (grouped by tenant's configured timezone)
+        tenant_tz_str = "Asia/Kolkata"
+        tz_setting = await conn.fetchval("SELECT settings->>'timezone' FROM tenants WHERE id = $1::uuid", tenant_id)
+        if tz_setting and tz_setting.strip():
+            tenant_tz_str = tz_setting.strip()
+
         daily_rows = await conn.fetch(
-            """SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') as day,
+            """SELECT to_char(created_at AT TIME ZONE $3, 'YYYY-MM-DD') as day,
                       COUNT(*) FILTER (WHERE direction = 'inbound') as inbound,
                       COUNT(*) FILTER (WHERE direction = 'outbound') as outbound,
                       COUNT(*) as total
@@ -7369,7 +7804,7 @@ async def get_dashboard_analytics(
                  AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
                GROUP BY day
                ORDER BY day ASC""",
-            tenant_id, since
+            tenant_id, since, tenant_tz_str
         )
         time_series = [
             {
@@ -8330,8 +8765,16 @@ async def sync_meta_templates(tenant_id: str = Depends(get_tenant_id)):
 @app.post("/templates")
 @app.post("/marketing/templates")
 @app.post("/api/v1/marketing/templates")
-async def create_marketing_template(payload: CreateTemplatePayload, tenant_id: str = Depends(get_tenant_id)):
+async def create_marketing_template(
+    payload: CreateTemplatePayload,
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
     """Create a new message template (UTILITY or MARKETING) directly from CRM, submitting to Meta if configured."""
+    perms = caller.get("permissions", {})
+    can_mkt = bool(perms.get("can_manage_marketing")) if isinstance(perms, dict) else False
+    if caller.get("role") not in ("admin", "owner", "super_admin", "marketing") and not can_mkt:
+        raise HTTPException(status_code=403, detail="Marketing or admin privileges required to create marketing templates.")
     clean_name = re.sub(r'[^a-z0-9_]', '_', payload.name.lower().strip()).strip('_')
     if not clean_name:
         raise HTTPException(400, "Template name must be alphanumeric lowercase with underscores.")
@@ -8418,11 +8861,20 @@ async def create_marketing_template(payload: CreateTemplatePayload, tenant_id: s
 
     return new_entry
 
+
 @app.delete("/templates/{template_name}")
 @app.delete("/marketing/templates/{template_name}")
 @app.delete("/api/v1/marketing/templates/{template_name}")
-async def delete_marketing_template(template_name: str, tenant_id: str = Depends(get_tenant_id)):
+async def delete_marketing_template(
+    template_name: str,
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
     """Delete a custom marketing template from tenant settings and Meta Graph API if active."""
+    perms = caller.get("permissions", {})
+    can_mkt = bool(perms.get("can_manage_marketing")) if isinstance(perms, dict) else False
+    if caller.get("role") not in ("admin", "owner", "super_admin", "marketing") and not can_mkt:
+        raise HTTPException(status_code=403, detail="Marketing or admin privileges required to delete marketing templates.")
     clean_name = template_name.strip()
     if clean_name.lower() in TRANSACTIONAL_TEMPLATES:
         raise HTTPException(400, "Cannot delete transactional system templates.")
@@ -8480,7 +8932,7 @@ async def delete_marketing_template(template_name: str, tenant_id: str = Depends
 # ── Web Push Notifications & Notification Center ───────────────────────────────
 
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "BMpihU9a8uXtZIkGtKTSKVJTLzTHzQf8Vz_WolZCxkgTb39GJ_0RajTa6-nI6gCBS7_p7Qk7bPHOKSi-6BwpoZU")
-VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "7VmcO0Iktk1j2BIrJrzH4lsCg-n3h0AX-P3WwYqHV_0")
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
 VAPID_CLAIM_EMAIL = os.getenv("VAPID_CLAIM_EMAIL", "mailto:admin@goboldlabs.com")
 
 
@@ -8562,7 +9014,8 @@ async def dispatch_push_notification(
                 }
             }
             try:
-                webpush(
+                await asyncio.to_thread(
+                    webpush,
                     subscription_info=sub_info,
                     data=payload_json,
                     vapid_private_key=VAPID_PRIVATE_KEY,
@@ -8893,7 +9346,8 @@ class PublicBookingRequest(BaseModel):
     patient_name: str
     patient_phone: str
     patient_email: Optional[str] = None
-    doctor_name: str
+    doctor_name: Optional[str] = None
+    staff_member: Optional[str] = None
     health_concern: str
     booking_date: str  # YYYY-MM-DD
     booking_time: str  # HH:MM or 10:00 AM
@@ -8920,25 +9374,40 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
 
     service_name = f"{payload.health_concern.strip()} ({payload.doctor_name.strip()})" if payload.doctor_name else payload.health_concern.strip()
 
-    # Parse datetime
-    dt_str = f"{payload.booking_date} {payload.booking_time}"
-    st_dt = None
-    for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d %I:%M %p", "%Y-%m-%d %I:%M%p"]:
-        try:
-            st_dt = datetime.strptime(dt_str.strip(), fmt)
-            break
-        except:
-            pass
-    if not st_dt:
-        st_dt = datetime.now() + timedelta(days=1)
-        st_dt = st_dt.replace(hour=10, minute=0, second=0, microsecond=0)
-    et_dt = st_dt + timedelta(minutes=30)
-
     async with db_pool.acquire() as conn:
         tenant = await conn.fetchrow("SELECT id, name, slug, settings FROM tenants WHERE slug = $1", slug.strip().lower())
         if not tenant:
             raise HTTPException(404, "Organization not found")
         tenant_id = str(tenant["id"])
+
+        # Fetch tenant configured timezone from tenants.settings
+        tenant_settings = {}
+        if tenant.get("settings"):
+            try:
+                tenant_settings = json.loads(tenant["settings"]) if isinstance(tenant["settings"], str) else dict(tenant["settings"])
+            except Exception:
+                tenant_settings = {}
+        tz_name = tenant_settings.get("timezone", "Asia/Kolkata").strip() if tenant_settings.get("timezone") else "Asia/Kolkata"
+        try:
+            tenant_tz = ZoneInfo(tz_name)
+        except Exception:
+            tenant_tz = ZoneInfo("Asia/Kolkata")
+
+        # Parse datetime and attach tenant timezone to prevent UTC offset loss
+        dt_str = f"{payload.booking_date} {payload.booking_time}"
+        st_dt = None
+        for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d %I:%M %p", "%Y-%m-%d %I:%M%p"]:
+            try:
+                st_dt = datetime.strptime(dt_str.strip(), fmt)
+                break
+            except Exception:
+                pass
+        if not st_dt:
+            st_dt = datetime.now(tenant_tz) + timedelta(days=1)
+            st_dt = st_dt.replace(hour=10, minute=0, second=0, microsecond=0)
+        elif st_dt.tzinfo is None:
+            st_dt = st_dt.replace(tzinfo=tenant_tz)
+        et_dt = st_dt + timedelta(minutes=30)
 
         # 1. Upsert contact
         contact = await conn.fetchrow(
@@ -8975,17 +9444,37 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
         else:
             conv_id = str(conv["id"])
 
-        # 3. Insert booking
+        # 3. Double Booking Conflict Check & Insert within an atomic transaction
         booking_id = str(uuid.uuid4())
-        combined_notes = f"Booked online via web booking page.\nDoctor: {payload.doctor_name}\nConcern: {payload.health_concern}"
+        staff = (payload.doctor_name or payload.staff_member or "").strip() or None
+        combined_notes = f"Booked online via web booking page.\nDoctor: {staff or 'General'}\nConcern: {payload.health_concern}"
         if payload.notes:
             combined_notes += f"\nPatient Note: {payload.notes.strip()}"
 
-        await conn.execute(
-            """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency)
-               VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR')""",
-            booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, combined_notes
-        )
+        async with conn.transaction():
+            conflict = await conn.fetchrow(
+                """SELECT id, service, start_time, end_time FROM bookings
+                   WHERE tenant_id = $1::uuid AND status = 'confirmed'
+                     AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
+                     AND start_time < $3 AND end_time > $2
+                   FOR UPDATE""",
+                tenant_id, st_dt, et_dt, staff
+            )
+            if conflict:
+                c_start = conflict["start_time"]
+                if hasattr(c_start, "astimezone"):
+                    c_start = c_start.astimezone(tenant_tz)
+                c_time = c_start.strftime("%I:%M %p")
+                raise HTTPException(409, f"Timeslot conflict: An appointment for '{conflict['service']}' is already scheduled at {c_time}.")
+
+            try:
+                await conn.execute(
+                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR', $9)""",
+                    booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, combined_notes, staff
+                )
+            except asyncpg.exceptions.ExclusionViolationError:
+                raise HTTPException(409, "Timeslot conflict: Another appointment was just booked for this time range.")
 
         # 3b. Queue automated 24h & 2h reminders and post-session review request in scheduled_jobs
         try:
@@ -9115,6 +9604,28 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
             )
         except Exception:
             pass
+
+        # 7. Trigger Google Calendar Sync (if configured)
+        full_location = (wa_creds.get("full_location_text") if isinstance(wa_creds, dict) else None) or (tenant_settings.get("full_location_text") if isinstance(tenant_settings, dict) else "") or ""
+        try:
+            await create_google_calendar_event(
+                conn=conn,
+                tenant_id=tenant_id,
+                booking_id=booking_id,
+                service_name=service_name,
+                clean_name=clean_name,
+                clean_phone=clean_phone,
+                notes=combined_notes,
+                st_dt=st_dt,
+                et_dt=et_dt,
+                customer_email=payload.patient_email.strip() if payload.patient_email else None,
+                source="Public Web Booking",
+                date_str=st_dt.strftime("%d %b %Y"),
+                clock_str=st_dt.strftime("%I:%M %p"),
+                full_location=full_location
+            )
+        except Exception as e_gcal:
+            logger.warning("public_booking_gcal_sync_failed", error=str(e_gcal))
 
         return {
             "status": "confirmed",
@@ -9269,13 +9780,14 @@ async def delete_tenant_staff(tenant_id: str, user_id: str, admin_user: dict = D
 
 # ── Tenant Client Staff & Roles Endpoints ─────────────────────────────────────
 @app.get("/staff")
+@app.get("/api/v1/crm/staff")
 async def client_list_staff(tenant_id: str = Depends(get_tenant_id)):
     """Tenant/Client lists all staff members in their organization."""
     async with db_pool.acquire() as conn:
         rows = await conn.fetch(
             """SELECT id, tenant_id, email, display_name, role, permissions, is_active, last_login_at, created_at
-               FROM users WHERE tenant_id = $1::uuid AND role != 'super_admin'
-               ORDER BY (role = 'admin') DESC, created_at ASC""",
+               FROM users WHERE tenant_id = $1::uuid
+               ORDER BY (role IN ('super_admin', 'admin', 'owner')) DESC, created_at ASC""",
             tenant_id
         )
         return [
@@ -9294,8 +9806,15 @@ async def client_list_staff(tenant_id: str = Depends(get_tenant_id)):
         ]
 
 @app.post("/staff")
-async def client_create_staff(payload: StaffCreateRequest, tenant_id: str = Depends(get_tenant_id)):
+@app.post("/api/v1/crm/staff")
+async def client_create_staff(
+    payload: StaffCreateRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
     """Tenant/Client creates a new team member (Sales, Doctor, Receptionist, Support)."""
+    if caller.get("role") not in ("admin", "owner", "super_admin"):
+        raise HTTPException(status_code=403, detail="Admin privileges required to manage staff.")
     clean_email = payload.email.strip().lower()
     if not clean_email or "@" not in clean_email:
         raise HTTPException(400, "Valid email address is required")
@@ -9303,7 +9822,7 @@ async def client_create_staff(payload: StaffCreateRequest, tenant_id: str = Depe
         raise HTTPException(400, "Password must be at least 6 characters")
 
     clean_role = (payload.role or "agent").strip().lower()
-    ALLOWED_CLIENT_STAFF_ROLES = {"admin", "doctor", "receptionist", "agent", "viewer"}
+    ALLOWED_CLIENT_STAFF_ROLES = {"admin", "sales", "doctor", "receptionist", "marketing", "agent", "viewer"}
     if clean_role not in ALLOWED_CLIENT_STAFF_ROLES or clean_role == "super_admin":
         raise HTTPException(400, f"Invalid role. Permitted roles: {', '.join(sorted(ALLOWED_CLIENT_STAFF_ROLES))}")
 
@@ -9332,9 +9851,17 @@ async def client_create_staff(payload: StaffCreateRequest, tenant_id: str = Depe
         }
 
 @app.put("/staff/{user_id}")
-async def client_update_staff(user_id: str, payload: StaffUpdateRequest, tenant_id: str = Depends(get_tenant_id)):
+@app.put("/api/v1/crm/staff/{user_id}")
+async def client_update_staff(
+    user_id: str,
+    payload: StaffUpdateRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
     """Tenant/Client updates team member role, permissions, or password."""
-    ALLOWED_CLIENT_STAFF_ROLES = {"admin", "doctor", "receptionist", "agent", "viewer"}
+    if caller.get("role") not in ("admin", "owner", "super_admin"):
+        raise HTTPException(status_code=403, detail="Admin privileges required to manage staff.")
+    ALLOWED_CLIENT_STAFF_ROLES = {"admin", "sales", "doctor", "receptionist", "marketing", "agent", "viewer"}
     async with db_pool.acquire() as conn:
         user = await conn.fetchrow("SELECT id, email, role, permissions, is_active FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid", user_id, tenant_id)
         if not user:
@@ -9377,8 +9904,15 @@ async def client_update_staff(user_id: str, payload: StaffUpdateRequest, tenant_
         return {"status": "updated", "id": user_id}
 
 @app.delete("/staff/{user_id}")
-async def client_delete_staff(user_id: str, tenant_id: str = Depends(get_tenant_id)):
+@app.delete("/api/v1/crm/staff/{user_id}")
+async def client_delete_staff(
+    user_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
     """Tenant/Client deletes a team member."""
+    if caller.get("role") not in ("admin", "owner", "super_admin"):
+        raise HTTPException(status_code=403, detail="Admin privileges required to manage staff.")
     async with db_pool.acquire() as conn:
         user = await conn.fetchrow("SELECT role, email FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid", user_id, tenant_id)
         if not user:

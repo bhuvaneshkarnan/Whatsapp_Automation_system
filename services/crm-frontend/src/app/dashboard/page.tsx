@@ -352,6 +352,21 @@ function formatMessageDateDivider(dateStrOrObj: string | Date | null | undefined
   }
 }
 
+function getDisplayMessageBody(msg: { body?: string | null; content_type?: string | null; template_name?: string | null }): string {
+  if (msg.body && msg.body.trim()) {
+    return msg.body;
+  }
+  const ct = msg.content_type;
+  if (ct === 'image') return '📷 [Photo]';
+  if (ct === 'video') return '🎥 [Video]';
+  if (ct === 'document') return '📄 [Document]';
+  if (ct === 'audio') return '🎵 [Audio]';
+  if (ct === 'sticker') return '🏷️ [Sticker]';
+  if (ct === 'location') return '📍 [Location]';
+  if (msg.template_name) return `📋 [Template: ${msg.template_name}]`;
+  return '[Message]';
+}
+
 function formatWhatsAppHeaderDate(dateStrOrObj: string | Date | null | undefined): string {
   if (!dateStrOrObj) return '';
   try {
@@ -457,13 +472,15 @@ function formatMilitaryTo12(timeStr: string | null | undefined): string {
 function formatRoleName(role?: string): string {
   if (!role) return 'Staff';
   const r = role.toLowerCase().trim();
-  if (r === 'super_admin' || r === 'superadmin') {
-    return 'Super Admin';
-  }
-  if (r === 'admin') {
-    return 'Admin';
-  }
-  return role.replace(/_/g, ' ');
+  if (r === 'super_admin' || r === 'superadmin') return 'Super Admin';
+  if (r === 'admin') return 'Admin';
+  if (r === 'sales') return 'Sales Executive';
+  if (r === 'marketing') return 'Marketing Specialist';
+  if (r === 'doctor') return 'Doctor / Consultant';
+  if (r === 'receptionist') return 'Receptionist';
+  if (r === 'agent') return 'Support Agent';
+  if (r === 'viewer') return 'Viewer';
+  return role.charAt(0).toUpperCase() + role.slice(1).replace(/_/g, ' ');
 }
 
 const PREBUILT_REQUIREMENTS_BY_INDUSTRY: Record<string, string[]> = {
@@ -1083,13 +1100,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   };
 
-  // Poll notifications and check push status on load
-  useEffect(() => {
-    fetchNotifications();
-    checkPushStatus();
-    const interval = setInterval(fetchNotifications, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  // Notification polling is initialized after auth and tenant resolution are verified (see initWorkspace)
 
   // Synchronize active navigation tab and sub-views to localStorage & URL hash so page refreshes stay on same tab
   useEffect(() => {
@@ -1423,6 +1434,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [rescheduleTime, setRescheduleTime] = useState('10:00');
   const [isRescheduling, setIsRescheduling] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [pendingAttendedBooking, setPendingAttendedBooking] = useState<{
+    id: string;
+    customer_name: string;
+    service: string;
+  } | null>(null);
 
   // Price Editing State
   const [editingBookingPriceId, setEditingBookingPriceId] = useState<string | null>(null);
@@ -1438,6 +1454,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     contact_name: '',
     contact_phone: '',
     service: '',
+    staff_member: '',
     date: new Date().toISOString().split('T')[0],
     time: '10:00',
     price: 500,
@@ -1519,6 +1536,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     template_review_request: 'review_request',
     template_client_followup: 'client_followup_checkin',
     google_review_link: '',
+    enable_auto_review: true,
     template_admin_notification: 'admin_notification',
     template_admin_reschedule_notice: 'admin_reschedule_notice',
     template_admin_human_request: 'admin_human_request',
@@ -1575,14 +1593,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     ? settingsForm.taxonomy.staff_presets
     : defaultDoctorList;
 
-  // Combine configured doctors with any custom doctor already assigned to a customer
-  const availableDoctors = Array.from(
-    new Set([
-      ...configuredDoctors,
-      ...(customers || []).map((c) => c.preferred_doctor).filter(Boolean) as string[],
-    ])
-  );
-
   function openDoctorEditor() {
     setDoctorEditList([...configuredDoctors]);
     setNewDoctorInput('');
@@ -1606,15 +1616,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     setDoctorEditList([...defaultDoctorList]);
   }
 
-  async function handleSaveDoctorsModal() {
+  async function handleSaveDoctorPresetsList(newList: string[]) {
     setSavingDoctors(true);
     try {
       const updatedTaxonomy = {
         ...(settingsForm.taxonomy || currentTaxonomy),
-        doctor_presets: doctorEditList,
-        staff_presets: doctorEditList,
+        doctor_presets: newList,
+        staff_presets: newList,
       };
-      // Send clean, focused payload to guarantee update without interference
       await crm.updateSettings({
         taxonomy: updatedTaxonomy,
       });
@@ -1622,15 +1631,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         ...prev,
         taxonomy: updatedTaxonomy,
       }));
-      setDoctorEditModalOpen(false);
-      setActionNotice('Preferred doctors list updated successfully.');
+      setActionNotice('Doctor & staff presets updated successfully.');
       setTimeout(() => setActionNotice(null), 2500);
     } catch (err) {
-      console.error('Failed to save doctors list:', err);
-      alert('Failed to save doctors list: ' + (err instanceof Error ? err.message : String(err)));
+      console.error('Failed to save doctor presets list:', err);
+      alert('Failed to save presets: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setSavingDoctors(false);
     }
+  }
+
+  async function handleSaveDoctorsModal() {
+    await handleSaveDoctorPresetsList(doctorEditList);
+    setDoctorEditModalOpen(false);
   }
 
   // ── Team & Sales Credentials Management (Client / Tenant) ───────────────────
@@ -1667,6 +1680,38 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       assigned_health_concerns: [],
     },
   });
+
+  // Unified available doctors and staff across team accounts, presets, and customer records
+  const availableDoctors = useMemo(() => {
+    const list: string[] = [];
+    const seen = new Set<string>();
+
+    (teamList || []).forEach((m) => {
+      const val = (m.display_name || m.email || '').trim();
+      if (val && !seen.has(val.toLowerCase())) {
+        seen.add(val.toLowerCase());
+        list.push(val);
+      }
+    });
+
+    (configuredDoctors || []).forEach((doc) => {
+      const val = (doc || '').trim();
+      if (val && !seen.has(val.toLowerCase())) {
+        seen.add(val.toLowerCase());
+        list.push(val);
+      }
+    });
+
+    (customers || []).forEach((c) => {
+      const val = (c.preferred_doctor || '').trim();
+      if (val && !seen.has(val.toLowerCase())) {
+        seen.add(val.toLowerCase());
+        list.push(val);
+      }
+    });
+
+    return list;
+  }, [teamList, configuredDoctors, customers]);
 
   function getClientRoleDefaultPermissions(role: string, assignedDoctor: string = ''): StaffPermissions {
     switch (role) {
@@ -1782,16 +1827,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
-  function handleOpenCreateTeam() {
+  function handleOpenCreateTeam(prefill?: { display_name?: string; role?: string; assigned_doctor?: string }) {
     setEditingTeamMember(null);
+    const role = (prefill?.role as any) || 'sales';
+    const assignedDoc = prefill?.assigned_doctor || (role === 'doctor' ? (prefill?.display_name || '') : '');
     setTeamForm({
       email: '',
       password: '',
-      display_name: '',
-      role: 'sales',
+      display_name: prefill?.display_name || '',
+      role: role,
       is_active: true,
       permissions: {
-        ...getClientRoleDefaultPermissions('sales'),
+        ...getClientRoleDefaultPermissions(role, assignedDoc),
+        assigned_doctor: assignedDoc,
         assigned_health_concerns: [],
       },
     });
@@ -1996,8 +2044,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     // Helper to normalize staff names and avoid duplicate entries like "Dr. Sameer" and "Dr. Sameer (Lead Consultant)"
     const normalizeName = (s: string) => s.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
 
-    // 1. Only actual team members added to this workspace (excluding super admin and current admin user)
-    const addedMembers = (teamList || []).filter((m) => m.id !== user?.id && m.role !== 'super_admin');
+    // 1. All team members in this workspace
+    const addedMembers = (teamList || []);
     
     // If the clinic has not created/added any team members yet, show 0 added teams
     if (addedMembers.length === 0) {
@@ -2055,6 +2103,94 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       setSelectedDepartment('all');
     }
   }, [addedTeams, selectedDepartment]);
+
+  // Categorized staff options for Customer directory, Repeat Clients, Followups, Bookings, and Modals
+  // Distinguishes Team Doctors (login), Sales Team (login), Doctor Presets (no login), and Administration
+  const categorizedStaffOptions = useMemo(() => {
+    const teamDoctors: { value: string; label: string; id?: string }[] = [];
+    const salesMembers: { value: string; label: string; id?: string }[] = [];
+    const otherMembers: { value: string; label: string; id?: string }[] = [];
+    const predefinedDoctors: { value: string; label: string }[] = [];
+    const seenValues = new Set<string>();
+
+    // 1. From teamList (actual login users)
+    (teamList || []).forEach((m) => {
+      if (!m) return;
+      const val = (m.display_name || m.email || '').trim();
+      if (!val || seenValues.has(val.toLowerCase())) return;
+      seenValues.add(val.toLowerCase());
+
+      const roleLabel = formatRoleName(m.role);
+      const item = { value: val, label: `${val} (${roleLabel})`, id: m.id };
+
+      if (m.role === 'doctor') {
+        teamDoctors.push(item);
+      } else if (m.role === 'sales' || m.role === 'marketing') {
+        salesMembers.push(item);
+      } else {
+        otherMembers.push(item);
+      }
+    });
+
+    // 2. From configured doctor presets (names without login credentials)
+    (configuredDoctors || []).forEach((doc) => {
+      const trimmed = (doc || '').trim();
+      if (!trimmed || seenValues.has(trimmed.toLowerCase())) return;
+      seenValues.add(trimmed.toLowerCase());
+      predefinedDoctors.push({ value: trimmed, label: `${trimmed} (Doctor Preset)` });
+    });
+
+    // 3. Custom assigned doctor from existing customers
+    (customers || []).forEach((c) => {
+      const doc = (c.preferred_doctor || '').trim();
+      if (!doc || seenValues.has(doc.toLowerCase())) return;
+      seenValues.add(doc.toLowerCase());
+      predefinedDoctors.push({ value: doc, label: doc });
+    });
+
+    return {
+      teamDoctors,
+      sales: salesMembers,
+      predefinedDoctors,
+      other: otherMembers,
+    };
+  }, [teamList, configuredDoctors, customers]);
+
+  function renderStaffSelectOptions(placeholder = '— Unassigned —') {
+    return (
+      <>
+        <option value="">{placeholder}</option>
+        {categorizedStaffOptions.teamDoctors.length > 0 && (
+          <optgroup label="Doctors (Team Login)">
+            {categorizedStaffOptions.teamDoctors.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </optgroup>
+        )}
+        {categorizedStaffOptions.sales.length > 0 && (
+          <optgroup label="Sales & Support (Team Login)">
+            {categorizedStaffOptions.sales.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </optgroup>
+        )}
+        {categorizedStaffOptions.predefinedDoctors.length > 0 && (
+          <optgroup label="Doctors & Consultants (Predefined Presets)">
+            {categorizedStaffOptions.predefinedDoctors.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </optgroup>
+        )}
+        {categorizedStaffOptions.other.length > 0 && (
+          <optgroup label="Staff & Administration">
+            {categorizedStaffOptions.other.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </optgroup>
+        )}
+      </>
+    );
+  }
 
   const filteredTasks = tasks.filter((task) => {
     if (taskFilter === 'all') return true;
@@ -2161,41 +2297,33 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     return `crm_sticky_notes_${tid}`;
   };
 
-  // Initial Auth & Load
+  // Initial Auth & Workspace Resolution
   useEffect(() => {
+    let isCancelled = false;
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
     if (!token) {
       if (typeof window !== 'undefined') {
-        window.location.replace('/login');
+        const currentPath = window.location.pathname;
+        const redirectParam = currentPath && currentPath !== '/' && currentPath !== '/login'
+          ? `?redirect=${encodeURIComponent(currentPath)}`
+          : '';
+        window.location.replace(`/login${redirectParam}`);
       }
       return;
     }
-    crm.getMe()
-      .then(async (data) => {
-        setUser(data);
-        setIsAuthChecking(false);
+
+    async function initWorkspace() {
+      try {
+        const data = await crm.getMe();
+        if (isCancelled) return;
 
         // Determine effective target slug from props, params, or URL path
         const rawSlug = routeSlug || (params?.slug as string) || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : '') || '';
-        const targetSlug = rawSlug && rawSlug !== 'dashboard' && rawSlug !== 'login' && rawSlug !== 'bhuvanesh' && rawSlug !== 'admin' ? rawSlug.toLowerCase().trim() : '';
+        const targetSlug = rawSlug && !['dashboard', 'login', 'bhuvanesh', 'admin'].includes(rawSlug.toLowerCase().trim())
+          ? rawSlug.toLowerCase().trim()
+          : '';
 
-        // Reset in-memory conversation and selection states on tenant load to avoid any UI overlap
-        setSelectedConv(null);
-        setMessages([]);
-        setConversations([]);
-        setCustomers([]);
-        setBookings([]);
-        setContacts([]);
-        setTeamList([]);
-        setSelectedDepartment('all');
-
-        // Check if target slug is already cached
         let activeTenantId = targetSlug ? getCachedTenantId(targetSlug) : null;
-
-        if (targetSlug && activeTenantId) {
-          localStorage.setItem('tenant_id', activeTenantId);
-          localStorage.setItem('tenant_slug', targetSlug);
-        }
 
         // 1. Regular client admin / agent: STRICT WORKSPACE LOCK
         if (data.role !== 'super_admin') {
@@ -2227,7 +2355,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   activeTenantId = resolved.id;
                   registerTenantSlug(targetSlug, resolved.id);
                   localStorage.setItem('tenant_id', resolved.id);
-                  localStorage.setItem('tenant_slug', resolved.slug);
+                  localStorage.setItem('tenant_slug', resolved.slug || targetSlug);
                 }
               } catch (err) {
                 console.warn('Could not resolve tenant by slug:', targetSlug, err);
@@ -2239,7 +2367,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           } else if (typeof window !== 'undefined') {
             // Visiting /dashboard without slug: default to user's home tenant or resolved boldlabs
             const defaultSlug = data.tenant_slug || 'boldlabs';
-            const defaultId = data.tenant_id || getCachedTenantId(defaultSlug);
+            let defaultId = data.tenant_id || getCachedTenantId(defaultSlug);
+            if (!defaultId) {
+              try {
+                const resolved = await crm.resolveTenantBySlug(defaultSlug);
+                if (resolved?.id) {
+                  defaultId = resolved.id;
+                  registerTenantSlug(defaultSlug, resolved.id);
+                }
+              } catch {}
+            }
             if (defaultId) localStorage.setItem('tenant_id', defaultId);
             if (defaultSlug) {
               localStorage.setItem('tenant_slug', defaultSlug);
@@ -2249,6 +2386,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             }
           }
         }
+
+        if (isCancelled) return;
 
         if (data.permissions) {
           const p = data.permissions;
@@ -2263,22 +2402,41 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             else if (p.can_manage_marketing !== false) setActiveNav('marketing');
           }
         }
-        loadConversations();
-        loadBookings();
-        loadContacts();
-        loadCustomers();
+
+        // Preload global settings in background so terminology, branding, and theme load cleanly
         loadSettings();
-        loadTeamList();
-        loadMarketingTemplates();
-        loadDashboardAnalytics(analyticsPeriod);
-      })
-      .catch(() => {
+
+        // Complete auth check and set user
+        setUser(data);
+        setIsAuthChecking(false);
+      } catch {
+        if (isCancelled) return;
         if (typeof window !== 'undefined') {
           localStorage.removeItem('auth_token');
-          window.location.replace('/login');
+          const currentPath = window.location.pathname;
+          const redirectParam = currentPath && currentPath !== '/' && currentPath !== '/login'
+            ? `?redirect=${encodeURIComponent(currentPath)}`
+            : '';
+          window.location.replace(`/login${redirectParam}`);
         }
-      });
+      }
+    }
+
+    initWorkspace();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [routeSlug]);
+
+  // Poll notifications and check push status once auth is established
+  useEffect(() => {
+    if (isAuthChecking || !user) return;
+    fetchNotifications();
+    checkPushStatus();
+    const interval = setInterval(fetchNotifications, 12000);
+    return () => clearInterval(interval);
+  }, [isAuthChecking, user]);
 
   // Load Sticky Notes from localStorage (strictly isolated per tenant)
   useEffect(() => {
@@ -2376,10 +2534,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   };
 
-  // Load section data based on active tab
+  // Load section data based on active tab (Coordinated Lazy Loading)
   useEffect(() => {
+    if (isAuthChecking || !user) return;
+
     if (activeNav === 'overview') {
       loadDashboardAnalytics(analyticsPeriod);
+      loadConversations();
+      loadBookings(10);
+      loadTeamList();
+    } else if (activeNav === 'inbox') {
+      loadConversations();
+      loadTeamList();
     } else if (activeNav === 'bookings') {
       loadBookings();
     } else if (activeNav === 'calendar') {
@@ -2392,6 +2558,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       loadTasks();
     } else if (activeNav === 'settings') {
       loadSettings();
+      if (settingsTab === 'team') {
+        loadTeamList();
+      }
     } else if (activeNav === 'marketing') {
       loadMarketingTemplates();
       // Load campaigns from backend
@@ -2409,33 +2578,44 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     } else if (activeNav === 'team') {
       loadTeamList();
     }
-  }, [activeNav]);
+  }, [activeNav, isAuthChecking, user]);
+
+  // Ensure team list is immediately loaded upon user authentication so staff assignment,
+  // top-bar department filters, and role badges are ready across all tabs
+  useEffect(() => {
+    if (isAuthChecking || !user) return;
+    loadTeamList();
+  }, [isAuthChecking, user]);
 
   useEffect(() => {
+    if (isAuthChecking || !user) return;
     if (activeNav === 'settings' && settingsTab === 'team') {
       loadTeamList();
     }
-  }, [activeNav, settingsTab]);
+  }, [activeNav, settingsTab, isAuthChecking, user]);
 
   useEffect(() => {
+    if (isAuthChecking || !user) return;
     if (activeNav === 'overview') {
       loadDashboardAnalytics(analyticsPeriod);
     }
-  }, [analyticsPeriod]);
+  }, [analyticsPeriod, activeNav, isAuthChecking, user]);
 
   // Refetch customers when filter state changes (Instant responsive filtering)
   useEffect(() => {
+    if (isAuthChecking || !user) return;
     if (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients') {
       loadCustomers();
     }
-  }, [activeNav, followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupSearch, customerClientTypeFilter, selectedDepartment]);
+  }, [followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupSearch, customerClientTypeFilter, selectedDepartment, isAuthChecking, user]);
 
   // Refetch tasks when task filter changes
   useEffect(() => {
+    if (isAuthChecking || !user) return;
     if (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients') {
       loadTasks();
     }
-  }, [activeNav, taskFilter]);
+  }, [taskFilter, isAuthChecking, user]);
 
   // Load analytics when sub-tab switches to analytics
   useEffect(() => {
@@ -2487,20 +2667,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     selectedCustomerRef.current = selectedCustomer;
   }, [selectedCustomer]);
 
-  // Real-time live polling engine: fast 1.2s live sync for Inbox, 3s sync for Customers/Followup, gentle 5s sync for background tabs
+  // Real-time live polling engine: fast 2.5s live sync for Inbox, 5s sync for Customers/Followup/Bookings, gentle sync for background
   const isPollingRef = useRef(false);
   useEffect(() => {
+    if (isAuthChecking || !user) return;
     let isMounted = true;
 
     const poll = async () => {
       if (!isMounted || isPollingRef.current) return;
       if (typeof document !== 'undefined' && document.hidden) return; // Skip polling when tab is inactive
+      if (isAuthChecking || !user) return;
 
       isPollingRef.current = true;
       try {
         const activeId = selectedConvRef.current?.id;
 
-        // 1. Live Chat: Real-time message synchronization (every 1.2s when on inbox tab)
+        // 1. Live Chat: Real-time message synchronization (every 2.5s when on inbox tab with open conversation)
         if (activeId && activeNav === 'inbox') {
           try {
             const msgs = await crm.getMessages(activeId);
@@ -2524,35 +2706,37 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           }
         }
 
-        // 2. Real-time conversations list & unread indicators
-        try {
-          const convs = await crm.getConversations();
-          if (isMounted && Array.isArray(convs)) {
-            const activeId = selectedConvRef.current?.id;
-            const sanitizedConvs = convs.map((c) =>
-              c.id === activeId ? { ...c, unread_count: 0 } : c
-            );
-            sanitizedConvs.sort((a, b) => {
-              const timeA = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
-              const timeB = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
-              return timeB - timeA;
-            });
-            setConversations((prev) => {
-              const isDiff =
-                sanitizedConvs.length !== prev.length ||
-                sanitizedConvs.some(
-                  (c, idx) =>
-                    !prev[idx] ||
-                    prev[idx].id !== c.id ||
-                    prev[idx].unread_count !== c.unread_count ||
-                    prev[idx].last_message_at !== c.last_message_at ||
-                    prev[idx].last_message !== c.last_message
-                );
-              return isDiff ? sanitizedConvs : prev;
-            });
+        // 2. Real-time conversations list & unread indicators (ONLY when on inbox or overview tab)
+        if (activeNav === 'inbox' || activeNav === 'overview') {
+          try {
+            const convs = await crm.getConversations();
+            if (isMounted && Array.isArray(convs)) {
+              const activeId = selectedConvRef.current?.id;
+              const sanitizedConvs = convs.map((c) =>
+                c.id === activeId ? { ...c, unread_count: 0 } : c
+              );
+              sanitizedConvs.sort((a, b) => {
+                const timeA = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+                const timeB = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+                return timeB - timeA;
+              });
+              setConversations((prev) => {
+                const isDiff =
+                  sanitizedConvs.length !== prev.length ||
+                  sanitizedConvs.some(
+                    (c, idx) =>
+                      !prev[idx] ||
+                      prev[idx].id !== c.id ||
+                      prev[idx].unread_count !== c.unread_count ||
+                      prev[idx].last_message_at !== c.last_message_at ||
+                      prev[idx].last_message !== c.last_message
+                  );
+                return isDiff ? sanitizedConvs : prev;
+              });
+            }
+          } catch {
+            // silent
           }
-        } catch {
-          // silent
         }
 
         // 3. Real-time Customers directory automatic live sync (when on customers, followup, or repeat_clients tab)
@@ -2675,8 +2859,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       }
     };
 
-    // Fast 1200ms polling for live Inbox, 2500ms for Bookings / Calendar / Customers tabs, 5000ms for other sections
-    const pollIntervalMs = activeNav === 'inbox' ? 1200 : (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients' || activeNav === 'bookings' || activeNav === 'calendar' ? 2500 : 5000);
+    // 2500ms for live Inbox, 5000ms for Bookings / Customers, 8000ms for Calendar, 6000ms for Overview, 20000ms for other sections
+    const pollIntervalMs = activeNav === 'inbox' ? 2500 : (activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients' || activeNav === 'bookings' ? 5000 : activeNav === 'calendar' ? 8000 : activeNav === 'overview' ? 6000 : 20000);
     const interval = setInterval(poll, pollIntervalMs);
 
     // Instant poll on tab focus / visibility restore
@@ -2692,7 +2876,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [activeNav, followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupSearch]);
+  }, [activeNav, followupStatusFilter, followupProbabilityFilter, followupDoctorFilter, followupSearch, isAuthChecking, user]);
 
   async function loadBookings(limit = 200) {
     setLoadingBookings(true);
@@ -2736,10 +2920,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     setBookingCreateSuccess('');
     try {
       const startTime = `${newBookingForm.date}T${newBookingForm.time}:00`;
+      const staffVal = newBookingForm.staff_member.trim() || undefined;
       await crm.createBooking({
         contact_name: newBookingForm.contact_name.trim(),
         contact_phone: newBookingForm.contact_phone.trim(),
         service: newBookingForm.service.trim(),
+        staff_member: staffVal,
+        doctor_name: staffVal,
         start_time: startTime,
         price: Number(newBookingForm.price) || 0,
         notes: newBookingForm.notes.trim(),
@@ -2755,6 +2942,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           contact_name: '',
           contact_phone: '',
           service: '',
+          staff_member: '',
           date: new Date().toISOString().split('T')[0],
           time: '10:00',
           price: 500,
@@ -2783,11 +2971,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   async function loadCustomers() {
     setLoadingCustomers(true);
     try {
+      const selected = addedTeams.find((item) => item.label === selectedDepartment || item.id === selectedDepartment);
+      let depConcern: string | undefined = undefined;
+      let depDoctor: string | undefined = undefined;
+      if (selectedDepartment !== 'all' && selected) {
+        if (selected.kind === 'specialty') {
+          depConcern = selected.id.replace('specialty:', '');
+        } else if (selected.kind === 'staff') {
+          depDoctor = selected.id.replace('staff:', '');
+        }
+      }
+
       const data = await crm.getCustomers({
         status: followupStatusFilter,
         lead_probability: followupProbabilityFilter,
-        preferred_doctor: followupDoctorFilter,
-        health_concern: selectedDepartment !== 'all' ? selectedDepartment : undefined,
+        preferred_doctor: depDoctor || followupDoctorFilter,
+        health_concern: depConcern,
         q: followupSearch,
       });
       setCustomers(Array.isArray(data) ? data : []);
@@ -2970,13 +3169,32 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (!selectedCustomer) return;
     setSavingDrawerAttributes(true);
     try {
+      const docVal = drawerDoctor.trim();
       const patch = {
         health_concern: drawerConcern.trim() || undefined,
         age: drawerAge ? parseInt(drawerAge, 10) : undefined,
         location: drawerLocation.trim() || undefined,
-        preferred_doctor: drawerDoctor.trim() || undefined,
+        preferred_doctor: docVal || undefined,
       };
       await handleUpdateCustomer(selectedCustomer.id, patch as any);
+
+      // Auto-assign active conversation if preferred doctor matches a team member
+      if (docVal && selectedConv) {
+        const matchedTeam = (teamList || []).find(
+          (m) =>
+            m.is_active !== false &&
+            ((m.display_name || '').trim().toLowerCase() === docVal.toLowerCase() ||
+             (m.email || '').trim().toLowerCase() === docVal.toLowerCase())
+        );
+        if (matchedTeam && selectedConv.assigned_to !== matchedTeam.id) {
+          try {
+            await handleAssignConversation(selectedConv.id, matchedTeam.id);
+          } catch (assignErr) {
+            console.warn('Auto-assign conversation from drawer doctor failed:', assignErr);
+          }
+        }
+      }
+
       setActionNotice('Customer attributes saved successfully.');
       setTimeout(() => setActionNotice(null), 2500);
     } catch (err: any) {
@@ -3298,6 +3516,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         strict_rules: settingsForm.strict_rules,
         objection_handling: settingsForm.objection_handling,
         google_review_link: settingsForm.google_review_link,
+        enable_auto_review: settingsForm.enable_auto_review,
         template_booking_confirmation: settingsForm.template_booking_confirmation,
         template_reschedule_confirmation: settingsForm.template_reschedule_confirmation,
         template_cancellation_confirmation: settingsForm.template_cancellation_confirmation,
@@ -3769,11 +3988,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }, [selectedBookingDetail]);
 
-  async function handleUpdateBookingStatus(bookingId: string, newStatus: string, newStartTime?: string) {
+  function promptMarkAttended(booking: { id: string; customer_name?: string; service?: string }) {
+    setPendingAttendedBooking({
+      id: booking.id,
+      customer_name: booking.customer_name || 'Client',
+      service: booking.service || 'Appointment',
+    });
+  }
+
+  async function handleUpdateBookingStatus(bookingId: string, newStatus: string, newStartTime?: string, sendReview?: boolean) {
     setUpdatingBookingId(bookingId);
     setActionNotice(null);
     try {
-      await crm.updateBookingStatus(bookingId, newStatus, newStartTime);
+      await crm.updateBookingStatus(bookingId, newStatus, newStartTime, undefined, sendReview);
       setBookings((prev) =>
         prev.map((b) => (b.id === bookingId ? { ...b, status: newStatus, ...(newStartTime ? { start_time: newStartTime } : {}) } : b))
       );
@@ -3782,7 +4009,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       }
 
       if (newStatus === 'completed') {
-        setActionNotice('Client marked Attended! Post-service review request template scheduled to send in 15 minutes via WhatsApp.');
+        if (sendReview === false) {
+          setActionNotice('Client marked Attended! Review template was skipped.');
+        } else {
+          setActionNotice('Client marked Attended! Post-service review request template scheduled via WhatsApp.');
+        }
       } else if (newStatus === 'no_show') {
         setActionNotice('Client marked No-Show! Reschedule nudge WhatsApp template sent to client.');
       } else if (newStatus === 'cancelled') {
@@ -4344,22 +4575,31 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
     if (selectedDepartment !== 'all') {
       const selected = addedTeams.find((item) => item.label === selectedDepartment || item.id === selectedDepartment);
-      const term = (selected ? selected.label : selectedDepartment).toLowerCase().replace(/\s+team$/i, '').trim();
+      if (selected) {
+        const bPhone = (b.contact_phone || '').replace(/[^0-9]/g, '').slice(-10);
+        const linkedCust = (customers || []).find((cu) => {
+          const cuPhone = (cu.phone || '').replace(/[^0-9]/g, '').slice(-10);
+          return cuPhone && cuPhone === bPhone;
+        });
 
-      const bPhone = (b.contact_phone || '').replace(/[^0-9]/g, '').slice(-10);
-      const linkedCust = (customers || []).find((cu) => {
-        const cuPhone = (cu.phone || '').replace(/[^0-9]/g, '').slice(-10);
-        return cuPhone && cuPhone === bPhone;
-      });
+        const doc = ((b as any).doctor || (b as any).assigned_doctor || (b as any).staff_member || linkedCust?.preferred_doctor || '').toLowerCase();
+        const concern = ((b as any).health_concern || (b as any).service || linkedCust?.health_concern || '').toLowerCase();
 
-      const doc = ((b as any).doctor || (b as any).assigned_doctor || linkedCust?.preferred_doctor || '').toLowerCase();
-      const concern = ((b as any).health_concern || (b as any).service || linkedCust?.health_concern || '').toLowerCase();
-
-      const matchesStaff = doc && (doc.includes(term) || term.includes(doc));
-      const matchesConcern = concern && (concern.includes(term) || term.includes(concern));
-
-      if (!matchesStaff && !matchesConcern) {
-        return false;
+        if (selected.kind === 'staff') {
+          const term = selected.id.replace('staff:', '').toLowerCase();
+          if (!doc.includes(term) && !term.includes(doc)) return false;
+        } else if (selected.kind === 'specialty') {
+          const term = selected.id.replace('specialty:', '').toLowerCase();
+          if (!concern.includes(term) && !term.includes(concern)) return false;
+        } else if (selected.kind === 'team') {
+          if (selected.label.toLowerCase().includes('sales')) {
+            const salesMembers = (teamList || []).filter(m => m.role === 'sales');
+            const salesConcerns = salesMembers.flatMap(m => m.permissions?.assigned_health_concerns || []).map(c => c.toLowerCase());
+            if (salesConcerns.length > 0) {
+              if (!salesConcerns.some(sc => concern.includes(sc) || sc.includes(concern))) return false;
+            }
+          }
+        }
       }
     }
 
@@ -4600,12 +4840,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   function renderTeamManagementView() {
     const loginPortalUrl = typeof window !== 'undefined' ? `${window.location.origin}/login` : 'https://crm.goboldlabs.com/login';
-    // Filter out the current admin / platform owner so only team members added by the admin are displayed
-    const addedMembers = teamList.filter((m) => m.id !== user?.id && m.role !== 'super_admin');
+    // All staff accounts for this organization
+    const addedMembers = teamList;
     const salesCount = addedMembers.filter((m) => m.role === 'sales').length;
     const marketingCount = addedMembers.filter((m) => m.role === 'marketing').length;
     const doctorCount = addedMembers.filter((m) => m.role === 'doctor').length;
-    const adminCount = addedMembers.filter((m) => m.role === 'admin').length;
+    const adminCount = addedMembers.filter((m) => m.role === 'admin' || m.role === 'super_admin').length;
     const staffLabel = currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() : 'Staff';
 
     return (
@@ -4785,6 +5025,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             <div>
                               <div className="font-medium text-text-primary text-xs flex items-center gap-1.5">
                                 <span>{member.display_name || 'Staff User'}</span>
+                                {member.id === user?.id && (
+                                  <span className="text-[10px] text-accent font-semibold bg-accent/10 px-1 py-0.2 rounded border border-accent/20">
+                                    You
+                                  </span>
+                                )}
                               </div>
                               <div className="text-[11px] text-text-muted font-mono flex items-center gap-1">
                                 <span>{member.email}</span>
@@ -4906,11 +5151,143 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             >
                               <Edit2 className="w-3.5 h-3.5 stroke-[1.5]" />
                             </button>
+                            {member.id !== user?.id && member.role !== 'super_admin' && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTeam(member.id, member.email)}
+                                className="p-1 rounded hover:bg-red-500/10 text-text-muted hover:text-red-500 border border-transparent hover:border-red-500/20 transition-colors cursor-pointer"
+                                title="Remove team account"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Predefined Doctor & Staff Presets Section */}
+        <div className="bg-surface rounded-sm border border-border overflow-hidden shadow-xs">
+          <div className="px-3.5 py-2.5 border-b border-border bg-surface-subtle/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <Stethoscope className="w-4 h-4 text-emerald-600 dark:text-emerald-400 stroke-[1.5]" />
+                <h4 className="font-semibold text-xs text-text-primary">
+                  {staffLabel} Presets (Predefined Names &bull; No Login Required)
+                </h4>
+                <span className="text-[10px] font-mono text-text-muted bg-surface px-1.5 py-0.2 rounded border border-border">
+                  {configuredDoctors.length} {configuredDoctors.length === 1 ? 'preset' : 'presets'}
+                </span>
+              </div>
+              <p className="text-[11px] text-text-muted mt-0.5">
+                Predefined doctor & staff names for solo clinics or visiting specialists without login accounts. To give someone their own login credentials & inbox, click <strong>Create Login Account</strong>.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={openDoctorEditor}
+              className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-primary border border-border rounded-sm text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 self-start sm:self-auto"
+            >
+              <Plus className="w-3.5 h-3.5 stroke-[2]" />
+              <span>Manage Presets</span>
+            </button>
+          </div>
+
+          {configuredDoctors.length === 0 ? (
+            <div className="p-6 text-center text-xs text-text-muted">
+              No predefined doctor presets configured. Click &quot;Manage Presets&quot; to add names.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-surface-subtle/30 text-[11px] font-semibold text-text-muted uppercase tracking-wider">
+                    <th className="py-2 px-3">{staffLabel} Name</th>
+                    <th className="py-2 px-2.5">Account Status</th>
+                    <th className="py-2 px-2.5">Assigned Patients</th>
+                    <th className="py-2 px-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {configuredDoctors.map((doc) => {
+                    const matchedTeam = (teamList || []).find(
+                      (m) =>
+                        m.is_active !== false &&
+                        ((m.display_name || '').trim().toLowerCase() === doc.trim().toLowerCase() ||
+                         (m.email || '').trim().toLowerCase() === doc.trim().toLowerCase())
+                    );
+                    const patientCount = (customers || []).filter(
+                      (c) => (c.preferred_doctor || '').trim().toLowerCase() === doc.trim().toLowerCase()
+                    ).length;
+
+                    return (
+                      <tr key={doc} className="hover:bg-surface-subtle/30 transition-colors">
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold text-[10px] shrink-0">
+                              {doc.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="font-medium text-text-primary text-xs">{doc}</span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-2.5">
+                          {matchedTeam ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-accent">
+                              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+                              <span>Has Login Account ({formatRoleName(matchedTeam.role)})</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-text-muted">
+                              <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
+                              <span>Preset (No Login)</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2.5 font-mono text-[11px] text-text-secondary">
+                          {patientCount} {patientCount === 1 ? 'patient' : 'patients'}
+                        </td>
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-2">
+                            {!matchedTeam ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleOpenCreateTeam({
+                                    display_name: doc,
+                                    role: 'doctor',
+                                    assigned_doctor: doc,
+                                  });
+                                }}
+                                className="px-2 py-0.5 bg-accent/10 hover:bg-accent text-accent hover:text-white border border-accent/30 hover:border-accent rounded text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                              >
+                                <UserPlus className="w-3 h-3" />
+                                <span>Create Login Account</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditTeam(matchedTeam)}
+                                className="text-[11px] text-text-muted hover:text-text-primary underline cursor-pointer"
+                              >
+                                Manage Account
+                              </button>
+                            )}
                             <button
                               type="button"
-                              onClick={() => handleDeleteTeam(member.id, member.email)}
-                              className="p-1 rounded hover:bg-red-500/10 text-text-muted hover:text-red-500 border border-transparent hover:border-red-500/20 transition-colors cursor-pointer"
-                              title="Remove team account"
+                              onClick={() => {
+                                if (confirm(`Remove preset "${doc}" from presets?`)) {
+                                  const updated = configuredDoctors.filter((d) => d !== doc);
+                                  handleSaveDoctorPresetsList(updated);
+                                }
+                              }}
+                              className="p-1 text-text-muted hover:text-red-500 rounded hover:bg-red-500/10 cursor-pointer transition-colors"
+                              title={`Remove ${doc}`}
                             >
                               <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
                             </button>
@@ -6097,10 +6474,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   {!isAttended && (
                                     <button
                                       type="button"
-                                      onClick={() => handleUpdateBookingStatus(b.id, 'completed')}
+                                      onClick={() => promptMarkAttended(b)}
                                       disabled={updatingBookingId === b.id}
                                       className="px-2 py-1 text-[11px] font-medium bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer"
-                                      title="Mark client as Attended (Sends review request)"
+                                      title="Mark client as Attended"
                                     >
                                       <Check className="w-3 h-3 stroke-[2]" />
                                       <span>Attended</span>
@@ -6312,7 +6689,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         const isToday = isSameDay(new Date(), cellDate);
 
                         // 1. Matching Bookings
-                        const cellBookings = (bookings || []).filter((b) => {
+                        const cellBookings = (filteredBookings || []).filter((b) => {
                           if (!b || !b.start_time) return false;
                           return isSameDay(b.start_time, cellDate);
                         });
@@ -6594,7 +6971,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                           {/* 7 Day Slots for this Hour */}
                           {currentWeekDays.map((day, dIdx) => {
-                            const slotBookings = (bookings || []).filter((b) => {
+                            const slotBookings = (filteredBookings || []).filter((b) => {
                               if (!b || !b.start_time) return false;
                               const bDate = new Date(b.start_time);
                               return isSameDay(bDate, day) && bDate.getHours() === hour;
@@ -6762,7 +7139,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <div className="flex-1 overflow-y-auto border border-border rounded-md bg-surface flex flex-col p-4 space-y-4">
                     {/* Day Overview Summary Cards */}
                     {(() => {
-                      const dayBookings = (bookings || []).filter((b) => {
+                      const dayBookings = (filteredBookings || []).filter((b) => {
                         if (!b || !b.start_time) return false;
                         return isSameDay(b.start_time, currentDate);
                       });
@@ -6940,10 +7317,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {/* Hourly Timeline (6 AM to 11 PM) */}
                     <div className="space-y-2 pt-2 divide-y divide-border">
                       {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23].map((hour) => {
-                        const hourBookings = (bookings || []).filter((b) => {
+                        const hourBookings = (filteredBookings || []).filter((b) => {
                           if (!b || !b.start_time) return false;
-                          const bDate = new Date(b.start_time);
-                          return isSameDay(bDate, currentDate) && bDate.getHours() === hour;
+                          return isSameDay(b.start_time, currentDate) && new Date(b.start_time).getHours() === hour;
                         });
 
                         const hourFollowups = (customers || []).filter((c) => {
@@ -7313,11 +7689,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   {conv.contact_phone}
                                 </p>
                                 <div className="flex items-center gap-1 shrink-0">
-                                  {conv.assigned_staff_name && (
+                                  {conv.assigned_staff_name ? (
                                     <span className="text-[9px] font-medium px-1 py-0.2 rounded bg-surface-subtle text-text-muted border border-border flex items-center gap-0.5 max-w-[65px] truncate" title={`Assigned to ${conv.assigned_staff_name}`}>
                                       <User className="w-2.5 h-2.5 stroke-[1.8] shrink-0 inline" /> {conv.assigned_staff_name.split(' ')[0]}
                                     </span>
-                                  )}
+                                  ) : conv.preferred_doctor ? (
+                                    <span className="text-[9px] font-medium px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/40 flex items-center gap-0.5 max-w-[75px] truncate" title={`Doctor: ${conv.preferred_doctor}`}>
+                                      <Stethoscope className="w-2.5 h-2.5 stroke-[1.8] shrink-0 inline" /> {conv.preferred_doctor.split(' ')[0]}
+                                    </span>
+                                  ) : null}
                                   {conv.health_concern && (
                                     <span
                                       className="text-[9px] font-medium px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/40 shrink-0 flex items-center gap-0.5 max-w-[90px] truncate"
@@ -7495,53 +7875,126 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <div className="relative">
                             <button
                               type="button"
-                              onClick={() => setShowAssignDropdown((prev) => !prev)}
+                              onClick={() => {
+                                setShowAssignDropdown((prev) => {
+                                  const next = !prev;
+                                  if (next) {
+                                    loadTeamList();
+                                  }
+                                  return next;
+                                });
+                              }}
                               className="px-2 py-1 rounded-sm text-xs font-medium border border-border bg-surface hover:bg-surface-subtle text-text-primary flex items-center gap-1 transition-colors cursor-pointer"
-                              title={selectedConv.assigned_staff_name ? `Assigned to: ${selectedConv.assigned_staff_name}` : 'Assign staff to this conversation'}
+                              title={selectedConv.assigned_staff_name ? `Assigned to: ${selectedConv.assigned_staff_name}` : (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor) ? `Doctor: ${selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor}` : 'Assign staff to this conversation'}
                             >
-                              <Users className="w-3.5 h-3.5 text-text-muted shrink-0" />
-                              <span className="hidden sm:inline max-w-[85px] truncate text-[11px]">
-                                {selectedConv.assigned_staff_name || 'Unassigned'}
+                              {selectedConv.assigned_staff_name ? (
+                                <User className="w-3.5 h-3.5 text-accent shrink-0" />
+                              ) : (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor) ? (
+                                <Stethoscope className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              ) : (
+                                <Users className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                              )}
+                              <span className="hidden sm:inline max-w-[95px] truncate text-[11px]">
+                                {selectedConv.assigned_staff_name || (selectedConv.assigned_to ? (teamList.find((m) => m.id === selectedConv.assigned_to)?.display_name || teamList.find((m) => m.id === selectedConv.assigned_to)?.email || 'Assigned') : (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor || 'Unassigned'))}
                               </span>
                               <ChevronDown className="w-3 h-3 text-text-muted shrink-0" />
                             </button>
                             {showAssignDropdown && (
-                              <div className="absolute right-0 mt-1 w-48 bg-surface border border-border rounded-md shadow-lg z-50 py-1 text-xs">
-                                <div className="px-3 py-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wider border-b border-border">
-                                  Assign Conversation
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleAssignConversation(selectedConv.id, null)}
-                                  className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-surface-subtle cursor-pointer ${
-                                    !selectedConv.assigned_to ? 'text-accent font-semibold bg-accent/5' : 'text-text-secondary'
-                                  }`}
-                                >
-                                  <UserX className="w-3.5 h-3.5 text-text-muted shrink-0" />
-                                  <span>Unassigned</span>
-                                </button>
-                                {teamList && teamList.length > 0 ? (
-                                  teamList.map((member) => (
-                                    <button
-                                      key={member.id}
-                                      type="button"
-                                      onClick={() => handleAssignConversation(selectedConv.id, member.id)}
-                                      className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-surface-subtle cursor-pointer ${
-                                        selectedConv.assigned_to === member.id ? 'text-accent font-semibold bg-accent/5' : 'text-text-secondary'
-                                      }`}
-                                    >
-                                      <div className="w-4 h-4 rounded-full bg-accent/20 text-accent flex items-center justify-center font-bold text-[9px] shrink-0">
-                                        {(member.display_name || member.email)[0].toUpperCase()}
-                                      </div>
-                                      <span className="truncate">{member.display_name || member.email}</span>
-                                    </button>
-                                  ))
-                                ) : (
-                                  <div className="px-3 py-2 text-[11px] text-text-muted text-center">
-                                    No staff members found
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() => setShowAssignDropdown(false)}
+                                />
+                                <div className="absolute right-0 mt-1 w-56 bg-surface border border-border rounded-md shadow-lg z-50 py-1 text-xs">
+                                  <div className="px-3 py-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wider border-b border-border flex items-center justify-between">
+                                    <span>Assign Conversation</span>
+                                    {teamLoading && <RefreshCw className="w-2.5 h-2.5 animate-spin text-accent" />}
                                   </div>
-                                )}
-                              </div>
+                                  {(() => {
+                                    const patientDoc = (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor || '').trim();
+                                    if (!patientDoc) return null;
+                                    const matchedTeam = (teamList || []).find(
+                                      (m) =>
+                                        m.is_active !== false &&
+                                        ((m.display_name || '').trim().toLowerCase() === patientDoc.toLowerCase() ||
+                                         (m.email || '').trim().toLowerCase() === patientDoc.toLowerCase())
+                                    );
+                                    return (
+                                      <div className="px-3 py-1.5 bg-emerald-50/70 dark:bg-emerald-950/40 border-b border-border flex items-center justify-between text-[11px]">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <Stethoscope className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                          <span className="text-text-muted text-[10px]">Patient Doctor:</span>
+                                          <span className="font-semibold text-text-primary truncate">{patientDoc}</span>
+                                        </div>
+                                        {matchedTeam ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleAssignConversation(selectedConv.id, matchedTeam.id)}
+                                            className="text-[10px] text-accent font-semibold hover:underline cursor-pointer shrink-0 ml-1"
+                                          >
+                                            {selectedConv.assigned_to === matchedTeam.id ? '✓ Assigned' : 'Assign'}
+                                          </button>
+                                        ) : (
+                                          <span className="text-[9px] text-text-muted italic shrink-0 ml-1">Preset</span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAssignConversation(selectedConv.id, null)}
+                                    className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-surface-subtle cursor-pointer ${
+                                      !selectedConv.assigned_to ? 'text-accent font-semibold bg-accent/5' : 'text-text-secondary'
+                                    }`}
+                                  >
+                                    <UserX className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                                    <span>Unassigned</span>
+                                  </button>
+                                  {teamLoading && teamList.length === 0 ? (
+                                    <div className="px-3 py-2.5 text-[11px] text-text-muted text-center flex items-center justify-center gap-1.5">
+                                      <RefreshCw className="w-3 h-3 animate-spin text-accent" />
+                                      <span>Loading staff members...</span>
+                                    </div>
+                                  ) : teamList && teamList.filter((m) => m.is_active !== false).length > 0 ? (
+                                    teamList.filter((m) => m.is_active !== false).map((member) => (
+                                      <button
+                                        key={member.id}
+                                        type="button"
+                                        onClick={() => handleAssignConversation(selectedConv.id, member.id)}
+                                        className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-surface-subtle cursor-pointer transition-colors ${
+                                          selectedConv.assigned_to === member.id ? 'text-accent font-semibold bg-accent/5' : 'text-text-secondary'
+                                        }`}
+                                      >
+                                        <div className="w-5 h-5 rounded-full bg-accent/20 text-accent flex items-center justify-center font-bold text-[10px] shrink-0">
+                                          {(member.display_name || member.email)[0].toUpperCase()}
+                                        </div>
+                                        <div className="flex flex-col min-w-0">
+                                          <span className="truncate font-medium text-text-primary text-[11px]">
+                                            {member.display_name || member.email}
+                                          </span>
+                                          <span className="text-[9px] text-text-muted">
+                                            {formatRoleName(member.role)}
+                                          </span>
+                                        </div>
+                                      </button>
+                                    ))
+                                  ) : (
+                                    <div className="px-3 py-2 text-[11px] text-text-muted text-center flex flex-col items-center gap-1">
+                                      <span>No staff members found</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setShowAssignDropdown(false);
+                                          setActiveNav('team');
+                                        }}
+                                        className="text-[10px] text-accent hover:underline font-semibold cursor-pointer"
+                                      >
+                                        + Add Team Member
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </>
                             )}
                           </div>
 
@@ -7764,7 +8217,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         ) : (
                           messages.map((msg, idx) => {
                             const isInbound = msg.direction === 'inbound';
-                            const isVoice = msg.body?.startsWith('[Voice Note:');
+                            const displayBody = getDisplayMessageBody(msg);
+                            const isVoice = msg.body?.startsWith('[Voice Note:') || msg.body?.startsWith('🎤 [Voice Note:') || msg.content_type === 'audio';
                             const currentDateKey = getMessageDateKey(msg.created_at);
                             const prevDateKey = idx > 0 ? getMessageDateKey(messages[idx - 1]?.created_at) : null;
                             const showDateDivider = idx === 0 || (Boolean(currentDateKey) && currentDateKey !== prevDateKey);
@@ -7789,10 +8243,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     {isVoice && (
                                       <div className="flex items-center gap-1 text-accent-light font-mono text-[10px] mb-1">
                                         <Mic className="w-3 h-3 stroke-[1.5]" />
-                                        <span>Voice note transcribed</span>
+                                        <span>Voice note</span>
                                       </div>
                                     )}
-                                    <p className="leading-relaxed whitespace-pre-wrap font-sans">{msg.body}</p>
+                                    {msg.media_url && (
+                                      <div className="mb-2 rounded-lg overflow-hidden border border-border/50 max-w-xs">
+                                        <img src={msg.media_url} alt="Media attachment" className="w-full h-auto object-cover max-h-60" />
+                                      </div>
+                                    )}
+                                    <p className="leading-relaxed whitespace-pre-wrap font-sans">{displayBody}</p>
                                     <div
                                       className={`text-[10px] mt-1 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100/90'}`}
                                       title={formatFullDateTimeDetailed(msg.created_at)}
@@ -8055,12 +8514,37 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <select
                             value={followupDoctorFilter}
                             onChange={(e) => setFollowupDoctorFilter(e.target.value)}
-                            className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[160px]"
+                            className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[170px]"
                           >
-                            <option value="all">All {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff'}</option>
-                            {availableDoctors.map((doc) => (
-                              <option key={doc} value={doc}>{doc}</option>
-                            ))}
+                            <option value="all">All {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff & Doctors'}</option>
+                            {categorizedStaffOptions.teamDoctors.length > 0 && (
+                              <optgroup label="Doctors (Team Login)">
+                                {categorizedStaffOptions.teamDoctors.map((s) => (
+                                  <option key={s.value} value={s.value}>{s.value}</option>
+                                ))}
+                              </optgroup>
+                            )}
+                            {categorizedStaffOptions.sales.length > 0 && (
+                              <optgroup label="Sales & Support">
+                                {categorizedStaffOptions.sales.map((s) => (
+                                  <option key={s.value} value={s.value}>{s.value}</option>
+                                ))}
+                              </optgroup>
+                            )}
+                            {categorizedStaffOptions.predefinedDoctors.length > 0 && (
+                              <optgroup label="Doctors & Consultants (Presets)">
+                                {categorizedStaffOptions.predefinedDoctors.map((s) => (
+                                  <option key={s.value} value={s.value}>{s.value}</option>
+                                ))}
+                              </optgroup>
+                            )}
+                            {categorizedStaffOptions.other.length > 0 && (
+                              <optgroup label="Staff & Administration">
+                                {categorizedStaffOptions.other.map((s) => (
+                                  <option key={s.value} value={s.value}>{s.value}</option>
+                                ))}
+                              </optgroup>
+                            )}
                           </select>
                           <button
                             type="button"
@@ -8137,7 +8621,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                             <tr>
                               <th className="p-2.5 pl-4">{currentTaxonomy.client_label || 'Customer'}</th>
-                              <th className="p-2.5">{currentTaxonomy.staff_label || 'Staff'}</th>
+                              <th className="p-2.5">{currentTaxonomy.staff_label ? `${currentTaxonomy.staff_label} / Team` : 'Staff / Team'}</th>
                               <th className="p-2.5">{currentTaxonomy.requirement_label || 'Requirement'}</th>
                               <th className="p-2.5">{currentTaxonomy.status_label || 'Status'}</th>
                               <th className="p-2.5">{currentTaxonomy.lead_label || 'Lead'}</th>
@@ -8217,12 +8701,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       <select
                                         value={cust.preferred_doctor || ''}
                                         onChange={(e) => handleUpdateCustomer(cust.id, { preferred_doctor: e.target.value })}
-                                        className="px-1.5 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[135px]"
+                                        className="px-1.5 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[155px]"
                                       >
-                                        <option value="">— Unassigned —</option>
-                                        {availableDoctors.map((doc) => (
-                                          <option key={doc} value={doc}>{doc}</option>
-                                        ))}
+                                        {renderStaffSelectOptions()}
                                       </select>
                                     </td>
 
@@ -8463,10 +8944,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     onChange={(e) => setDrawerDoctor(e.target.value)}
                                     className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer"
                                   >
-                                    <option value="">— Unassigned —</option>
-                                    {availableDoctors.map((doc) => (
-                                      <option key={doc} value={doc}>{doc}</option>
-                                    ))}
+                                    {renderStaffSelectOptions()}
                                   </select>
                                   {drawerDoctor && !availableDoctors.includes(drawerDoctor) && (
                                     <input
@@ -8716,7 +9194,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         )}
                                         <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
                                           <div className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${isInbound ? 'bg-surface text-text-body border border-border' : 'bg-accent text-white'}`}>
-                                            <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
+                                            {msg.media_url && (
+                                              <div className="mb-1 rounded overflow-hidden max-w-[200px]">
+                                                <img src={msg.media_url} alt="Media" className="w-full h-auto object-cover max-h-40" />
+                                              </div>
+                                            )}
+                                            <p className="leading-relaxed whitespace-pre-wrap">{getDisplayMessageBody(msg)}</p>
                                             <div
                                               className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}
                                               title={formatFullDateTimeDetailed(msg.created_at)}
@@ -9170,10 +9653,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     onChange={(e) => setDrawerDoctor(e.target.value)}
                                     className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer"
                                   >
-                                    <option value="">— Unassigned —</option>
-                                    {availableDoctors.map((doc) => (
-                                      <option key={doc} value={doc}>{doc}</option>
-                                    ))}
+                                    {renderStaffSelectOptions()}
                                   </select>
                                   {drawerDoctor && !availableDoctors.includes(drawerDoctor) && (
                                     <input
@@ -9308,7 +9788,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         )}
                                         <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
                                           <div className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${isInbound ? 'bg-surface text-text-body border border-border' : 'bg-accent text-white'}`}>
-                                            <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
+                                            {msg.media_url && (
+                                              <div className="mb-1 rounded overflow-hidden max-w-[200px]">
+                                                <img src={msg.media_url} alt="Media" className="w-full h-auto object-cover max-h-40" />
+                                              </div>
+                                            )}
+                                            <p className="leading-relaxed whitespace-pre-wrap">{getDisplayMessageBody(msg)}</p>
                                             <div
                                               className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}
                                               title={formatFullDateTimeDetailed(msg.created_at)}
@@ -9745,12 +10230,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <select
                           value={addCustomerForm.preferred_doctor}
                           onChange={(e) => setAddCustomerForm(p => ({...p, preferred_doctor: e.target.value}))}
-                          className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                          className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer"
                         >
-                          <option value="">— Select {currentTaxonomy.staff_label || 'Staff'} —</option>
-                          {availableDoctors.map((doc) => (
-                            <option key={doc} value={doc}>{doc}</option>
-                          ))}
+                          {renderStaffSelectOptions(`— Select ${currentTaxonomy.staff_label || 'Staff / Doctor'} —`)}
                         </select>
                       </div>
                       <div>
@@ -9992,12 +10474,37 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <select
                       value={repeatDoctorFilter}
                       onChange={(e) => setRepeatDoctorFilter(e.target.value)}
-                      className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[150px]"
+                      className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[160px]"
                     >
                       <option value="all">All Doctors / Staff</option>
-                      {availableDoctors.map((doc) => (
-                        <option key={doc} value={doc}>{doc}</option>
-                      ))}
+                      {categorizedStaffOptions.teamDoctors.length > 0 && (
+                        <optgroup label="Doctors (Team Login)">
+                          {categorizedStaffOptions.teamDoctors.map((s) => (
+                            <option key={s.value} value={s.value}>{s.value}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {categorizedStaffOptions.sales.length > 0 && (
+                        <optgroup label="Sales & Support">
+                          {categorizedStaffOptions.sales.map((s) => (
+                            <option key={s.value} value={s.value}>{s.value}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {categorizedStaffOptions.predefinedDoctors.length > 0 && (
+                        <optgroup label="Doctors & Consultants (Presets)">
+                          {categorizedStaffOptions.predefinedDoctors.map((s) => (
+                            <option key={s.value} value={s.value}>{s.value}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {categorizedStaffOptions.other.length > 0 && (
+                        <optgroup label="Staff & Administration">
+                          {categorizedStaffOptions.other.map((s) => (
+                            <option key={s.value} value={s.value}>{s.value}</option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
 
                     <div className="relative">
@@ -10201,12 +10708,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <select
                                     value={cust.preferred_doctor || ''}
                                     onChange={(e) => handleUpdateCustomer(cust.id, { preferred_doctor: e.target.value })}
-                                    className="px-1.5 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[130px]"
+                                    className="px-1.5 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[155px]"
                                   >
-                                    <option value="">— Unassigned —</option>
-                                    {availableDoctors.map((doc) => (
-                                      <option key={doc} value={doc}>{doc}</option>
-                                    ))}
+                                    {renderStaffSelectOptions()}
                                   </select>
                                 </td>
 
@@ -11288,24 +11792,52 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         />
                       </div>
 
-                      {/* Google Review Link */}
-                      <div className="p-4 bg-surface rounded-md border border-border space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Star className="w-4 h-4 text-accent stroke-[1.5]" />
-                          <label className="text-xs font-medium text-text-primary">
-                            Google Review Link (Post-Attendance Feedback)
-                          </label>
+                      {/* Google Review Settings & Toggle */}
+                      <div className="p-4 bg-surface rounded-md border border-border space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Star className="w-4 h-4 text-accent stroke-[1.5]" />
+                            <label className="text-xs font-semibold text-text-primary">
+                              Post-Service Review WhatsApp Template
+                            </label>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSettingsForm({ ...settingsForm, enable_auto_review: settingsForm.enable_auto_review === false ? true : false })}
+                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                              settingsForm.enable_auto_review !== false ? 'bg-accent' : 'bg-surface-subtle border-border'
+                            }`}
+                            title={settingsForm.enable_auto_review !== false ? 'Review template sending is Enabled' : 'Review template sending is Disabled'}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                                settingsForm.enable_auto_review !== false ? 'translate-x-4' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
                         </div>
-                        <p className="text-xs text-text-muted">
-                          When an appointment is marked as Attended, the system will automatically send this review link to the customer 15 minutes later.
+                        <p className="text-xs text-text-muted leading-relaxed">
+                          {settingsForm.enable_auto_review !== false ? (
+                            <span className="text-status-success font-medium">✓ Enabled: </span>
+                          ) : (
+                            <span className="text-text-muted font-medium">✕ Disabled: </span>
+                          )}
+                          Send an automated Google Review request template on WhatsApp after an appointment is marked as Attended. When changing status, you will also be prompted with the choice to send or skip for each client.
                         </p>
-                        <input
-                          type="text"
-                          placeholder="https://g.page/r/your-business-id/review"
-                          value={settingsForm.google_review_link || ''}
-                          onChange={(e) => setSettingsForm({ ...settingsForm, google_review_link: e.target.value })}
-                          className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                        />
+                        {settingsForm.enable_auto_review !== false && (
+                          <div className="pt-1">
+                            <label className="block text-[11px] font-medium text-text-secondary mb-1">
+                              Google Review Link
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="https://g.page/r/your-business-id/review"
+                              value={settingsForm.google_review_link || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, google_review_link: e.target.value })}
+                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -12500,6 +13032,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </div>
 
                 <div>
+                  <label className="block text-xs font-medium text-text-primary mb-1">
+                    Assigned {currentTaxonomy.staff_label || 'Staff / Doctor'} (optional)
+                  </label>
+                  <select
+                    value={newBookingForm.staff_member}
+                    onChange={(e) => setNewBookingForm({ ...newBookingForm, staff_member: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans transition-colors duration-150 cursor-pointer"
+                  >
+                    {renderStaffSelectOptions('— Any / Unassigned —')}
+                  </select>
+                </div>
+
+                <div>
                   <label className="block text-xs font-medium text-text-primary mb-1">Notes / Instructions (optional)</label>
                   <textarea
                     rows={2}
@@ -12744,7 +13289,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <p className="text-xs font-medium text-text-muted">Update status:</p>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     <button
-                      onClick={() => handleUpdateBookingStatus(selectedBookingDetail.id, 'completed')}
+                      onClick={() => promptMarkAttended(selectedBookingDetail)}
                       disabled={updatingBookingId === selectedBookingDetail.id}
                       className={`py-1.5 px-2 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1.5 border ${
                         selectedBookingDetail.status === 'completed'
@@ -12808,6 +13353,69 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── MODAL: CONFIRM ATTENDED & SEND REVIEW DECISION ───────────────── */}
+        {pendingAttendedBooking && (
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 select-none">
+            <div className="bg-surface rounded-lg border border-border w-full max-w-md overflow-hidden shadow-xl p-5 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <Star className="w-5 h-5 stroke-[1.8]" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm text-text-primary">Mark Appointment as Attended</h3>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    {pendingAttendedBooking.customer_name} &bull; {pendingAttendedBooking.service}
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-surface-subtle border border-border rounded-sm text-xs text-text-body space-y-1.5 leading-relaxed">
+                <p className="font-medium text-text-primary">
+                  Would you like to send the post-service Google Review request to this client?
+                </p>
+                <p className="text-[11px] text-text-muted">
+                  Sending the review template invites the client to leave public feedback. If you prefer not to message them right now, select &quot;Mark Attended Only&quot;.
+                </p>
+              </div>
+
+              <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setPendingAttendedBooking(null)}
+                  className="w-full sm:w-auto px-3 py-1.5 text-xs text-text-muted hover:text-text-primary rounded-sm border border-border bg-surface transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={updatingBookingId === pendingAttendedBooking.id}
+                  onClick={async () => {
+                    const b = pendingAttendedBooking;
+                    setPendingAttendedBooking(null);
+                    await handleUpdateBookingStatus(b.id, 'completed', undefined, false);
+                  }}
+                  className="w-full sm:w-auto px-3 py-1.5 text-xs font-medium text-text-body hover:bg-surface-subtle rounded-sm border border-border bg-surface transition-colors cursor-pointer"
+                >
+                  Mark Attended Only
+                </button>
+                <button
+                  type="button"
+                  disabled={updatingBookingId === pendingAttendedBooking.id}
+                  onClick={async () => {
+                    const b = pendingAttendedBooking;
+                    setPendingAttendedBooking(null);
+                    await handleUpdateBookingStatus(b.id, 'completed', undefined, true);
+                  }}
+                  className="w-full sm:w-auto px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-sm shadow-2xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Star className="w-3.5 h-3.5 fill-white/20" />
+                  <span>Mark Attended &amp; Send Review</span>
+                </button>
               </div>
             </div>
           </div>
@@ -12974,7 +13582,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               ? 'bg-accent text-white'
                               : 'bg-surface-subtle border border-border text-text-primary'
                           }`}>
-                            <p className="leading-relaxed">{msg.body}</p>
+                            {msg.media_url && (
+                              <div className="mb-1 rounded overflow-hidden max-w-[200px]">
+                                <img src={msg.media_url} alt="Media" className="w-full h-auto object-cover max-h-40" />
+                              </div>
+                            )}
+                            <p className="leading-relaxed">{getDisplayMessageBody(msg)}</p>
                             <p className={`text-[9px] mt-1 ${msg.direction === 'outbound' ? 'text-white/70' : 'text-text-muted'}`}>
                               {formatDateTime12(msg.created_at)} {msg.ai_generated ? '· AI' : ''}
                             </p>
@@ -13666,6 +14279,29 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </div>
 
               <div className="p-5 space-y-4">
+                {/* Bridge Notice to Team & Sales */}
+                <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-sm text-xs text-blue-800 dark:text-blue-300 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold flex items-center gap-1.5 text-xs">
+                      <Users className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                      <span>Need this {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toLowerCase() : 'staff member'} to log in to WhatsApp CRM?</span>
+                    </p>
+                    <p className="text-[11px] text-blue-700/80 dark:text-blue-400 mt-0.5 leading-relaxed">
+                      Names added here are presets for assignment without login (ideal for visiting doctors or solo clinics). To give someone their own login credentials &amp; inbox, invite them in Team &amp; Sales.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDoctorEditModalOpen(false);
+                      setActiveNav('team');
+                    }}
+                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xs text-[11px] shrink-0 transition-colors cursor-pointer"
+                  >
+                    Go to Team &amp; Sales &rarr;
+                  </button>
+                </div>
+
                 {/* Input to Add Doctor */}
                 <div>
                   <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1.5">
@@ -13877,12 +14513,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <select
                       value={quickCrmDoctor}
                       onChange={e => setQuickCrmDoctor(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
+                      className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs cursor-pointer"
                     >
-                      <option value="">— Select Staff —</option>
-                      {availableDoctors.map((doc) => (
-                        <option key={doc} value={doc}>{doc}</option>
-                      ))}
+                      {renderStaffSelectOptions('— Select Staff / Doctor —')}
                     </select>
                   </div>
                 </div>

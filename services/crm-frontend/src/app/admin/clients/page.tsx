@@ -380,19 +380,8 @@ export default function SuperAdminClients() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   // Navigation tabs in Super Admin (Webhooks merged directly into organizations)
-  const [activeTab, setActiveTab] = useState<'organizations' | 'razorpay' | 'global_settings' | 'admin_config'>('organizations');
+  const [activeTab, setActiveTab] = useState<'organizations' | 'razorpay' | 'admin_config'>('organizations');
   const [showWebhooksRegistry, setShowWebhooksRegistry] = useState(false);
-
-  // ── GLOBAL PLATFORM AUTOMATION & RULES STATE ───────────────────────────────
-  const [globalRules, setGlobalRules] = useState<GlobalRulesResponse | null>(null);
-  const [loadingGlobalRules, setLoadingGlobalRules] = useState(false);
-  const [syncingGlobalRules, setSyncingGlobalRules] = useState(false);
-  const [syncResultNotice, setSyncResultNotice] = useState('');
-  const [editedGlobalStrictRules, setEditedGlobalStrictRules] = useState('');
-  const [globalOpeningTime, setGlobalOpeningTime] = useState('09:00');
-  const [globalClosingTime, setGlobalClosingTime] = useState('20:00');
-  const [syncingGlobalHours, setSyncingGlobalHours] = useState(false);
-  const [globalHoursNotice, setGlobalHoursNotice] = useState('');
   const [oauthConnecting, setOauthConnecting] = useState(false);
   const [oauthDisconnecting, setOauthDisconnecting] = useState(false);
 
@@ -1041,58 +1030,6 @@ export default function SuperAdminClients() {
     }
   }, [dbViewSubtab, viewingDbTenant?.id]);
 
-  // Global Rules & Calendar Live Testing Functions
-  const loadGlobalRules = async () => {
-    setLoadingGlobalRules(true);
-    try {
-      const res = await admin.getGlobalRules();
-      setGlobalRules(res);
-      setEditedGlobalStrictRules(res.strict_rules || '');
-      if (res.opening_time) setGlobalOpeningTime(res.opening_time);
-      if (res.closing_time) setGlobalClosingTime(res.closing_time);
-    } catch (err: any) {
-      console.error('Failed to load global rules:', err);
-    } finally {
-      setLoadingGlobalRules(false);
-    }
-  };
-
-  const handleSyncGlobalRules = async () => {
-    setSyncingGlobalRules(true);
-    setSyncResultNotice('');
-    try {
-      const res = await admin.syncGlobalRules({
-        strict_rules: editedGlobalStrictRules,
-        opening_time: globalOpeningTime,
-        closing_time: globalClosingTime,
-      });
-      setSyncResultNotice(res.message || 'Global rules synced successfully.');
-      await loadGlobalRules();
-    } catch (err: any) {
-      setSyncResultNotice('Error: ' + (err?.message || String(err)));
-    } finally {
-      setSyncingGlobalRules(false);
-    }
-  };
-
-  const handleSyncGlobalHours = async () => {
-    setSyncingGlobalHours(true);
-    setGlobalHoursNotice('');
-    try {
-      const res = await admin.syncGlobalRules({
-        opening_time: globalOpeningTime,
-        closing_time: globalClosingTime,
-      });
-      setGlobalHoursNotice(res.message || 'Global operating hours applied to all clients!');
-      setTimeout(() => setGlobalHoursNotice(''), 4000);
-      loadData();
-    } catch (err: any) {
-      setGlobalHoursNotice('Error: ' + (err?.message || String(err)));
-    } finally {
-      setSyncingGlobalHours(false);
-    }
-  };
-
   const handleAdminInitGoogleOAuth = async () => {
     if (!editingConfigTenant) return;
     const cId = configForm.google_client_id?.trim();
@@ -1168,14 +1105,6 @@ export default function SuperAdminClients() {
     }
   }, []);
 
-  useEffect(() => {
-    if (activeTab === 'global_settings') {
-      loadGlobalRules();
-      if (!testerTenantId && tenants.length > 0) {
-        setTesterTenantId(tenants[0].id);
-      }
-    }
-  }, [activeTab, tenants]);
 
 
   async function handleSaveConfig(e: React.FormEvent) {
@@ -1413,7 +1342,6 @@ export default function SuperAdminClients() {
 
           {[
             { id: 'organizations', label: 'Organizations & Config', icon: Building2 },
-            { id: 'global_settings', label: 'Global AI & Scheduling', icon: Sparkles },
             { id: 'razorpay', label: 'Billing & Renewals', icon: CreditCard },
             { id: 'admin_config', label: 'Admin Notifications', icon: Bell },
           ].map((item) => {
@@ -1466,7 +1394,6 @@ export default function SuperAdminClients() {
             <h2 className="font-semibold text-xs text-text-primary flex items-center gap-2">
               <span>
                 {activeTab === 'organizations' && 'Client Organizations & Centralized Configuration'}
-                {activeTab === 'global_settings' && 'Global AI Intelligence & Google Calendar Scheduling Directives'}
                 {activeTab === 'razorpay' && 'Razorpay Subscriptions & Renewal Alerts'}
                 {activeTab === 'admin_config' && 'Super Admin Notification Settings'}
               </span>
@@ -1476,7 +1403,6 @@ export default function SuperAdminClients() {
             </h2>
             <p className="text-xs text-text-muted">
               {activeTab === 'organizations' && 'Manage client workspaces, inspect live database records, configure AI brains, WhatsApp APIs, templates & billing'}
-              {activeTab === 'global_settings' && 'Real-time Google Calendar availability, free-time booking, zero wrong data mandate, and continuous conversation intelligence enforced across all client bots.'}
               {activeTab === 'razorpay' && 'Inspect client recurring billing statuses, renewal schedules, and WhatsApp alert digests'}
               {activeTab === 'admin_config' && 'Set your phone number for receiving automated system alerts and renewal reminders'}
             </p>
@@ -2175,339 +2101,6 @@ export default function SuperAdminClients() {
                   </button>
                 </div>
               </form>
-            </div>
-          )}
-
-          {/* ── TAB 5: GLOBAL AI & CALENDAR SCHEDULING SETTINGS ───────────────── */}
-          {activeTab === 'global_settings' && (
-            <div className="max-w-5xl space-y-6 animate-in fade-in duration-150">
-              {/* Header Banner */}
-              <div className="bg-surface border border-border rounded-md p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/20 text-accent flex items-center justify-center">
-                      <Sparkles className="w-4 h-4 stroke-[1.5]" />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-semibold text-text-primary">
-                        Global Automation, AI Directives & Calendar Scheduling Engine
-                      </h3>
-                      <p className="text-xs text-text-muted mt-0.5">
-                        Universal scheduling policies, live Google Calendar ground truth, and human texting guardrails enforced across all client bots.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-sm flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                    <span>Universal Ground Truth Active</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={loadGlobalRules}
-                    disabled={loadingGlobalRules}
-                    className="px-2.5 py-1 text-xs rounded-sm bg-surface-subtle hover:bg-surface border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
-                    title="Refresh Global Directives"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${loadingGlobalRules ? 'animate-spin' : ''}`} />
-                    <span>Refresh</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Grid: 2 Core Engines */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                
-                {/* Engine 1: Real-Time Google Calendar & Free-Time Booking */}
-                <div className="bg-surface border border-border rounded-md p-5 space-y-4 shadow-xs">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-sm bg-blue-500/10 text-blue-600 border border-blue-500/20 flex items-center justify-center">
-                        <CalendarDays className="w-4 h-4 stroke-[1.5]" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-semibold text-text-primary">
-                          Real-Time Google Calendar Availability & Free-Time Booking
-                        </h4>
-                        <span className="text-[10px] text-text-muted">Zero Wrong Data & Conflict Rejection</span>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-sm bg-status-success-bg text-status-success border border-status-success-border">
-                      Enforced
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-text-body leading-relaxed">
-                    When any customer requests an appointment slot, the AI queries the organization's connected Google Calendar via the <strong>Free/Busy API</strong> and CRM database in real time.
-                  </p>
-
-                  <div className="bg-surface-subtle border border-border rounded-sm p-3.5 space-y-2 text-xs">
-                    <div className="flex items-center gap-1.5 font-medium text-text-primary">
-                      <ShieldCheck className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                      <span>Scheduling Directives Enforced:</span>
-                    </div>
-                    <ul className="text-text-secondary space-y-1 list-disc pl-4 text-[11px]">
-                      <li><strong>Ground Truth Free/Busy:</strong> Pulls occupied events directly from Google Calendar before replying.</li>
-                      <li><strong>Strict Free-Time Only:</strong> Proposes and confirms bookings exclusively during open, unoccupied business hours (09:00 AM - 08:00 PM).</li>
-                      <li><strong>Zero Wrong Data Mandate:</strong> Never invents, guesses, or quotes occupied slots. Refuses conflicts and offers closest open alternatives.</li>
-                      <li><strong>12-Hour Format Strictness:</strong> Communicates exclusively in 12-hour AM/PM format (e.g. 11:00 AM, 06:30 PM).</li>
-                    </ul>
-                  </div>
-
-                  {/* Live Slot Tester Section */}
-                  <div className="pt-2 border-t border-border space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-text-primary flex items-center gap-1.5">
-                        <Activity className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
-                        <span>Live Calendar Availability Tester</span>
-                      </span>
-                      <span className="text-[10px] text-text-muted font-mono">Real-time FreeBusy</span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={testerTenantId}
-                        onChange={(e) => setTesterTenantId(e.target.value)}
-                        className="flex-1 px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans transition-colors duration-150"
-                      >
-                        {tenants.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name} (/{t.slug})
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => handleTestLiveCalendar(testerTenantId)}
-                        disabled={testerLoading || !testerTenantId}
-                        className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer shadow-xs disabled:opacity-50 whitespace-nowrap flex items-center gap-1.5"
-                      >
-                        {testerLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 stroke-[1.5]" />}
-                        <span>Check Live Slots</span>
-                      </button>
-                    </div>
-
-                    {testerError && (
-                      <p className="text-xs text-status-error bg-status-error-bg p-2 rounded-sm border border-status-error-border">
-                        {testerError}
-                      </p>
-                    )}
-
-                    {testerAvailability && (
-                      <div className="bg-surface-subtle border border-border rounded-sm p-3 space-y-2 text-xs animate-in fade-in duration-150">
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-text-primary flex items-center gap-1.5">
-                            {testerAvailability.google_calendar_connected ? (
-                              <CheckCircle2 className="w-3.5 h-3.5 text-status-success" />
-                            ) : (
-                              <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
-                            )}
-                            <span>{testerAvailability.google_calendar_connected ? 'Google Calendar Live Connected' : 'CRM Schedule Active'}</span>
-                          </span>
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface border border-border text-text-secondary">
-                            TZ: {testerAvailability.timezone}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center justify-between text-[11px] text-text-muted">
-                          <span>Total Occupied Slots (Next 7 Days): <strong>{testerAvailability.total_occupied_slots}</strong></span>
-                          <span>(GCal: {testerAvailability.gcal_slots_count}, CRM: {testerAvailability.crm_slots_count})</span>
-                        </div>
-
-                        {testerAvailability.occupied_slots.length > 0 ? (
-                          <div className="max-h-36 overflow-y-auto space-y-1.5 pt-1">
-                            {testerAvailability.occupied_slots.map((slot, i) => (
-                              <div key={i} className="p-2 bg-surface rounded-sm border border-border flex items-center justify-between text-[11px]">
-                                <div>
-                                  <div className="font-medium text-text-primary">{slot.start_formatted} – {slot.end_formatted}</div>
-                                  <div className="text-text-muted text-[10px]">{slot.desc}</div>
-                                </div>
-                                <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                                  {slot.source}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-[11px] text-status-success font-medium bg-status-success-bg p-2 rounded-sm border border-status-success-border">
-                            No occupied slots in the next 7 days. All standard business hours (09:00 AM - 08:00 PM) are completely open!
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Engine 2: Continuous Conversation & Zero Re-Greeting */}
-                <div className="bg-surface border border-border rounded-md p-5 space-y-4 shadow-xs">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-sm bg-purple-500/10 text-purple-600 border border-purple-500/20 flex items-center justify-center">
-                        <MessageSquare className="w-4 h-4 stroke-[1.5]" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-semibold text-text-primary">
-                          Continuous Conversation & Zero Re-Greeting
-                        </h4>
-                        <span className="text-[10px] text-text-muted">Natural WhatsApp Human Texting</span>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-sm bg-status-success-bg text-status-success border border-status-success-border">
-                      Enforced
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-text-body leading-relaxed">
-                    Eliminates repetitive greeting re-introductions (e.g. <em>"Hi again! Thanks for sharing..."</em>) in ongoing chats using both LLM conversation state injection and deterministic code-level stripping.
-                  </p>
-
-                  <div className="bg-surface-subtle border border-border rounded-sm p-3.5 space-y-2.5 text-xs">
-                    <div className="flex items-center gap-1.5 font-medium text-text-primary">
-                      <Bot className="w-3.5 h-3.5 text-purple-600 stroke-[1.5]" />
-                      <span>Natural Human Flow vs Robotic Script:</span>
-                    </div>
-
-                    <div className="space-y-2 text-[11px]">
-                      <div className="p-2 rounded bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300">
-                        <span className="font-semibold flex items-center gap-1.5 mb-0.5"><XCircle className="w-3.5 h-3.5 text-rose-600 stroke-[2] shrink-0" /> Blocked (Unnatural / Robotic):</span>
-                        "Hi again! Thanks for sharing. Do you find it harder to fall asleep, stay asleep, or both?"
-                      </div>
-                      <div className="p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300">
-                        <span className="font-semibold flex items-center gap-1.5 mb-0.5"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 stroke-[2] shrink-0" /> Active Flow (Real Human Style):</span>
-                        "Thanks for sharing that! Do you find it harder to fall asleep, stay asleep, or both?"
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-3.5 bg-surface-subtle border border-border rounded-sm space-y-1.5 text-xs">
-                    <span className="font-medium text-text-primary block">Implementation Architecture:</span>
-                    <ul className="text-text-secondary space-y-1 list-disc pl-4 text-[11px]">
-                      <li><strong>Turn Depth Detection:</strong> Checks <code>history.length &gt; 1</code> to identify ongoing multi-turn conversations.</li>
-                      <li><strong>LLM Negative Directive:</strong> Injects strict prohibition against repeating greetings in ongoing dialogue.</li>
-                      <li><strong>Deterministic Regex Guardrail:</strong> Worker post-processor strips any leading "Hi again!", "Hello again!", or repeated greetings before transmission.</li>
-                    </ul>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Universal Shop Operating Hours Editor & Broadcast Sync */}
-              <div className="bg-surface border border-border rounded-md p-5 space-y-4 shadow-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-border">
-                  <div>
-                    <h4 className="text-xs font-semibold text-text-primary flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-accent stroke-[1.5]" />
-                      <span>Platform Universal Shop Operating Hours</span>
-                    </h4>
-                    <p className="text-xs text-text-muted mt-0.5">
-                      Configure standard business hours applied across client AI bots. Bots will strictly propose and confirm slots within this window.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleSyncGlobalHours}
-                    disabled={syncingGlobalHours}
-                    className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer shadow-xs disabled:opacity-50 flex items-center gap-1.5 shrink-0"
-                  >
-                    {syncingGlobalHours ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
-                    ) : (
-                      <Check className="w-3.5 h-3.5 stroke-[1.5]" />
-                    )}
-                    <span>Apply Operating Hours to All Clients</span>
-                  </button>
-                </div>
-
-                {globalHoursNotice && (
-                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs rounded-sm font-medium flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>{globalHoursNotice}</span>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="p-3.5 bg-surface-subtle border border-border rounded-sm space-y-2">
-                    <label className="block text-xs font-medium text-text-primary flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                      <span>Global Shop Opening Time</span>
-                    </label>
-                    <input
-                      type="time"
-                      value={globalOpeningTime}
-                      onChange={(e) => setGlobalOpeningTime(e.target.value)}
-                      className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                    />
-                    <span className="text-[11px] text-text-muted block">
-                      Default opening time for bookings (e.g. 09:00 AM).
-                    </span>
-                  </div>
-
-                  <div className="p-3.5 bg-surface-subtle border border-border rounded-sm space-y-2">
-                    <label className="block text-xs font-medium text-text-primary flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                      <span>Global Shop Closing Time</span>
-                    </label>
-                    <input
-                      type="time"
-                      value={globalClosingTime}
-                      onChange={(e) => setGlobalClosingTime(e.target.value)}
-                      className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                    />
-                    <span className="text-[11px] text-text-muted block">
-                      Default closing time for bookings (e.g. 08:00 PM).
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Master Directives Editor & Broadcast Sync */}
-              <div className="bg-surface border border-border rounded-md p-5 space-y-4 shadow-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-border">
-                  <div>
-                    <h4 className="text-xs font-semibold text-text-primary flex items-center gap-2">
-                      <Shield className="w-4 h-4 text-accent stroke-[1.5]" />
-                      <span>Platform Universal Strict Rules (`strict_rules`)</span>
-                    </h4>
-                    <p className="text-xs text-text-muted mt-0.5">
-                      These rules are compiled into the core engine and act as the highest authority negative constraints for all client organizations.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleSyncGlobalRules}
-                    disabled={syncingGlobalRules}
-                    className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer shadow-xs disabled:opacity-50 flex items-center gap-1.5 shrink-0"
-                  >
-                    {syncingGlobalRules ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
-                    ) : (
-                      <Check className="w-3.5 h-3.5 stroke-[1.5]" />
-                    )}
-                    <span>Sync Global Rules to All Organizations</span>
-                  </button>
-                </div>
-
-                {syncResultNotice && (
-                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs rounded-sm font-medium flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>{syncResultNotice}</span>
-                  </div>
-                )}
-
-                <div>
-                  <textarea
-                    rows={11}
-                    value={editedGlobalStrictRules}
-                    onChange={(e) => setEditedGlobalStrictRules(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent leading-relaxed transition-colors duration-150"
-                  />
-                  <p className="text-xs text-text-muted mt-1.5">
-                    Clicking <strong>Sync Global Rules to All Organizations</strong> updates the <code>strict_rules</code> column in the PostgreSQL <code>ai_config</code> table for all registered client organizations platform-wide.
-                  </p>
-                </div>
-              </div>
             </div>
           )}
 

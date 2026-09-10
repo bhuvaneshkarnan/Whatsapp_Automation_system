@@ -103,29 +103,67 @@ webhookRouter.post(
       // Inbound messages
       for (const msg of (value.messages ?? []) as MetaMessage[]) {
         const dedupeKey = `dedup:wa:${msg.id}`;
-        const isNew = await redis.set(dedupeKey, '1', 'EX', 86400, 'NX'); // 24h TTL
+        // Atomic NX set to prevent concurrent deduplication race conditions
+        const acquired = await redis.set(dedupeKey, 'in_flight', 'EX', 60, 'NX');
 
-        if (!isNew) {
+        if (!acquired) {
           duplicatesSkipped.inc({ tenant: tenantSlug });
           continue;
         }
 
         msgsReceived.inc({ tenant: tenantSlug, type: msg.type });
 
-        // Publish to Redis Stream for core-worker to consume
-        await publishToStream(STREAMS.INBOUND, {
-          tenantId:      config.tenantId,
-          tenantSlug,
-          phoneNumberId: config.phoneNumberId,
-          accessToken:   config.accessToken,
-          waMessageId:   msg.id,
-          from:          msg.from,
-          type:          msg.type,
-          body:          msg.text?.body ?? msg.button?.text ?? msg.button?.payload ?? msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? '',
-          timestamp:     msg.timestamp,
-          contactName:   value.contacts?.[0]?.profile?.name ?? '',
-          rawJson:       JSON.stringify(msg),
-        });
+        let extractedBody = msg.text?.body ?? msg.image?.caption ?? msg.document?.caption ?? msg.video?.caption ?? msg.button?.text ?? msg.button?.payload ?? msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? '';
+
+        if (!extractedBody || !extractedBody.trim()) {
+          const rawMsg: any = msg;
+          if (msg.type === 'image') {
+            extractedBody = '📷 [Photo]';
+          } else if (msg.type === 'video') {
+            extractedBody = '🎥 [Video]';
+          } else if (msg.type === 'document') {
+            const fn = rawMsg.document?.filename;
+            extractedBody = fn ? `📄 ${fn}` : '📄 [Document]';
+          } else if (msg.type === 'audio' || msg.type === 'voice') {
+            extractedBody = '🎤 [Voice Note]';
+          } else if (msg.type === 'sticker') {
+            extractedBody = '🏷️ [Sticker]';
+          } else if (msg.type === 'location') {
+            const loc = rawMsg.location;
+            extractedBody = loc?.name ? `📍 Location: ${loc.name}` : (loc?.latitude ? `📍 Location: https://maps.google.com/?q=${loc.latitude},${loc.longitude}` : '📍 [Location shared]');
+          } else if (msg.type === 'contacts') {
+            const cList = rawMsg.contacts;
+            const cName = cList?.[0]?.name?.formatted_name || cList?.[0]?.name?.first_name;
+            extractedBody = cName ? `👤 Contact: ${cName}` : '👤 [Contact shared]';
+          } else if (msg.type === 'reaction') {
+            const em = rawMsg.reaction?.emoji;
+            extractedBody = em ? `Reaction: ${em}` : 'Reaction';
+          }
+        }
+
+        try {
+          // Publish to Redis Stream for core-worker to consume
+          await publishToStream(STREAMS.INBOUND, {
+            tenantId:      config.tenantId,
+            tenantSlug,
+            phoneNumberId: config.phoneNumberId,
+            accessToken:   config.accessToken,
+            waMessageId:   msg.id,
+            from:          msg.from,
+            type:          msg.type,
+            body:          extractedBody,
+            timestamp:     msg.timestamp,
+            contactName:   value.contacts?.[0]?.profile?.name ?? '',
+            rawJson:       JSON.stringify(msg),
+          });
+
+          // Mark as permanent dedupe AFTER publishToStream succeeds
+          await redis.set(dedupeKey, 'done', 'EX', 86400); // 24h TTL
+        } catch (publishErr) {
+          // If stream publish fails, delete dedupe key so retry can succeed
+          await redis.del(dedupeKey).catch(() => {});
+          throw publishErr;
+        }
 
         logger.info('Message enqueued', {
           tenantSlug,
@@ -162,10 +200,29 @@ webhookRouter.post(
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function captureRawBody(req: Request, _res: Response, next: NextFunction): void {
+const MAX_BODY_SIZE_BYTES = 2 * 1024 * 1024; // 2MB limit
+
+function captureRawBody(req: Request, res: Response, next: NextFunction): void {
   const chunks: Buffer[] = [];
-  req.on('data', (chunk: Buffer) => chunks.push(chunk));
+  let totalLength = 0;
+  let exceeded = false;
+
+  req.on('data', (chunk: Buffer) => {
+    if (exceeded) return;
+    totalLength += chunk.length;
+    if (totalLength > MAX_BODY_SIZE_BYTES) {
+      exceeded = true;
+      res.status(413).json({
+        error: 'Payload Too Large',
+        message: 'Webhook request body exceeds 2MB limit',
+      });
+      return;
+    }
+    chunks.push(chunk);
+  });
+
   req.on('end', () => {
+    if (exceeded) return;
     req.rawBody = Buffer.concat(chunks);
     // Manually parse JSON since we bypassed express.json()
     try {
@@ -207,8 +264,9 @@ interface MetaMessage {
   type: string;
   text?: { body: string };
   image?: { id: string; mime_type: string; caption?: string };
+  video?: { id: string; mime_type: string; caption?: string };
   audio?: { id: string; mime_type: string };
-  document?: { id: string; mime_type: string; filename?: string };
+  document?: { id: string; mime_type: string; filename?: string; caption?: string };
   interactive?: { type: string; button_reply?: { id: string; title: string }; list_reply?: { id: string; title: string } };
   button?: { payload?: string; text?: string };
 }

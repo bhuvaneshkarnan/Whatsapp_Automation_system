@@ -33,5 +33,6 @@ Thumbs.db
 *.swp
 *.swo
 *.zip
+*.tar.gz
 .vercel
 .env*

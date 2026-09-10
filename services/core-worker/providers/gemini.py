@@ -22,6 +22,7 @@ async def call_gemini(
     temperature: float,
     timeout_seconds: float,
     tenant_id: str,
+    gemini_model: str = None,
 ) -> str:
     """
     Call Google Gemini API with the client's own API key.
@@ -34,6 +35,7 @@ async def call_gemini(
         temperature:      Sampling temperature
         timeout_seconds:  Request timeout
         tenant_id:        For logging
+        gemini_model:     Optional Gemini model override (defaults to gemini-1.5-flash)
 
     Returns:
         Response text from Gemini
@@ -69,7 +71,7 @@ async def call_gemini(
         ],
     }
 
-    model = "gemini-1.5-flash"  # Fast and cheap; upgrade to gemini-1.5-pro per tenant if needed
+    model = gemini_model if gemini_model else "gemini-1.5-flash"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
 
     try:
