@@ -1381,6 +1381,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // Feature 4: Staff Assignment Dropdown State
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
+  const [assignSearchQuery, setAssignSearchQuery] = useState('');
   const [importantConvIds, setImportantConvIds] = useState<string[]>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -3927,25 +3928,106 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
-  // ── Feature 4: Multi-Staff Assignment Handlers ───────────────────────────────
-  async function handleAssignConversation(convId: string, staffId: string | null) {
+  // ── Feature 4: Multi-Staff & Doctor Assignment Handlers ───────────────────────
+  async function handleAssignChatStaff(option: {
+    type: 'unassign' | 'team' | 'preset';
+    id?: string;
+    name?: string;
+  }) {
+    if (!selectedConv) return;
     setShowAssignDropdown(false);
-    const assignedMember = staffId ? teamList.find((m) => m.id === staffId) : null;
-    const staffName = assignedMember ? (assignedMember.display_name || assignedMember.email) : null;
+    const convId = selectedConv.id;
+    const cleanPhone = (selectedConv.contact_phone || selectedConv.phone || '').replace(/[^0-9]/g, '');
+    const matchedCust = cleanPhone && Array.isArray(customers)
+      ? customers.find((c) => c && c.phone && c.phone.replace(/[^0-9]/g, '') === cleanPhone)
+      : (selectedCustomer && selectedCustomer.phone && selectedCustomer.phone.replace(/[^0-9]/g, '') === cleanPhone ? selectedCustomer : null);
 
-    // Optimistic UI update
-    setSelectedConv((prev) => (prev && prev.id === convId ? { ...prev, assigned_to: staffId, assigned_staff_name: staffName } : prev));
-    setConversations((prev) =>
-      prev.map((c) => (c.id === convId ? { ...c, assigned_to: staffId, assigned_staff_name: staffName } : c))
-    );
+    if (option.type === 'unassign') {
+      setSelectedConv((prev) => (prev && prev.id === convId ? { ...prev, assigned_to: null, assigned_staff_name: null, preferred_doctor: '' } : prev));
+      setConversations((prev) =>
+        prev.map((c) => (c.id === convId ? { ...c, assigned_to: null, assigned_staff_name: null, preferred_doctor: '' } : c))
+      );
+      try {
+        await crm.assignConversation(convId, null);
+        if (matchedCust) {
+          await handleUpdateCustomer(matchedCust.id, { preferred_doctor: '' });
+        }
+        setActionNotice('Chat unassigned');
+        setTimeout(() => setActionNotice(null), 2500);
+      } catch (err) {
+        console.error('Failed to unassign conversation:', err);
+        loadConversations();
+      }
+    } else if (option.type === 'team') {
+      const staffId = option.id!;
+      const staffName = option.name!;
+      setSelectedConv((prev) => (prev && prev.id === convId ? { ...prev, assigned_to: staffId, assigned_staff_name: staffName, preferred_doctor: staffName } : prev));
+      setConversations((prev) =>
+        prev.map((c) => (c.id === convId ? { ...c, assigned_to: staffId, assigned_staff_name: staffName, preferred_doctor: staffName } : c))
+      );
+      try {
+        await crm.assignConversation(convId, staffId);
+        if (matchedCust) {
+          await handleUpdateCustomer(matchedCust.id, { preferred_doctor: staffName });
+        }
+        setActionNotice(`Chat assigned to ${staffName}`);
+        setTimeout(() => setActionNotice(null), 2500);
+      } catch (err) {
+        console.error('Failed to assign conversation:', err);
+        loadConversations();
+      }
+    } else if (option.type === 'preset') {
+      const docName = option.name!;
+      const matchingTeam = (teamList || []).find(
+        (m) =>
+          m.is_active !== false &&
+          ((m.display_name || '').trim().toLowerCase() === docName.toLowerCase() ||
+           (m.email || '').trim().toLowerCase() === docName.toLowerCase())
+      );
 
-    try {
-      await crm.assignConversation(convId, staffId);
-      setActionNotice(staffName ? `Chat assigned to ${staffName}` : 'Chat unassigned');
-      setTimeout(() => setActionNotice(null), 2500);
-    } catch (err) {
-      console.error('Failed to assign conversation:', err);
-      loadConversations();
+      if (matchingTeam) {
+        await handleAssignChatStaff({ type: 'team', id: matchingTeam.id, name: matchingTeam.display_name || matchingTeam.email });
+        return;
+      }
+
+      setSelectedConv((prev) => (prev && prev.id === convId ? { ...prev, assigned_to: null, assigned_staff_name: null, preferred_doctor: docName } : prev));
+      setConversations((prev) =>
+        prev.map((c) => (c.id === convId ? { ...c, assigned_to: null, assigned_staff_name: null, preferred_doctor: docName } : c))
+      );
+      try {
+        await crm.assignConversation(convId, null);
+        if (matchedCust) {
+          await handleUpdateCustomer(matchedCust.id, { preferred_doctor: docName });
+        } else if (cleanPhone) {
+          try {
+            const newCust = await crm.createCustomer({
+              phone: selectedConv.contact_phone || selectedConv.phone || cleanPhone,
+              name: selectedConv.contact_name || selectedConv.name || undefined,
+              preferred_doctor: docName,
+            });
+            if (newCust && newCust.id) {
+              setCustomers((prev) => [newCust, ...prev]);
+            }
+          } catch (e) {
+            console.error('Failed to auto-create customer for preset doctor:', e);
+          }
+        }
+        setActionNotice(`Assigned to ${docName}`);
+        setTimeout(() => setActionNotice(null), 2500);
+      } catch (err) {
+        console.error('Failed to assign preset doctor:', err);
+        loadConversations();
+      }
+    }
+  }
+
+  async function handleAssignConversation(convId: string, staffId: string | null) {
+    if (staffId) {
+      const assignedMember = teamList.find((m) => m.id === staffId);
+      const staffName = assignedMember ? (assignedMember.display_name || assignedMember.email) : 'Staff';
+      await handleAssignChatStaff({ type: 'team', id: staffId, name: staffName });
+    } else {
+      await handleAssignChatStaff({ type: 'unassign' });
     }
   }
 
@@ -7871,7 +7953,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             }
                           })()}
 
-                          {/* Staff Assignment Dropdown */}
+                          {/* Staff & Doctor Assignment Dropdown */}
                           <div className="relative">
                             <button
                               type="button"
@@ -7880,12 +7962,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   const next = !prev;
                                   if (next) {
                                     loadTeamList();
+                                    setAssignSearchQuery('');
                                   }
                                   return next;
                                 });
                               }}
-                              className="px-2 py-1 rounded-sm text-xs font-medium border border-border bg-surface hover:bg-surface-subtle text-text-primary flex items-center gap-1 transition-colors cursor-pointer"
-                              title={selectedConv.assigned_staff_name ? `Assigned to: ${selectedConv.assigned_staff_name}` : (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor) ? `Doctor: ${selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor}` : 'Assign staff to this conversation'}
+                              className={`px-2 py-1 rounded-sm text-xs font-medium border transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs ${
+                                selectedConv.assigned_staff_name
+                                  ? 'border-accent/30 bg-accent/5 text-text-primary hover:bg-accent/10'
+                                  : (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor)
+                                  ? 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70'
+                                  : 'border-border bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary'
+                              }`}
+                              title={
+                                selectedConv.assigned_staff_name
+                                  ? `Assigned to: ${selectedConv.assigned_staff_name}`
+                                  : (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor)
+                                  ? `Doctor: ${selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor}`
+                                  : 'Assign staff or doctor to this conversation'
+                              }
                             >
                               {selectedConv.assigned_staff_name ? (
                                 <User className="w-3.5 h-3.5 text-accent shrink-0" />
@@ -7894,8 +7989,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               ) : (
                                 <Users className="w-3.5 h-3.5 text-text-muted shrink-0" />
                               )}
-                              <span className="hidden sm:inline max-w-[95px] truncate text-[11px]">
-                                {selectedConv.assigned_staff_name || (selectedConv.assigned_to ? (teamList.find((m) => m.id === selectedConv.assigned_to)?.display_name || teamList.find((m) => m.id === selectedConv.assigned_to)?.email || 'Assigned') : (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor || 'Unassigned'))}
+                              <span className="hidden sm:inline max-w-[100px] truncate text-[11px] font-medium">
+                                {selectedConv.assigned_staff_name ||
+                                  (selectedConv.assigned_to
+                                    ? teamList.find((m) => m.id === selectedConv.assigned_to)?.display_name ||
+                                      teamList.find((m) => m.id === selectedConv.assigned_to)?.email ||
+                                      'Assigned'
+                                    : selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor || 'Unassigned')}
                               </span>
                               <ChevronDown className="w-3 h-3 text-text-muted shrink-0" />
                             </button>
@@ -7905,94 +8005,225 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   className="fixed inset-0 z-40"
                                   onClick={() => setShowAssignDropdown(false)}
                                 />
-                                <div className="absolute right-0 mt-1 w-56 bg-surface border border-border rounded-md shadow-lg z-50 py-1 text-xs">
-                                  <div className="px-3 py-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wider border-b border-border flex items-center justify-between">
-                                    <span>Assign Conversation</span>
+                                <div className="absolute right-0 mt-1 w-60 bg-surface border border-border rounded-md shadow-xl z-50 py-1 text-xs divide-y divide-border/40">
+                                  {/* Header */}
+                                  <div className="px-2.5 py-1.5 flex items-center justify-between bg-surface-subtle/40">
+                                    <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
+                                      Assign Staff / Doctor
+                                    </span>
                                     {teamLoading && <RefreshCw className="w-2.5 h-2.5 animate-spin text-accent" />}
                                   </div>
-                                  {(() => {
-                                    const patientDoc = (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor || '').trim();
-                                    if (!patientDoc) return null;
-                                    const matchedTeam = (teamList || []).find(
-                                      (m) =>
-                                        m.is_active !== false &&
-                                        ((m.display_name || '').trim().toLowerCase() === patientDoc.toLowerCase() ||
-                                         (m.email || '').trim().toLowerCase() === patientDoc.toLowerCase())
-                                    );
-                                    return (
-                                      <div className="px-3 py-1.5 bg-emerald-50/70 dark:bg-emerald-950/40 border-b border-border flex items-center justify-between text-[11px]">
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                          <Stethoscope className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                          <span className="text-text-muted text-[10px]">Patient Doctor:</span>
-                                          <span className="font-semibold text-text-primary truncate">{patientDoc}</span>
-                                        </div>
-                                        {matchedTeam ? (
-                                          <button
-                                            type="button"
-                                            onClick={() => handleAssignConversation(selectedConv.id, matchedTeam.id)}
-                                            className="text-[10px] text-accent font-semibold hover:underline cursor-pointer shrink-0 ml-1"
-                                          >
-                                            {selectedConv.assigned_to === matchedTeam.id ? '✓ Assigned' : 'Assign'}
-                                          </button>
-                                        ) : (
-                                          <span className="text-[9px] text-text-muted italic shrink-0 ml-1">Preset</span>
-                                        )}
+
+                                  {/* Quick search input */}
+                                  {(categorizedStaffOptions.teamDoctors.length +
+                                    categorizedStaffOptions.sales.length +
+                                    categorizedStaffOptions.predefinedDoctors.length +
+                                    categorizedStaffOptions.other.length > 4) && (
+                                    <div className="p-1.5 bg-surface">
+                                      <div className="relative">
+                                        <Search className="w-3 h-3 text-text-muted absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                        <input
+                                          type="text"
+                                          value={assignSearchQuery}
+                                          onChange={(e) => setAssignSearchQuery(e.target.value)}
+                                          placeholder="Search staff or doctor..."
+                                          className="w-full pl-6 pr-2 py-0.5 text-[11px] bg-surface-subtle border border-border rounded text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+                                          onClick={(e) => e.stopPropagation()}
+                                          autoFocus
+                                        />
                                       </div>
-                                    );
-                                  })()}
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAssignConversation(selectedConv.id, null)}
-                                    className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-surface-subtle cursor-pointer ${
-                                      !selectedConv.assigned_to ? 'text-accent font-semibold bg-accent/5' : 'text-text-secondary'
-                                    }`}
-                                  >
-                                    <UserX className="w-3.5 h-3.5 text-text-muted shrink-0" />
-                                    <span>Unassigned</span>
-                                  </button>
-                                  {teamLoading && teamList.length === 0 ? (
-                                    <div className="px-3 py-2.5 text-[11px] text-text-muted text-center flex items-center justify-center gap-1.5">
-                                      <RefreshCw className="w-3 h-3 animate-spin text-accent" />
-                                      <span>Loading staff members...</span>
-                                    </div>
-                                  ) : teamList && teamList.filter((m) => m.is_active !== false).length > 0 ? (
-                                    teamList.filter((m) => m.is_active !== false).map((member) => (
-                                      <button
-                                        key={member.id}
-                                        type="button"
-                                        onClick={() => handleAssignConversation(selectedConv.id, member.id)}
-                                        className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-surface-subtle cursor-pointer transition-colors ${
-                                          selectedConv.assigned_to === member.id ? 'text-accent font-semibold bg-accent/5' : 'text-text-secondary'
-                                        }`}
-                                      >
-                                        <div className="w-5 h-5 rounded-full bg-accent/20 text-accent flex items-center justify-center font-bold text-[10px] shrink-0">
-                                          {(member.display_name || member.email)[0].toUpperCase()}
-                                        </div>
-                                        <div className="flex flex-col min-w-0">
-                                          <span className="truncate font-medium text-text-primary text-[11px]">
-                                            {member.display_name || member.email}
-                                          </span>
-                                          <span className="text-[9px] text-text-muted">
-                                            {formatRoleName(member.role)}
-                                          </span>
-                                        </div>
-                                      </button>
-                                    ))
-                                  ) : (
-                                    <div className="px-3 py-2 text-[11px] text-text-muted text-center flex flex-col items-center gap-1">
-                                      <span>No staff members found</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setShowAssignDropdown(false);
-                                          setActiveNav('team');
-                                        }}
-                                        className="text-[10px] text-accent hover:underline font-semibold cursor-pointer"
-                                      >
-                                        + Add Team Member
-                                      </button>
                                     </div>
                                   )}
+
+                                  {/* Scrollable list */}
+                                  <div className="max-h-64 overflow-y-auto py-1 divide-y divide-border/20">
+                                    {/* Unassigned Option */}
+                                    {(!assignSearchQuery || 'unassigned'.includes(assignSearchQuery.toLowerCase())) && (() => {
+                                      const isUnassigned = !selectedConv.assigned_to && !selectedConv.assigned_staff_name && !selectedConv.preferred_doctor && !selectedCustomer?.preferred_doctor;
+                                      return (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleAssignChatStaff({ type: 'unassign' })}
+                                          className={`w-full text-left px-2.5 py-1.5 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                                            isUnassigned ? 'text-accent font-semibold bg-accent/5' : 'text-text-secondary'
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            <UserX className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                                            <span className="truncate text-[11px]">Unassigned</span>
+                                          </div>
+                                          {isUnassigned && <Check className="w-3 h-3 text-accent shrink-0" />}
+                                        </button>
+                                      );
+                                    })()}
+
+                                    {/* 1. Doctors (Team Login) */}
+                                    {(() => {
+                                      const q = assignSearchQuery.trim().toLowerCase();
+                                      const list = categorizedStaffOptions.teamDoctors.filter((d) => !q || d.value.toLowerCase().includes(q));
+                                      if (list.length === 0) return null;
+                                      return (
+                                        <div className="py-1">
+                                          <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
+                                            Doctors (Team Login)
+                                          </div>
+                                          {list.map((doc) => {
+                                            const isActive = selectedConv.assigned_to === doc.id || (selectedConv.assigned_staff_name && selectedConv.assigned_staff_name.toLowerCase() === doc.value.toLowerCase());
+                                            return (
+                                              <button
+                                                key={doc.value}
+                                                type="button"
+                                                onClick={() => handleAssignChatStaff({ type: 'team', id: doc.id!, name: doc.value })}
+                                                className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                                                  isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
+                                                }`}
+                                              >
+                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                  <Stethoscope className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                                                  <span className="truncate text-[11px]">{doc.value}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1 shrink-0 ml-1">
+                                                  <span className="text-[9px] px-1 py-0.2 rounded bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 font-medium">Doctor</span>
+                                                  {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
+                                                </div>
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    })()}
+
+                                    {/* 2. Sales & Support (Team Login) */}
+                                    {(() => {
+                                      const q = assignSearchQuery.trim().toLowerCase();
+                                      const list = categorizedStaffOptions.sales.filter((s) => !q || s.value.toLowerCase().includes(q));
+                                      if (list.length === 0) return null;
+                                      return (
+                                        <div className="py-1">
+                                          <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
+                                            Sales & Support
+                                          </div>
+                                          {list.map((mem) => {
+                                            const isActive = selectedConv.assigned_to === mem.id || (selectedConv.assigned_staff_name && selectedConv.assigned_staff_name.toLowerCase() === mem.value.toLowerCase());
+                                            return (
+                                              <button
+                                                key={mem.value}
+                                                type="button"
+                                                onClick={() => handleAssignChatStaff({ type: 'team', id: mem.id!, name: mem.value })}
+                                                className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                                                  isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
+                                                }`}
+                                              >
+                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                  <User className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                                                  <span className="truncate text-[11px]">{mem.value}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1 shrink-0 ml-1">
+                                                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 font-medium">Sales</span>
+                                                  {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
+                                                </div>
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    })()}
+
+                                    {/* 3. Doctors & Consultants (Predefined Presets) */}
+                                    {(() => {
+                                      const q = assignSearchQuery.trim().toLowerCase();
+                                      const list = categorizedStaffOptions.predefinedDoctors.filter((p) => !q || p.value.toLowerCase().includes(q));
+                                      if (list.length === 0) return null;
+                                      const currentDoc = (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor || '').trim().toLowerCase();
+                                      return (
+                                        <div className="py-1">
+                                          <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
+                                            Doctors (Presets)
+                                          </div>
+                                          {list.map((preset) => {
+                                            const isActive = !selectedConv.assigned_to && currentDoc === preset.value.toLowerCase();
+                                            return (
+                                              <button
+                                                key={preset.value}
+                                                type="button"
+                                                onClick={() => handleAssignChatStaff({ type: 'preset', name: preset.value })}
+                                                className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                                                  isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
+                                                }`}
+                                              >
+                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                  <Stethoscope className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                                  <span className="truncate text-[11px]">{preset.value}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1 shrink-0 ml-1">
+                                                  <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 font-medium">Preset</span>
+                                                  {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
+                                                </div>
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    })()}
+
+                                    {/* 4. Staff & Administration */}
+                                    {(() => {
+                                      const q = assignSearchQuery.trim().toLowerCase();
+                                      const list = categorizedStaffOptions.other.filter((o) => !q || o.value.toLowerCase().includes(q));
+                                      if (list.length === 0) return null;
+                                      return (
+                                        <div className="py-1">
+                                          <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
+                                            Staff & Administration
+                                          </div>
+                                          {list.map((mem) => {
+                                            const isActive = selectedConv.assigned_to === mem.id || (selectedConv.assigned_staff_name && selectedConv.assigned_staff_name.toLowerCase() === mem.value.toLowerCase());
+                                            return (
+                                              <button
+                                                key={mem.value}
+                                                type="button"
+                                                onClick={() => handleAssignChatStaff({ type: 'team', id: mem.id!, name: mem.value })}
+                                                className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                                                  isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
+                                                }`}
+                                              >
+                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                  <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                                                  <span className="truncate text-[11px]">{mem.value}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1 shrink-0 ml-1">
+                                                  <span className="text-[9px] px-1 py-0.2 rounded bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 font-medium">Admin</span>
+                                                  {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
+                                                </div>
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    })()}
+
+                                    {/* Loading state */}
+                                    {teamLoading && teamList.length === 0 && (
+                                      <div className="px-3 py-3 text-[11px] text-text-muted text-center flex items-center justify-center gap-1.5">
+                                        <RefreshCw className="w-3 h-3 animate-spin text-accent" />
+                                        <span>Loading staff members...</span>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Footer */}
+                                  <div className="px-2.5 py-1.5 bg-surface-subtle/30 flex items-center justify-between text-[10px]">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setShowAssignDropdown(false);
+                                        setActiveNav('team');
+                                      }}
+                                      className="text-accent hover:underline font-medium flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Users className="w-3 h-3" /> Manage Staff & Presets
+                                    </button>
+                                  </div>
                                 </div>
                               </>
                             )}
