@@ -11152,41 +11152,43 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         {cust.latest_note ? (() => {
                                           const noteStyle = getNoteBadgeStyle(cust.latest_note_color);
                                           return (
-                                            <div
-                                              onClick={(e) => e.stopPropagation()}
-                                              className={`group/note relative flex items-start gap-1.5 p-2 rounded-md border text-[11px] leading-relaxed transition-all shadow-2xs mt-1 ${noteStyle.badge}`}
-                                            >
-                                              <StickyNote className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${noteStyle.icon}`} />
+                                            <div className="flex flex-wrap items-start">
                                               <div
-                                                className="flex-1 cursor-pointer select-text pr-6 min-w-0"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  setQuickNoteCustomer({
-                                                    customerId: cust.id,
-                                                    name: cust.name || 'Customer',
-                                                    noteId: cust.latest_note_id
-                                                  });
-                                                  setQuickNoteText(cust.latest_note || '');
-                                                  setQuickNoteColor((cust.latest_note_color || 'slate').toLowerCase());
-                                                }}
-                                                title="Click to edit note"
+                                                onClick={(e) => e.stopPropagation()}
+                                                className={`group/note inline-flex items-start gap-1.5 py-1 px-2 rounded-md border text-[11px] leading-snug transition-all shadow-2xs w-fit max-w-full ${noteStyle.badge}`}
                                               >
-                                                <p className="font-normal text-text-primary whitespace-pre-wrap break-words italic">
-                                                  "{cust.latest_note}"
-                                                </p>
+                                                <StickyNote className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${noteStyle.icon}`} />
+                                                <div
+                                                  className="cursor-pointer select-text min-w-0"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setQuickNoteCustomer({
+                                                      customerId: cust.id,
+                                                      name: cust.name || 'Customer',
+                                                      noteId: cust.latest_note_id
+                                                    });
+                                                    setQuickNoteText(cust.latest_note || '');
+                                                    setQuickNoteColor((cust.latest_note_color || 'slate').toLowerCase());
+                                                  }}
+                                                  title="Click to edit note"
+                                                >
+                                                  <span className="font-normal text-text-primary whitespace-pre-wrap break-words italic">
+                                                    "{cust.latest_note}"
+                                                  </span>
+                                                </div>
+                                                {/* Delete Note Button - snugly placed inline beside text */}
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteCustomerLatestNote(cust);
+                                                  }}
+                                                  className="ml-1 -mr-0.5 p-0.5 rounded text-text-muted hover:text-rose-600 hover:bg-rose-100/70 dark:hover:bg-rose-950/50 transition-colors opacity-70 group-hover/note:opacity-100 cursor-pointer shrink-0"
+                                                  title="Delete this note"
+                                                >
+                                                  <Trash2 className="w-3 h-3" />
+                                                </button>
                                               </div>
-                                              {/* Delete Note Button */}
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  handleDeleteCustomerLatestNote(cust);
-                                                }}
-                                                className="absolute top-1.5 right-1.5 p-1 rounded text-text-muted hover:text-rose-600 hover:bg-rose-100/70 dark:hover:bg-rose-950/50 transition-colors opacity-70 group-hover/note:opacity-100 cursor-pointer"
-                                                title="Delete this note"
-                                              >
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                              </button>
                                             </div>
                                           );
                                         })() : null}
