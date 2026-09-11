@@ -769,6 +769,36 @@ const INDUSTRY_PRESETS = [
       tab_bookings_label: 'Bookings',
       tab_calendar_label: 'Calendar schedule',
       tab_marketing_label: 'Marketing',
+      // Main Customer Table Columns
+      col_customer_label: 'Client & Contact',
+      col_assigned_label: 'Staff & Status',
+      col_followup_label: 'Follow-up & Action',
+      phone_label: 'Phone',
+      age_location_label: 'Age & Location',
+      status_label: 'Status',
+      lead_label: 'Lead',
+      followup_label: 'Follow-up Due',
+      created_label: 'Added',
+      notes_label: 'Latest Note',
+      actions_label: 'Action',
+      // Repeat Clients Table Columns
+      repeat_col_client: 'Client & Contact',
+      repeat_col_visits: 'Visits & Loyalty',
+      repeat_col_last_session: 'Last Session Details',
+      repeat_col_retention: 'Retention Status',
+      repeat_col_staff: 'Assigned Staff',
+      repeat_col_requirement: 'Requirement / Service',
+      repeat_col_actions: 'Direct Actions',
+      // Bookings Table Columns
+      booking_col_client: 'Client',
+      booking_col_service: 'Service Focus',
+      booking_col_datetime: 'Scheduled date & time',
+      booking_col_fee: 'Fee',
+      booking_col_status: 'Status',
+      booking_col_action: 'Action',
+      // Chats Filters
+      chat_filter_leads: 'Leads',
+      chat_filter_repeat: 'Repeat',
       requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.business,
     },
   },
@@ -789,6 +819,36 @@ const INDUSTRY_PRESETS = [
       tab_bookings_label: 'Orders',
       tab_calendar_label: 'Dispatch Calendar',
       tab_marketing_label: 'Campaigns',
+      // Main Customer Table Columns
+      col_customer_label: 'Customer & Contact',
+      col_assigned_label: 'Rep & Order Status',
+      col_followup_label: 'Dispatch & Action',
+      phone_label: 'Phone',
+      age_location_label: 'Shipping Location',
+      status_label: 'Order Status',
+      lead_label: 'Intent Score',
+      followup_label: 'Next Follow-up',
+      created_label: 'Order Date',
+      notes_label: 'Order Note',
+      actions_label: 'Action',
+      // Repeat Clients Table Columns
+      repeat_col_client: 'Customer & Contact',
+      repeat_col_visits: 'Orders & Repurchases',
+      repeat_col_last_session: 'Last Order Details',
+      repeat_col_retention: 'Buyer Status',
+      repeat_col_staff: 'Assigned Rep',
+      repeat_col_requirement: 'Product Interest',
+      repeat_col_actions: 'Direct Actions',
+      // Bookings Table Columns
+      booking_col_client: 'Customer',
+      booking_col_service: 'Product / SKU',
+      booking_col_datetime: 'Delivery Date',
+      booking_col_fee: 'Total Amount',
+      booking_col_status: 'Order Status',
+      booking_col_action: 'Action',
+      // Chats Filters
+      chat_filter_leads: 'New Buyers',
+      chat_filter_repeat: 'Repeat Buyers',
       requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.ecommerce,
     },
   },
@@ -809,6 +869,32 @@ const INDUSTRY_PRESETS = [
       tab_bookings_label: 'Bookings',
       tab_calendar_label: 'Calendar schedule',
       tab_marketing_label: 'Marketing',
+      col_customer_label: 'Customer & Tags',
+      col_assigned_label: 'Staff & Status',
+      col_followup_label: 'Follow-up & Action',
+      phone_label: 'Phone',
+      age_location_label: 'Details',
+      status_label: 'Status',
+      lead_label: 'Lead',
+      followup_label: 'Follow-up',
+      created_label: 'Added',
+      notes_label: 'Notes',
+      actions_label: 'Action',
+      repeat_col_client: 'Client & Contact',
+      repeat_col_visits: 'Visits & Loyalty',
+      repeat_col_last_session: 'Last Session Details',
+      repeat_col_retention: 'Retention Status',
+      repeat_col_staff: 'Assigned Staff',
+      repeat_col_requirement: 'Requirement / Service',
+      repeat_col_actions: 'Actions',
+      booking_col_client: 'Customer',
+      booking_col_service: 'Service / Item',
+      booking_col_datetime: 'Date & Time',
+      booking_col_fee: 'Price / Fee',
+      booking_col_status: 'Status',
+      booking_col_action: 'Action',
+      chat_filter_leads: 'Leads',
+      chat_filter_repeat: 'Repeat',
       requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.custom,
     },
   },
@@ -2649,7 +2735,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     staff_label: (() => {
       const raw = (settingsForm.taxonomy?.staff_label ?? '').trim();
       if (raw === '.' || raw === '-' || raw === '') {
-        return settingsForm.taxonomy?.staff_label !== undefined ? '' : (settingsForm.industry === 'clinic' ? 'Preferred Doctor / Staff' : settingsForm.industry === 'education' ? 'Tutor / Counselor' : 'Assigned Staff');
+        return '';
       }
       return raw || (settingsForm.industry === 'clinic' ? 'Preferred Doctor / Staff' : settingsForm.industry === 'education' ? 'Tutor / Counselor' : 'Assigned Staff');
     })(),
@@ -2674,6 +2760,36 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     tab_bookings_label: settingsForm.taxonomy?.tab_bookings_label || (settingsForm.industry === 'ecommerce' ? 'Orders' : settingsForm.industry === 'clinic' ? 'Appointments' : 'Bookings'),
     tab_calendar_label: settingsForm.taxonomy?.tab_calendar_label || 'Calendar schedule',
     tab_marketing_label: settingsForm.taxonomy?.tab_marketing_label || 'Marketing',
+
+    // Main Directory Table Columns (Customizable Headers)
+    col_customer_label: settingsForm.taxonomy?.col_customer_label || `${settingsForm.taxonomy?.client_label || (settingsForm.industry === 'clinic' ? 'Patient' : 'Customer')} & Tags`,
+    col_assigned_label: settingsForm.taxonomy?.col_assigned_label || (
+      settingsForm.taxonomy?.staff_label && settingsForm.taxonomy.staff_label.trim() && settingsForm.taxonomy.staff_label !== '.'
+        ? `${settingsForm.taxonomy.staff_label.split('/')[0].trim()} & ${(settingsForm.taxonomy?.status_label || 'Status')}`
+        : (settingsForm.taxonomy?.status_label || 'Status / Outcome')
+    ),
+    col_followup_label: settingsForm.taxonomy?.col_followup_label || `${settingsForm.taxonomy?.followup_label || 'Follow-up'} & ${settingsForm.taxonomy?.actions_label || 'Action'}`,
+
+    // Repeat Clients / Buyers Table Columns
+    repeat_col_client: settingsForm.taxonomy?.repeat_col_client || `${settingsForm.taxonomy?.client_label || (settingsForm.industry === 'ecommerce' ? 'Customer' : 'Client')} & Contact`,
+    repeat_col_visits: settingsForm.taxonomy?.repeat_col_visits || (settingsForm.industry === 'ecommerce' ? 'Orders & Repurchases' : 'Visits & Loyalty'),
+    repeat_col_last_session: settingsForm.taxonomy?.repeat_col_last_session || (settingsForm.industry === 'ecommerce' ? 'Last Order Details' : 'Last Session Details'),
+    repeat_col_retention: settingsForm.taxonomy?.repeat_col_retention || (settingsForm.industry === 'ecommerce' ? 'Buyer Status' : 'Retention Status'),
+    repeat_col_staff: settingsForm.taxonomy?.repeat_col_staff || (settingsForm.taxonomy?.staff_label && settingsForm.taxonomy.staff_label !== '.' ? `Assigned ${settingsForm.taxonomy.staff_label.split('/')[0].trim()}` : 'Assigned Staff'),
+    repeat_col_requirement: settingsForm.taxonomy?.repeat_col_requirement || settingsForm.taxonomy?.requirement_label || (settingsForm.industry === 'ecommerce' ? 'Product Interest' : 'Requirement / Service'),
+    repeat_col_actions: settingsForm.taxonomy?.repeat_col_actions || settingsForm.taxonomy?.actions_label || 'Direct Actions',
+
+    // Bookings / Orders Table Columns
+    booking_col_client: settingsForm.taxonomy?.booking_col_client || settingsForm.taxonomy?.client_label || (settingsForm.industry === 'ecommerce' ? 'Customer' : 'Client'),
+    booking_col_service: settingsForm.taxonomy?.booking_col_service || settingsForm.taxonomy?.requirement_label || (settingsForm.industry === 'ecommerce' ? 'Product / Order' : 'Service'),
+    booking_col_datetime: settingsForm.taxonomy?.booking_col_datetime || (settingsForm.industry === 'ecommerce' ? 'Delivery Date' : 'Scheduled date & time'),
+    booking_col_fee: settingsForm.taxonomy?.booking_col_fee || (settingsForm.industry === 'ecommerce' ? 'Amount / Price' : 'Fee'),
+    booking_col_status: settingsForm.taxonomy?.booking_col_status || settingsForm.taxonomy?.status_label || 'Status',
+    booking_col_action: settingsForm.taxonomy?.booking_col_action || settingsForm.taxonomy?.actions_label || 'Action',
+
+    // Chats / Inbox Tab Filters
+    chat_filter_leads: settingsForm.taxonomy?.chat_filter_leads || settingsForm.taxonomy?.client_plural || (settingsForm.industry === 'ecommerce' ? 'Buyers' : 'Leads'),
+    chat_filter_repeat: settingsForm.taxonomy?.chat_filter_repeat || settingsForm.taxonomy?.tab_repeat_label || (settingsForm.industry === 'ecommerce' ? 'Repeat Buyers' : 'Repeat'),
   };
 
   // ── Teams & Staff that were ACTUALLY added by the user / clinic ─────────────────
@@ -8604,7 +8720,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       title="Switch to Calendar Schedule view"
                     >
                       <CalendarDays className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                      <span>Calendar Schedule</span>
+                      <span>{currentTaxonomy.tab_calendar_label || 'Calendar Schedule'}</span>
                     </button>
 
                     {/* Add Booking Button */}
@@ -8613,7 +8729,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
                     >
                       <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>Add booking</span>
+                      <span>{currentTaxonomy.booking_cta || '+ Add booking'}</span>
                     </button>
                   </div>
                 </div>
@@ -8621,23 +8737,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* Bookings Data Table */}
                 <div className="flex-1 overflow-y-auto overflow-x-auto border border-border rounded-md bg-surface">
                   {loadingBookings ? (
-                    <div className="p-12 text-center text-xs text-text-muted">Loading bookings...</div>
+                    <div className="p-12 text-center text-xs text-text-muted">Loading {(currentTaxonomy.tab_bookings_label || 'bookings').toLowerCase()}...</div>
                   ) : filteredBookings.length === 0 ? (
                     <div className="p-12 text-center space-y-2">
                       <CalendarDays className="w-8 h-8 text-text-muted mx-auto stroke-[1.5]" />
-                      <p className="text-sm font-medium text-text-primary">No bookings in this filter</p>
-                      <p className="text-xs text-text-muted">Appointments booked via WhatsApp will appear here automatically.</p>
+                      <p className="text-sm font-medium text-text-primary">No {(currentTaxonomy.tab_bookings_label || 'bookings').toLowerCase()} in this filter</p>
+                      <p className="text-xs text-text-muted">Records created will appear here automatically.</p>
                     </div>
                   ) : (
                     <table className="w-full text-left text-xs min-w-[620px]">
                       <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-xs">
                         <tr>
-                          <th className="p-3 pl-4">Client</th>
-                          <th className="p-3">Service</th>
-                          <th className="p-3">Scheduled date & time</th>
-                          <th className="p-3">Fee</th>
-                          <th className="p-3">Status</th>
-                          <th className="p-3 text-right pr-4">Action</th>
+                          <th className="p-3 pl-4">{currentTaxonomy.booking_col_client || currentTaxonomy.client_label || 'Client'}</th>
+                          <th className="p-3">{currentTaxonomy.booking_col_service || currentTaxonomy.requirement_label || 'Service'}</th>
+                          <th className="p-3">{currentTaxonomy.booking_col_datetime || (settingsForm.industry === 'ecommerce' ? 'Delivery Date' : 'Scheduled date & time')}</th>
+                          <th className="p-3">{currentTaxonomy.booking_col_fee || (settingsForm.industry === 'ecommerce' ? 'Amount / Price' : 'Fee')}</th>
+                          <th className="p-3">{currentTaxonomy.booking_col_status || currentTaxonomy.status_label || 'Status'}</th>
+                          <th className="p-3 text-right pr-4">{currentTaxonomy.booking_col_action || currentTaxonomy.actions_label || 'Action'}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
@@ -9812,7 +9928,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         }`}
                         title="First-time leads / inquiries"
                       >
-                        <span className="flex items-center gap-1"><UserPlus className="w-3.5 h-3.5 stroke-[1.8] shrink-0" /> Leads</span>
+                        <span className="flex items-center gap-1"><UserPlus className="w-3.5 h-3.5 stroke-[1.8] shrink-0" /> {currentTaxonomy.chat_filter_leads || currentTaxonomy.client_plural || 'Leads'}</span>
                         {(() => {
                           const count = conversations.filter((c) => c.client_type === 'new_lead' || (!c.client_type && (c.completed_bookings_count ?? 0) === 0)).length;
                           return count > 0 ? (
@@ -9833,7 +9949,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         }`}
                         title="Repeat clients with completed bookings"
                       >
-                        <span className="flex items-center gap-1"><UserCheck className="w-3.5 h-3.5 stroke-[1.8] shrink-0" /> Repeat</span>
+                        <span className="flex items-center gap-1"><UserCheck className="w-3.5 h-3.5 stroke-[1.8] shrink-0" /> {currentTaxonomy.chat_filter_repeat || currentTaxonomy.tab_repeat_label || 'Repeat'}</span>
                         {(() => {
                           const count = conversations.filter((c) => c.client_type === 'repeat' || (c.completed_bookings_count ?? 0) > 0).length;
                           return count > 0 ? (
@@ -11172,13 +11288,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <table className="w-full text-left text-xs table-fixed">
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-semibold text-[11px] sticky top-0 z-10">
                             <tr>
-                              <th className="py-2 pl-4 pr-3 w-[40%]">{currentTaxonomy.client_label || 'Customer'} & Tags</th>
+                              <th className="py-2 pl-4 pr-3 w-[40%]">{currentTaxonomy.col_customer_label || `${currentTaxonomy.client_label || 'Customer'} & Tags`}</th>
                               <th className="py-2 px-3 w-[32%] text-center">
-                                {currentTaxonomy.staff_label && currentTaxonomy.staff_label.trim()
-                                  ? `${currentTaxonomy.staff_label.split('/')[0].trim()} & ${(currentTaxonomy.status_label || 'Outcome')}`
-                                  : (currentTaxonomy.status_label || 'Status')}
+                                {currentTaxonomy.col_assigned_label || (
+                                  currentTaxonomy.staff_label && currentTaxonomy.staff_label.trim() && currentTaxonomy.staff_label !== '.'
+                                    ? `${currentTaxonomy.staff_label.split('/')[0].trim()} & ${(currentTaxonomy.status_label || 'Outcome')}`
+                                    : (currentTaxonomy.status_label || 'Status')
+                                )}
                               </th>
-                              <th className="py-2 pr-4 pl-2.5 w-[28%]">{(currentTaxonomy.followup_label || 'Follow-up')} & {(currentTaxonomy.actions_label || 'Action')}</th>
+                              <th className="py-2 pr-4 pl-2.5 w-[28%]">{currentTaxonomy.col_followup_label || `${(currentTaxonomy.followup_label || 'Follow-up')} & ${(currentTaxonomy.actions_label || 'Action')}`}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
@@ -12907,13 +13025,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <table className="w-full text-left text-xs min-w-[760px]">
                       <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                         <tr>
-                          <th className="p-2.5 pl-4">{currentTaxonomy.client_label || 'Client'} & Contact</th>
-                          <th className="p-2.5">Visits & Loyalty</th>
-                          <th className="p-2.5">Last Session Details</th>
-                          <th className="p-2.5">Retention Status</th>
-                          <th className="p-2.5">Assigned Staff</th>
-                          <th className="p-2.5">{currentTaxonomy.requirement_label || 'Requirement / Service'}</th>
-                          <th className="p-2.5 text-right pr-4">Direct Actions</th>
+                          <th className="p-2.5 pl-4">{currentTaxonomy.repeat_col_client || `${currentTaxonomy.client_label || 'Client'} & Contact`}</th>
+                          <th className="p-2.5">{currentTaxonomy.repeat_col_visits || (settingsForm.industry === 'ecommerce' ? 'Orders & Repurchases' : 'Visits & Loyalty')}</th>
+                          <th className="p-2.5">{currentTaxonomy.repeat_col_last_session || (settingsForm.industry === 'ecommerce' ? 'Last Order Details' : 'Last Session Details')}</th>
+                          <th className="p-2.5">{currentTaxonomy.repeat_col_retention || (settingsForm.industry === 'ecommerce' ? 'Buyer Status' : 'Retention Status')}</th>
+                          <th className="p-2.5">{currentTaxonomy.repeat_col_staff || (currentTaxonomy.staff_label ? `Assigned ${currentTaxonomy.staff_label.split('/')[0].trim()}` : 'Assigned Staff')}</th>
+                          <th className="p-2.5">{currentTaxonomy.repeat_col_requirement || currentTaxonomy.requirement_label || 'Requirement / Service'}</th>
+                          <th className="p-2.5 text-right pr-4">{currentTaxonomy.repeat_col_actions || currentTaxonomy.actions_label || 'Direct Actions'}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
@@ -14938,27 +15056,60 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
                         </div>
 
-                        <div className="pt-2 border-t border-border">
-                          <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider mb-2">3. Customer Table Columns & Field Headers (Fully Customizable)</h5>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                        {/* Section 3: Main Directory Table Columns */}
+                        <div className="p-3 bg-surface-subtle/50 rounded-md border border-border/80 space-y-2.5">
+                          <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                            <span>3. Main Directory Table Columns (Customers / Leads)</span>
+                          </h5>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Phone Column</label>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Column 1 Header (Client / Contact & Tags)</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.col_customer_label ?? currentTaxonomy.col_customer_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), col_customer_label: e.target.value } })}
+                                placeholder="Client & Contact"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Column 2 Header (Assigned & Outcome / Status)</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.col_assigned_label ?? currentTaxonomy.col_assigned_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), col_assigned_label: e.target.value } })}
+                                placeholder="Staff & Status"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Column 3 Header (Follow-up & Action)</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.col_followup_label ?? currentTaxonomy.col_followup_label}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), col_followup_label: e.target.value } })}
+                                placeholder="Follow-up & Action"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Phone Field Label</label>
                               <input
                                 type="text"
                                 value={settingsForm.taxonomy?.phone_label ?? currentTaxonomy.phone_label}
                                 onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), phone_label: e.target.value } })}
                                 placeholder="Phone"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
                               />
                             </div>
                             <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Age & Location Column</label>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Age & Location / Details Label</label>
                               <input
                                 type="text"
                                 value={settingsForm.taxonomy?.age_location_label ?? currentTaxonomy.age_location_label}
                                 onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), age_location_label: e.target.value } })}
-                                placeholder="Age & Location"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                                placeholder="Age & Location / Shipping"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
                               />
                             </div>
                             <div>
@@ -14968,17 +15119,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 value={settingsForm.taxonomy?.status_label ?? currentTaxonomy.status_label}
                                 onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), status_label: e.target.value } })}
                                 placeholder="Status"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
                               />
                             </div>
                             <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Lead Priority Column</label>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Lead Priority / Intent Column</label>
                               <input
                                 type="text"
                                 value={settingsForm.taxonomy?.lead_label ?? currentTaxonomy.lead_label}
                                 onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), lead_label: e.target.value } })}
-                                placeholder="Lead"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                                placeholder="Lead / Intent Score"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
                               />
                             </div>
                             <div>
@@ -14988,7 +15139,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 value={settingsForm.taxonomy?.followup_label ?? currentTaxonomy.followup_label}
                                 onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), followup_label: e.target.value } })}
                                 placeholder="Follow-up Due"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
                               />
                             </div>
                             <div>
@@ -14998,7 +15149,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 value={settingsForm.taxonomy?.created_label ?? currentTaxonomy.created_label}
                                 onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), created_label: e.target.value } })}
                                 placeholder="Added"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
                               />
                             </div>
                             <div>
@@ -15008,17 +15159,194 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 value={settingsForm.taxonomy?.notes_label ?? currentTaxonomy.notes_label}
                                 onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), notes_label: e.target.value } })}
                                 placeholder="Latest Note"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
                               />
                             </div>
                             <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Action Column</label>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Action Button Label</label>
                               <input
                                 type="text"
                                 value={settingsForm.taxonomy?.actions_label ?? currentTaxonomy.actions_label}
                                 onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), actions_label: e.target.value } })}
                                 placeholder="Action"
-                                className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Section 4: Repeat Clients / Repeat Buyers Table Columns */}
+                        <div className="p-3 bg-surface-subtle/50 rounded-md border border-border/80 space-y-2.5">
+                          <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                            <span>4. Repeat Clients / Repeat Buyers Table Columns</span>
+                          </h5>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Client / Buyer Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.repeat_col_client ?? currentTaxonomy.repeat_col_client}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_client: e.target.value } })}
+                                placeholder="Client & Contact"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Visits / Orders & Loyalty Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.repeat_col_visits ?? currentTaxonomy.repeat_col_visits}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_visits: e.target.value } })}
+                                placeholder="Visits & Loyalty / Orders & Repurchases"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Last Session / Order Details Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.repeat_col_last_session ?? currentTaxonomy.repeat_col_last_session}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_last_session: e.target.value } })}
+                                placeholder="Last Session Details / Last Order Details"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Retention / Customer Status Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.repeat_col_retention ?? currentTaxonomy.repeat_col_retention}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_retention: e.target.value } })}
+                                placeholder="Retention Status / Buyer Status"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Assigned Staff / Rep Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.repeat_col_staff ?? currentTaxonomy.repeat_col_staff}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_staff: e.target.value } })}
+                                placeholder="Assigned Staff / Assigned Rep"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Requirement / Service / Product Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.repeat_col_requirement ?? currentTaxonomy.repeat_col_requirement}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_requirement: e.target.value } })}
+                                placeholder="Requirement / Service / Product Interest"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Actions Column Header</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.repeat_col_actions ?? currentTaxonomy.repeat_col_actions}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), repeat_col_actions: e.target.value } })}
+                                placeholder="Direct Actions / Actions"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Section 5: Bookings / Orders Table Columns & CTAs */}
+                        <div className="p-3 bg-surface-subtle/50 rounded-md border border-border/80 space-y-2.5">
+                          <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                            <span>5. Bookings / Orders Table Columns & CTAs</span>
+                          </h5>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Client / Customer Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.booking_col_client ?? currentTaxonomy.booking_col_client}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_col_client: e.target.value } })}
+                                placeholder="Client / Customer"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Service / Product Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.booking_col_service ?? currentTaxonomy.booking_col_service}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_col_service: e.target.value } })}
+                                placeholder="Service / Product SKU"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Scheduled Date & Time / Delivery Date Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.booking_col_datetime ?? currentTaxonomy.booking_col_datetime}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_col_datetime: e.target.value } })}
+                                placeholder="Scheduled date & time / Delivery Date"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Fee / Amount / Price Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.booking_col_fee ?? currentTaxonomy.booking_col_fee}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_col_fee: e.target.value } })}
+                                placeholder="Fee / Total Amount"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Status Column</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.booking_col_status ?? currentTaxonomy.booking_col_status}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_col_status: e.target.value } })}
+                                placeholder="Status / Order Status"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Action Column Header</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.booking_col_action ?? currentTaxonomy.booking_col_action}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), booking_col_action: e.target.value } })}
+                                placeholder="Action"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Section 6: Chats / Inbox Tab Filters */}
+                        <div className="p-3 bg-surface-subtle/50 rounded-md border border-border/80 space-y-2.5">
+                          <h5 className="text-[11px] font-semibold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                            <span>6. Chats / Inbox Tab Filters</span>
+                          </h5>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Leads / Inquiries Filter</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.chat_filter_leads ?? currentTaxonomy.chat_filter_leads}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), chat_filter_leads: e.target.value } })}
+                                placeholder="Leads / Buyers"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Repeat Clients Filter</label>
+                              <input
+                                type="text"
+                                value={settingsForm.taxonomy?.chat_filter_repeat ?? currentTaxonomy.chat_filter_repeat}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), chat_filter_repeat: e.target.value } })}
+                                placeholder="Repeat / Loyal Buyers"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
                               />
                             </div>
                           </div>
