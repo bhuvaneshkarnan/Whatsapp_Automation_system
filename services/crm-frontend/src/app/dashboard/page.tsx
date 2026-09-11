@@ -2680,7 +2680,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   };
 
   const currentTaxonomy = {
-    staff_label: settingsForm.taxonomy?.staff_label || (settingsForm.industry === 'education' ? 'Tutor / Counselor' : 'Preferred Doctor / Staff'),
+    staff_label: (() => {
+      const raw = (settingsForm.taxonomy?.staff_label ?? '').trim();
+      if (raw === '.' || raw === '-' || raw === '') {
+        return settingsForm.taxonomy?.staff_label !== undefined ? '' : (settingsForm.industry === 'education' ? 'Tutor / Counselor' : 'Preferred Doctor / Staff');
+      }
+      return raw;
+    })(),
     client_label: settingsForm.taxonomy?.client_label || (settingsForm.industry === 'education' ? 'Student / Parent' : 'Customer'),
     client_plural: settingsForm.taxonomy?.client_plural || (settingsForm.industry === 'education' ? 'Students' : settingsForm.industry === 'legal' ? 'Clients' : settingsForm.industry === 'realestate' ? 'Buyers' : settingsForm.industry === 'fitness' ? 'Members' : 'Customers'),
     requirement_label: settingsForm.taxonomy?.requirement_label || (settingsForm.industry === 'education' ? 'Target Course & Grade' : 'Health Concern / Symptoms'),
@@ -10970,9 +10976,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <table className="w-full text-left text-xs min-w-0">
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-semibold text-[11px] sticky top-0 z-10">
                             <tr>
-                              <th className="py-2 pl-4 pr-3 min-w-[280px]">{currentTaxonomy.client_label || 'Customer'} & Tags</th>
-                              <th className="py-2 px-2.5 w-[180px] min-w-[170px]">{(currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() : 'Assigned')} & {(currentTaxonomy.status_label || 'Outcome')}</th>
-                              <th className="py-2 pr-4 pl-2.5 w-[215px] min-w-[210px]">{(currentTaxonomy.followup_label || 'Follow-up')} & {(currentTaxonomy.actions_label || 'Action')}</th>
+                              <th className="py-2 pl-4 pr-3 w-[40%] min-w-[280px]">{currentTaxonomy.client_label || 'Customer'} & Tags</th>
+                              <th className="py-2 px-3 w-[32%] min-w-[190px] text-center">
+                                {currentTaxonomy.staff_label && currentTaxonomy.staff_label.trim()
+                                  ? `${currentTaxonomy.staff_label.split('/')[0].trim()} & ${(currentTaxonomy.status_label || 'Outcome')}`
+                                  : (currentTaxonomy.status_label || 'Status')}
+                              </th>
+                              <th className="py-2 pr-4 pl-2.5 w-[28%] min-w-[215px]">{(currentTaxonomy.followup_label || 'Follow-up')} & {(currentTaxonomy.actions_label || 'Action')}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
@@ -11015,7 +11025,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     }`}
                                   >
                                     {/* 1. Customer & Tags (With inline Conversion Emoji + WhatsApp & Profile icons) */}
-                                    <td className="pt-2 pb-2.5 pl-4 pr-3 align-top">
+                                    <td className="pt-2 pb-2.5 pl-4 pr-3 align-top w-[40%] min-w-[280px]">
                                       <div className="space-y-1.5 min-w-0">
                                         {/* Customer Identity & Phone */}
                                         <div className="space-y-0.5">
@@ -11231,9 +11241,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       </div>
                                     </td>
 
-                                    {/* 2. Assigned & Outcome */}
-                                    <td className="pt-2 pb-2.5 px-2.5 align-top" onClick={(e) => e.stopPropagation()}>
-                                      <div className="space-y-1.5 max-w-[200px]">
+                                    {/* 2. Assigned & Outcome (Centered in Table) */}
+                                    <td className="pt-2 pb-2.5 px-3 align-top w-[32%] min-w-[190px]" onClick={(e) => e.stopPropagation()}>
+                                      <div className="space-y-1.5 max-w-[200px] mx-auto">
                                         {/* Assigned Staff Trigger */}
                                         <div>
                                           {renderStaffAssignTrigger({
@@ -11278,7 +11288,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </td>
 
                                     {/* 3. Follow up & Action */}
-                                    <td className="pt-1.5 pb-2.5 pr-4 pl-2.5 align-top w-[215px] min-w-[210px]" onClick={(e) => e.stopPropagation()}>
+                                    <td className="pt-1.5 pb-2.5 pr-4 pl-2.5 align-top w-[28%] min-w-[215px]" onClick={(e) => e.stopPropagation()}>
                                       <div className="space-y-1.5 w-full">
                                         {/* Row 1: Follow-up Date & Time Selectors */}
                                         {cust.followup_date ? (
