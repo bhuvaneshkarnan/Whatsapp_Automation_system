@@ -3236,6 +3236,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 return timeB - timeA;
               });
               setConversations((prev) => {
+                // Critical safeguard: Never wipe out existing conversations during a background sync poll
+                if (sanitizedConvs.length === 0 && prev.length > 0) {
+                  return prev;
+                }
                 const isDiff =
                   sanitizedConvs.length !== prev.length ||
                   sanitizedConvs.some(
@@ -3266,6 +3270,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             });
             if (isMounted && Array.isArray(fresh)) {
               setCustomers((prev) => {
+                // Critical safeguard: Never wipe out existing customers during a background sync poll
+                if (fresh.length === 0 && prev.length > 0 && !followupSearch.trim()) {
+                  return prev;
+                }
                 const isDiff =
                   fresh.length !== prev.length ||
                   fresh.some(
@@ -3506,7 +3514,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         next_action: followupActionFilter,
         q: followupSearch,
       });
-      setCustomers(Array.isArray(data) ? data : []);
+      if (Array.isArray(data)) {
+        if (data.length === 0 && !followupSearch.trim()) {
+          setCustomers((prev) => (prev.length === 0 ? [] : prev));
+        } else {
+          setCustomers(data);
+        }
+      }
     } catch (err) {
       console.error('Error fetching customers:', err);
     } finally {
@@ -4300,6 +4314,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     try {
       const convs = await crm.getConversations();
       if (Array.isArray(convs)) {
+        if (convs.length === 0) {
+          // If server returned 0, only clear if previously already empty
+          setConversations((prev) => (prev.length === 0 ? [] : prev));
+          return;
+        }
         const activeId = selectedConvRef.current?.id;
         const sanitized = convs.map((c) =>
           c.id === activeId ? { ...c, unread_count: 0 } : c
@@ -10848,7 +10867,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       {/* Customer Detail Drawer */}
                       {renderCustomerDetailDrawer()}
-                      )}
                     </div>
                   </div>
                 )}

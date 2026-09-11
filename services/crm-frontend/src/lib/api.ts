@@ -149,10 +149,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       mergedHeaders[k] = v;
     }
   }
-  let res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: mergedHeaders,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...init,
+      headers: mergedHeaders,
+    });
+  } catch (netErr) {
+    // Retry once for GET requests on transient socket reset or wake-from-sleep
+    if (!init?.method || init.method.toUpperCase() === 'GET') {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      res = await fetch(`${BASE}${path}`, {
+        ...init,
+        headers: mergedHeaders,
+      });
+    } else {
+      throw netErr;
+    }
+  }
 
   // Transient 502/503 retry (e.g. backend container reloading)
   if ((res.status === 502 || res.status === 503) && (!init?.method || init.method.toUpperCase() === 'GET')) {
@@ -605,8 +619,9 @@ export const crm = {
         preferred_doctor: c.preferred_doctor || null,
         health_concern: c.health_concern || null,
       }));
-    } catch {
-      return [];
+    } catch (err) {
+      console.warn('Failed to fetch conversations:', err);
+      throw err;
     }
   },
 
@@ -754,8 +769,9 @@ export const crm = {
       const qs = params.toString();
       const rows = await request<Customer[]>(`/api/v1/crm/customers${qs ? `?${qs}` : ''}`);
       return Array.isArray(rows) ? rows : [];
-    } catch {
-      return [];
+    } catch (err) {
+      console.warn('Failed to fetch customers:', err);
+      throw err;
     }
   },
 
