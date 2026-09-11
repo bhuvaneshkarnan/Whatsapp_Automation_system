@@ -88,6 +88,7 @@ import {
   Clock3,
   HardDrive,
   ChevronDown,
+  ChevronUp,
   LayoutGrid,
   List,
   Pin,
@@ -10568,9 +10569,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <table className="w-full text-left text-xs min-w-0">
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-semibold text-[11px] sticky top-0 z-10">
                             <tr>
-                              <th className="p-3 pl-4 w-[54%] min-w-[280px]">{currentTaxonomy.client_label || 'Customer'} & Tags</th>
-                              <th className="p-3 w-[23%] min-w-[150px]">{(currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() : 'Assigned')} & {(currentTaxonomy.status_label || 'Outcome')}</th>
-                              <th className="p-3 pr-4 w-[23%] min-w-[170px]">{(currentTaxonomy.followup_label || 'Follow-up')} & {(currentTaxonomy.actions_label || 'Action')}</th>
+                              <th className="py-2 pl-4 pr-3 min-w-[280px]">{currentTaxonomy.client_label || 'Customer'} & Tags</th>
+                              <th className="py-2 px-2.5 w-[180px] min-w-[170px]">{(currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() : 'Assigned')} & {(currentTaxonomy.status_label || 'Outcome')}</th>
+                              <th className="py-2 pr-4 pl-2.5 w-[215px] min-w-[210px]">{(currentTaxonomy.followup_label || 'Follow-up')} & {(currentTaxonomy.actions_label || 'Action')}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
@@ -10613,7 +10614,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     }`}
                                   >
                                     {/* 1. Customer & Tags (With inline Conversion Emoji + WhatsApp & Profile icons) */}
-                                    <td className="p-3 pl-4 align-top">
+                                    <td className="pt-2 pb-2.5 pl-4 pr-3 align-top">
                                       <div className="space-y-1.5 min-w-0">
                                         {/* Customer Identity & Phone */}
                                         <div className="space-y-0.5">
@@ -10830,7 +10831,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </td>
 
                                     {/* 2. Assigned & Outcome */}
-                                    <td className="p-3 align-top" onClick={(e) => e.stopPropagation()}>
+                                    <td className="pt-2 pb-2.5 px-2.5 align-top" onClick={(e) => e.stopPropagation()}>
                                       <div className="space-y-1.5 max-w-[200px]">
                                         {/* Assigned Staff Trigger */}
                                         <div>
@@ -10876,7 +10877,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </td>
 
                                     {/* 3. Follow up & Action */}
-                                    <td className="p-3 pr-4 align-top relative" onClick={(e) => e.stopPropagation()}>
+                                    <td className="pt-1.5 pb-2.5 pr-4 pl-2.5 align-top relative w-[215px] min-w-[210px]" onClick={(e) => e.stopPropagation()}>
                                       <div className="space-y-1.5 w-full">
                                         {/* Row 1: Follow-up Date & Time Selectors */}
                                         {cust.followup_date ? (() => {
@@ -10926,7 +10927,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                   setActiveTimePopover(activeTimePopover?.customerId === cust.id ? null : { customerId: cust.id });
                                                 }}
                                                 className="h-7 px-2 shrink-0 rounded-md border border-border bg-surface hover:bg-surface-subtle text-text-primary text-[11px] font-medium shadow-2xs flex items-center gap-1 transition-colors cursor-pointer"
-                                                title="Click to select time"
+                                                title="Click to set any time"
                                               >
                                                 <Clock className="w-3 h-3 text-accent shrink-0" />
                                                 <span>{cust.followup_time || '10:00 AM'}</span>
@@ -11081,15 +11082,33 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           </>
                                         )}
 
-                                        {/* Floating Interactive Time Popover */}
+                                        {/* Floating Interactive Time Popover (Can add ANY time) */}
                                         {activeTimePopover?.customerId === cust.id && (() => {
                                           const parsed = parseFollowupTime(cust.followup_time);
-                                          const setTime = (newH: string, newM: string, newP: 'AM' | 'PM') => {
-                                            const timeStr = `${newH}${newM} ${newP}`;
+                                          const setTimeDirect = (h: string, m: string, p: 'AM' | 'PM') => {
+                                            const hNorm = String(Math.min(Math.max(1, parseInt(h, 10) || 10), 12)).padStart(2, '0');
+                                            const mClean = m.startsWith(':') ? m.slice(1) : m;
+                                            const mNorm = String(Math.min(Math.max(0, parseInt(mClean, 10) || 0), 59)).padStart(2, '0');
+                                            const timeStr = `${hNorm}:${mNorm} ${p}`;
                                             handleUpdateCustomer(cust.id, {
                                               followup_time: timeStr,
                                               ...(!cust.followup_date ? { followup_date: getFollowupDateString(1) } : {})
                                             });
+                                          };
+                                          const stepHour = (delta: number) => {
+                                            let cur = parseInt(parsed.hour, 10) || 10;
+                                            cur = cur + delta;
+                                            if (cur > 12) cur = 1;
+                                            if (cur < 1) cur = 12;
+                                            setTimeDirect(String(cur), parsed.minute, parsed.period);
+                                          };
+                                          const stepMinute = (delta: number) => {
+                                            const mClean = parsed.minute.replace(':', '');
+                                            let cur = parseInt(mClean, 10) || 0;
+                                            cur = cur + delta;
+                                            if (cur > 59) cur = 0;
+                                            if (cur < 0) cur = 55;
+                                            setTimeDirect(parsed.hour, String(cur), parsed.period);
                                           };
                                           return (
                                             <>
@@ -11101,34 +11120,116 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                 }}
                                               />
                                               <div
-                                                className="absolute right-2 top-full mt-1 z-40 w-60 bg-surface border border-border rounded-lg shadow-xl p-3 animate-in fade-in zoom-in-95 duration-150"
+                                                className="absolute right-2 top-full mt-1 z-40 w-64 bg-surface border border-border rounded-lg shadow-xl p-3 animate-in fade-in zoom-in-95 duration-150"
                                                 onClick={(e) => e.stopPropagation()}
                                               >
-                                                {/* Header with Title and AM/PM Toggle */}
-                                                <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
+                                                {/* Header */}
+                                                <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-border">
                                                   <div className="flex items-center gap-1.5 font-semibold text-xs text-text-primary">
                                                     <Clock className="w-3.5 h-3.5 text-accent" />
-                                                    <span>Select Time</span>
+                                                    <span>Set Follow-up Time</span>
                                                   </div>
-                                                  <div className="flex items-center bg-surface-subtle border border-border rounded p-0.5 text-[10px] font-bold">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setActiveTimePopover(null)}
+                                                    className="text-text-muted hover:text-text-primary p-0.5 rounded hover:bg-surface-subtle cursor-pointer"
+                                                  >
+                                                    <X className="w-3.5 h-3.5" />
+                                                  </button>
+                                                </div>
+
+                                                {/* Direct Digital Inputs (Type or Step ANY time) */}
+                                                <div className="flex items-center justify-center gap-1.5 py-2 px-3 bg-surface-subtle border border-border rounded-md mb-3">
+                                                  {/* Hour Input + Steppers */}
+                                                  <div className="flex flex-col items-center">
                                                     <button
                                                       type="button"
-                                                      onClick={() => setTime(parsed.hour, parsed.minute, 'AM')}
-                                                      className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                                                      onClick={() => stepHour(1)}
+                                                      className="text-text-muted hover:text-text-primary p-0.5 hover:bg-surface rounded transition-colors cursor-pointer"
+                                                      title="Hour up"
+                                                    >
+                                                      <ChevronUp className="w-3 h-3" />
+                                                    </button>
+                                                    <input
+                                                      type="text"
+                                                      inputMode="numeric"
+                                                      maxLength={2}
+                                                      value={parsed.hour}
+                                                      onChange={(e) => {
+                                                        const v = e.target.value.replace(/[^0-9]/g, '');
+                                                        if (v === '' || (parseInt(v, 10) >= 1 && parseInt(v, 10) <= 12)) {
+                                                          setTimeDirect(v || '10', parsed.minute, parsed.period);
+                                                        }
+                                                      }}
+                                                      className="w-10 text-center text-sm font-bold bg-surface border border-border rounded py-0.5 text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
+                                                      title="Type any hour (1-12)"
+                                                    />
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => stepHour(-1)}
+                                                      className="text-text-muted hover:text-text-primary p-0.5 hover:bg-surface rounded transition-colors cursor-pointer"
+                                                      title="Hour down"
+                                                    >
+                                                      <ChevronDown className="w-3 h-3" />
+                                                    </button>
+                                                  </div>
+
+                                                  <span className="text-base font-bold text-text-muted pb-1 select-none">:</span>
+
+                                                  {/* Minute Input + Steppers (Accepts ANY 00-59) */}
+                                                  <div className="flex flex-col items-center">
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => stepMinute(5)}
+                                                      className="text-text-muted hover:text-text-primary p-0.5 hover:bg-surface rounded transition-colors cursor-pointer"
+                                                      title="+5 minutes"
+                                                    >
+                                                      <ChevronUp className="w-3 h-3" />
+                                                    </button>
+                                                    <input
+                                                      type="text"
+                                                      inputMode="numeric"
+                                                      maxLength={2}
+                                                      value={parsed.minute.replace(':', '')}
+                                                      onChange={(e) => {
+                                                        const v = e.target.value.replace(/[^0-9]/g, '');
+                                                        if (v === '' || parseInt(v, 10) <= 59) {
+                                                          setTimeDirect(parsed.hour, v ? `:${v}` : ':00', parsed.period);
+                                                        }
+                                                      }}
+                                                      className="w-10 text-center text-sm font-bold bg-surface border border-border rounded py-0.5 text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
+                                                      title="Type ANY minute (00-59)"
+                                                    />
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => stepMinute(-5)}
+                                                      className="text-text-muted hover:text-text-primary p-0.5 hover:bg-surface rounded transition-colors cursor-pointer"
+                                                      title="-5 minutes"
+                                                    >
+                                                      <ChevronDown className="w-3 h-3" />
+                                                    </button>
+                                                  </div>
+
+                                                  {/* AM / PM Toggle */}
+                                                  <div className="flex flex-col gap-1 ml-2">
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => setTimeDirect(parsed.hour, parsed.minute, 'AM')}
+                                                      className={`px-2 py-0.5 text-[10px] font-bold rounded border transition-colors cursor-pointer ${
                                                         parsed.period === 'AM'
-                                                          ? 'bg-accent text-white shadow-xs'
-                                                          : 'text-text-muted hover:text-text-primary'
+                                                          ? 'bg-accent text-white border-accent shadow-xs'
+                                                          : 'bg-surface border-border text-text-muted hover:text-text-primary'
                                                       }`}
                                                     >
                                                       AM
                                                     </button>
                                                     <button
                                                       type="button"
-                                                      onClick={() => setTime(parsed.hour, parsed.minute, 'PM')}
-                                                      className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                                                      onClick={() => setTimeDirect(parsed.hour, parsed.minute, 'PM')}
+                                                      className={`px-2 py-0.5 text-[10px] font-bold rounded border transition-colors cursor-pointer ${
                                                         parsed.period === 'PM'
-                                                          ? 'bg-accent text-white shadow-xs'
-                                                          : 'text-text-muted hover:text-text-primary'
+                                                          ? 'bg-accent text-white border-accent shadow-xs'
+                                                          : 'bg-surface border-border text-text-muted hover:text-text-primary'
                                                       }`}
                                                     >
                                                       PM
@@ -11136,20 +11237,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                   </div>
                                                 </div>
 
-                                                {/* Hour Grid (08 to 07) */}
-                                                <div className="mb-2.5">
+                                                {/* Quick Hour Tap Chips (1 to 12) */}
+                                                <div className="mb-2">
                                                   <div className="text-[10px] font-semibold text-text-muted mb-1 uppercase tracking-wider">
                                                     Hour
                                                   </div>
-                                                  <div className="grid grid-cols-4 gap-1">
+                                                  <div className="grid grid-cols-6 gap-1">
                                                     {['09', '10', '11', '12', '01', '02', '03', '04', '05', '06', '07', '08'].map((h) => {
                                                       const isSel = parsed.hour === h;
                                                       return (
                                                         <button
                                                           key={h}
                                                           type="button"
-                                                          onClick={() => setTime(h, parsed.minute, parsed.period)}
-                                                          className={`py-1 text-[11px] font-semibold rounded border transition-colors cursor-pointer ${
+                                                          onClick={() => setTimeDirect(h, parsed.minute, parsed.period)}
+                                                          className={`py-0.5 text-[10px] font-semibold rounded border transition-colors cursor-pointer ${
                                                             isSel
                                                               ? 'bg-accent text-white border-accent shadow-xs'
                                                               : 'bg-surface hover:bg-surface-subtle border-border text-text-primary'
@@ -11162,10 +11263,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                   </div>
                                                 </div>
 
-                                                {/* Minute Grid (:00, :15, :30, :45) */}
-                                                <div className="mb-2">
+                                                {/* Quick Minute Chips (or type any minute above) */}
+                                                <div className="mb-2.5">
                                                   <div className="text-[10px] font-semibold text-text-muted mb-1 uppercase tracking-wider">
-                                                    Minute
+                                                    Quick Minutes
                                                   </div>
                                                   <div className="grid grid-cols-4 gap-1">
                                                     {[':00', ':15', ':30', ':45'].map((m) => {
@@ -11174,8 +11275,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                         <button
                                                           key={m}
                                                           type="button"
-                                                          onClick={() => setTime(parsed.hour, m, parsed.period)}
-                                                          className={`py-1 text-[11px] font-semibold rounded border transition-colors cursor-pointer ${
+                                                          onClick={() => setTimeDirect(parsed.hour, m, parsed.period)}
+                                                          className={`py-0.5 text-[10px] font-mono font-medium rounded border transition-colors cursor-pointer ${
                                                             isSel
                                                               ? 'bg-accent text-white border-accent shadow-xs'
                                                               : 'bg-surface hover:bg-surface-subtle border-border text-text-primary'
@@ -11188,7 +11289,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                   </div>
                                                 </div>
 
-                                                {/* Footer: Done button */}
+                                                {/* Footer: Current Time display & Done */}
                                                 <div className="pt-2 border-t border-border flex items-center justify-between">
                                                   <span className="text-[11px] font-mono text-accent font-semibold">
                                                     {cust.followup_time || '10:00 AM'}
@@ -11196,7 +11297,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                   <button
                                                     type="button"
                                                     onClick={() => setActiveTimePopover(null)}
-                                                    className="px-3 py-0.5 bg-accent hover:bg-accent-hover text-white text-[10px] font-semibold rounded transition-colors cursor-pointer"
+                                                    className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-[10px] font-semibold rounded transition-colors cursor-pointer"
                                                   >
                                                     Done
                                                   </button>
