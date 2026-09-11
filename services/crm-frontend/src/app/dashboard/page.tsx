@@ -1169,7 +1169,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [followupDoctorFilter, setFollowupDoctorFilter] = useState<string>('all');
   const [followupActionFilter, setFollowupActionFilter] = useState<string>('all');
   const [followupSearch, setFollowupSearch] = useState<string>('');
+  const [followupSearchInput, setFollowupSearchInput] = useState<string>('');
   const [customerClientTypeFilter, setCustomerClientTypeFilter] = useState<string>('all');
+
+  // Debounce customer search input to prevent rapid request thrashing & race conditions
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFollowupSearch(followupSearchInput);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [followupSearchInput]);
 
   // Repeat Clients Workspace State
   const [repeatHealthFilter, setRepeatHealthFilter] = useState<'all' | 'active' | 'due' | 'lapsed' | 'vip'>('all');
@@ -9284,6 +9293,36 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* ── SUB-VIEW A: FOLLOW-UP PIPELINE ──────────────────────────────── */}
                 {followupView === 'list' && (
                   <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
+                    {/* Dedicated Mobile Search Input (Prominently visible on mobile screens) */}
+                    <div className="md:hidden relative w-full shrink-0">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder={`Search ${(currentTaxonomy.client_plural || 'customers').toLowerCase()}, phone, staff...`}
+                        value={followupSearchInput}
+                        onChange={(e) => setFollowupSearchInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            setFollowupSearch(followupSearchInput);
+                          }
+                        }}
+                        className="w-full pl-8 pr-7 py-1 bg-surface border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent h-8 shadow-2xs"
+                      />
+                      {followupSearchInput && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFollowupSearchInput('');
+                            setFollowupSearch('');
+                          }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-1"
+                          title="Clear search"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
                     {/* Filter & Segment Controls - Streamlined Single Compact Bar */}
                     <div className="flex items-center gap-2 p-1 px-2 bg-surface border border-border rounded-sm overflow-x-auto no-scrollbar">
                       {/* Outcome Filter Pills & Specific Outcome Selector */}
@@ -9390,6 +9429,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             className="px-2 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[125px] h-[26px]"
                           >
                             <option value="all">All {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff & Doctors'}</option>
+                            <option value="unassigned">Unassigned</option>
                             {categorizedStaffOptions.teamDoctors.length > 0 && (
                               <optgroup label="Doctors (Team Login)">
                                 {categorizedStaffOptions.teamDoctors.map((s) => (
@@ -9445,23 +9485,41 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </select>
                       </div>
 
-                      {/* Divider */}
-                      <div className="h-4 w-px bg-border/80 shrink-0" />
+                      {/* Divider (Desktop) */}
+                      <div className="h-4 w-px bg-border/80 shrink-0 hidden md:block" />
 
-                      {/* Search Input */}
-                      <div className="relative shrink-0">
-                        <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" />
+                      {/* Search Input (Desktop) */}
+                      <div className="relative shrink-0 hidden md:block">
+                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
                         <input
                           type="text"
-                          placeholder={`Filter ${(currentTaxonomy.client_plural || 'customers').toLowerCase()}, phone...`}
-                          value={followupSearch}
-                          onChange={(e) => setFollowupSearch(e.target.value)}
-                          className="pl-6.5 pr-2 py-0.5 bg-surface-subtle border border-border rounded-sm text-[11px] text-text-primary focus:outline-none focus:border-accent w-36 lg:w-44 h-[26px]"
+                          placeholder={`Search ${(currentTaxonomy.client_plural || 'customers').toLowerCase()}, phone, staff...`}
+                          value={followupSearchInput}
+                          onChange={(e) => setFollowupSearchInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              setFollowupSearch(followupSearchInput);
+                            }
+                          }}
+                          className="pl-8 pr-7 py-0.5 bg-surface-subtle border border-border rounded-sm text-[11px] text-text-primary focus:outline-none focus:border-accent w-44 lg:w-56 h-[26px]"
                         />
+                        {followupSearchInput && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFollowupSearchInput('');
+                              setFollowupSearch('');
+                            }}
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5"
+                            title="Clear search"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
                       </div>
 
                       {/* Quick Reset All Filters Button */}
-                      {(followupStatusFilter !== 'all' || followupProbabilityFilter !== 'all' || followupDoctorFilter !== 'all' || followupActionFilter !== 'all' || followupSearch.trim()) && (
+                      {(followupStatusFilter !== 'all' || followupProbabilityFilter !== 'all' || followupDoctorFilter !== 'all' || followupActionFilter !== 'all' || followupSearchInput.trim()) && (
                         <button
                           type="button"
                           onClick={() => {
@@ -9469,6 +9527,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             setFollowupProbabilityFilter('all');
                             setFollowupDoctorFilter('all');
                             setFollowupActionFilter('all');
+                            setFollowupSearchInput('');
                             setFollowupSearch('');
                           }}
                           className="text-[11px] text-accent hover:underline flex items-center gap-0.5 px-1 py-0.5 rounded hover:bg-surface-subtle font-medium cursor-pointer shrink-0 ml-auto"
@@ -9811,7 +9870,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                 converted: mappedStatus === 'converted'
                                               });
                                             }}
-                                            className="w-full px-2.5 py-1 rounded-md text-[11px] font-semibold bg-surface border border-border shadow-2xs text-text-primary hover:border-border-hover focus:outline-none focus:ring-1 focus:ring-accent transition-colors"
+                                            className="w-full h-7 px-2 py-0.5 rounded-md text-[11px] leading-tight font-semibold bg-surface border border-border shadow-2xs text-text-primary hover:border-border-hover focus:outline-none focus:ring-1 focus:ring-accent transition-colors table-control"
                                           >
                                             {crmDropdowns.outcome_statuses.map((st) => (
                                               <option key={st} value={st}>{st}</option>
@@ -9837,7 +9896,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                 ...(d && !cust.followup_time ? { followup_time: '10:00 AM' } : {})
                                               });
                                             }}
-                                            className="text-[11px] font-medium bg-surface border border-border rounded-md px-2 py-0.5 text-text-primary hover:border-border-hover shadow-2xs focus:outline-none focus:ring-1 focus:ring-accent"
+                                            className="text-[11px] font-medium bg-surface border border-border rounded-md px-1.5 py-0.5 h-6 text-text-primary hover:border-border-hover shadow-2xs focus:outline-none focus:ring-1 focus:ring-accent table-control"
                                             title="Click to change follow-up date"
                                           />
                                           {cust.followup_date && (
@@ -9929,7 +9988,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         <select
                                           value={cust.next_action || 'Call Again'}
                                           onChange={(e) => handleUpdateCustomer(cust.id, { next_action: e.target.value })}
-                                          className="w-full px-2.5 py-1 rounded-md text-[11px] font-semibold bg-surface-subtle border border-border text-text-primary hover:border-border-hover shadow-2xs focus:outline-none focus:ring-1 focus:ring-accent transition-colors"
+                                          className="w-full h-7 px-2 py-0.5 rounded-md text-[11px] leading-tight font-semibold bg-surface-subtle border border-border text-text-primary hover:border-border-hover shadow-2xs focus:outline-none focus:ring-1 focus:ring-accent transition-colors table-control"
                                         >
                                           {crmDropdowns.next_actions.map((act) => (
                                             <option key={act} value={act}>{act}</option>
@@ -10488,8 +10547,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <input
                             type="text"
                             placeholder="Search name, phone, city, requirement..."
-                            value={followupSearch}
-                            onChange={(e) => setFollowupSearch(e.target.value)}
+                            value={followupSearchInput}
+                            onChange={(e) => setFollowupSearchInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                setFollowupSearch(followupSearchInput);
+                              }
+                            }}
                             className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-64"
                           />
                         </div>

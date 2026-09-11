@@ -93,12 +93,27 @@ html {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Prevent iOS Safari from forcing automatic viewport zoom on input focus */
+/* Prevent iOS Safari from forcing automatic viewport zoom on text inputs, while preserving compact table controls */
 @media screen and (max-width: 768px) {
-  input,
-  select,
-  textarea {
+  input[type="text"]:not(.table-control),
+  input[type="search"]:not(.table-control),
+  input[type="email"]:not(.table-control),
+  input[type="tel"]:not(.table-control),
+  input[type="password"]:not(.table-control),
+  input[type="url"]:not(.table-control),
+  input[type="number"]:not(.table-control),
+  textarea:not(.table-control) {
     font-size: 16px !important;
+  }
+
+  /* Explicit compact sizing for table rows, status dropdowns, and date pickers */
+  .table-control,
+  .table-select,
+  table select,
+  table input[type="date"],
+  table input[type="text"] {
+    font-size: 11px !important;
+    line-height: 1.25 !important;
   }
 }
 

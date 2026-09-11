@@ -1112,34 +1112,73 @@ async def list_customers(
             status_clean = status.strip()
             status_lower = status_clean.lower()
             if status_lower in ("new", "contacted", "follow-up", "converted", "lost"):
-                conditions.append(f"""(
-                    c.status = ${idx}
-                    OR (${idx} = 'new' AND (c.status = 'new' OR c.call_status ILIKE '%new%'))
-                    OR (${idx} = 'contacted' AND (c.status = 'contacted' OR c.call_status ILIKE '%contact%' OR c.call_status ILIKE '%picked%'))
-                    OR (${idx} = 'follow-up' AND (c.status = 'follow-up' OR c.call_status ILIKE '%info%' OR c.call_status ILIKE '%requirement%' OR c.call_status ILIKE '%pricing%' OR c.call_status ILIKE '%follow%'))
-                    OR (${idx} = 'converted' AND (c.status = 'converted' OR c.converted = true OR c.call_status ILIKE '%convert%' OR c.call_status ILIKE '%confirm%'))
-                    OR (${idx} = 'lost' AND (c.status = 'lost' OR c.call_status ILIKE '%lost%' OR c.call_status ILIKE '%wrong%' OR c.call_status ILIKE '%busy%'))
-                )""")
-                params.append(status_lower)
+                if status_lower == "new":
+                    conditions.append("""(
+                        (c.status = 'new' OR c.call_status ILIKE '%new%')
+                        AND COALESCE(c.converted, false) = false
+                        AND COALESCE(c.status, '') NOT IN ('converted', 'lost')
+                    )""")
+                elif status_lower == "converted":
+                    conditions.append("""(
+                        c.status = 'converted'
+                        OR COALESCE(c.converted, false) = true
+                        OR c.call_status ILIKE '%convert%'
+                        OR c.call_status ILIKE '%confirm%'
+                    )""")
+                elif status_lower == "follow-up":
+                    conditions.append("""(
+                        (c.status = 'follow-up' OR c.call_status ILIKE '%info%' OR c.call_status ILIKE '%requirement%' OR c.call_status ILIKE '%pricing%' OR c.call_status ILIKE '%follow%')
+                        AND COALESCE(c.converted, false) = false
+                        AND COALESCE(c.status, '') NOT IN ('converted', 'lost')
+                    )""")
+                elif status_lower == "lost":
+                    conditions.append("""(
+                        c.status = 'lost'
+                        OR c.call_status ILIKE '%lost%'
+                        OR c.call_status ILIKE '%wrong%'
+                        OR c.call_status ILIKE '%busy%'
+                    )""")
+                elif status_lower == "contacted":
+                    conditions.append("""(
+                        (c.status = 'contacted' OR c.call_status ILIKE '%contact%' OR c.call_status ILIKE '%picked%')
+                        AND COALESCE(c.converted, false) = false
+                        AND COALESCE(c.status, '') NOT IN ('converted', 'lost')
+                    )""")
             else:
                 conditions.append(f"(c.call_status ILIKE ${idx} OR c.status ILIKE ${idx})")
                 params.append(f"%{status_clean}%")
-            idx += 1
+                idx += 1
 
         if next_action and next_action != "all":
-            conditions.append(f"c.next_action ILIKE ${idx}")
-            params.append(f"%{next_action.strip()}%")
-            idx += 1
+            next_act_clean = next_action.strip()
+            if next_act_clean.lower() in ("unassigned", "none", "no action"):
+                conditions.append("(c.next_action IS NULL OR TRIM(c.next_action) = '')")
+            else:
+                conditions.append(f"c.next_action ILIKE ${idx}")
+                params.append(f"%{next_act_clean}%")
+                idx += 1
 
         if lead_probability and lead_probability != "all":
-            conditions.append(f"c.lead_probability = ${idx}")
-            params.append(lead_probability)
-            idx += 1
+            lp_lower = lead_probability.strip().lower()
+            if lp_lower == "hot":
+                conditions.append("(LOWER(c.lead_probability) = 'hot' OR COALESCE(c.conversion_rate, 0) >= 75)")
+            elif lp_lower == "warm":
+                conditions.append("(LOWER(c.lead_probability) = 'warm' OR (c.conversion_rate >= 35 AND c.conversion_rate < 75))")
+            elif lp_lower == "cold":
+                conditions.append("(LOWER(c.lead_probability) = 'cold' OR (c.conversion_rate IS NOT NULL AND c.conversion_rate < 35))")
+            else:
+                conditions.append(f"LOWER(c.lead_probability) = LOWER(${idx})")
+                params.append(lp_lower)
+                idx += 1
 
         if preferred_doctor and preferred_doctor != "all":
-            conditions.append(f"c.preferred_doctor = ${idx}")
-            params.append(preferred_doctor)
-            idx += 1
+            pref_doc_clean = preferred_doctor.strip()
+            if pref_doc_clean.lower() in ("unassigned", "none"):
+                conditions.append("(c.preferred_doctor IS NULL OR TRIM(c.preferred_doctor) = '')")
+            else:
+                conditions.append(f"c.preferred_doctor ILIKE ${idx}")
+                params.append(f"%{pref_doc_clean}%")
+                idx += 1
 
         if client_type and client_type != "all":
             if client_type == "repeat":
@@ -1150,9 +1189,26 @@ async def list_customers(
                 conditions.append("COALESCE(b_stats.completed_bookings_count, 0) > 0 AND b_stats.calculated_last_visited < (now() - interval '30 days')")
 
         if q and q.strip():
-            conditions.append(f"(c.name ILIKE ${idx} OR c.phone ILIKE ${idx} OR c.health_concern ILIKE ${idx} OR c.location ILIKE ${idx})")
-            params.append(f"%{q.strip()}%")
-            idx += 1
+            q_clean = q.strip()
+            digits_only = re.sub(r'[^0-9]', '', q_clean)
+            search_parts = [
+                f"c.name ILIKE ${idx}",
+                f"c.preferred_doctor ILIKE ${idx}",
+                f"c.health_concern ILIKE ${idx}",
+                f"c.location ILIKE ${idx}",
+                f"c.call_status ILIKE ${idx}",
+                f"c.next_action ILIKE ${idx}",
+                f"EXISTS (SELECT 1 FROM customer_notes cn WHERE cn.customer_id = c.id AND cn.tenant_id = c.tenant_id AND cn.note_text ILIKE ${idx})"
+            ]
+            if len(digits_only) >= 3:
+                search_parts.append(f"REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g') ILIKE ${idx + 1}")
+                params.extend([f"%{q_clean}%", f"%{digits_only}%"])
+                idx += 2
+            else:
+                search_parts.append(f"c.phone ILIKE ${idx}")
+                params.append(f"%{q_clean}%")
+                idx += 1
+            conditions.append(f"({' OR '.join(search_parts)})")
 
         if health_concern and health_concern != "all":
             conditions.append(f"c.health_concern = ${idx}")
