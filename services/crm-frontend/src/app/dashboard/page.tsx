@@ -9123,30 +9123,63 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <p>No chats match the &quot;{filter}&quot; filter</p>
                       </div>
                     ) : (
-                      filteredConversations.map((conv) => (
-                        <div
-                          key={conv.id}
-                          onClick={() => {
-                            if (selectedConv?.id === conv.id) {
-                              setSelectedConv(null);
-                              activeConvIdRef.current = null;
-                            } else {
-                              selectConversation(conv);
-                            }
-                          }}
-                          className={`group w-full py-2 px-2.5 text-left transition-colors duration-150 cursor-pointer flex gap-2 items-center justify-between ${
-                            selectedConv?.id === conv.id ? 'bg-surface-subtle border-l-2 border-accent' : 'hover:bg-surface-subtle/50'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
-                            <div className="w-7 h-7 rounded-full bg-surface-subtle text-text-secondary border border-border flex items-center justify-center font-medium text-[11px] shrink-0">
-                              {conv.contact_name ? conv.contact_name[0].toUpperCase() : 'C'}
+                      filteredConversations.map((conv) => {
+                        const isSelected = selectedConv?.id === conv.id;
+                        const cleanPhone = (conv.contact_phone || '').replace(/[^0-9]/g, '');
+                        const matchedCust = customers.find((c) => c.phone && c.phone.replace(/[^0-9]/g, '') === cleanPhone);
+                        const isRepeat = conv.client_type === 'repeat' || (conv.completed_bookings_count ?? 0) > 0 || (matchedCust?.completed_bookings_count ?? 0) > 0;
+                        const visitCount = conv.completed_bookings_count ?? matchedCust?.completed_bookings_count ?? 0;
+                        const staffName = conv.assigned_staff_name || conv.preferred_doctor || matchedCust?.preferred_doctor || '';
+                        const concern = conv.health_concern || matchedCust?.health_concern || '';
+                        const lastMsg = conv.last_message || matchedCust?.last_message || '';
+                        const unreadCount = conv.unread_count || 0;
+                        const isStarred = importantConvIds.includes(conv.id);
+
+                        return (
+                          <div
+                            key={conv.id}
+                            onClick={() => {
+                              if (selectedConv?.id === conv.id) {
+                                setSelectedConv(null);
+                                activeConvIdRef.current = null;
+                              } else {
+                                selectConversation(conv);
+                              }
+                            }}
+                            className={`group w-full py-2 px-2.5 text-left transition-colors duration-150 cursor-pointer flex gap-2.5 items-start justify-between border-b border-border/40 ${
+                              isSelected
+                                ? 'bg-blue-50/70 dark:bg-slate-800/80 border-l-2 border-l-accent'
+                                : 'hover:bg-surface-subtle/70'
+                            }`}
+                          >
+                            {/* Left: Avatar with Status Dot */}
+                            <div className="relative shrink-0 mt-0.5">
+                              <div className="w-8 h-8 rounded-full bg-surface-subtle text-text-secondary border border-border flex items-center justify-center font-bold text-xs shadow-2xs">
+                                {conv.contact_name ? conv.contact_name[0].toUpperCase() : (conv.contact_phone ? conv.contact_phone.slice(-1) : 'C')}
+                              </div>
+                              {/* Avatar Dot: 🟢 Green = AI Active, 🟡 Amber = Human Mode */}
+                              <span
+                                className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-surface ${
+                                  conv.ai_enabled !== false
+                                    ? 'bg-emerald-500'
+                                    : 'bg-amber-500'
+                                }`}
+                                title={conv.ai_enabled !== false ? 'AI Assistant Active' : 'Human Takeover Mode'}
+                              />
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex justify-between items-baseline gap-1.5">
-                                <p className="font-semibold text-xs text-text-primary truncate">
-                                  {conv.contact_name || conv.contact_phone}
-                                </p>
+
+                            {/* Middle: Clean WhatsApp-style 3-Line Stack */}
+                            <div className="flex-1 min-w-0 space-y-0.5">
+                              {/* Line 1: Name + Star + Timestamp */}
+                              <div className="flex items-baseline justify-between gap-1.5 min-w-0">
+                                <div className="flex items-center gap-1 min-w-0">
+                                  <p className={`text-xs truncate ${unreadCount > 0 ? 'font-bold text-text-primary' : 'font-semibold text-text-primary'}`}>
+                                    {conv.contact_name || conv.contact_phone || 'Customer'}
+                                  </p>
+                                  {isStarred && (
+                                    <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500 shrink-0" />
+                                  )}
+                                </div>
                                 <span
                                   className="text-[10px] text-text-muted font-mono shrink-0"
                                   title={formatFullDateTimeDetailed(conv.last_message_at)}
@@ -9154,98 +9187,94 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   {formatConversationDate(conv.last_message_at)}
                                 </span>
                               </div>
-                              <div className="flex items-center justify-between gap-1.5 mt-0.5">
-                                <p className="text-[11px] text-text-muted truncate font-mono">
-                                  {conv.contact_phone}
+
+                              {/* Line 2: Latest Message Snippet + Unread Bubble */}
+                              <div className="flex items-center justify-between gap-1.5 min-w-0">
+                                <p className={`text-[11px] truncate leading-tight flex-1 min-w-0 ${
+                                  unreadCount > 0
+                                    ? 'font-semibold text-text-primary'
+                                    : 'text-text-muted group-hover:text-text-secondary'
+                                }`}>
+                                  {lastMsg ? (
+                                    <span className="italic font-medium text-text-secondary dark:text-text-secondary">"{lastMsg}"</span>
+                                  ) : (
+                                    <span className="font-mono text-text-muted/70">{conv.contact_phone}</span>
+                                  )}
                                 </p>
-                                <div className="flex items-center gap-1 shrink-0">
-                                  {conv.assigned_staff_name ? (
-                                    <span className="text-[9px] font-medium px-1 py-0.2 rounded bg-surface-subtle text-text-muted border border-border flex items-center gap-0.5 max-w-[65px] truncate" title={`Assigned to ${conv.assigned_staff_name}`}>
-                                      <User className="w-2.5 h-2.5 stroke-[1.8] shrink-0 inline" /> {conv.assigned_staff_name.split(' ')[0]}
-                                    </span>
-                                  ) : conv.preferred_doctor ? (
-                                    <span className="text-[9px] font-medium px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/40 flex items-center gap-0.5 max-w-[75px] truncate" title={`Doctor: ${conv.preferred_doctor}`}>
-                                      <Stethoscope className="w-2.5 h-2.5 stroke-[1.8] shrink-0 inline" /> {conv.preferred_doctor.split(' ')[0]}
-                                    </span>
-                                  ) : null}
-                                  {conv.health_concern && (
-                                    <span
-                                      className="text-[9px] font-medium px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/40 shrink-0 flex items-center gap-0.5 max-w-[90px] truncate"
-                                      title={`Specialty: ${conv.health_concern}`}
-                                    >
-                                      <HeartPulse className="w-2.5 h-2.5 stroke-[2] shrink-0" />
-                                      <span className="truncate">{conv.health_concern}</span>
-                                    </span>
-                                  )}
-                                  {(() => {
-                                    const isRepeat = conv.client_type === 'repeat' || (conv.completed_bookings_count ?? 0) > 0;
-                                    const visitCount = conv.completed_bookings_count ?? 0;
-                                    if (isRepeat) {
-                                      return (
-                                        <span className="text-[9px] font-medium px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200/70 shrink-0 flex items-center gap-0.5" title={`Repeat client (${visitCount} completed session${visitCount === 1 ? '' : 's'})`}>
-                                          <UserCheck className="w-2.5 h-2.5 stroke-[2] shrink-0" />
-                                          <span>Repeat</span>
-                                          {visitCount > 0 && <span className="font-mono font-semibold">({visitCount})</span>}
-                                        </span>
-                                      );
-                                    }
-                                    return (
-                                      <span className="text-[9px] font-medium px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60 shrink-0 flex items-center gap-0.5" title="First-time lead">
-                                        <UserPlus className="w-2.5 h-2.5 stroke-[2] shrink-0" />
-                                        <span>Lead</span>
-                                      </span>
-                                    );
-                                  })()}
-                                  {(conv.unread_count || 0) > 0 && selectedConv?.id !== conv.id && (
-                                    <span className="px-1.5 py-0.2 rounded-full bg-accent text-white text-[10px] font-bold min-w-[16px] text-center leading-tight">
-                                      {conv.unread_count}
-                                    </span>
-                                  )}
-                                  <span className={`text-[9px] font-medium px-1.5 py-0.2 rounded border ${
-                                    conv.ai_enabled
-                                      ? 'bg-status-success-bg text-status-success border-status-success-border'
-                                      : 'bg-status-warning-bg text-status-warning border-status-warning-border'
-                                  }`}>
-                                    {conv.ai_enabled ? 'AI' : 'Human'}
+                                {unreadCount > 0 && !isSelected && (
+                                  <span className="px-1.5 py-0.2 rounded-full bg-accent text-white text-[9px] font-bold min-w-[16px] text-center leading-tight shrink-0 shadow-2xs">
+                                    {unreadCount}
                                   </span>
-                                </div>
+                                )}
+                              </div>
+
+                              {/* Line 3: Subtle Minimal Context Line (Lead/Repeat + Staff + Concern) */}
+                              <div className="flex items-center gap-1.5 pt-0.5 text-[10px] text-text-muted leading-none flex-wrap">
+                                {isRepeat ? (
+                                  <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200/70 inline-flex items-center gap-0.5 shrink-0" title={`Repeat client (${visitCount} completed visits)`}>
+                                    <UserCheck className="w-2.5 h-2.5 stroke-[2]" />
+                                    <span>Repeat{visitCount > 0 ? ` (${visitCount})` : ''}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-semibold px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60 inline-flex items-center gap-0.5 shrink-0" title="First-time lead">
+                                    <UserPlus className="w-2.5 h-2.5 stroke-[2]" />
+                                    <span>Lead</span>
+                                  </span>
+                                )}
+
+                                {staffName && (
+                                  <>
+                                    <span className="text-border text-[9px]">•</span>
+                                    <span className="truncate max-w-[80px] text-text-secondary font-medium" title={`Assigned: ${staffName}`}>
+                                      {staffName.split(' ')[0]}
+                                    </span>
+                                  </>
+                                )}
+
+                                {concern && (
+                                  <>
+                                    <span className="text-border text-[9px]">•</span>
+                                    <span className="truncate max-w-[95px] text-text-muted" title={concern}>
+                                      {concern}
+                                    </span>
+                                  </>
+                                )}
                               </div>
                             </div>
-                          </div>
 
-                          <div className="flex items-center gap-0.5 shrink-0">
-                            {/* Star as Important Toggle Button */}
-                            <button
-                              type="button"
-                              onClick={(e) => toggleImportant(conv.id, e)}
-                              className={`p-1 rounded-sm transition-colors duration-150 cursor-pointer ${
-                                importantConvIds.includes(conv.id)
-                                  ? 'text-amber-500'
-                                  : 'text-text-muted hover:text-amber-500 opacity-0 group-hover:opacity-100'
-                              }`}
-                              title={importantConvIds.includes(conv.id) ? 'Marked as Important (Click to remove)' : 'Mark as Important'}
-                            >
-                              <Star className={`w-3.5 h-3.5 stroke-[1.5] ${importantConvIds.includes(conv.id) ? 'fill-amber-500 text-amber-500' : ''}`} />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteChatModal({
-                                  isOpen: true,
-                                  convId: conv.id,
-                                  name: conv.contact_name || conv.contact_phone || 'this customer',
-                                });
-                              }}
-                              className="opacity-0 group-hover:opacity-100 p-1 text-text-muted hover:text-status-error hover:bg-status-error-bg rounded-sm transition-colors duration-150 shrink-0 cursor-pointer"
-                              title="Delete chat"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                            </button>
+                            {/* Right: Star Toggle & Delete (Visible on hover or if starred) */}
+                            <div className="flex items-center gap-0.5 shrink-0 self-center">
+                              <button
+                                type="button"
+                                onClick={(e) => toggleImportant(conv.id, e)}
+                                className={`p-1 rounded-sm transition-colors duration-150 cursor-pointer ${
+                                  isStarred
+                                    ? 'text-amber-500 opacity-100'
+                                    : 'text-text-muted hover:text-amber-500 opacity-0 group-hover:opacity-100'
+                                }`}
+                                title={isStarred ? 'Marked as Important (Click to remove)' : 'Mark as Important'}
+                              >
+                                <Star className={`w-3.5 h-3.5 stroke-[1.5] ${isStarred ? 'fill-amber-500 text-amber-500' : ''}`} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteChatModal({
+                                    isOpen: true,
+                                    convId: conv.id,
+                                    name: conv.contact_name || conv.contact_phone || 'this customer',
+                                  });
+                                }}
+                                className="opacity-0 group-hover:opacity-100 p-1 text-text-muted hover:text-status-error hover:bg-status-error-bg rounded-sm transition-colors duration-150 shrink-0 cursor-pointer"
+                                title="Delete chat"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
