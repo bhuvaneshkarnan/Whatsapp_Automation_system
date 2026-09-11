@@ -11003,16 +11003,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <div className="flex-1 flex overflow-hidden gap-3">
                       {/* Customers Table */}
                       <div className={`flex-1 overflow-y-auto overflow-x-auto border border-border rounded-sm bg-surface ${selectedCustomer ? 'hidden md:block min-w-0' : ''}`}>
-                        <table className="w-full text-left text-xs min-w-0">
+                        <table className="w-full text-left text-xs table-fixed">
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-semibold text-[11px] sticky top-0 z-10">
                             <tr>
-                              <th className="py-2 pl-4 pr-3 w-[40%] min-w-[280px]">{currentTaxonomy.client_label || 'Customer'} & Tags</th>
-                              <th className="py-2 px-3 w-[32%] min-w-[190px] text-center">
+                              <th className="py-2 pl-4 pr-3 w-[40%]">{currentTaxonomy.client_label || 'Customer'} & Tags</th>
+                              <th className="py-2 px-3 w-[32%] text-center">
                                 {currentTaxonomy.staff_label && currentTaxonomy.staff_label.trim()
                                   ? `${currentTaxonomy.staff_label.split('/')[0].trim()} & ${(currentTaxonomy.status_label || 'Outcome')}`
                                   : (currentTaxonomy.status_label || 'Status')}
                               </th>
-                              <th className="py-2 pr-4 pl-2.5 w-[28%] min-w-[215px]">{(currentTaxonomy.followup_label || 'Follow-up')} & {(currentTaxonomy.actions_label || 'Action')}</th>
+                              <th className="py-2 pr-4 pl-2.5 w-[28%]">{(currentTaxonomy.followup_label || 'Follow-up')} & {(currentTaxonomy.actions_label || 'Action')}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
@@ -11055,7 +11055,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     }`}
                                   >
                                     {/* 1. Customer & Tags (Clean, Organised with Full Note, Delete Note, Real WhatsApp Icon, and Improved Lead Status) */}
-                                    <td className="pt-2.5 pb-3 pl-4 pr-3 align-top w-[40%] min-w-[280px]">
+                                    <td className="pt-2.5 pb-3 pl-4 pr-3 align-top w-[40%] overflow-hidden">
                                       <div className="space-y-2 min-w-0">
                                         {/* Row A: Customer Identity, Type Badge */}
                                         <div className="flex items-center justify-between gap-2">
@@ -11108,11 +11108,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                               handleSelectCustomer(cust);
                                               setDrawerActiveTab('chat');
                                             }}
-                                            className="flex items-center gap-1.5 text-[11px] text-text-secondary hover:text-[#128C7E] dark:hover:text-[#25D366] group cursor-pointer max-w-full truncate pt-0.5"
+                                            className="flex items-center gap-1.5 text-[11px] text-text-secondary hover:text-[#128C7E] dark:hover:text-[#25D366] group cursor-pointer max-w-full min-w-0 truncate pt-0.5"
                                             title={`Latest WhatsApp: "${cust.last_message}" (Click to view chat)`}
                                           >
                                             <WhatsAppIcon className="w-3 h-3 text-[#25D366] shrink-0 group-hover:scale-110 transition-transform" />
-                                            <span className="truncate italic font-medium">"{cust.last_message}"</span>
+                                            <span className="truncate italic font-medium min-w-0">"{cust.last_message}"</span>
                                           </div>
                                         )}
 
@@ -11327,7 +11327,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </td>
 
                                     {/* 2. Assigned & Outcome (Centered in Table) */}
-                                    <td className="pt-2 pb-2.5 px-3 align-top w-[32%] min-w-[190px]" onClick={(e) => e.stopPropagation()}>
+                                    <td className="pt-2 pb-2.5 px-3 align-top w-[32%]" onClick={(e) => e.stopPropagation()}>
                                       <div className="space-y-1.5 max-w-[200px] mx-auto">
                                         {/* Assigned Staff Trigger */}
                                         <div>
@@ -11373,7 +11373,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </td>
 
                                     {/* 3. Follow up & Action */}
-                                    <td className="pt-1.5 pb-2.5 pr-4 pl-2.5 align-top w-[28%] min-w-[215px]" onClick={(e) => e.stopPropagation()}>
+                                    <td className="pt-1.5 pb-2.5 pr-4 pl-2.5 align-top w-[28%]" onClick={(e) => e.stopPropagation()}>
                                       <div className="space-y-1.5 w-full">
                                         {/* Row 1: Follow-up Date & Time Selectors */}
                                         {cust.followup_date ? (
