@@ -256,114 +256,80 @@ const PREBUILT_REQUIREMENTS_BY_INDUSTRY: Record<string, string[]> = {
     'Priority Support',
     'Follow-up Session',
   ],
+  business: [
+    'General Inquiry',
+    'Service Consultation',
+    'Project Scope Discussion',
+    'Follow-up Session',
+    'Priority Support',
+  ],
+  ecommerce: [
+    'Product Inquiry / Sizing',
+    'Order Status & Tracking',
+    'Return / Exchange Request',
+    'Restock & Repurchase Alert',
+    'Bulk / Wholesale Order',
+  ],
 };
 
 const INDUSTRY_PRESETS = [
   {
-    id: 'education',
-    name: 'Education, Academies & Coaching Institutes',
+    id: 'business',
+    name: 'Universal Business & Services',
+    subtitle: 'Appointments, Leads, Retainers, Consulting & Clinics',
     taxonomy: {
-      staff_label: 'Tutor / Counselor / Faculty',
-      client_label: 'Student / Parent',
-      requirement_label: 'Target Course & Grade',
-      event_label: 'Demo Class / Counseling Session',
-      booking_cta: '+ Book Demo Class / Counseling',
-      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.education,
-    },
-  },
-  {
-    id: 'clinic',
-    name: 'Healthcare, Clinics & Wellness Centers',
-    taxonomy: {
-      staff_label: 'Preferred Doctor / Staff',
-      client_label: 'Patient',
-      requirement_label: 'Health Concern / Symptoms',
-      event_label: 'Clinic Appointment',
-      booking_cta: '+ New Appointment',
-      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic,
-    },
-  },
-  {
-    id: 'real_estate',
-    name: 'Real Estate, Developers & Property Brokers',
-    taxonomy: {
-      staff_label: 'Property Agent / Consultant',
-      client_label: 'Buyer / Lead',
-      requirement_label: 'Budget, Location & Unit Size',
-      event_label: 'Site Visit / Walkthrough',
-      booking_cta: '+ Schedule Site Visit',
-      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.real_estate,
-    },
-  },
-  {
-    id: 'salon_spa',
-    name: 'Salons, Spas & Beauty Parlors',
-    taxonomy: {
-      staff_label: 'Preferred Stylist / Therapist',
+      staff_label: 'Assigned Staff',
       client_label: 'Client',
-      requirement_label: 'Hair/Skin Goal & Desired Service',
-      event_label: 'Salon Session / Slot',
-      booking_cta: '+ Book Salon Session',
-      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.salon_spa,
+      client_plural: 'Clients',
+      requirement_label: 'Requirement / Service Focus',
+      event_label: 'Meeting / Session',
+      booking_cta: '+ Schedule Session',
+      tab_chats_label: 'Chats',
+      tab_clients_label: 'Clients',
+      tab_repeat_label: 'Repeat Clients',
+      tab_bookings_label: 'Bookings',
+      tab_calendar_label: 'Calendar schedule',
+      tab_marketing_label: 'Marketing',
+      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.business,
     },
   },
   {
-    id: 'automobile',
-    name: 'Automobile Dealerships & Garages',
+    id: 'ecommerce',
+    name: 'E-Commerce & Retail',
+    subtitle: 'Products, Orders, Shipments & Re-orders',
     taxonomy: {
-      staff_label: 'Service Advisor / Mechanic',
-      client_label: 'Vehicle Owner',
-      requirement_label: 'Vehicle Model & Issue',
-      event_label: 'Service Slot / Test Drive',
-      booking_cta: '+ Book Service Slot',
-      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.automobile,
-    },
-  },
-  {
-    id: 'consulting',
-    name: 'Consulting, Legal & Digital Agencies',
-    taxonomy: {
-      staff_label: 'Assigned Consultant / Executive',
-      client_label: 'Client / Prospect',
-      requirement_label: 'Project Scope & Requirements',
-      event_label: 'Strategy Call / Consultation',
-      booking_cta: '+ Book Discovery Call',
-      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.consulting,
-    },
-  },
-  {
-    id: 'gym_fitness',
-    name: 'Gyms, Fitness & Yoga Studios',
-    taxonomy: {
-      staff_label: 'Trainer / Coach',
-      client_label: 'Member / Lead',
-      requirement_label: 'Fitness Goal & Health Notes',
-      event_label: 'Trial Class / Assessment',
-      booking_cta: '+ Book Trial Class',
-      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.gym_fitness,
-    },
-  },
-  {
-    id: 'restaurant',
-    name: 'Restaurants, Cafes & Fine Dining',
-    taxonomy: {
-      staff_label: 'Captain / Host',
-      client_label: 'Guest',
-      requirement_label: 'Party Size & Dietary Preferences',
-      event_label: 'Table Reservation',
-      booking_cta: '+ Reserve Table',
-      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.restaurant,
+      staff_label: 'Sales Rep / Support',
+      client_label: 'Customer',
+      client_plural: 'Customers',
+      requirement_label: 'Interested Product / SKU',
+      event_label: 'Order / Delivery',
+      booking_cta: '+ New Order',
+      tab_chats_label: 'Chats',
+      tab_clients_label: 'Buyers',
+      tab_repeat_label: 'Repeat Buyers',
+      tab_bookings_label: 'Orders',
+      tab_calendar_label: 'Dispatch Calendar',
+      tab_marketing_label: 'Campaigns',
+      requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.ecommerce,
     },
   },
   {
     id: 'custom',
-    name: 'Custom / General Business Services',
+    name: 'Custom / Other',
+    subtitle: 'Fully custom entities, fields & tabs',
     taxonomy: {
       staff_label: 'Staff Member',
       client_label: 'Customer',
+      client_plural: 'Customers',
       requirement_label: 'Service Details',
       event_label: 'Appointment',
-      booking_cta: '+ Book Appointment',
+      booking_cta: '+ New Booking',
+      tab_chats_label: 'Chats',
+      tab_clients_label: 'Customers',
+      tab_repeat_label: 'Repeat Clients',
+      tab_bookings_label: 'Bookings',
+      tab_calendar_label: 'Calendar schedule',
+      tab_marketing_label: 'Marketing',
       requirement_presets: PREBUILT_REQUIREMENTS_BY_INDUSTRY.custom,
     },
   },
@@ -3151,29 +3117,84 @@ export default function SuperAdminClients() {
                             </span>
                           </div>
 
-                          {/* Preset Dropdown */}
+                          {/* 2-Type Primary Business Model Selector */}
                           <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">
-                              Industry Preset (Select to auto-fill CRM labels)
+                            <label className="block text-xs font-medium text-text-primary mb-1.5">
+                              Choose Business Engine (Auto-fills tabs & field terminology)
                             </label>
-                            <select
-                              value={configForm.industry || 'clinic'}
-                              onChange={(e) => {
-                                const selectedPreset = INDUSTRY_PRESETS.find((p) => p.id === e.target.value);
-                                setConfigForm({
-                                  ...configForm,
-                                  industry: e.target.value,
-                                  taxonomy: selectedPreset ? { ...selectedPreset.taxonomy, requirement_presets: [...(selectedPreset.taxonomy.requirement_presets || [])] } : configForm.taxonomy,
-                                });
-                              }}
-                              className="w-full px-2.5 py-2 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer font-medium"
-                            >
-                              {INDUSTRY_PRESETS.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {p.name}
-                                </option>
-                              ))}
-                            </select>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {/* Card 1: Business & Services */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const selectedPreset = INDUSTRY_PRESETS.find((p) => p.id === 'business');
+                                  setConfigForm({
+                                    ...configForm,
+                                    industry: 'business',
+                                    taxonomy: selectedPreset
+                                      ? { ...selectedPreset.taxonomy, requirement_presets: [...(selectedPreset.taxonomy.requirement_presets || [])] }
+                                      : configForm.taxonomy,
+                                  });
+                                }}
+                                className={`p-3 rounded-md border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                                  (configForm.industry === 'business' || !configForm.industry || configForm.industry === 'custom' || configForm.industry === 'clinic')
+                                    ? 'border-accent bg-accent/5 ring-1 ring-accent/30 shadow-2xs'
+                                    : 'border-border bg-surface hover:border-text-muted/50 hover:bg-surface-subtle/50'
+                                }`}
+                              >
+                                <div className="flex items-start justify-between w-full">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xl">🏢</span>
+                                    <div>
+                                      <h5 className="font-semibold text-xs text-text-primary">Business & Services</h5>
+                                      <span className="text-[10px] text-text-muted">Agencies, Consulting, Clinics, Real Estate</span>
+                                    </div>
+                                  </div>
+                                  {(configForm.industry === 'business' || !configForm.industry || configForm.industry === 'custom' || configForm.industry === 'clinic') && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-accent text-white uppercase tracking-wider">Active</span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-text-secondary mt-2">
+                                  For appointments, consultations, retainers, meetings, and repeat clients.
+                                </p>
+                              </button>
+
+                              {/* Card 2: E-Commerce & Retail */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const selectedPreset = INDUSTRY_PRESETS.find((p) => p.id === 'ecommerce');
+                                  setConfigForm({
+                                    ...configForm,
+                                    industry: 'ecommerce',
+                                    taxonomy: selectedPreset
+                                      ? { ...selectedPreset.taxonomy, requirement_presets: [...(selectedPreset.taxonomy.requirement_presets || [])] }
+                                      : configForm.taxonomy,
+                                  });
+                                }}
+                                className={`p-3 rounded-md border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                                  configForm.industry === 'ecommerce'
+                                    ? 'border-accent bg-accent/5 ring-1 ring-accent/30 shadow-2xs'
+                                    : 'border-border bg-surface hover:border-text-muted/50 hover:bg-surface-subtle/50'
+                                }`}
+                              >
+                                <div className="flex items-start justify-between w-full">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xl">🛍️</span>
+                                    <div>
+                                      <h5 className="font-semibold text-xs text-text-primary">E-Commerce & Retail</h5>
+                                      <span className="text-[10px] text-text-muted">Products, D2C, Orders, Catalog, Restocks</span>
+                                    </div>
+                                  </div>
+                                  {configForm.industry === 'ecommerce' && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-accent text-white uppercase tracking-wider">Active</span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-text-secondary mt-2">
+                                  For product inquiries, orders, deliveries, repeat buyers, and catalog sales.
+                                </p>
+                              </button>
+                            </div>
                           </div>
 
                           {/* 4 Customizable Label Fields */}
