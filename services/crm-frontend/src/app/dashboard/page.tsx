@@ -11431,7 +11431,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             {/* Clear Button */}
                                             <button
                                               type="button"
-                                              onClick={() => {
+                                              onClick={(e) => {
+                                                e.stopPropagation();
                                                 handleUpdateCustomer(cust.id, {
                                                   followup_date: null as any,
                                                   followup_time: null as any
@@ -11439,10 +11440,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                 setActiveCalendarPopover(null);
                                                 setActiveTimePopover(null);
                                               }}
-                                              className="h-7 w-6.5 rounded-md border border-border bg-surface hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 text-text-muted flex items-center justify-center transition-colors shadow-2xs cursor-pointer shrink-0"
+                                              className="h-7 w-7 rounded-md border border-border bg-surface hover:bg-rose-50 hover:border-rose-300 hover:text-rose-600 dark:hover:bg-rose-950/30 dark:hover:border-rose-800 dark:hover:text-rose-400 text-text-muted flex items-center justify-center transition-colors shadow-2xs cursor-pointer shrink-0"
                                               title="Clear follow-up"
                                             >
-                                              <X className="w-3 h-3" />
+                                              <X className="w-3.5 h-3.5" />
                                             </button>
 
                                             {/* Floating Interactive Mini Calendar Popover: Opens directly beneath Row 1 */}
