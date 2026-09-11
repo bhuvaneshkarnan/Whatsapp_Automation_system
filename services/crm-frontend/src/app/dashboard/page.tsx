@@ -399,6 +399,59 @@ function formatWhatsAppHeaderDate(dateStrOrObj: string | Date | null | undefined
   }
 }
 
+function normalizeNoteColor(raw?: string | null): 'slate' | 'blue' | 'amber' | 'rose' | 'emerald' | 'violet' {
+  const c = (raw || '').trim().toLowerCase();
+  if (c === 'red' || c === 'rose') return 'rose';
+  if (c === 'yellow' || c === 'amber') return 'amber';
+  if (c === 'green' || c === 'emerald') return 'emerald';
+  if (c === 'purple' || c === 'violet') return 'violet';
+  if (c === 'blue') return 'blue';
+  return 'slate';
+}
+
+function getNoteBadgeStyle(rawColor?: string | null) {
+  const c = normalizeNoteColor(rawColor);
+  switch (c) {
+    case 'rose':
+      return {
+        badge: 'bg-rose-50/90 hover:bg-rose-100 text-rose-800 border-rose-300',
+        icon: 'text-rose-600',
+        leftBorder: 'border-l-rose-400 bg-rose-50/50',
+      };
+    case 'amber':
+      return {
+        badge: 'bg-amber-50/90 hover:bg-amber-100 text-amber-800 border-amber-300',
+        icon: 'text-amber-600',
+        leftBorder: 'border-l-amber-400 bg-amber-50/50',
+      };
+    case 'blue':
+      return {
+        badge: 'bg-blue-50/90 hover:bg-blue-100 text-blue-800 border-blue-300',
+        icon: 'text-blue-600',
+        leftBorder: 'border-l-blue-400 bg-blue-50/50',
+      };
+    case 'emerald':
+      return {
+        badge: 'bg-emerald-50/90 hover:bg-emerald-100 text-emerald-800 border-emerald-300',
+        icon: 'text-emerald-600',
+        leftBorder: 'border-l-emerald-400 bg-emerald-50/50',
+      };
+    case 'violet':
+      return {
+        badge: 'bg-violet-50/90 hover:bg-violet-100 text-violet-800 border-violet-300',
+        icon: 'text-violet-600',
+        leftBorder: 'border-l-violet-400 bg-violet-50/50',
+      };
+    case 'slate':
+    default:
+      return {
+        badge: 'bg-slate-100/90 hover:bg-slate-200 text-slate-800 border-slate-300',
+        icon: 'text-slate-600',
+        leftBorder: 'border-l-slate-400 bg-slate-50/50',
+      };
+  }
+}
+
 function formatWhatsAppRelativeDate(dateStrOrObj: string | Date | null | undefined): string {
   if (!dateStrOrObj) return '';
   try {
@@ -3872,9 +3925,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       setCustomers((prev) =>
         prev.map((c) =>
           c.id === selectedCustomer.id
-            ? { ...c, notes_count: (c.notes_count || 0) + 1, latest_note: newCustomerNoteText.trim() }
+            ? { ...c, notes_count: (c.notes_count || 0) + 1, latest_note: newCustomerNoteText.trim(), latest_note_color: newCustomerNoteColor }
             : c
         )
+      );
+      setSelectedCustomer((prev) =>
+        prev && prev.id === selectedCustomer.id
+          ? { ...prev, notes_count: (prev.notes_count || 0) + 1, latest_note: newCustomerNoteText.trim(), latest_note_color: newCustomerNoteColor }
+          : prev
       );
       setActionNotice('Note added successfully.');
       setTimeout(() => setActionNotice(null), 2500);
@@ -4030,7 +4088,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         q: allNotesSearch || undefined,
       });
       setAllNotes(Array.isArray(updated) ? updated : []);
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === overallNoteCustomerId
+            ? { ...c, notes_count: (c.notes_count || 0) + 1, latest_note: overallNoteText.trim(), latest_note_color: overallNoteColor }
+            : c
+        )
+      );
       if (selectedCustomer && selectedCustomer.id === overallNoteCustomerId) {
+        setSelectedCustomer((prev) =>
+          prev
+            ? { ...prev, notes_count: (prev.notes_count || 0) + 1, latest_note: overallNoteText.trim(), latest_note_color: overallNoteColor }
+            : null
+        );
         const cNotes = await crm.getCustomerNotes(selectedCustomer.id);
         setCustomerNotes(Array.isArray(cNotes) ? cNotes : []);
       }
@@ -9695,22 +9765,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           ))}
 
                                           {/* Inline Note Preview / Add Note Trigger */}
-                                          {cust.latest_note ? (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                setQuickNoteCustomer({ customerId: cust.id, name: cust.name || 'Customer' });
-                                                setQuickNoteText(cust.latest_note || '');
-                                                setQuickNoteColor((cust.latest_note_color || 'slate').toLowerCase());
-                                              }}
-                                              className="text-[10px] font-medium text-text-secondary hover:text-accent flex items-center gap-1 group truncate max-w-[260px] bg-amber-50/70 hover:bg-amber-100/80 border border-amber-200/80 px-1.5 py-0.5 rounded transition-colors"
-                                              title={`Note: ${cust.latest_note} (Click to view/edit)`}
-                                            >
-                                              <StickyNote className="w-2.5 h-2.5 text-amber-600 shrink-0" />
-                                              <span className="truncate italic">"{cust.latest_note}"</span>
-                                            </button>
-                                          ) : (
+                                          {cust.latest_note ? (() => {
+                                            const noteStyle = getNoteBadgeStyle(cust.latest_note_color);
+                                            return (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setQuickNoteCustomer({ customerId: cust.id, name: cust.name || 'Customer' });
+                                                  setQuickNoteText(cust.latest_note || '');
+                                                  setQuickNoteColor((cust.latest_note_color || 'slate').toLowerCase());
+                                                }}
+                                                className={`text-[10px] font-medium flex items-center gap-1 group truncate max-w-[260px] border px-1.5 py-0.5 rounded transition-colors ${noteStyle.badge}`}
+                                                title={`Note: ${cust.latest_note} (Click to view/edit)`}
+                                              >
+                                                <StickyNote className={`w-2.5 h-2.5 shrink-0 ${noteStyle.icon}`} />
+                                                <span className="truncate italic">"{cust.latest_note}"</span>
+                                              </button>
+                                            );
+                                          })() : (
                                             <button
                                               type="button"
                                               onClick={(e) => {
@@ -11586,7 +11659,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 <div className="bg-surface border border-border rounded-lg shadow-2xl w-full max-w-md p-4 space-y-3 animate-in fade-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-between pb-2 border-b border-border">
                     <div className="flex items-center gap-2">
-                      <StickyNote className="w-4 h-4 text-amber-500" />
+                      <StickyNote className={`w-4 h-4 transition-colors ${getNoteBadgeStyle(quickNoteColor).icon}`} />
                       <h3 className="text-xs font-bold text-text-primary">Note for {quickNoteCustomer.name}</h3>
                     </div>
                     <button
@@ -15144,15 +15217,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <div className="text-xs text-text-muted text-center py-4">Loading notes...</div>
                   ) : customerNotes.length > 0 ? (
                     <div className="space-y-2">
-                      {customerNotes.map((note) => (
-                        <div key={note.id} className="bg-surface-subtle border border-border rounded-sm px-3 py-2">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[10px] font-semibold text-accent">{note.author}</span>
-                            <span className="text-[10px] text-text-muted">{note.created_at ? new Date(note.created_at).toLocaleDateString() : ''}</span>
+                      {customerNotes.map((note) => {
+                        const noteStyle = getNoteBadgeStyle(note.color);
+                        return (
+                          <div key={note.id} className={`border border-border border-l-4 rounded-sm px-3 py-2 space-y-1 ${noteStyle.leftBorder}`}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-sm border ${noteStyle.badge}`}>{note.author}</span>
+                              <span className="text-[10px] text-text-muted">{note.created_at ? new Date(note.created_at).toLocaleDateString() : ''}</span>
+                            </div>
+                            <p className="text-xs text-text-primary leading-relaxed">{note.note_text}</p>
                           </div>
-                          <p className="text-xs text-text-primary leading-relaxed">{note.note_text}</p>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="text-xs text-text-muted text-center py-4 bg-surface-subtle rounded-sm border border-border">No notes yet.</p>
