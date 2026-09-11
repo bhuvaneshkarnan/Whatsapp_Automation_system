@@ -95,6 +95,7 @@ async def startup():
     try:
         async with db_pool.acquire() as conn:
             await conn.execute("""
+                ALTER TABLE tasks ADD COLUMN IF NOT EXISTS notified_due BOOLEAN DEFAULT false;
                 CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_uniq ON customers(tenant_id, phone);
                 INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, created_at, updated_at)
                 SELECT gen_random_uuid(), c.tenant_id, REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), COALESCE(c.name, c.wa_profile_name, 'Customer'), 'new', 'warm', c.created_at, now()
@@ -118,6 +119,13 @@ async def startup():
         await core_worker.start()
     except Exception as e:
         logger.warning("core_worker_startup_failed", error=str(e))
+
+    logger.info("monolith_startup", message="Starting CRM due tasks notification worker")
+    try:
+        if hasattr(crm_mod, "due_tasks_worker_loop"):
+            asyncio.create_task(crm_mod.due_tasks_worker_loop())
+    except Exception as e:
+        logger.warning("due_tasks_worker_startup_failed", error=str(e))
 
 @app.on_event("shutdown")
 async def shutdown():

@@ -32,13 +32,13 @@ try:
     from providers.llm_router import call_llm_cascade, call_groq, call_opencode, LLMError, clean_llm_response, strip_repetitive_greetings
     from providers.transcription import transcribe_voice_message, TranscriptionError
     from providers.rule_engine import apply_rule_engine, db_row_to_rule
-    from providers.whatsapp_sender import send_text, send_template, mark_as_read, WhatsAppSendError
+    from providers.whatsapp_sender import send_text, send_template, mark_as_read, send_typing_indicator, WhatsAppSendError
 except (ImportError, ModuleNotFoundError):
     from core_worker.providers.gemini import call_gemini, GeminiError
     from core_worker.providers.llm_router import call_llm_cascade, call_groq, call_opencode, LLMError, clean_llm_response, strip_repetitive_greetings
     from core_worker.providers.transcription import transcribe_voice_message, TranscriptionError
     from core_worker.providers.rule_engine import apply_rule_engine, db_row_to_rule
-    from core_worker.providers.whatsapp_sender import send_text, send_template, mark_as_read, WhatsAppSendError
+    from core_worker.providers.whatsapp_sender import send_text, send_template, mark_as_read, send_typing_indicator, WhatsAppSendError
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 structlog.configure(
@@ -972,11 +972,11 @@ class CoreWorker:
                 or (sub_status in ("payment_failed", "paused", "cancelled"))
             )
 
-            # Only auto-mark as read (blue ticks) if AI is enabled and handling this chat.
+            # Only auto-mark as read (blue ticks) and show native "typing..." indicator if AI is handling this chat.
             # If in Human Mode or delinquent/paused, keep as delivered (2 grey ticks) until staff opens chat in CRM.
             if not sub_delinquent and is_active is not False and conv_status != "human" and creds and creds.get("phone_number_id") and creds.get("access_token"):
                 asyncio.create_task(
-                    mark_as_read(creds["phone_number_id"], creds["access_token"], wa_message_id)
+                    send_typing_indicator(creds["phone_number_id"], creds["access_token"], wa_message_id)
                 )
 
             # ── 4. Process Voice Notes / Audio Messages ───────────────────────
@@ -1143,6 +1143,7 @@ class CoreWorker:
                     contact_phone=fields["from"],
                     message_text=body_text,
                     creds=creds,
+                    inbound_wa_message_id=wa_message_id,
                 )
 
             # ── 7. Update conversation timestamp ──────────────────────────────
@@ -1176,6 +1177,13 @@ class CoreWorker:
         AND live Google Calendar (via FreeBusy API) for the next 7 days.
         Returns (merged_busy_slots, is_gcal_connected).
         """
+        cache_key = f"gcal_busy_{tenant_id}"
+        if not hasattr(self, "_gcal_cache"):
+            self._gcal_cache = {}
+        cached_entry = self._gcal_cache.get(cache_key)
+        if cached_entry and (time.monotonic() - cached_entry["ts"]) < 60.0:
+            return cached_entry["slots"], cached_entry["connected"]
+
         now_dt = datetime.datetime.now(tenant_tz)
         min_dt = now_dt - datetime.timedelta(hours=2)
         max_dt = now_dt + datetime.timedelta(days=7)
@@ -1259,6 +1267,11 @@ class CoreWorker:
             logger.warning("gcal_availability_fetch_warning", error=str(ex), tenant_id=tenant_id)
 
         busy_slots.sort(key=lambda x: x["start"])
+        self._gcal_cache[cache_key] = {
+            "ts": time.monotonic(),
+            "slots": busy_slots,
+            "connected": gcal_connected,
+        }
         return busy_slots, gcal_connected
 
     def _compute_live_empty_slots(
@@ -1367,6 +1380,193 @@ class CoreWorker:
 
         return text.strip()
 
+    def _detect_dialect_and_texting_style(self, message_text: str, history: list[dict]) -> dict:
+        """
+        Analyzes customer's incoming message and chat history to identify:
+        1. Language & Script (Devanagari, Tamil, Telugu, Arabic, Latin)
+        2. Dialect / Code-Mixing (Hinglish, Tanglish, Casual Slang, Formal Business, Standard)
+        3. Message Brevity & Vibe (Ultra-Short, Conversational, Detailed)
+        Produces precise style mirroring directives for the LLM.
+        """
+        text = (message_text or "").strip()
+        text_lower = text.lower()
+
+        # Combine recent user messages from history for broader context
+        recent_user_texts = [text_lower]
+        for h in (history or [])[:6]:
+            if h.get("role") == "user":
+                recent_user_texts.append((h.get("content") or "").lower())
+        combined_user_text = " ".join(recent_user_texts)
+
+        # 1. Script Detection (Unicode Ranges)
+        has_devanagari = bool(re.search(r'[\u0900-\u097F]', text))
+        has_tamil = bool(re.search(r'[\u0B80-\u0BFF]', text))
+        has_telugu = bool(re.search(r'[\u0C00-\u0C7F]', text))
+        has_arabic = bool(re.search(r'[\u0600-\u06FF]', text))
+
+        if has_devanagari:
+            return {
+                "dialect": "hindi_devanagari",
+                "label": "Hindi (Devanagari Script)",
+                "directive": (
+                    "The customer wrote in Hindi (Devanagari script). "
+                    "Respond fluently, warmly, and respectfully in HINDI using Devanagari script (हिंदी)."
+                )
+            }
+        if has_tamil:
+            return {
+                "dialect": "tamil_script",
+                "label": "Tamil (Tamil Script)",
+                "directive": (
+                    "The customer wrote in Tamil script. "
+                    "Respond fluently and respectfully in TAMIL using Tamil script (தமிழ்)."
+                )
+            }
+        if has_telugu:
+            return {
+                "dialect": "telugu_script",
+                "label": "Telugu (Telugu Script)",
+                "directive": (
+                    "The customer wrote in Telugu script. "
+                    "Respond fluently and respectfully in TELUGU using Telugu script (తెలుగు)."
+                )
+            }
+        if has_arabic:
+            return {
+                "dialect": "arabic_script",
+                "label": "Arabic (Arabic Script)",
+                "directive": (
+                    "The customer wrote in Arabic script. "
+                    "Respond fluently and respectfully in ARABIC script."
+                )
+            }
+
+        # 2. Vernacular Code-Mixing Detection (Hinglish, Tanglish)
+        hinglish_words = {
+            "bhai", "bhiya", "kya", "hai", "hain", "kitna", "kitne", "chahiye", "karo", "karna", "kar",
+            "accha", "achha", "theek", "thik", "kal", "subah", "shaam", "batao", "bataiye", "dedo",
+            "de do", "hoga", "hogi", "kab", "kaha", "kahan", "kaise", "sirf", "aur", "pe", "mein",
+            "nahi", "nahin", "aaj", "paisa", "paise", "daam", "milega", "samjha", "bhi",
+            "bolo", "mujhe", "mera", "meri", "hum", "aap", "tum", "kardo"
+        }
+        tokens_current = set(re.findall(r'\b[a-z]+\b', text_lower))
+        hinglish_matches = tokens_current.intersection(hinglish_words)
+
+        tanglish_words = {
+            "evalo", "evlo", "irukku", "irukka", "sollunga", "pannanum", "vandhuten", "nalaiku",
+            "kaalaila", "theriyala", "vanakkam", "eppadi", "venum", "kudunga", "seri", "illa",
+            "enna", "yaar", "enga", "solren", "mudiyuma", "machan"
+        }
+        tanglish_matches = tokens_current.intersection(tanglish_words)
+
+        # 3. Formality & Texting Slang Tokens
+        casual_slang_words = {
+            "bro", "yo", "hey man", "dude", "u", "ur", "pls", "plz", "thx", "thanks!", "gimme",
+            "wanna", "lemme", "k", "cool", "yup", "nope", "nah", "sup", "gotcha", "btw", "idk",
+            "rn", "asap", "omg", "hey buddy"
+        }
+        casual_matches = bool(tokens_current.intersection(casual_slang_words)) or any(w in text_lower for w in ["hey bro", "yo bro", "can u", "give me", "gimme", "pls share", "plz share"])
+
+        formal_words = {
+            "kindly", "please provide", "would like to inquire", "regarding", "proposal", "enterprise",
+            "sincerely", "dear", "requesting", "could you please", "at your earliest convenience",
+            "furthermore", "cordially", "respectfully"
+        }
+        formal_matches = any(w in text_lower for w in formal_words)
+
+        # 4. Brevity Check
+        words = text.split()
+        is_ultra_short = (len(words) <= 4) and not (len(words) == 1 and any(w in text_lower for w in ["hi", "hello", "hey"]))
+
+        if len(hinglish_matches) >= 2 or (len(hinglish_matches) >= 1 and any(w in text_lower for w in ["bhai", "kya hai", "kitna", "subah", "kal", "dedo", "milega"])):
+            brevity_note = " Keep it ultra-punchy in 1 sentence." if is_ultra_short else ""
+            return {
+                "dialect": "hinglish",
+                "label": "Hinglish (Romanized Hindi + English)",
+                "directive": (
+                    "The customer is speaking in Hinglish (Hindi written in English alphabet). "
+                    "CRITICAL: Reply naturally in conversational Romanized Hinglish using the English alphabet "
+                    "(e.g. 'Sure bhai! ₹3,499/month hai all-inclusive. Kal morning 10:30 AM demo chalega?'). "
+                    "Do NOT use Devanagari script. Match their friendly, natural Hinglish cadence perfectly." + brevity_note
+                )
+            }
+
+        if len(tanglish_matches) >= 2 or (len(tanglish_matches) >= 1 and any(w in text_lower for w in ["evlo", "evalo", "irukku", "sollunga", "nalaiku"])):
+            brevity_note = " Keep it ultra-punchy in 1 sentence." if is_ultra_short else ""
+            return {
+                "dialect": "tanglish",
+                "label": "Tanglish (Romanized Tamil + English)",
+                "directive": (
+                    "The customer is speaking in Tanglish (Tamil written in English alphabet). "
+                    "CRITICAL: Reply naturally in conversational Romanized Tanglish/Tamil-English mix using the English alphabet "
+                    "(e.g. 'Sure bro! ₹3,499/month all-inclusive. Nalaiku morning 10:30 AM demo ok-va?'). "
+                    "Do NOT use Tamil script. Match their friendly Tanglish cadence perfectly." + brevity_note
+                )
+            }
+
+        if casual_matches:
+            brevity_note = " Keep it ultra-punchy in 1 sentence." if is_ultra_short else ""
+            return {
+                "dialect": "casual_slang",
+                "label": "Casual / Slang English",
+                "directive": (
+                    "The customer texts casually using informal texting slang (e.g. 'bro', 'yo', 'u', 'pls'). "
+                    "CRITICAL: Mirror their relaxed, friendly, modern WhatsApp texting vibe. "
+                    "Talk like an authentic helpful person texting a peer on WhatsApp (e.g. 'Hey! It’s ₹3,499/mo all-inclusive with zero setup fees. Want to do a quick 10-min demo tomorrow?'). "
+                    "Avoid stiff corporate greetings like 'Dear Sir/Madam' or 'I would be delighted to assist'." + brevity_note
+                )
+            }
+
+        if formal_matches:
+            return {
+                "dialect": "formal_business",
+                "label": "Formal Business English",
+                "directive": (
+                    "The customer writes with formal, courteous executive business phrasing. "
+                    "CRITICAL: Mirror their professional and polished tone with articulate, respectful business English while keeping the response crisp and direct."
+                )
+            }
+
+        if is_ultra_short:
+            return {
+                "dialect": "ultra_short",
+                "label": "Ultra-Brief Inquiry",
+                "directive": (
+                    "The customer sent an ultra-short query (1 to 4 words). "
+                    "CRITICAL BREVITY MIRRORING: Give the direct answer immediately in just 1 punchy sentence (under 15 to 20 words maximum), followed by a quick friendly question. Zero fluff."
+                )
+            }
+
+        return {
+            "dialect": "standard_conversational",
+            "label": "Natural Conversational English",
+            "directive": (
+                "Speak in a natural, warm, and conversational WhatsApp tone. "
+                "Crisp, friendly, and direct without robotic or corporate clichés."
+            )
+        }
+
+    def _split_into_whatsapp_bubbles(self, text: str) -> list[str]:
+        """
+        Keeps AI replies strictly as 1 single clean, natural WhatsApp message bubble.
+        Never automatically splits responses into multiple messages.
+        Only splits if explicitly requested with a [BUBBLE] delimiter.
+        """
+        if not text:
+            return []
+
+        cleaned = text.strip()
+        cleaned = re.sub(r'\r\n', '\n', cleaned)
+
+        # Only split if an explicit [BUBBLE] tag is used
+        if "[BUBBLE]" in cleaned:
+            parts = [p.strip() for p in cleaned.split("[BUBBLE]") if p.strip()]
+            if len(parts) >= 2:
+                return [parts[0], " ".join(parts[1:])]
+
+        # Always return as 1 cohesive, single WhatsApp message bubble
+        return [cleaned]
+
     async def _generate_and_send_reply(
         self,
         tenant_id: str,
@@ -1374,6 +1574,7 @@ class CoreWorker:
         contact_phone: str,
         message_text: str,
         creds: Optional[dict],
+        inbound_wa_message_id: Optional[str] = None,
     ):
         """Call Gemini / Groq / OpenCode Cascade → fallback to rule engine → send via WhatsApp."""
 
@@ -1382,7 +1583,7 @@ class CoreWorker:
         gemini_key = await self._get_gemini_key(tenant_id)
         groq_key = await self._get_groq_key(tenant_id)
         opencode_key, opencode_base = await self._get_opencode_creds(tenant_id)
-        primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("groq" if groq_key else "gemini")
+        primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("gemini" if gemini_key else "groq")
 
         # 1. Retrieve full conversation history (up to last 30 messages for deep context)
         rows = await self.db_pool.fetch(
@@ -1401,11 +1602,15 @@ class CoreWorker:
         # Determine conversation turn depth & ongoing state
         is_ongoing_conversation = len(history) > 1
 
-        # Clean humanized conversational WhatsApp texting format directive
+        # Clean humanized conversational WhatsApp texting format directive (Global Mandatory Rules)
         humanized_format_block = (
-            "### CONVERSATION FORMAT & TONE:\n"
-            "- Reply naturally in a warm, human, conversational WhatsApp texting style.\n"
-            "- Follow this business's specific knowledge base, goals, services, tone, and instructions defined below."
+            "### ABSOLUTE GLOBAL CONVERSATION RULES (HIGHEST PRIORITY - APPLIES TO EVERY SINGLE RESPONSE):\n"
+            "1. LENGTH: ALWAYS reply very short in 1 to 2 lines maximum (at most 25 to 35 words). Only write more if the customer explicitly asks for a detailed breakdown or multiple steps.\n"
+            "2. UNDERSTAND & ANSWER FIRST: First understand exactly what the user is asking or saying right now, and address it directly in your very first sentence. Never ignore or bypass their question to give a generic pitch or ask an unrelated question.\n"
+            "3. PURELY HUMAN TEXTING STYLE: Sound 100% like a real person texting naturally on WhatsApp.\n"
+            "   - Strictly NO robotic phrasing, NO corporate jargon, NO support-desk robotic openers (e.g. 'How can I assist you today?', 'Thank you for reaching out', 'Feel free to ask', 'I understand your concern', 'Certainly!', 'I\\'d be happy to assist').\n"
+            "   - Text simply, casually, and warmly, just like an authentic person messaging on WhatsApp.\n"
+            "4. NATURAL PACING: Never send a wall of text. Keep each message crisp, friendly, and effortless to read in 2 seconds on a mobile phone."
         )
 
         # 2. Retrieve customer profile & bookings memory with strict tenant scoping
@@ -1416,12 +1621,26 @@ class CoreWorker:
                WHERE conv.id = $1::uuid AND conv.tenant_id = $2::uuid""",
             conv_id, tenant_id,
         )
+        phone_for_bookings = (contact_row["phone"] if contact_row and contact_row.get("phone") else contact_phone) or ""
         booking_rows = await self.db_pool.fetch(
-            """SELECT service, start_time, status
-               FROM bookings
-               WHERE tenant_id = $2::uuid AND contact_id = (SELECT contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid)
-               ORDER BY start_time DESC LIMIT 5""",
-            conv_id, tenant_id,
+            """SELECT b.id, b.service, b.start_time, b.end_time, b.status, b.staff_member, b.notes
+               FROM bookings b
+               WHERE b.tenant_id = $2::uuid
+                 AND (
+                   b.contact_id = (SELECT contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid)
+                   OR b.contact_id IN (
+                       SELECT id FROM contacts
+                       WHERE tenant_id = $2::uuid
+                         AND (
+                           phone = $3
+                           OR phone = ('+' || $3)
+                           OR replace(phone, '+', '') = replace($3, '+', '')
+                           OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($3, '[^0-9]', '', 'g'), 10)
+                         )
+                   )
+                 )
+               ORDER BY b.start_time DESC LIMIT 10""",
+            conv_id, tenant_id, phone_for_bookings,
         )
 
         contact_id_val = contact_row["id"] if contact_row else None
@@ -1559,18 +1778,6 @@ class CoreWorker:
         except Exception:
             tenant_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
 
-        booking_info = "No previous appointments."
-        if booking_rows:
-            b_list = []
-            for b in booking_rows:
-                st = b['start_time']
-                if hasattr(st, 'astimezone'):
-                    st_local = st.astimezone(tenant_tz)
-                else:
-                    st_local = st
-                b_list.append(f"{b.get('service', 'Appointment')} on {st_local.strftime('%A, %d %b %Y at %I:%M %p')} (Status: {b.get('status', 'confirmed')})")
-            booking_info = "; ".join(b_list)
-
         now = datetime.datetime.now(tenant_tz)
         time_context = (
             f"Today is {now.strftime('%A, %d %B %Y')} and current time is {now.strftime('%I:%M %p')} ({tenant_timezone_str} time).\n"
@@ -1578,6 +1785,61 @@ class CoreWorker:
             f"Business Currency: {tenant_currency_str} ({tenant_currency_sym})\n"
             "Use this live timestamp to resolve relative dates (today, tomorrow, next Monday) and know if a time has already passed.\n\n"
         )
+
+        upcoming_active_bookings = []
+        past_bookings = []
+        booking_info = "No previous appointments."
+        if booking_rows:
+            b_list = []
+            for b in booking_rows:
+                st = b['start_time']
+                st_local = st.astimezone(tenant_tz) if hasattr(st, 'astimezone') else st
+                b_dict = dict(b)
+                b_dict['start_time_local'] = st_local
+                b_status = (b.get('status') or 'confirmed').lower()
+                if b_status in ('confirmed', 'pending') and st_local >= (now - datetime.timedelta(hours=1)):
+                    upcoming_active_bookings.append(b_dict)
+                else:
+                    past_bookings.append(b_dict)
+                staff_tag = f" with {b['staff_member']}" if b.get('staff_member') else ""
+                b_list.append(f"{b.get('service', 'Appointment')} on {st_local.strftime('%A, %d %b %Y at %I:%M %p')}{staff_tag} (Status: {b.get('status', 'confirmed')})")
+            booking_info = "; ".join(b_list)
+
+        upcoming_booking_block = ""
+        if upcoming_active_bookings:
+            first_b = upcoming_active_bookings[0]
+            first_b_svc = first_b.get('service') or 'Consultation / Session'
+            first_b_dt = first_b['start_time_local'].strftime('%A, %d %b %Y')
+            first_b_tm = first_b['start_time_local'].strftime('%I:%M %p')
+            first_b_staff = (first_b.get('staff_member') or '').strip()
+            staff_mention = f" with {first_b_staff}" if first_b_staff else ""
+
+            upcoming_list_str = "\n".join([
+                f"- {b.get('service', 'Appointment')} on {b['start_time_local'].strftime('%A, %d %b %Y at %I:%M %p')}" + (f" with {b['staff_member']}" if b.get('staff_member') else "") + f" (Status: {b.get('status', 'confirmed')})"
+                for b in upcoming_active_bookings
+            ])
+
+            cust_display_name = confirmed_name or wa_name or "there"
+            upcoming_booking_block = (
+                "### CRITICAL: ACTIVE UPCOMING APPOINTMENT DETECTED (PREVENT DUPLICATE BOOKINGS):\n"
+                f"This customer ALREADY HAS an active upcoming appointment on file:\n"
+                f"{upcoming_list_str}\n\n"
+                "MANDATORY PROTOCOL FOR THIS CUSTOMER'S INQUIRIES:\n"
+                "1. IF THE CUSTOMER ASKS TO BOOK AN APPOINTMENT (e.g. 'I want to book an appointment', 'Can I book a session', 'Book slot', 'Can I come today', 'Need an appointment'):\n"
+                "   - NEVER blindly create a new booking or propose available slots as if they don't have one!\n"
+                "   - Warmly and clearly acknowledge their existing scheduled appointment:\n"
+                f"     'Hi {cust_display_name}! You already have an appointment scheduled for {first_b_svc} on {first_b_dt} at {first_b_tm}{staff_mention}.'\n"
+                "   - Ask them:\n"
+                "     'Would you like to reschedule this appointment to a different time, or are you looking to book an additional separate appointment?'\n"
+                "2. RESCHEDULING:\n"
+                "   - If they reply asking to reschedule, move it, or change the time/day, propose 2-3 verified empty slots from the verified empty slots list above.\n"
+                "   - Once they confirm the new date/time, append [ACTION:RESCHEDULE_BOOKING: {\"service\": \"...\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"...\", \"email\": \"...\", \"notes\": \"Rescheduled\"}] tag at the end.\n"
+                "3. ADDITIONAL APPOINTMENT:\n"
+                "   - ONLY if the customer EXPLICITLY confirms they want an ADDITIONAL, SECOND, or SEPARATE appointment (e.g. 'I want an additional appointment', 'Book another session for someone else', 'Keep that and book one more'):\n"
+                "   - Then and only then guide them through booking an additional session and append [ACTION:CREATE_BOOKING: ...] tag once confirmed.\n"
+                "4. CHECKING APPOINTMENT STATUS:\n"
+                "   - If they ask 'when is my appointment', 'what time is my booking', or similar status queries, confirm their upcoming appointment details clearly and reassure them.\n"
+            )
 
         # Extract business operating hours from tenant settings
         opening_time_raw = "09:00"
@@ -1648,7 +1910,7 @@ class CoreWorker:
             "- WHEN CUSTOMER ASKS 'CAN I COME TODAY?' OR 'WHAT SLOTS ARE AVAILABLE?': Immediately check today's verified empty slots above. Quote 2 to 3 available options from the list (e.g., 'Yes! Today we have slots open at [Time 1], [Time 2], or [Time 3]. Which time works best for you?').\n"
             "- RESCHEDULE FLOW: When a customer asks or confirms they want to reschedule (e.g. 'Reschedule it', 'reschedule to today', or 'move to tomorrow') without a time, confirm that day is open and offer 2-3 verified empty slots.\n"
             f"- OPERATING HOURS: Propose times strictly within business hours ({op_hours_display}).\n"
-            "- NO TIME ASSUMPTION: If the customer asks for an appointment without giving a specific time, ask what time works best from the verified empty slots above."
+            "- PROACTIVE 2-SLOT SUGGESTION RULE: Whenever moving towards booking an appointment, call, or demo, NEVER ask open-ended questions like 'When are you free?' or 'What time works for you?'. Instead, proactively pick and propose exactly 2 specific times from the verified empty slots (e.g., 'I have an opening tomorrow at 11:30 AM or 4:00 PM. Would either of those work for you?'). Giving 2 clear options makes it effortless for the customer to confirm."
         )
 
         if is_returning_customer:
@@ -1688,6 +1950,111 @@ class CoreWorker:
                 "- Follow this business's opening instructions to warmly welcome them and understand their needs."
             )
 
+        # 1. Collect Verified Known Facts and Build Question Suppression List
+        known_facts = []
+        suppressed_questions = []
+
+        if confirmed_name:
+            known_facts.append(f"Customer Name: '{confirmed_name}'")
+            suppressed_questions.append("Do NOT ask for their name again.")
+        if customer_location:
+            known_facts.append(f"Location/City: '{customer_location}'")
+            suppressed_questions.append(f"Do NOT ask where they are located (already known: {customer_location}).")
+        if customer_health_concern:
+            known_facts.append(f"Primary Interest / Concern: '{customer_health_concern}'")
+            suppressed_questions.append(f"Do NOT ask what they need or what problem they have (already known: {customer_health_concern}).")
+        if customer_email:
+            known_facts.append(f"Email on file: '{customer_email}'")
+            suppressed_questions.append("Do NOT ask for their email again.")
+        if customer_age is not None:
+            known_facts.append(f"Age: {customer_age}")
+            suppressed_questions.append("Do NOT ask for their age.")
+        if customer_doctor:
+            known_facts.append(f"Preferred / Assigned Doctor: '{customer_doctor}'")
+        if upcoming_active_bookings:
+            b_first = upcoming_active_bookings[0]
+            known_facts.append(f"Active Booking: {b_first.get('service')} on {b_first['start_time_local'].strftime('%A, %d %b %Y at %I:%M %p')}")
+            suppressed_questions.append("Do NOT offer new booking slots as if they don't have an active appointment.")
+
+        # Extract constraints or preferences stated in recent history
+        stated_constraints = []
+        for msg in history:
+            if msg.get("role") == "user":
+                c_text = (msg.get("content") or "").lower()
+                for t_word in ["morning", "afternoon", "evening", "night"]:
+                    if t_word in c_text and f"Prefers {t_word} slots" not in stated_constraints:
+                        stated_constraints.append(f"Prefers {t_word} slots")
+                if any(w in c_text for w in ["whatsapp only", "don't call", "no calls", "text only"]):
+                    if "Prefers WhatsApp chat only (no phone calls)" not in stated_constraints:
+                        stated_constraints.append("Prefers WhatsApp chat only (no phone calls)")
+                for biz_type in ["small clinic", "solo doctor", "dental clinic", "ortho clinic", "clinic", "hospital", "salon", "agency", "real estate", "retail", "gym"]:
+                    if biz_type in c_text and f"Business type: {biz_type}" not in stated_constraints:
+                        stated_constraints.append(f"Business type: {biz_type}")
+                        suppressed_questions.append(f"Do NOT ask what business they run (already stated: {biz_type}).")
+
+        memory_suppression_block = (
+            "### STRICT CONVERSATION MEMORY & QUESTION SUPPRESSION (HIGHEST PRIORITY):\n"
+            f"- Verified Known Facts: {'; '.join(known_facts) if known_facts else 'None yet (new inquiry)'}\n"
+            + (f"- Customer Stated Constraints / Context: {'; '.join(stated_constraints)}\n" if stated_constraints else "")
+            + "MANDATORY QUESTION SUPPRESSION RULES:\n"
+            + ("\n".join([f"  * {sq}" for sq in suppressed_questions]) if suppressed_questions else "  * Avoid asking questions for any details the user already mentioned in prior messages.") + "\n"
+            "- CRITICAL RULE: NEVER ask for information that is already listed above or stated in chat history.\n"
+            "- Seamlessly build upon known facts and speak directly to their specific context."
+        )
+
+        # 2. Dynamic Conversation Funnel State Tracking (Never Getting Stuck)
+        inbound_clean = (message_text or "").lower().strip()
+        has_upcoming = bool(upcoming_active_bookings)
+
+        if has_upcoming:
+            funnel_stage = "ACTIVE_APPOINTMENT"
+            stage_directive = (
+                "The customer already has an active upcoming appointment. "
+                "Warmly reference it. If they ask for slots or another appointment, clarify if they want to reschedule the existing one or book an additional separate one."
+            )
+        elif any(w in inbound_clean for w in ["book", "appointment", "schedule", "demo", "call", "slot", "slots", "available", "come today", "tomorrow", "calendar"]):
+            funnel_stage = "BOOKING_INTENT"
+            stage_directive = (
+                "The customer wants to schedule or check availability. "
+                "PROACTIVELY PROPOSE EXACTLY 2 VERIFIED EMPTY SLOTS from the verified slots list. Do NOT ask open-ended questions like 'when are you free?'."
+            )
+        elif any(w in inbound_clean for w in ["expensive", "costly", "think about it", "let you know", "are you ai", "are you a bot", "discount", "deal", "offer", "not tech", "hard to setup", "painful", "afraid"]):
+            funnel_stage = "OBJECTION_HESITATION"
+            stage_directive = (
+                "The customer is showing hesitation, price sensitivity, or skepticism. "
+                "Validate their thought empathetically in sentence 1 (never argue). Reframe the core value simply. Follow with a short, low-pressure question."
+            )
+        elif any(w in inbound_clean for w in ["price", "pricing", "how much", "cost", "fee", "charges", "rate"]):
+            funnel_stage = "EVALUATION_PRICING"
+            stage_directive = (
+                "The customer is asking for pricing. "
+                "State the exact price directly in sentence 1 without dodging. Follow up with 1 friendly qualifying question or offer a quick demo/consultation."
+            )
+        elif any(w in inbound_clean for w in ["where", "location", "address", "landmark", "directions", "how to reach"]):
+            funnel_stage = "EVALUATION_LOCATION"
+            stage_directive = (
+                "The customer is asking where the business/clinic is located. "
+                "Provide the exact address and landmark clearly. Ask if they would like help scheduling a visit."
+            )
+        elif len(history) > 2:
+            funnel_stage = "CONSIDERATION_PROGRESSION"
+            stage_directive = (
+                "This is an ongoing conversation. Directly address what they just said. "
+                "Keep momentum moving naturally towards understanding their requirements or offering a quick walkthrough/consultation."
+            )
+        else:
+            funnel_stage = "DISCOVERY"
+            stage_directive = (
+                "First touchpoint or greeting. Welcome them warmly and briefly. "
+                "Address whatever they asked, or ask 1 friendly question to learn what they're looking to achieve."
+            )
+
+        funnel_stage_block = (
+            f"### CONVERSATION FUNNEL STATE: [{funnel_stage}]\n"
+            f"- Current Stage Objective: {stage_directive}\n"
+            "- CRITICAL DIRECTIVE: Never stay stuck in a loop. Progress the conversation smoothly according to this stage objective."
+        )
+
         assistant_name = ai_cfg.get("assistant_name") or "Assistant"
         custom_instructions = ai_cfg.get("system_prompt") or ""
         bot_goal = ai_cfg.get("bot_goal") or ""
@@ -1696,6 +2063,25 @@ class CoreWorker:
         methodology = ai_cfg.get("methodology") or "dogfooding"
         strict_rules = (ai_cfg.get("strict_rules") or "").strip()
         objection_handling = ai_cfg.get("objection_handling") or ""
+
+        # Dialect & Style Mirroring (Customer Texting Vibe Adaptation)
+        style_profile = self._detect_dialect_and_texting_style(message_text, history)
+        tenant_style_override = (response_style or "").strip()
+        if tenant_style_override and tenant_style_override.lower() not in ("short", "natural", "default"):
+            style_mirroring_block = (
+                f"### DIALECT & STYLE MIRRORING (CUSTOMER TEXTING VIBE ADAPTATION):\n"
+                f"- Detected Customer Style: {style_profile['label']}\n"
+                f"- Tenant Persona Directive: {tenant_style_override}\n"
+                f"- ADAPTATION DIRECTIVE: {style_profile['directive']}\n"
+                "- Seamlessly combine the tenant's brand persona with the customer's conversational vibe."
+            )
+        else:
+            style_mirroring_block = (
+                f"### DIALECT & STYLE MIRRORING (CUSTOMER TEXTING VIBE ADAPTATION):\n"
+                f"- Detected Customer Style: {style_profile['label']}\n"
+                f"- ADAPTATION DIRECTIVE: {style_profile['directive']}\n"
+                "- CRITICAL RULE: Make the customer feel completely understood by organically matching their language, dialect, and texting cadence while staying 100% accurate and helpful."
+            )
 
         # Action Tag Protocols (Executed by backend tools when appointments or details are confirmed)
         action_tag_directives = (
@@ -1706,8 +2092,8 @@ class CoreWorker:
             "  [ACTION:RESCHEDULE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}]\n"
             "- CANCELLATION: When the customer explicitly asks to cancel their booking, append this action tag on a new line at the very end of your reply:\n"
             "  [ACTION:CANCEL_BOOKING]\n"
-            "- CUSTOMER DETAIL EXTRACTION: If the customer mentions or confirms their name, health concern / problem, preferred doctor, age, or location / city, append this action tag on a new line at the very end of your reply:\n"
-            "  [ACTION:CUSTOMER_INFO: {\"name\": \"<Customer Name or null>\", \"health_concern\": \"<Concern or null>\", \"preferred_doctor\": \"<Doctor or null>\", \"age\": <age as integer or null>, \"location\": \"<City or location or null>\"}]"
+            "- CUSTOMER DETAIL & INTENT EXTRACTION: If the customer mentions or confirms their name, health concern / problem, preferred doctor, age, location / city, or indicates buying interest (asking about pricing, requesting a demo, booking, or objecting), append this action tag on a new line at the very end of your reply:\n"
+            "  [ACTION:CUSTOMER_INFO: {\"name\": \"<Customer Name or null>\", \"health_concern\": \"<Concern or null>\", \"preferred_doctor\": \"<Doctor or null>\", \"age\": <age as integer or null>, \"location\": \"<City or location or null>\", \"lead_probability\": \"hot\" | \"warm\" | \"cold\"}]"
         )
 
         full_location = (creds.get("full_location_text") or "").strip() if creds else ""
@@ -1734,9 +2120,14 @@ class CoreWorker:
             tenant_isolation_boundary,
             f"You are {assistant_name or 'the assistant'}, representing {tenant_name or 'this business'} directly on WhatsApp chat.",
             humanized_format_block,
+            style_mirroring_block,
+            funnel_stage_block,
+            memory_suppression_block,
             memory_block,
             busy_slots_block,
         ]
+        if upcoming_booking_block:
+            prompt_blocks.append(upcoming_booking_block)
 
         # 100% Tenant Autonomous Instructions & Configuration:
         if custom_instructions.strip():
@@ -1750,6 +2141,15 @@ class CoreWorker:
 
         if objection_handling.strip():
             prompt_blocks.append(f"### OBJECTION HANDLING STRATEGY:\n{objection_handling.strip()}")
+        else:
+            universal_objection_framework = (
+                "### UNIVERSAL OBJECTION & HESITATION STRATEGY (GLOBAL DEFAULT):\n"
+                "Whenever the customer expresses hesitation, price resistance, postponement ('will let you know'), or skepticism:\n"
+                "1. EMPATHETIC ACKNOWLEDGMENT: Validate their thought immediately without being defensive or argumentative (e.g., 'Completely understand!', 'Totally fair point!').\n"
+                "2. VALUE REFRAME: In 1 sentence, gently emphasize the specific value, ease, or peace of mind our service provides.\n"
+                "3. LOW-FRICTION QUESTION: Ask a friendly, zero-pressure follow-up question or offer a quick no-commitment next step to keep the conversation flowing naturally."
+            )
+            prompt_blocks.append(universal_objection_framework)
 
         if strict_rules.strip():
             prompt_blocks.append(f"### STRICT RULES & CONSTRAINTS:\n{strict_rules.strip()}")
@@ -1762,6 +2162,20 @@ class CoreWorker:
 
         if full_location:
             prompt_blocks.append(f"### BUSINESS ADDRESS & LOCATION:\n{full_location}\n- Provide this exact address and directions whenever the customer asks where the business or clinic is located.")
+
+        reinforcement_rule = (
+            "### FINAL MANDATORY OVERRIDE (HIGHEST PRECEDENCE DIRECTIVE):\n"
+            "- Reply in ONLY 1 to 2 short lines maximum (around 15 to 35 words).\n"
+            "- First directly answer what the customer actually asked or said.\n"
+            f"- STYLE & DIALECT MIRRORING: Strictly match the detected customer vibe ({style_profile['label']}). "
+            + ("If Hinglish/Tanglish, reply in Romanized text; if casual slang, stay relaxed and friendly; if ultra-brief, keep answer under 15-20 words.\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like an authentic, helpful human texting on WhatsApp.\n")
+            + "- QUESTION SUPPRESSION: NEVER ask for any detail (name, business, concern, location, email) that is already listed in Known Facts or stated in chat history.\n"
+            "- FUNNEL PROGRESSION: Always advance the conversation according to the current Funnel Stage objective. Never loop or stay stuck.\n"
+            "- When handling objections or hesitation: validate empathetically in sentence 1, then follow up with a short low-friction question.\n"
+            "- PROACTIVE BOOKING: If scheduling or booking is discussed without a specific time, propose 2 specific open times instead of asking an open-ended question.\n"
+            "- Sound like an authentic, helpful human texting on WhatsApp (no AI or support-ticket clichés)."
+        )
+        prompt_blocks.append(reinforcement_rule)
 
         # Essential Tool Action Tags (how the AI triggers backend actions when confirmed):
         prompt_blocks.append(action_tag_directives)
@@ -1777,7 +2191,7 @@ class CoreWorker:
             opencode_base_url=opencode_base,
             primary_provider=primary_provider,
             gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
-            max_tokens=350,
+            max_tokens=220,
             temperature=0.3,
             timeout_seconds=10.0,
             tenant_id=tenant_id,
@@ -1847,7 +2261,8 @@ class CoreWorker:
                     c_name = c_info.get("name")
                     c_concern = c_info.get("health_concern")
                     c_doc = c_info.get("preferred_doctor")
-                    if any([c_name, c_concern, c_doc, c_age is not None, c_loc]):
+                    c_lead_prob = c_info.get("lead_probability")
+                    if any([c_name, c_concern, c_doc, c_age is not None, c_loc, c_lead_prob]):
                         asyncio.create_task(
                             self._update_customer_extracted_info(
                                 tenant_id=tenant_id,
@@ -1858,6 +2273,7 @@ class CoreWorker:
                                 health_concern=c_concern,
                                 preferred_doctor=c_doc,
                                 contact_id=contact_id_val,
+                                lead_probability=c_lead_prob,
                             )
                         )
                 except Exception as ex:
@@ -1873,6 +2289,40 @@ class CoreWorker:
                     logger.warning("booking_action_json_parse_failed", error=str(e))
                 # Strip action tag from message sent to WhatsApp customer
                 response_text = re.sub(r'\[ACTION:CREATE_BOOKING:\s*\{.*?\}\]', '', response_text, flags=re.DOTALL).strip()
+
+            # 3b. Duplicate Booking Prevention Safety Net:
+            # If customer already has an active upcoming booking and did NOT explicitly request an additional session:
+            if booking_action and upcoming_active_bookings:
+                notes_lower = (booking_action.get("notes") or "").lower()
+                is_explicit_additional = (
+                    booking_action.get("is_additional")
+                    or "additional" in notes_lower
+                    or "second" in notes_lower
+                    or any(w in inbound_lower for w in ["additional", "another booking", "another appointment", "second booking", "second appointment", "one more session", "extra session", "for someone else"])
+                )
+                if not is_explicit_additional:
+                    logger.info(
+                        "suppressed_duplicate_create_booking_for_existing_upcoming",
+                        tenant_id=tenant_id,
+                        phone=contact_phone,
+                        customer_msg=message_text,
+                        first_upcoming_id=str(upcoming_active_bookings[0]["id"]),
+                    )
+                    booking_action = None
+
+                    first_b = upcoming_active_bookings[0]
+                    first_svc = first_b.get('service') or 'session'
+                    first_dt = first_b['start_time_local'].strftime('%A, %d %b %Y')
+                    first_tm = first_b['start_time_local'].strftime('%I:%M %p')
+                    first_staff = (first_b.get('staff_member') or '').strip()
+                    staff_txt = f" with {first_staff}" if first_staff else ""
+                    cust_disp = confirmed_name or wa_name or ""
+                    greeting = f"Hi {cust_disp}! " if cust_disp else ""
+
+                    response_text = (
+                        f"{greeting}You already have an appointment scheduled for {first_svc} on {first_dt} at {first_tm}{staff_txt}. "
+                        "Would you like to reschedule this appointment to a different time, or are you looking to book an additional separate appointment?"
+                    )
 
             # 4. Inbound Appointment Inquiry Protection
             if inbound_appointment_inquiry:
@@ -1890,24 +2340,21 @@ class CoreWorker:
                 if any(ph in (response_text or "").lower() for ph in accident_phrases):
                     try:
                         active_b = await self.db_pool.fetchrow(
-                            """SELECT service_name, booking_date, booking_time FROM bookings
-                               WHERE tenant_id = $1::uuid AND (customer_phone = $2 OR RIGHT(REGEXP_REPLACE(customer_phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10))
-                               AND status IN ('confirmed', 'pending') ORDER BY booking_date DESC, booking_time DESC LIMIT 1""",
+                            """SELECT b.service, b.start_time
+                               FROM bookings b
+                               LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
+                               WHERE b.tenant_id = $1::uuid
+                                 AND (c.phone = $2 OR c.phone = ('+' || $2) OR replace(c.phone, '+', '') = replace($2, '+', '') OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10))
+                                 AND b.status IN ('confirmed', 'pending')
+                               ORDER BY b.start_time DESC LIMIT 1""",
                             tenant_id, contact_phone
                         )
                         if active_b:
-                            svc = active_b["service_name"] or "Consultation"
-                            b_dt = active_b["booking_date"].strftime("%d %b %Y") if hasattr(active_b["booking_date"], "strftime") else str(active_b["booking_date"])
-                            b_tm = str(active_b["booking_time"] or "")
-                            try:
-                                t_parts = b_tm.split(":")
-                                hour = int(t_parts[0])
-                                minute = t_parts[1][:2]
-                                am_pm = "AM" if hour < 12 else "PM"
-                                display_hour = 12 if hour in (0, 12) else hour % 12
-                                b_tm = f"{display_hour:02d}:{minute} {am_pm}"
-                            except Exception:
-                                pass
+                            svc = active_b["service"] or "Consultation"
+                            st = active_b["start_time"]
+                            st_loc = st.astimezone(tenant_tz) if hasattr(st, "astimezone") else st
+                            b_dt = st_loc.strftime("%d %b %Y")
+                            b_tm = st_loc.strftime("%I:%M %p")
                             response_text = f"Your {svc} appointment is scheduled for {b_dt} at {b_tm}! Let me know if you need to reschedule or have any questions."
                         else:
                             response_text = "You don't have an active appointment scheduled right now. Would you like to book one?"
@@ -1951,55 +2398,89 @@ class CoreWorker:
                 else:
                     return f"{12 if hh == 0 else hh:02d}:{mm} AM"
             response_text = re.sub(r'\b([01]?\d|2[0-3]):([0-5]\d)(?!\s*(?:am|pm|AM|PM))\b', _repl_12hr, response_text)
+            if is_ongoing_conversation:
+                response_text = strip_repetitive_greetings(response_text)
             # Global strict tenant isolation firewall check
             response_text = self._sanitize_tenant_response(response_text, tenant_slug, tenant_name, assistant_name)
 
-        # Persist outbound message
-        out_msg_id = await self.db_pool.fetchval(
-            """INSERT INTO messages
-               (id, conversation_id, tenant_id, direction, content_type, body, status, ai_model_used, ai_used_fallback)
-               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'pending', $5, $6)
-               RETURNING id""",
-            str(uuid.uuid4()), conv_id, tenant_id, response_text, provider_used, ai_used_fallback,
-        )
-        try:
-            await self.db_pool.execute(
-                "UPDATE conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1::uuid",
-                conv_id
-            )
-            clean_cp = re.sub(r'\D', '', str(contact_phone))
-            await self.db_pool.execute(
-                """UPDATE customers SET last_messaged_at = NOW(), updated_at = NOW()
-                   WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($2, 10))""",
-                tenant_id, clean_cp or contact_phone
-            )
-        except Exception as e:
-            logger.warning("outbound_conversation_update_failed", error=str(e))
+        # Multi-Bubble WhatsApp Pacing & Persistence:
+        bubbles = self._split_into_whatsapp_bubbles(response_text)
+        if not bubbles:
+            bubbles = [response_text] if response_text else []
 
-        # Send via WhatsApp using client's own phone number
-        if creds and creds.get("phone_number_id") and creds.get("access_token"):
+        for b_idx, bubble in enumerate(bubbles):
+            # Persist outbound message for this bubble
+            out_msg_id = await self.db_pool.fetchval(
+                """INSERT INTO messages
+                   (id, conversation_id, tenant_id, direction, content_type, body, status, ai_model_used, ai_used_fallback)
+                   VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'pending', $5, $6)
+                   RETURNING id""",
+                str(uuid.uuid4()), conv_id, tenant_id, bubble, provider_used, ai_used_fallback,
+            )
             try:
-                wa_id = await send_text(
-                    phone_number_id=creds["phone_number_id"],
-                    access_token=creds["access_token"],
-                    to=contact_phone,
-                    body=response_text,
-                )
-                # Update message with wa_message_id and sent status
                 await self.db_pool.execute(
-                    "UPDATE messages SET wa_message_id = $1, status = 'sent' WHERE id = $2::uuid",
-                    wa_id, str(out_msg_id),
+                    "UPDATE conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1::uuid",
+                    conv_id
                 )
-                wa_sends.labels(tenant=tenant_id, status="success").inc()
-            except WhatsAppSendError as e:
+                clean_cp = re.sub(r'\D', '', str(contact_phone))
                 await self.db_pool.execute(
-                    "UPDATE messages SET status = 'failed', error_message = $1 WHERE id = $2::uuid",
-                    str(e), str(out_msg_id),
+                    """UPDATE customers SET last_messaged_at = NOW(), updated_at = NOW()
+                       WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($2, 10))""",
+                    tenant_id, clean_cp or contact_phone
                 )
-                wa_sends.labels(tenant=tenant_id, status="failed").inc()
-                logger.error("wa_send_failed", error=str(e), tenant_id=tenant_id)
-        else:
-            logger.warning("no_whatsapp_creds_cannot_send", tenant_id=tenant_id)
+            except Exception as e:
+                logger.warning("outbound_conversation_update_failed", error=str(e))
+
+            # Send via WhatsApp using client's own phone number
+            if creds and creds.get("phone_number_id") and creds.get("access_token"):
+                try:
+                    if b_idx == 0:
+                        # The AI thinking & generation already took 1.0s - 2.5s, during which WhatsApp was displaying "typing...".
+                        # Therefore Bubble 1 is dispatched immediately with only a micro-pause (0.1s)
+                        typing_delay = 0.1
+                    else:
+                        # Inter-bubble pause for 2nd message:
+                        # Await typing indicator so Meta accepts it, ensuring user sees "typing..." between Bubble 1 and Bubble 2!
+                        if inbound_wa_message_id:
+                            try:
+                                await send_typing_indicator(creds["phone_number_id"], creds["access_token"], inbound_wa_message_id)
+                            except Exception as e:
+                                logger.warning("second_bubble_typing_indicator_failed", error=str(e))
+                        # Allow 1.5s to 2.0s so the animated typing indicator is prominently seen on the user's phone
+                        char_count = len(bubble or "")
+                        typing_delay = max(1.5, min(char_count * 0.02, 2.0))
+
+                    logger.info(
+                        "simulating_human_typing_delay",
+                        tenant_id=tenant_id,
+                        bubble_idx=b_idx + 1,
+                        total_bubbles=len(bubbles),
+                        delay_seconds=round(typing_delay, 2),
+                        chars=len(bubble or ""),
+                    )
+                    await asyncio.sleep(typing_delay)
+
+                    wa_id = await send_text(
+                        phone_number_id=creds["phone_number_id"],
+                        access_token=creds["access_token"],
+                        to=contact_phone,
+                        body=bubble,
+                    )
+                    # Update message with wa_message_id and sent status
+                    await self.db_pool.execute(
+                        "UPDATE messages SET wa_message_id = $1, status = 'sent' WHERE id = $2::uuid",
+                        wa_id, str(out_msg_id),
+                    )
+                    wa_sends.labels(tenant=tenant_id, status="success").inc()
+                except WhatsAppSendError as e:
+                    await self.db_pool.execute(
+                        "UPDATE messages SET status = 'failed', error_message = $1 WHERE id = $2::uuid",
+                        str(e), str(out_msg_id),
+                    )
+                    wa_sends.labels(tenant=tenant_id, status="failed").inc()
+                    logger.error("wa_send_failed", error=str(e), tenant_id=tenant_id)
+            else:
+                logger.warning("no_whatsapp_creds_cannot_send", tenant_id=tenant_id)
 
         # Execute Actions: Cancellation, Reschedule, or New Booking
         if cancel_action:
@@ -2061,8 +2542,9 @@ class CoreWorker:
         name=None,
         health_concern=None,
         preferred_doctor=None,
+        lead_probability=None,
     ):
-        """Auto-update customer extracted details (name, health_concern, doctor, age, location) into Customers and Contacts."""
+        """Auto-update customer extracted details (name, health_concern, doctor, age, location, lead_probability) into Customers and Contacts."""
         if not phone and not contact_id:
             return
         try:
@@ -2157,13 +2639,17 @@ class CoreWorker:
                     updates.append(f"preferred_doctor = ${p_idx}")
                     params.append(str(preferred_doctor).strip())
                     p_idx += 1
+                if lead_probability and str(lead_probability).lower() in ("hot", "warm", "cold"):
+                    updates.append(f"lead_probability = ${p_idx}")
+                    params.append(str(lead_probability).lower())
+                    p_idx += 1
                 if updates:
                     updates.append("last_messaged_at = NOW()")
                     updates.append("updated_at = NOW()")
                     sql = f"UPDATE customers SET {', '.join(updates)} WHERE id = ${p_idx}::uuid AND tenant_id = ${p_idx + 1}::uuid"
                     params.extend([cust_id, tenant_id])
                     await pool.execute(sql, *params)
-                    logger.info("customer_info_auto_updated", phone=phone, age=age, location=location, name=name, health_concern=health_concern, preferred_doctor=preferred_doctor)
+                    logger.info("customer_info_auto_updated", phone=phone, age=age, location=location, name=name, health_concern=health_concern, preferred_doctor=preferred_doctor, lead_probability=lead_probability)
             else:
                 # Customer not found in customers table yet; upsert new row so it immediately appears on Customer tab
                 contact_name = None
@@ -2180,27 +2666,43 @@ class CoreWorker:
                 except Exception:
                     pass
                 customer_name = (name if name and name not in ["Valued Customer", "Client", "Customer"] else None) or contact_name or "Customer"
+                init_prob = str(lead_probability).lower() if (lead_probability and str(lead_probability).lower() in ("hot", "warm", "cold")) else "warm"
 
                 await pool.execute(
                     """
                     INSERT INTO customers (tenant_id, phone, name, preferred_doctor, status, health_concern, lead_probability, age, location, last_messaged_at, created_at, updated_at)
-                    VALUES ($1::uuid, $2, $3, $4, 'new', $5, 'warm', $6, $7, NOW(), NOW(), NOW())
+                    VALUES ($1::uuid, $2, $3, $4, 'new', $5, $6, $7, $8, NOW(), NOW(), NOW())
                     ON CONFLICT (tenant_id, phone) DO UPDATE
                     SET updated_at = NOW(),
                         last_messaged_at = NOW(),
                         name = COALESCE(NULLIF(EXCLUDED.name, 'Customer'), customers.name),
                         preferred_doctor = COALESCE(EXCLUDED.preferred_doctor, customers.preferred_doctor),
                         health_concern = COALESCE(EXCLUDED.health_concern, customers.health_concern),
+                        lead_probability = CASE WHEN EXCLUDED.lead_probability IN ('hot', 'warm', 'cold') THEN EXCLUDED.lead_probability ELSE customers.lead_probability END,
                         age = COALESCE(EXCLUDED.age, customers.age),
                         location = COALESCE(EXCLUDED.location, customers.location)
                     """,
                     tenant_id, clean_digits or phone, customer_name,
                     preferred_doctor.strip() if preferred_doctor else None,
                     health_concern.strip() if health_concern else None,
+                    init_prob,
                     int(age) if age is not None else None,
                     str(location).strip() if location else None
                 )
-                logger.info("customer_info_auto_created", phone=phone, age=age, location=location, name=customer_name, health_concern=health_concern)
+                logger.info("customer_info_auto_created", phone=phone, age=age, location=location, name=customer_name, health_concern=health_concern, lead_probability=init_prob)
+
+            if lead_probability and str(lead_probability).lower() == "hot":
+                try:
+                    await pool.execute(
+                        """UPDATE contacts
+                           SET tags = array_append(COALESCE(tags, ARRAY[]::text[]), 'hot_lead')
+                           WHERE tenant_id = $1::uuid
+                             AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $3)
+                             AND NOT ('hot_lead' = ANY(COALESCE(tags, ARRAY[]::text[])))""",
+                        tenant_id, phone, last10
+                    )
+                except Exception as tag_err:
+                    logger.debug("contact_hot_tag_update_err", error=str(tag_err))
         except Exception as ex:
             logger.warning("customer_info_update_failed", error=str(ex))
 
@@ -2298,6 +2800,36 @@ class CoreWorker:
                         health_concern=service_name if service_name else None,
                     )
                 )
+
+            # 0. Prevent accidental duplicate upcoming booking for same customer unless explicitly confirmed as additional
+            notes_str = (notes or "").lower()
+            is_explicit_additional = (
+                booking_data.get("is_additional")
+                or "additional" in notes_str
+                or "second" in notes_str
+            )
+            if not is_explicit_additional:
+                existing_upcoming = await self.db_pool.fetchrow(
+                    """SELECT b.id, b.service, b.start_time FROM bookings b
+                       LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
+                       WHERE b.tenant_id = $1::uuid
+                         AND (b.contact_id = $2::uuid OR c.phone = $3 OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($3, '[^0-9]', '', 'g'), 10))
+                         AND b.status IN ('confirmed', 'pending')
+                         AND b.start_time >= now() - interval '1 hour'
+                       LIMIT 1""",
+                    tenant_id, contact_id, contact_phone
+                )
+                if existing_upcoming:
+                    logger.warning(
+                        "ai_booking_duplicate_upcoming_prevented",
+                        tenant_id=tenant_id,
+                        existing_booking_id=str(existing_upcoming["id"]),
+                        existing_service=existing_upcoming["service"],
+                        existing_time=str(existing_upcoming["start_time"]),
+                        requested_service=service_name,
+                        requested_start=str(st_dt)
+                    )
+                    return
 
             # 1. Check if THIS contact already has an active booking at this time
             if contact_id:
@@ -3375,17 +3907,42 @@ class CoreWorker:
     # ── DB helpers ─────────────────────────────────────────────────────────────
 
     async def _upsert_contact(self, tenant_id: str, phone: str, name: Optional[str]) -> str:
-        row = await self.db_pool.fetchrow(
-            """INSERT INTO contacts (id, tenant_id, phone, name, wa_profile_name)
-               VALUES ($1::uuid, $2::uuid, $3, $4, $4)
-               ON CONFLICT (tenant_id, phone)
-               DO UPDATE SET
-                 wa_profile_name = COALESCE(EXCLUDED.wa_profile_name, contacts.wa_profile_name),
-                 updated_at = now()
-               RETURNING id""",
-            str(uuid.uuid4()), tenant_id, phone, name,
+        # Check if contact already exists by normalized phone (with or without '+', or matching last 10 digits)
+        existing_contact = await self.db_pool.fetchrow(
+            """SELECT id, name, wa_profile_name FROM contacts
+               WHERE tenant_id = $1::uuid
+                 AND (
+                   phone = $2
+                   OR phone = ('+' || $2)
+                   OR replace(phone, '+', '') = replace($2, '+', '')
+                   OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10)
+                 )
+               ORDER BY created_at ASC LIMIT 1""",
+            tenant_id, phone,
         )
-        contact_id = str(row["id"])
+        if existing_contact:
+            contact_id = str(existing_contact["id"])
+            if name:
+                await self.db_pool.execute(
+                    """UPDATE contacts
+                       SET wa_profile_name = COALESCE($2, wa_profile_name),
+                           name = CASE WHEN name IS NULL OR name = '' OR name = 'Customer' OR name = 'Valued Customer' THEN COALESCE($2, name) ELSE name END,
+                           updated_at = now()
+                       WHERE id = $1::uuid""",
+                    existing_contact["id"], name,
+                )
+        else:
+            row = await self.db_pool.fetchrow(
+                """INSERT INTO contacts (id, tenant_id, phone, name, wa_profile_name)
+                   VALUES ($1::uuid, $2::uuid, $3, $4, $4)
+                   ON CONFLICT (tenant_id, phone)
+                   DO UPDATE SET
+                     wa_profile_name = COALESCE(EXCLUDED.wa_profile_name, contacts.wa_profile_name),
+                     updated_at = now()
+                   RETURNING id""",
+                str(uuid.uuid4()), tenant_id, phone, name,
+            )
+            contact_id = str(row["id"])
 
         # Real-time customer sync: Ensure customer record exists in customers table for CRM Customers tab
         try:

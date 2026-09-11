@@ -10,7 +10,7 @@ import structlog
 
 logger = structlog.get_logger()
 
-GRAPH_API_VERSION = "v19.0"
+GRAPH_API_VERSION = "v21.0"
 GRAPH_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 
 _shared_client: Optional[httpx.AsyncClient] = None
@@ -158,17 +158,52 @@ async def send_interactive_buttons(
     return await _send(phone_number_id, access_token, payload, timeout)
 
 
+async def send_typing_indicator(
+    phone_number_id: str,
+    access_token: str,
+    wa_message_id: str,
+) -> None:
+    """
+    Show native 'typing...' indicator on WhatsApp to sender and mark message as read.
+    Automatically dismissed by WhatsApp when reply is sent or after 25s.
+    """
+    if not wa_message_id:
+        return
+    try:
+        client = get_shared_client()
+        await client.post(
+            f"{GRAPH_BASE}/{phone_number_id}/messages",
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            json={
+                "messaging_product": "whatsapp",
+                "status": "read",
+                "message_id": wa_message_id,
+                "typing_indicator": {
+                    "type": "text"
+                }
+            },
+            timeout=5.0,
+        )
+        logger.info("typing_indicator_sent", wa_message_id=wa_message_id)
+    except Exception as e:
+        logger.warning("typing_indicator_failed", message_id=wa_message_id, error=str(e))
+        # Fallback to standard mark_as_read
+        await mark_as_read(phone_number_id, access_token, wa_message_id)
+
+
 async def mark_as_read(
     phone_number_id: str,
     access_token: str,
     wa_message_id: str,
 ) -> None:
     """Mark an inbound message as read (shows double blue ticks to sender)."""
+    if not wa_message_id:
+        return
     try:
         client = get_shared_client()
         await client.post(
             f"{GRAPH_BASE}/{phone_number_id}/messages",
-            headers={"Authorization": f"Bearer {access_token}"},
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
             json={
                 "messaging_product": "whatsapp",
                 "status": "read",

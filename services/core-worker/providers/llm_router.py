@@ -125,7 +125,7 @@ async def call_gemini(
     model: str = "gemini-3.1-flash-lite",
     max_tokens: int = 2048,
     temperature: float = 0.3,
-    timeout_seconds: float = 4.0,
+    timeout_seconds: float = 8.0,
     tenant_id: str = "",
 ) -> str:
     """Call Google Gemini API with automatic model failover using verified active models."""
@@ -145,19 +145,23 @@ async def call_gemini(
         },
         "contents": contents,
         "generationConfig": {
-            "maxOutputTokens": min(max_tokens, 350),
+            "maxOutputTokens": max(max_tokens, 500),
             "temperature": temperature,
             "candidateCount": 1,
         },
     }
 
-    # Verified active Gemini models; gemini-3.1-flash-lite is the fastest and active
-    candidate_models = ["gemini-3.1-flash-lite"]
-    if model and model == "gemini-3.1-flash-lite":
-        candidate_models = [model]
+    # Verified active Gemini models; primary candidate first, then active fallback models
+    active_gemini_models = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"]
+    candidate_models = []
+    if model and model in active_gemini_models:
+        candidate_models.append(model)
+    for m in active_gemini_models:
+        if m not in candidate_models:
+            candidate_models.append(m)
 
     last_err = None
-    req_timeout = timeout_seconds
+    req_timeout = min(timeout_seconds, 12.0)
     for m in candidate_models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
         try:
@@ -166,7 +170,12 @@ async def call_gemini(
             
             if response.status_code == 200:
                 data = response.json()
-                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                content = data["candidates"][0].get("content", {})
+                parts = content.get("parts", [])
+                text_parts = [p.get("text", "") for p in parts if not p.get("thought") and p.get("text")]
+                if not text_parts and parts:
+                    text_parts = [p.get("text", "") for p in parts if p.get("text")]
+                text = "".join(text_parts)
                 cleaned = clean_llm_response(text)
                 if cleaned:
                     latency_ms = int((time.monotonic() - start) * 1000)
@@ -368,12 +377,10 @@ async def call_llm_cascade(
     2. If primary fails or is rate-limited, secondary model seamlessly provides reply.
     3. If both primary & secondary fail, tertiary 3rd model (OpenCode) executes and replies.
     """
-    racer_ran = False
-    # ── Ultra-Fast Racer: Groq & Gemini concurrently ──
-    if groq_key and gemini_key and primary_provider != "opencode":
-        racer_ran = True
-        effective_max_tokens = min(max_tokens, 350)
+    effective_max_tokens = min(max_tokens, 500)
 
+    # ── Option A: Concurrent Racer (Only if explicitly requested as 'fastest' or 'racer') ──
+    if primary_provider in ("fastest", "racer") and groq_key and gemini_key:
         async def _run_groq():
             return await call_groq(
                 messages=messages,
@@ -394,7 +401,7 @@ async def call_llm_cascade(
                 model=gemini_model or "gemini-3.1-flash-lite",
                 max_tokens=effective_max_tokens,
                 temperature=temperature,
-                timeout_seconds=10.0,
+                timeout_seconds=8.0,
                 tenant_id=tenant_id,
             ), "gemini"
 
@@ -416,7 +423,6 @@ async def call_llm_cascade(
             except Exception as e:
                 logger.warning("racer_task_failed", tenant_id=tenant_id, error=str(e))
 
-        # First completed task failed, wait for remaining task
         for remaining_task in pending:
             try:
                 text, prov = await remaining_task
@@ -425,7 +431,7 @@ async def call_llm_cascade(
             except Exception as e:
                 logger.warning("racer_remaining_task_failed", tenant_id=tenant_id, error=str(e))
 
-    # Sequential cascade for standalone keys, OpenCode primary, or 3rd-tier OpenCode fallback
+    # ── Option B: Strict Priority-Based Sequential Cascade ──
     providers = []
     if primary_provider == "groq":
         providers = [
@@ -433,60 +439,51 @@ async def call_llm_cascade(
             ("gemini", gemini_key),
             ("opencode", opencode_key),
         ]
-    elif primary_provider == "gemini":
-        providers = [
-            ("gemini", gemini_key),
-            ("groq", groq_key),
-            ("opencode", opencode_key),
-        ]
     elif primary_provider == "opencode":
         providers = [
             ("opencode", opencode_key),
-            ("groq", groq_key),
             ("gemini", gemini_key),
+            ("groq", groq_key),
         ]
-    else:
+    else:  # Default to "gemini" as primary for highest prompt fidelity
         providers = [
-            ("groq", groq_key),
             ("gemini", gemini_key),
+            ("groq", groq_key),
             ("opencode", opencode_key),
         ]
 
     for name, key in providers:
         if not key:
             continue
-        # If racer already tried groq & gemini and both failed, proceed directly to tertiary opencode
-        if racer_ran and name in ["groq", "gemini"]:
-            continue
 
         try:
-            if name == "groq":
-                text = await call_groq(
-                    messages=messages,
-                    api_key=key,
-                    system_prompt=system_prompt,
-                    model="qwen/qwen3.8-27b",
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    timeout_seconds=3.5,
-                    tenant_id=tenant_id,
-                )
-                if text and len(text.strip()) > 0:
-                    return text, "groq"
-
-            elif name == "gemini":
+            if name == "gemini":
                 text = await call_gemini(
                     messages=messages,
                     api_key=key,
                     system_prompt=system_prompt,
                     model=gemini_model or "gemini-3.1-flash-lite",
-                    max_tokens=max_tokens,
+                    max_tokens=effective_max_tokens,
                     temperature=temperature,
-                    timeout_seconds=4.0,
+                    timeout_seconds=min(timeout_seconds, 10.0),
                     tenant_id=tenant_id,
                 )
                 if text and len(text.strip()) > 0:
                     return text, "gemini"
+
+            elif name == "groq":
+                text = await call_groq(
+                    messages=messages,
+                    api_key=key,
+                    system_prompt=system_prompt,
+                    model="qwen/qwen3.8-27b",
+                    max_tokens=effective_max_tokens,
+                    temperature=temperature,
+                    timeout_seconds=min(timeout_seconds, 4.0),
+                    tenant_id=tenant_id,
+                )
+                if text and len(text.strip()) > 0:
+                    return text, "groq"
 
             elif name == "opencode":
                 text = await call_opencode(
@@ -495,9 +492,9 @@ async def call_llm_cascade(
                     base_url=opencode_base_url or "https://opencode.ai/zen/v1",
                     system_prompt=system_prompt,
                     model="nemotron-3.5-lightning-free",
-                    max_tokens=max_tokens,
+                    max_tokens=effective_max_tokens,
                     temperature=temperature,
-                    timeout_seconds=timeout_seconds,
+                    timeout_seconds=8.0,
                     tenant_id=tenant_id,
                 )
                 if text and len(text.strip()) > 0:

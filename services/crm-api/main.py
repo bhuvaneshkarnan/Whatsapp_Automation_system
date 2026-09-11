@@ -137,9 +137,11 @@ async def lifespan(app: FastAPI):
                     description TEXT,
                     due_date TIMESTAMPTZ DEFAULT (now() + INTERVAL '1 day'),
                     completed BOOLEAN DEFAULT false,
+                    notified_due BOOLEAN DEFAULT false,
                     created_at TIMESTAMPTZ DEFAULT now(),
                     updated_at TIMESTAMPTZ DEFAULT now()
                 );
+                ALTER TABLE tasks ADD COLUMN IF NOT EXISTS notified_due BOOLEAN DEFAULT false;
                 CREATE INDEX IF NOT EXISTS idx_tasks_tenant_cust ON tasks(tenant_id, customer_id);
 
                 CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -223,7 +225,13 @@ async def lifespan(app: FastAPI):
         if hasattr(razorpay_client, "validate_razorpay_config"):
             razorpay_client.validate_razorpay_config()
 
+    due_worker_task = asyncio.create_task(due_tasks_worker_loop())
     yield
+    due_worker_task.cancel()
+    try:
+        await due_worker_task
+    except asyncio.CancelledError:
+        pass
     await db_pool.close()
 
 app = FastAPI(lifespan=lifespan, title="CRM API")
@@ -235,6 +243,7 @@ if not os.getenv("JWT_SECRET"):
 ALGORITHM = "HS256"
 
 async def get_tenant_id(
+    request: Request = None,
     authorization: Optional[str] = Header(None),
     x_tenant_id: Optional[str] = Header(None),
     x_tenant_slug: Optional[str] = Header(None)
@@ -249,6 +258,18 @@ async def get_tenant_id(
     """
     clean_requested_id = x_tenant_id.split(",")[0].strip() if x_tenant_id else None
     clean_requested_slug = x_tenant_slug.split(",")[0].strip().lower() if x_tenant_slug else None
+
+    # Inspect query params for target_tenant_id or target_tenant_slug
+    if request:
+        try:
+            q_target_id = request.query_params.get("target_tenant_id")
+            if q_target_id and not clean_requested_id:
+                clean_requested_id = q_target_id.split(",")[0].strip()
+            q_target_slug = request.query_params.get("target_tenant_slug")
+            if q_target_slug and not clean_requested_slug:
+                clean_requested_slug = q_target_slug.split(",")[0].strip().lower()
+        except Exception:
+            pass
 
     # Dynamically resolve slug to tenant ID if slug was provided
     slug_resolved_id = None
@@ -278,9 +299,19 @@ async def get_tenant_id(
 
         role = payload.get("role", "agent")
         token_tenant = payload.get("tenant_id")
+        user_id = payload.get("sub")
+
+        # Dynamic DB check: verify role directly in DB in case user was promoted or role differs from active JWT
+        if role not in ("super_admin", "owner") and user_id and db_pool:
+            try:
+                db_role_row = await db_pool.fetchrow("SELECT role FROM users WHERE id = $1::uuid", user_id)
+                if db_role_row and db_role_row["role"] in ("super_admin", "owner"):
+                    role = db_role_row["role"]
+            except Exception:
+                pass
 
         # Super admin can view/act on behalf of any requested tenant, or defaults to own
-        if role == "super_admin":
+        if role in ("super_admin", "owner"):
             if clean_requested_id:
                 return clean_requested_id
             if token_tenant:
@@ -347,6 +378,13 @@ async def get_caller_context(
         return {"user_id": None, "role": "agent", "assigned_health_concerns": [], "assigned_doctor": None, "permissions": {}}
     role = payload.get("role", "agent")
     user_id = payload.get("sub")
+    if role not in ("super_admin", "owner") and user_id and db_pool:
+        try:
+            db_role_row = await db_pool.fetchrow("SELECT role FROM users WHERE id = $1::uuid", user_id)
+            if db_role_row and db_role_row["role"] in ("super_admin", "owner"):
+                role = db_role_row["role"]
+        except Exception:
+            pass
     perms = payload.get("permissions", {})
     if isinstance(perms, str):
         try:
@@ -380,7 +418,15 @@ async def verify_super_admin(authorization: Optional[str] = Header(None)) -> dic
         raise HTTPException(status_code=401, detail="Invalid or expired session token")
 
     role = payload.get("role")
-    if role != "super_admin":
+    user_id = payload.get("sub")
+    if role not in ("super_admin", "owner") and user_id and db_pool:
+        try:
+            db_role_row = await db_pool.fetchrow("SELECT role FROM users WHERE id = $1::uuid", user_id)
+            if db_role_row and db_role_row["role"] in ("super_admin", "owner"):
+                role = db_role_row["role"]
+        except Exception:
+            pass
+    if role not in ("super_admin", "owner"):
         raise HTTPException(status_code=403, detail="Platform Super Admin privileges required.")
     return payload
 
@@ -965,6 +1011,11 @@ class CustomerCreatePayload(BaseModel):
     followup_date: Optional[str] = None
     followup_time: Optional[str] = "10:00 AM"
     initial_note: Optional[str] = None
+    conversion_rate: Optional[int] = 50
+    call_status: Optional[str] = "New (Fresh)"
+    next_action: Optional[str] = "Call Again"
+    primary_concerns: Optional[List[str]] = []
+    interested_services: Optional[List[str]] = []
 
 
 class CustomerUpdatePayload(BaseModel):
@@ -979,6 +1030,11 @@ class CustomerUpdatePayload(BaseModel):
     followup_date: Optional[str] = None
     followup_time: Optional[str] = None
     clear_followup: Optional[bool] = False
+    conversion_rate: Optional[int] = None
+    call_status: Optional[str] = None
+    next_action: Optional[str] = None
+    primary_concerns: Optional[List[str]] = None
+    interested_services: Optional[List[str]] = None
 
 
 
@@ -1012,6 +1068,7 @@ async def list_customers(
     preferred_doctor: Optional[str] = None,
     client_type: Optional[str] = None,
     health_concern: Optional[str] = None,
+    next_action: Optional[str] = None,
     q: Optional[str] = None,
     limit: int = Query(100, le=1000),
     offset: int = 0
@@ -1052,8 +1109,26 @@ async def list_customers(
         idx = 2
 
         if status and status != "all":
-            conditions.append(f"c.status = ${idx}")
-            params.append(status)
+            status_clean = status.strip()
+            status_lower = status_clean.lower()
+            if status_lower in ("new", "contacted", "follow-up", "converted", "lost"):
+                conditions.append(f"""(
+                    c.status = ${idx}
+                    OR (${idx} = 'new' AND (c.status = 'new' OR c.call_status ILIKE '%new%'))
+                    OR (${idx} = 'contacted' AND (c.status = 'contacted' OR c.call_status ILIKE '%contact%' OR c.call_status ILIKE '%picked%'))
+                    OR (${idx} = 'follow-up' AND (c.status = 'follow-up' OR c.call_status ILIKE '%info%' OR c.call_status ILIKE '%requirement%' OR c.call_status ILIKE '%pricing%' OR c.call_status ILIKE '%follow%'))
+                    OR (${idx} = 'converted' AND (c.status = 'converted' OR c.converted = true OR c.call_status ILIKE '%convert%' OR c.call_status ILIKE '%confirm%'))
+                    OR (${idx} = 'lost' AND (c.status = 'lost' OR c.call_status ILIKE '%lost%' OR c.call_status ILIKE '%wrong%' OR c.call_status ILIKE '%busy%'))
+                )""")
+                params.append(status_lower)
+            else:
+                conditions.append(f"(c.call_status ILIKE ${idx} OR c.status ILIKE ${idx})")
+                params.append(f"%{status_clean}%")
+            idx += 1
+
+        if next_action and next_action != "all":
+            conditions.append(f"c.next_action ILIKE ${idx}")
+            params.append(f"%{next_action.strip()}%")
             idx += 1
 
         if lead_probability and lead_probability != "all":
@@ -1116,6 +1191,11 @@ async def list_customers(
                 c.id, c.tenant_id, c.phone, c.name, c.age, c.location, c.preferred_doctor, c.status,
                 c.health_concern, c.lead_probability, c.converted, c.followup_date,
                 c.followup_time, c.google_task_id, c.google_calendar_event_id, c.last_visited_at, c.last_messaged_at, c.created_at, c.updated_at,
+                COALESCE(c.conversion_rate, CASE WHEN c.converted THEN 100 WHEN c.lead_probability = 'hot' THEN 80 WHEN c.lead_probability = 'cold' THEN 20 ELSE 50 END) AS conversion_rate,
+                COALESCE(c.call_status, c.status, 'New (Fresh)') AS call_status,
+                COALESCE(c.next_action, 'Call Again') AS next_action,
+                COALESCE(c.primary_concerns, CASE WHEN c.health_concern IS NOT NULL AND c.health_concern != '' THEN ARRAY[c.health_concern] ELSE ARRAY[]::text[] END) AS primary_concerns,
+                COALESCE(c.interested_services, ARRAY[]::text[]) AS interested_services,
                 b_stats.calculated_last_visited,
                 COALESCE(b_stats.completed_bookings_count, 0) AS completed_bookings_count,
                 COALESCE(b_stats.total_bookings_count, 0) AS total_bookings_count,
@@ -1124,6 +1204,7 @@ async def list_customers(
                 ct_match.wa_profile_name,
                 notes_info.notes_count,
                 notes_info.latest_note,
+                notes_info.latest_note_color,
                 msg_info.last_chat_at,
                 msg_info.last_message,
                 cv_info.unread_count,
@@ -1147,7 +1228,8 @@ async def list_customers(
             LEFT JOIN LATERAL (
                 SELECT 
                     COUNT(*) AS notes_count,
-                    (SELECT cn2.note_text FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note
+                    (SELECT cn2.note_text FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note,
+                    (SELECT COALESCE(cn2.color, 'slate') FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note_color
                 FROM customer_notes cn
                 WHERE cn.customer_id = c.id AND cn.tenant_id = c.tenant_id
             ) notes_info ON true
@@ -1240,11 +1322,17 @@ async def list_customers(
             "retention_status": retention_status,
             "notes_count": r["notes_count"] or 0,
             "latest_note": r["latest_note"] or None,
+            "latest_note_color": r.get("latest_note_color") or "slate",
             "last_chat_at": (r["last_chat_at"] or r["last_messaged_at"]).isoformat() if (r["last_chat_at"] or r["last_messaged_at"]) else None,
             "last_message": r["last_message"] or None,
             "unread_count": r["unread_count"] or 0,
             "conversation_id": str(r["conversation_id"]) if r["conversation_id"] else None,
             "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "conversion_rate": r["conversion_rate"] if r["conversion_rate"] is not None else 50,
+            "call_status": r["call_status"] or "New (Fresh)",
+            "next_action": r["next_action"] or "Call Again",
+            "primary_concerns": list(r["primary_concerns"]) if r["primary_concerns"] else [],
+            "interested_services": list(r["interested_services"]) if r["interested_services"] else [],
         })
     return out
 
@@ -1263,12 +1351,20 @@ async def create_customer(
         try: f_date = datetime.strptime(payload.followup_date, "%Y-%m-%d").date()
         except: pass
 
+    concerns_arr = payload.primary_concerns if payload.primary_concerns else ([payload.health_concern] if payload.health_concern else [])
+    services_arr = payload.interested_services if payload.interested_services else []
+    conv_rate = payload.conversion_rate if payload.conversion_rate is not None else (100 if payload.converted else (80 if payload.lead_probability == 'hot' else (20 if payload.lead_probability == 'cold' else 50)))
+    call_stat = payload.call_status or ("Converted" if payload.converted else "New (Fresh)")
+    nxt_act = payload.next_action or "Call Again"
+
     async with db_pool.acquire() as conn:
         await conn.execute(
             """INSERT INTO customers (
                 id, tenant_id, phone, name, age, location, preferred_doctor, status, health_concern,
-                lead_probability, converted, followup_date, followup_time, created_at, updated_at
-               ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), now())
+                lead_probability, converted, followup_date, followup_time,
+                conversion_rate, call_status, next_action, primary_concerns, interested_services,
+                created_at, updated_at
+               ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), now())
                ON CONFLICT (tenant_id, phone) DO UPDATE SET
                 name = EXCLUDED.name,
                 age = COALESCE(EXCLUDED.age, customers.age),
@@ -1278,10 +1374,16 @@ async def create_customer(
                 lead_probability = EXCLUDED.lead_probability,
                 followup_date = COALESCE(EXCLUDED.followup_date, customers.followup_date),
                 followup_time = COALESCE(EXCLUDED.followup_time, customers.followup_time),
+                conversion_rate = COALESCE(EXCLUDED.conversion_rate, customers.conversion_rate),
+                call_status = COALESCE(EXCLUDED.call_status, customers.call_status),
+                next_action = COALESCE(EXCLUDED.next_action, customers.next_action),
+                primary_concerns = COALESCE(EXCLUDED.primary_concerns, customers.primary_concerns),
+                interested_services = COALESCE(EXCLUDED.interested_services, customers.interested_services),
                 updated_at = now()""",
             cust_id, tenant_id, clean_phone, payload.name, payload.age, payload.location, payload.preferred_doctor or None,
             payload.status or "new", payload.health_concern or None,
-            payload.lead_probability or "warm", payload.converted or False, f_date, payload.followup_time or (payload.followup_date and "10:00 AM" or None)
+            payload.lead_probability or "warm", payload.converted or False, f_date, payload.followup_time or (payload.followup_date and "10:00 AM" or None),
+            conv_rate, call_stat, nxt_act, concerns_arr, services_arr
         )
         if payload.initial_note and payload.initial_note.strip():
             await conn.execute(
@@ -1436,6 +1538,63 @@ async def update_customer(
             params.append(f_time)
             idx += 1
 
+    if payload.conversion_rate is not None:
+        cr = max(0, min(100, payload.conversion_rate))
+        updates.append(f"conversion_rate = ${idx}")
+        params.append(cr)
+        idx += 1
+        if payload.lead_probability is None:
+            legacy_lp = "hot" if cr >= 75 else ("cold" if cr <= 35 else "warm")
+            updates.append(f"lead_probability = ${idx}")
+            params.append(legacy_lp)
+            idx += 1
+        if cr == 100 and payload.converted is None:
+            updates.append(f"converted = ${idx}")
+            params.append(True)
+            idx += 1
+
+    if payload.call_status is not None:
+        cs = payload.call_status.strip()
+        updates.append(f"call_status = ${idx}")
+        params.append(cs)
+        idx += 1
+        if payload.status is None:
+            cs_lower = cs.lower()
+            if "converted" in cs_lower:
+                legacy_s = "converted"
+            elif any(w in cs_lower for w in ["info", "gather", "price", "taken"]):
+                legacy_s = "follow-up"
+            elif any(w in cs_lower for w in ["not picked", "unanswered", "busy", "out of service"]):
+                legacy_s = "contacted"
+            elif "lost" in cs_lower or "wrong" in cs_lower:
+                legacy_s = "lost"
+            else:
+                legacy_s = "new"
+            updates.append(f"status = ${idx}")
+            params.append(legacy_s)
+            idx += 1
+
+    if payload.next_action is not None:
+        updates.append(f"next_action = ${idx}")
+        params.append(payload.next_action.strip())
+        idx += 1
+
+    if payload.primary_concerns is not None:
+        clean_concerns = [c.strip() for c in payload.primary_concerns if c and c.strip()]
+        updates.append(f"primary_concerns = ${idx}")
+        params.append(clean_concerns)
+        idx += 1
+        if clean_concerns and payload.health_concern is None:
+            updates.append(f"health_concern = ${idx}")
+            params.append(clean_concerns[0])
+            idx += 1
+
+    if payload.interested_services is not None:
+        clean_services = [s.strip() for s in payload.interested_services if s and s.strip()]
+        updates.append(f"interested_services = ${idx}")
+        params.append(clean_services)
+        idx += 1
+
     if not updates:
         return {"status": "ok", "message": "No updates provided"}
 
@@ -1446,7 +1605,7 @@ async def update_customer(
         row = await conn.fetchrow(
             f"""UPDATE customers SET {set_clause}
                 WHERE id = $1::uuid AND tenant_id = $2::uuid
-                RETURNING id, phone, name, age, location, preferred_doctor, status, health_concern, lead_probability, converted, followup_date, followup_time""",
+                RETURNING id, phone, name, age, location, preferred_doctor, status, health_concern, lead_probability, converted, followup_date, followup_time, conversion_rate, call_status, next_action, primary_concerns, interested_services""",
             *params
         )
         if not row:
@@ -1503,6 +1662,9 @@ async def update_customer(
             # Create brand new task for the reassigned date
             if row["followup_date"]:
                 new_task_id = str(uuid.uuid4())
+                f_date = row["followup_date"]
+                if f_date.year < 2000 or f_date.year > 2099:
+                    f_date = f_date.replace(year=datetime.now().year)
                 f_time_str = row["followup_time"] or "10:00 AM"
                 target_time = time(10, 0)
                 try:
@@ -1512,7 +1674,17 @@ async def update_customer(
                         target_time = datetime.strptime(f_time_str.strip(), "%H:%M").time()
                     except Exception:
                         pass
-                due_dt = datetime.combine(row["followup_date"], target_time)
+                due_dt = datetime.combine(f_date, target_time)
+                if due_dt.tzinfo is None:
+                    due_dt = due_dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+
+                req_label = "Requirement"
+                t_row = await conn.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                if t_row:
+                    try:
+                        if isinstance(t_row, str): t_row = json.loads(t_row)
+                        req_label = t_row.get("taxonomy", {}).get("requirement_label") or req_label
+                    except Exception: pass
 
                 new_gtask_id = None
                 if r_token and c_id and c_secret:
@@ -1528,7 +1700,7 @@ async def update_customer(
                             tasklist="@default",
                             body={
                                 "title": f"Follow-up: {row['name'] or 'Customer'}",
-                                "notes": f"Phone: {row['phone']}\nHealth Concern: {row['health_concern'] or 'General'}\nLead: {row['lead_probability']}\nFollow-up: {row['followup_date']} at {f_time_str}",
+                                "notes": f"Phone: {row['phone']}\n{req_label}: {row['health_concern'] or 'General'}\nLead: {row['lead_probability']}\nFollow-up: {row['followup_date']} at {f_time_str}",
                                 "due": due_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
                             }
                         )
@@ -1539,11 +1711,11 @@ async def update_customer(
                         logger.warning("google_task_recreate_error", error=str(ex))
 
                 await conn.execute(
-                    """INSERT INTO tasks (id, tenant_id, customer_id, google_task_id, title, description, due_date, completed, created_at, updated_at)
-                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, false, now(), now())""",
+                    """INSERT INTO tasks (id, tenant_id, customer_id, google_task_id, title, description, due_date, completed, notified_due, created_at, updated_at)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, false, false, now(), now())""",
                     new_task_id, tenant_id, customer_id, new_gtask_id,
                     f"Follow-up: {row['name'] or 'Customer'}",
-                    f"Health Concern: {row['health_concern'] or 'General'} | Phone: {row['phone']}",
+                    f"{req_label}: {row['health_concern'] or 'General'} | Phone: {row['phone']}",
                     due_dt
                 )
                 if new_gtask_id:
@@ -1564,6 +1736,11 @@ async def update_customer(
         "converted": row["converted"],
         "followup_date": row["followup_date"].isoformat() if row["followup_date"] else None,
         "followup_time": row["followup_time"],
+        "conversion_rate": row["conversion_rate"],
+        "call_status": row["call_status"],
+        "next_action": row["next_action"],
+        "primary_concerns": list(row["primary_concerns"]) if row["primary_concerns"] else [],
+        "interested_services": list(row["interested_services"]) if row["interested_services"] else [],
     }
 
 
@@ -1616,6 +1793,108 @@ async def delete_customer_followup(customer_id: str, tenant_id: str = Depends(ge
             raise HTTPException(404, "Customer not found")
 
     return {"status": "ok", "message": "Follow-up deleted successfully", "id": customer_id}
+
+
+@app.get("/dropdown-options")
+@app.get("/api/v1/crm/dropdown-options")
+@app.get("/crm/dropdown-options")
+async def get_crm_dropdown_options(tenant_id: str = Depends(get_tenant_id)):
+    """Return configured dropdown options for the tenant with defaults."""
+    default_options = {
+        "outcome_statuses": [
+            "New (Fresh)",
+            "Not Picked",
+            "Out of Service / Busy",
+            "Wrong Number",
+            "Info Given & Taken",
+            "Requirements Gathered",
+            "Pricing Sent",
+            "Booking Requested",
+            "Confirmed",
+            "Converted"
+        ],
+        "next_actions": [
+            "Call Again",
+            "WhatsApp Only",
+            "Final Call Attempt",
+            "Send Brochure / Info",
+            "Ask for Booking",
+            "Send Reminder",
+            "Reschedule",
+            "No-Show Follow-up"
+        ],
+        "services_list": [
+            "Foot Reflexology",
+            "Acupuncture",
+            "Cupping",
+            "Ayurvedic",
+            "Consultation",
+            "Package"
+        ],
+        "concerns_list": [
+            "Knee pain",
+            "Neck pain",
+            "Sciatica",
+            "Diabetes",
+            "Stress",
+            "Sleep",
+            "Gut issue",
+            "Weight"
+        ]
+    }
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+        if row and row["settings"]:
+            settings = row["settings"]
+            if isinstance(settings, str):
+                try: settings = json.loads(settings)
+                except: settings = {}
+            saved = settings.get("crm_dropdowns", {})
+            if isinstance(saved, dict):
+                for k in default_options:
+                    if saved.get(k) and isinstance(saved[k], list) and len(saved[k]) > 0:
+                        default_options[k] = saved[k]
+    return default_options
+
+
+class CrmDropdownsUpdatePayload(BaseModel):
+    outcome_statuses: Optional[List[str]] = None
+    next_actions: Optional[List[str]] = None
+    services_list: Optional[List[str]] = None
+    concerns_list: Optional[List[str]] = None
+
+
+@app.put("/dropdown-options")
+@app.put("/api/v1/crm/dropdown-options")
+@app.put("/crm/dropdown-options")
+async def update_crm_dropdown_options(
+    payload: CrmDropdownsUpdatePayload,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Save custom dropdown options for the tenant."""
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+        settings = {}
+        if row and row["settings"]:
+            settings = row["settings"]
+            if isinstance(settings, str):
+                try: settings = json.loads(settings)
+                except: settings = {}
+        crm_drops = settings.get("crm_dropdowns", {})
+        if not isinstance(crm_drops, dict):
+            crm_drops = {}
+        if payload.outcome_statuses is not None:
+            crm_drops["outcome_statuses"] = [x.strip() for x in payload.outcome_statuses if x and x.strip()]
+        if payload.next_actions is not None:
+            crm_drops["next_actions"] = [x.strip() for x in payload.next_actions if x and x.strip()]
+        if payload.services_list is not None:
+            crm_drops["services_list"] = [x.strip() for x in payload.services_list if x and x.strip()]
+        if payload.concerns_list is not None:
+            crm_drops["concerns_list"] = [x.strip() for x in payload.concerns_list if x and x.strip()]
+        settings["crm_dropdowns"] = crm_drops
+
+        await conn.execute("UPDATE tenants SET settings = $1 WHERE id = $2::uuid", json.dumps(settings), tenant_id)
+    return {"status": "ok", "crm_dropdowns": crm_drops}
 
 
 @app.get("/notes")
@@ -2069,6 +2348,8 @@ async def create_task(
     if payload.due_date:
         try:
             due_dt = datetime.fromisoformat(payload.due_date.replace("Z", "+00:00"))
+            if due_dt.year < 2000 or due_dt.year > 2099:
+                due_dt = due_dt.replace(year=datetime.now().year)
             if due_dt.tzinfo is None:
                 due_dt = due_dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
             due_iso = due_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
@@ -2185,8 +2466,8 @@ async def create_task(
 
     async with db_pool.acquire() as conn:
         await conn.execute(
-            """INSERT INTO tasks (id, tenant_id, customer_id, google_task_id, google_event_id, title, description, due_date, completed, created_at, updated_at)
-               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, false, now(), now())""",
+            """INSERT INTO tasks (id, tenant_id, customer_id, google_task_id, google_event_id, title, description, due_date, completed, notified_due, created_at, updated_at)
+               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, false, false, now(), now())""",
             task_id, tenant_id, payload.customer_id if payload.customer_id else None,
             google_task_id, google_event_id, payload.title.strip(), payload.description, due_dt
         )
@@ -2326,8 +2607,21 @@ async def sync_customer_to_google_tasks(
             raise HTTPException(400, "Google Tasks is not connected. Please connect Google in Settings.")
 
         google_task_id = f"gtask_{uuid.uuid4().hex[:12]}"
-        due_iso = f"{cust['followup_date'].isoformat()}T10:00:00.000Z" if cust["followup_date"] else f"{(datetime.utcnow() + timedelta(days=1)).strftime('%Y-%m-%d')}T10:00:00.000Z"
+        f_date = cust["followup_date"]
+        if f_date and (f_date.year < 2000 or f_date.year > 2099):
+            f_date = f_date.replace(year=datetime.now().year)
+        due_iso = f"{f_date.isoformat()}T10:00:00.000Z" if f_date else f"{(datetime.utcnow() + timedelta(days=1)).strftime('%Y-%m-%d')}T10:00:00.000Z"
         due_dt = datetime.fromisoformat(due_iso.replace("Z", "+00:00"))
+        if due_dt.tzinfo is None:
+            due_dt = due_dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+
+        req_label = "Requirement"
+        t_row = await conn.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+        if t_row:
+            try:
+                if isinstance(t_row, str): t_row = json.loads(t_row)
+                req_label = t_row.get("taxonomy", {}).get("requirement_label") or req_label
+            except Exception: pass
 
         google_cal_id = cust.get("google_calendar_event_id") if "google_calendar_event_id" in cust else None
 
@@ -2349,7 +2643,7 @@ async def sync_customer_to_google_tasks(
                 tasks_service = await asyncio.to_thread(build, "tasks", "v1", credentials=creds)
                 task_body = {
                     "title": f"Follow-up: {cust['name'] or 'Customer'}",
-                    "notes": f"Phone: {cust['phone']}\nHealth Concern: {cust['health_concern'] or 'General'}\nLead: {cust['lead_probability'].upper() if cust['lead_probability'] else 'WARM'}\nFollow-up: {cust['followup_date']} at {cust['followup_time'] or '10:00 AM'}",
+                    "notes": f"Phone: {cust['phone']}\n{req_label}: {cust['health_concern'] or 'General'}\nLead: {cust['lead_probability'].upper() if cust['lead_probability'] else 'WARM'}\nFollow-up: {cust['followup_date']} at {cust['followup_time'] or '10:00 AM'}",
                     "due": due_iso,
                 }
                 # If task already existed on Google, update it rather than inserting a duplicate
@@ -2400,7 +2694,7 @@ async def sync_customer_to_google_tasks(
 
                 cal_event_body = {
                     "summary": f"Follow-up: {cust['name'] or 'Customer'}",
-                    "description": f"Customer Follow-up\nPhone: {cust['phone']}\nRequirement: {cust['health_concern']}\nStaff: {cust['preferred_doctor']}\nLead: {cust['lead_probability'].upper()}",
+                    "description": f"Customer Follow-up\nPhone: {cust['phone']}\n{req_label}: {cust['health_concern']}\nStaff: {cust['preferred_doctor']}\nLead: {cust['lead_probability'].upper() if cust['lead_probability'] else 'WARM'}",
                     "start": {
                         "dateTime": start_comb.isoformat(),
                         "timeZone": t_tz
@@ -2444,11 +2738,11 @@ async def sync_customer_to_google_tasks(
             task_id = str(existing_task["id"])
             await conn.execute(
                 """UPDATE tasks
-                   SET google_task_id = $1, google_event_id = $2, title = $3, description = $4, due_date = $5, updated_at = now()
+                   SET google_task_id = $1, google_event_id = $2, title = $3, description = $4, due_date = $5, notified_due = false, updated_at = now()
                    WHERE id = $6::uuid AND tenant_id = $7::uuid""",
                 google_task_id, google_cal_id,
                 f"Follow-up: {cust['name'] or 'Customer'}",
-                f"Health Concern: {cust['health_concern'] or 'General'} | Phone: {cust['phone']}",
+                f"{req_label}: {cust['health_concern'] or 'General'} | Phone: {cust['phone']}",
                 due_dt, existing_task["id"], tenant_id
             )
             # Delete any obsolete duplicate tasks for this customer
@@ -2459,11 +2753,11 @@ async def sync_customer_to_google_tasks(
         else:
             task_id = str(uuid.uuid4())
             await conn.execute(
-                """INSERT INTO tasks (id, tenant_id, customer_id, google_task_id, google_event_id, title, description, due_date, completed, created_at, updated_at)
-                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, false, now(), now())""",
+                """INSERT INTO tasks (id, tenant_id, customer_id, google_task_id, google_event_id, title, description, due_date, completed, notified_due, created_at, updated_at)
+                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, false, false, now(), now())""",
                 task_id, tenant_id, customer_id, google_task_id, google_cal_id,
                 f"Follow-up: {cust['name'] or 'Customer'}",
-                f"Health Concern: {cust['health_concern'] or 'General'} | Phone: {cust['phone']}",
+                f"{req_label}: {cust['health_concern'] or 'General'} | Phone: {cust['phone']}",
                 due_dt
             )
 
@@ -2786,9 +3080,17 @@ async def create_booking(
         et_dt = st_dt + timedelta(minutes=30)
 
     async with db_pool.acquire() as conn:
-        # 1. Find or create contact
+        # 1. Find or create contact using normalized phone matching
         contact_row = await conn.fetchrow(
-            "SELECT id, name, phone FROM contacts WHERE tenant_id = $1::uuid AND phone = $2",
+            """SELECT id, name, phone FROM contacts 
+               WHERE tenant_id = $1::uuid 
+                 AND (
+                   phone = $2
+                   OR phone = ('+' || $2)
+                   OR replace(phone, '+', '') = replace($2, '+', '')
+                   OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10)
+                 )
+               ORDER BY created_at ASC LIMIT 1""",
             tenant_id, clean_phone
         )
         if contact_row:
@@ -4723,14 +5025,20 @@ class TenantSettingsUpdate(BaseModel):
     taxonomy: Optional[Dict[str, Any]] = None
     opening_time: Optional[str] = None
     closing_time: Optional[str] = None
+    target_tenant_id: Optional[str] = None
+    tenant_id: Optional[str] = None
 
 
 @app.get("/settings")
 async def get_tenant_settings(
     tenant_id: str = Depends(get_tenant_id),
+    target_tenant_id: Optional[str] = Query(None),
     caller: dict = Depends(get_caller_context)
 ):
     """Retrieve full settings for the currently logged-in tenant / client."""
+    caller_role = caller.get("role") if isinstance(caller, dict) else "admin"
+    if target_tenant_id and caller_role == "super_admin":
+        tenant_id = target_tenant_id
     async with db_pool.acquire() as conn:
         tenant = await conn.fetchrow("SELECT id, name, slug, plan, is_active, settings FROM tenants WHERE id = $1::uuid", tenant_id)
         if not tenant:
@@ -4932,12 +5240,17 @@ async def get_tenant_settings(
 async def update_tenant_settings(
     payload: TenantSettingsUpdate,
     tenant_id: str = Depends(get_tenant_id),
+    target_tenant_id: Optional[str] = Query(None),
     caller: dict = Depends(get_caller_context)
 ):
     """Update settings & credentials for the currently logged-in tenant."""
     caller_role = caller.get("role") if isinstance(caller, dict) else "admin"
     if caller_role not in ("admin", "owner", "super_admin"):
         raise HTTPException(status_code=403, detail="Admin privileges required to update settings.")
+    if caller_role == "super_admin":
+        target_id = target_tenant_id or payload.target_tenant_id or payload.tenant_id
+        if target_id:
+            tenant_id = target_id.strip()
     async with db_pool.acquire() as conn:
         # 1. Update tenant table settings & branding
         if payload.name:
@@ -5131,7 +5444,7 @@ async def update_tenant_settings(
                 response_style, methodology, strict_rules, objection_handling
             )
 
-    return await get_tenant_settings(tenant_id, caller=caller if isinstance(caller, dict) else {"role": "admin"})
+    return await get_tenant_settings(tenant_id, target_tenant_id=tenant_id, caller=caller if isinstance(caller, dict) else {"role": "admin"})
 
 
 # ── Google OAuth 2.0 1-Click Calendar Sync ────────────────────────────────────
@@ -8919,7 +9232,7 @@ async def delete_marketing_template(
 # ── Web Push Notifications & Notification Center ───────────────────────────────
 
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "BMpihU9a8uXtZIkGtKTSKVJTLzTHzQf8Vz_WolZCxkgTb39GJ_0RajTa6-nI6gCBS7_p7Qk7bPHOKSi-6BwpoZU")
-VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "7VmcO0Iktk1j2BIrJrzH4lsCg-n3h0AX-P3WwYqHV_0")
 VAPID_CLAIM_EMAIL = os.getenv("VAPID_CLAIM_EMAIL", "mailto:admin@goboldlabs.com")
 
 
@@ -9030,6 +9343,89 @@ async def dispatch_push_notification(
         logger.error("dispatch_push_notification_failed", error=str(e))
 
     return {"status": "ok", "notification_id": notification_id, "sent_count": sent_count}
+
+
+async def check_and_notify_due_tasks():
+    """Finds uncompleted tasks whose due_date <= now() and dispatches push and in-app notifications."""
+    global db_pool
+    if not db_pool:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            # First sanitize any malformed year < 2000
+            await conn.execute("""
+                UPDATE tasks
+                SET due_date = due_date + INTERVAL '2024 years'
+                WHERE due_date < '2000-01-01'::timestamptz
+            """)
+
+            # Fetch uncompleted tasks that are due now or within the past 24h and haven't been notified yet
+            rows = await conn.fetch("""
+                SELECT 
+                    t.id, t.tenant_id, t.title, t.description, t.due_date,
+                    t.customer_id, c.name AS customer_name, c.phone AS customer_phone,
+                    ten.slug AS tenant_slug, ten.name AS tenant_name
+                FROM tasks t
+                LEFT JOIN customers c ON t.customer_id = c.id
+                LEFT JOIN tenants ten ON t.tenant_id = ten.id
+                WHERE t.completed = false
+                  AND t.due_date <= now()
+                  AND t.due_date >= (now() - INTERVAL '24 hours')
+                  AND (t.notified_due IS NULL OR t.notified_due = false)
+                ORDER BY t.due_date ASC
+                LIMIT 50
+            """)
+
+            for r in rows:
+                task_id = str(r["id"])
+                tenant_id = str(r["tenant_id"])
+                slug = r["tenant_slug"] or "boldlabs"
+                cust_name = r["customer_name"] or "Customer"
+                title = f"⏰ Follow-up Due: {r['title']}"
+                body = f"Scheduled follow-up for {cust_name} is due now. Click to review."
+                target_url = f"/{slug}#follow-ups"
+
+                try:
+                    await dispatch_push_notification(
+                        pool=db_pool,
+                        tenant_id=tenant_id,
+                        title=title,
+                        body=body,
+                        notif_type="task_due",
+                        url=target_url,
+                        data={
+                            "task_id": task_id,
+                            "customer_id": str(r["customer_id"]) if r["customer_id"] else None,
+                            "title": r["title"],
+                            "customer_name": cust_name,
+                            "type": "task_due"
+                        }
+                    )
+                except Exception as push_err:
+                    logger.warning("due_task_push_failed", task_id=task_id, error=str(push_err))
+
+                await conn.execute(
+                    "UPDATE tasks SET notified_due = true, updated_at = now() WHERE id = $1::uuid",
+                    r["id"]
+                )
+                logger.info("due_task_notification_dispatched", task_id=task_id, title=r["title"])
+    except Exception as ex:
+        logger.error("check_and_notify_due_tasks_error", error=str(ex))
+
+
+async def due_tasks_worker_loop():
+    """Background worker loop running periodically to check for due tasks."""
+    logger.info("due_tasks_worker_loop_started")
+    while True:
+        try:
+            await check_and_notify_due_tasks()
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            logger.info("due_tasks_worker_loop_cancelled")
+            break
+        except Exception as e:
+            logger.error("due_tasks_worker_loop_error", error=str(e))
+            await asyncio.sleep(15)
 
 
 @app.get("/notifications/vapid-public-key")
@@ -9396,9 +9792,17 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
             st_dt = st_dt.replace(tzinfo=tenant_tz)
         et_dt = st_dt + timedelta(minutes=30)
 
-        # 1. Upsert contact
+        # 1. Upsert contact using normalized phone matching
         contact = await conn.fetchrow(
-            "SELECT id FROM contacts WHERE tenant_id = $1::uuid AND phone = $2",
+            """SELECT id FROM contacts 
+               WHERE tenant_id = $1::uuid 
+                 AND (
+                   phone = $2
+                   OR phone = ('+' || $2)
+                   OR replace(phone, '+', '') = replace($2, '+', '')
+                   OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10)
+                 )
+               ORDER BY created_at ASC LIMIT 1""",
             tenant_id, clean_phone
         )
         if not contact:

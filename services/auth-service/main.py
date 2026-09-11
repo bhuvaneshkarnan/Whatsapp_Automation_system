@@ -286,12 +286,14 @@ async def read_users_me(token: str = Depends(oauth2_scheme)):
             try:
                 async with db_pool.acquire() as conn:
                     user_row = await conn.fetchrow(
-                        "SELECT email, display_name FROM users WHERE id = $1::uuid", user_id
+                        "SELECT email, display_name, role FROM users WHERE id = $1::uuid", user_id
                     )
                     if user_row:
-                        if user_row["display_name"]:
+                        if user_row.get("role"):
+                            role = user_row["role"]
+                        if user_row.get("display_name"):
                             display_name = user_row["display_name"]
-                        if user_row["email"]:
+                        if user_row.get("email"):
                             email = user_row["email"]
             except Exception:
                 pass

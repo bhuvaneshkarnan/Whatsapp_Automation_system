@@ -56,7 +56,7 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
-        if (client.url.includes('/boldlabs') && 'focus' in client) {
+        if ('focus' in client) {
           if ('navigate' in client && targetUrl) {
             client.navigate(targetUrl);
           }

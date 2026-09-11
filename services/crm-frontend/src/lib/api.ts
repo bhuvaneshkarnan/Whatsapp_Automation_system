@@ -115,6 +115,16 @@ function getAuthHeaders(): Record<string, string> {
       // so the backend can dynamically resolve it, while avoiding stale cross-tenant UUIDs.
       tenantId = null;
     }
+  } else {
+    // If on a system route like /dashboard or /, sync with last selected tenant slug
+    const storedSlug = (localStorage.getItem('tenant_slug') || '').toLowerCase().trim();
+    if (storedSlug && !SYSTEM_ROUTES.has(storedSlug)) {
+      activeSlug = storedSlug;
+      const resolved = dynamicSlugCache[storedSlug] || localStorage.getItem('tenant_id');
+      if (resolved) {
+        tenantId = resolved;
+      }
+    }
   }
 
   return {
@@ -356,11 +366,24 @@ export interface Customer {
   retention_status?: 'active' | 'due' | 'lapsed' | 'new';
   notes_count?: number;
   latest_note?: string | null;
+  latest_note_color?: string | null;
   last_chat_at?: string | null;
   last_message?: string | null;
   unread_count?: number;
   conversation_id?: string | null;
   created_at?: string;
+  conversion_rate?: number | null;
+  call_status?: string | null;
+  next_action?: string | null;
+  primary_concerns?: string[] | null;
+  interested_services?: string[] | null;
+}
+
+export interface CrmDropdownOptions {
+  outcome_statuses: string[];
+  next_actions: string[];
+  services_list: string[];
+  concerns_list: string[];
 }
 
 export interface CustomerNote {
@@ -664,8 +687,13 @@ export const crm = {
       `/api/v1/crm/messages/search?q=${encodeURIComponent(q)}&limit=${limit}`
     ),
 
-  getSettings: () =>
-    request<TenantSettingsResponse>('/api/v1/crm/settings'),
+  getSettings: (targetTenantId?: string) => {
+    const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
+    return request<TenantSettingsResponse>(
+      `/api/v1/crm/settings${qs}`,
+      targetTenantId ? { headers: { 'X-Tenant-ID': targetTenantId } } : undefined
+    );
+  },
 
   resolveTenantBySlug: (slug: string) =>
     request<{ id: string; name: string; slug: string; plan?: string; is_active?: boolean }>(
@@ -677,11 +705,14 @@ export const crm = {
       return res;
     }),
 
-  updateSettings: (data: Partial<TenantSettingsResponse>) =>
-    request<TenantSettingsResponse>('/api/v1/crm/settings', {
+  updateSettings: (data: Partial<TenantSettingsResponse>, targetTenantId?: string) => {
+    const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
+    return request<TenantSettingsResponse>(`/api/v1/crm/settings${qs}`, {
       method: 'PUT',
-      body: JSON.stringify(data),
-    }),
+      headers: targetTenantId ? { 'X-Tenant-ID': targetTenantId } : undefined,
+      body: JSON.stringify(targetTenantId ? { ...data, target_tenant_id: targetTenantId } : data),
+    });
+  },
 
   initGoogleOAuth: (data: { client_id: string; client_secret: string }) =>
     request<{ auth_url: string; redirect_uri: string }>('/api/v1/crm/oauth/google/init', {
@@ -706,6 +737,7 @@ export const crm = {
     preferred_doctor?: string;
     client_type?: string;
     health_concern?: string;
+    next_action?: string;
     q?: string;
     limit?: number;
   }): Promise<Customer[]> => {
@@ -716,6 +748,7 @@ export const crm = {
       if (filters?.preferred_doctor && filters.preferred_doctor !== 'all') params.set('preferred_doctor', filters.preferred_doctor);
       if (filters?.client_type && filters.client_type !== 'all') params.set('client_type', filters.client_type);
       if (filters?.health_concern && filters.health_concern !== 'all') params.set('health_concern', filters.health_concern);
+      if (filters?.next_action && filters.next_action !== 'all') params.set('next_action', filters.next_action);
       if (filters?.q) params.set('q', filters.q);
       if (filters?.limit) params.set('limit', String(filters.limit));
       const qs = params.toString();
@@ -827,14 +860,6 @@ export const crm = {
       body: JSON.stringify({ message }),
     }),
 
-  getCustomerBookings: async (customerId: string): Promise<{ bookings: any[]; total_revenue: number; total_sessions: number; completed_sessions: number } | null> => {
-    try {
-      return await request<any>(`/api/v1/crm/customers/${customerId}/bookings`);
-    } catch {
-      return null;
-    }
-  },
-
   getTasks: async (filter = 'all'): Promise<FollowupTask[]> => {
     try {
       const rows = await request<FollowupTask[]>(`/api/v1/crm/tasks?filter=${filter}`);
@@ -875,6 +900,38 @@ export const crm = {
       `/api/v1/crm/customers/${customerId}/google-tasks`,
       { method: 'POST' }
     ),
+
+  getCrmDropdownOptions: async (): Promise<CrmDropdownOptions> => {
+    try {
+      const res = await request<CrmDropdownOptions>('/api/v1/crm/dropdown-options');
+      return res;
+    } catch {
+      return {
+        outcome_statuses: [
+          'New (Fresh)', 'Not Picked', 'Out of Service / Busy', 'Wrong Number',
+          'Info Given & Taken', 'Requirements Gathered', 'Pricing Sent',
+          'Booking Requested', 'Confirmed', 'Converted'
+        ],
+        next_actions: [
+          'Call Again', 'WhatsApp Only', 'Final Call Attempt',
+          'Send Brochure / Info', 'Ask for Booking', 'Send Reminder',
+          'Reschedule', 'No-Show Follow-up'
+        ],
+        services_list: [
+          'Foot Reflexology', 'Acupuncture', 'Cupping', 'Ayurvedic', 'Consultation', 'Package'
+        ],
+        concerns_list: [
+          'Knee pain', 'Neck pain', 'Sciatica', 'Diabetes', 'Stress', 'Sleep', 'Gut issue', 'Weight'
+        ]
+      };
+    }
+  },
+
+  updateCrmDropdownOptions: (data: Partial<CrmDropdownOptions>) =>
+    request<{ status: string; crm_dropdowns: CrmDropdownOptions }>('/api/v1/crm/dropdown-options', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
 
   // ── Tenant Staff & Roles ───────────────────────────────────
   listStaff: () => request<StaffUser[]>('/api/v1/crm/staff'),
