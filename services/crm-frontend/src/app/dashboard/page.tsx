@@ -2677,15 +2677,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     staff_label: (() => {
       const raw = (settingsForm.taxonomy?.staff_label ?? '').trim();
       if (raw === '.' || raw === '-' || raw === '') {
-        return settingsForm.taxonomy?.staff_label !== undefined ? '' : (settingsForm.industry === 'education' ? 'Tutor / Counselor' : 'Preferred Doctor / Staff');
+        return settingsForm.taxonomy?.staff_label !== undefined ? '' : (settingsForm.industry === 'clinic' ? 'Preferred Doctor / Staff' : settingsForm.industry === 'education' ? 'Tutor / Counselor' : 'Assigned Staff');
       }
-      return raw;
+      return raw || (settingsForm.industry === 'clinic' ? 'Preferred Doctor / Staff' : settingsForm.industry === 'education' ? 'Tutor / Counselor' : 'Assigned Staff');
     })(),
-    client_label: settingsForm.taxonomy?.client_label || (settingsForm.industry === 'education' ? 'Student / Parent' : 'Customer'),
-    client_plural: settingsForm.taxonomy?.client_plural || (settingsForm.industry === 'education' ? 'Students' : settingsForm.industry === 'legal' ? 'Clients' : settingsForm.industry === 'realestate' ? 'Buyers' : settingsForm.industry === 'fitness' ? 'Members' : 'Customers'),
-    requirement_label: settingsForm.taxonomy?.requirement_label || (settingsForm.industry === 'education' ? 'Target Course & Grade' : 'Health Concern / Symptoms'),
-    event_label: settingsForm.taxonomy?.event_label || (settingsForm.industry === 'education' ? 'Demo Class / Counseling' : 'Appointment'),
-    booking_cta: settingsForm.taxonomy?.booking_cta || (settingsForm.industry === 'education' ? '+ Book Demo Class' : '+ New Appointment'),
+    client_label: settingsForm.taxonomy?.client_label || (settingsForm.industry === 'clinic' ? 'Patient' : settingsForm.industry === 'education' ? 'Student / Parent' : 'Client'),
+    client_plural: settingsForm.taxonomy?.client_plural || (settingsForm.industry === 'clinic' ? 'Patients' : settingsForm.industry === 'education' ? 'Students' : settingsForm.industry === 'legal' ? 'Clients' : settingsForm.industry === 'realestate' ? 'Buyers' : settingsForm.industry === 'fitness' ? 'Members' : 'Clients'),
+    requirement_label: settingsForm.taxonomy?.requirement_label || (settingsForm.industry === 'clinic' ? 'Health Concern / Symptoms' : settingsForm.industry === 'education' ? 'Target Course & Grade' : 'Requirement / Service Focus'),
+    event_label: settingsForm.taxonomy?.event_label || (settingsForm.industry === 'clinic' ? 'Appointment' : settingsForm.industry === 'education' ? 'Demo Class / Counseling' : 'Meeting / Session'),
+    booking_cta: settingsForm.taxonomy?.booking_cta || (settingsForm.industry === 'clinic' ? '+ New Appointment' : settingsForm.industry === 'education' ? '+ Book Demo Class' : '+ Schedule Session'),
     phone_label: settingsForm.taxonomy?.phone_label || 'Phone',
     age_location_label: settingsForm.taxonomy?.age_location_label || 'Age & Location',
     status_label: settingsForm.taxonomy?.status_label || 'Status',
@@ -12572,7 +12572,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <span>Repeat & Retained {currentTaxonomy.client_plural || 'Clients'}</span>
                     </h3>
                     <p className="text-[11px] text-text-muted mt-0.5">
-                      Monitor patient retention, checkup velocity, track recurring visits, and re-engage regular clients.
+                      Monitor client retention, track recurring sessions, and re-engage regular clients.
                     </p>
                   </div>
 
@@ -12582,7 +12582,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       type="button"
                       onClick={() => {
                         const repeatList = customers.filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat');
-                        const headers = ['Name', 'Phone', 'Age', 'Location', 'Completed Visits', 'Total Bookings', 'Last Visit Date', 'Last Visit Service', 'Days Since Last Visit', 'Retention Status', 'Preferred Doctor'];
+                        const headers = ['Name', 'Phone', 'Age', 'Location', 'Completed Visits', 'Total Bookings', 'Last Visit Date', 'Last Visit Service', 'Days Since Last Visit', 'Retention Status', 'Preferred Staff'];
                         const rows = repeatList.map(c => [
                           `"${(c.name || '').replace(/"/g, '""')}"`,
                           `"${c.phone}"`,
@@ -12633,7 +12633,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       className="flex items-center gap-1.5 px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer shrink-0"
                     >
                       <CalendarClock className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>Book Appointment</span>
+                      <span>{currentTaxonomy.booking_cta || 'Book Session'}</span>
                     </button>
 
                     {/* Refresh */}
@@ -12684,7 +12684,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       <div className="p-3 bg-surface border border-amber-200/70 bg-amber-50/20 rounded-sm flex items-center justify-between">
                         <div>
-                          <p className="text-[11px] text-amber-800 font-medium">Due for Checkup (30-60d)</p>
+                          <p className="text-[11px] text-amber-800 font-medium">Due for Check-in (30-60d)</p>
                           <p className="text-base font-bold text-amber-900 mt-0.5">{dueCount}</p>
                         </div>
                         <Clock className="w-4 h-4 text-amber-600 stroke-[1.5]" />
@@ -12692,7 +12692,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       <div className="p-3 bg-surface border border-rose-200/70 bg-rose-50/20 rounded-sm flex items-center justify-between">
                         <div>
-                          <p className="text-[11px] text-rose-800 font-medium">At-Risk / Lapsed (&gt;60d)</p>
+                          <p className="text-[11px] text-rose-800 font-medium">At-Risk / Inactive (&gt;60d)</p>
                           <p className="text-base font-bold text-rose-900 mt-0.5">{lapsedCount}</p>
                         </div>
                         <AlertCircle className="w-4 h-4 text-rose-600 stroke-[1.5]" />
@@ -12700,7 +12700,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       <div className="p-3 bg-surface border border-purple-200/70 bg-purple-50/20 rounded-sm flex items-center justify-between">
                         <div>
-                          <p className="text-[11px] text-purple-800 font-medium">VIP Loyalists (3+)</p>
+                          <p className="text-[11px] text-purple-800 font-medium">VIP Clients (3+ Visits)</p>
                           <p className="text-base font-bold text-purple-900 mt-0.5">{vipCount}</p>
                         </div>
                         <Star className="w-4 h-4 text-purple-600 fill-purple-400 stroke-[1.5]" />
@@ -12717,7 +12717,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {[
                       { key: 'all', label: 'All Repeat' },
                       { key: 'active', label: 'Active (<30d)', dot: 'bg-emerald-500' },
-                      { key: 'due', label: 'Due for Checkup (30-60d)', dot: 'bg-amber-500' },
+                      { key: 'due', label: 'Due for Check-in (30-60d)', dot: 'bg-amber-500' },
                       { key: 'lapsed', label: 'At-Risk (>60d)', dot: 'bg-rose-500' },
                       { key: 'vip', label: 'VIPs (3+ Visits)', dot: 'bg-purple-500' },
                     ].map((st) => (
@@ -12737,14 +12737,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     ))}
                   </div>
 
-                  {/* Doctor Filter & Search */}
+                  {/* Staff Filter & Search */}
                   <div className="flex items-center gap-2">
                     <select
                       value={repeatDoctorFilter}
                       onChange={(e) => setRepeatDoctorFilter(e.target.value)}
                       className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[160px]"
                     >
-                      <option value="all">All Doctors / Staff</option>
+                      <option value="all">All Staff / Assigned</option>
                       {categorizedStaffOptions.teamDoctors.length > 0 && (
                         <optgroup label="Doctors (Team Login)">
                           {categorizedStaffOptions.teamDoctors.map((s) => (
@@ -12794,12 +12794,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <table className="w-full text-left text-xs min-w-[760px]">
                       <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                         <tr>
-                          <th className="p-2.5 pl-4">Client & Contact</th>
+                          <th className="p-2.5 pl-4">{currentTaxonomy.client_label || 'Client'} & Contact</th>
                           <th className="p-2.5">Visits & Loyalty</th>
-                          <th className="p-2.5">Last Visit Details</th>
+                          <th className="p-2.5">Last Session Details</th>
                           <th className="p-2.5">Retention Status</th>
                           <th className="p-2.5">Assigned Staff</th>
-                          <th className="p-2.5">Health Requirement</th>
+                          <th className="p-2.5">{currentTaxonomy.requirement_label || 'Requirement / Service'}</th>
                           <th className="p-2.5 text-right pr-4">Direct Actions</th>
                         </tr>
                       </thead>
@@ -12899,6 +12899,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       {cust.location && <span className="flex items-center gap-0.5"><MapPin className="w-2.5 h-2.5" />{cust.location}</span>}
                                     </div>
                                   )}
+                                  {(cust.latest_note || cust.notes) && (
+                                    <div className="mt-1 flex items-center gap-1 text-[10px] text-text-secondary bg-surface-subtle px-1.5 py-0.5 rounded border border-border/60 max-w-[210px] truncate" title={cust.latest_note || cust.notes}>
+                                      <FileText className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                                      <span className="truncate">{cust.latest_note || cust.notes}</span>
+                                    </div>
+                                  )}
                                 </td>
 
                                 {/* Visits & Loyalty */}
@@ -12915,7 +12921,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   </div>
                                 </td>
 
-                                {/* Last Visit Details */}
+                                {/* Last Session Details */}
                                 <td className="p-2.5 text-[11px]">
                                   {(() => {
                                     const visitDate = cust.last_visit_date || cust.last_visited;
@@ -12925,7 +12931,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                                         : visitDate;
                                       const docRaw = cust.last_visit_doctor || cust.preferred_doctor;
-                                      const docName = docRaw ? docRaw.replace(/^Dr\.\s*/i, '').trim() : null;
+                                      const docDisplay = docRaw || null;
                                       return (
                                         <div>
                                           <div className="font-medium text-text-primary flex items-center gap-1">
@@ -12937,8 +12943,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             )}
                                           </div>
                                           <div className="text-[10px] text-text-secondary truncate max-w-[170px] mt-0.5">
-                                            {cust.last_visit_service || 'Consultation'}
-                                            {docName && <span> • Dr. {docName}</span>}
+                                            {cust.last_visit_service || currentTaxonomy.default_service || 'Consultation / Session'}
+                                            {docDisplay && <span> • {docDisplay}</span>}
                                           </div>
                                         </div>
                                       );
@@ -12957,12 +12963,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   ) : cust.retention_status === 'due' || (cust.days_since_last_visit != null && cust.days_since_last_visit > 30 && cust.days_since_last_visit <= 60) ? (
                                     <span className="px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1 w-fit">
                                       <Clock className="w-2.5 h-2.5 text-amber-700" />
-                                      <span>Due for Checkup (30-60d)</span>
+                                      <span>Due for Check-in (30-60d)</span>
                                     </span>
                                   ) : cust.retention_status === 'lapsed' || (cust.days_since_last_visit != null && cust.days_since_last_visit > 60) ? (
                                     <span className="px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 w-fit">
                                       <AlertCircle className="w-2.5 h-2.5 text-rose-700" />
-                                      <span>At-Risk / Lapsed (&gt;60d)</span>
+                                      <span>At-Risk / Inactive (&gt;60d)</span>
                                     </span>
                                   ) : (
                                     <span className="px-2 py-0.5 rounded-sm text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
@@ -12983,14 +12989,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   })}
                                 </td>
 
-                                {/* Health Requirement */}
+                                {/* Requirement / Service */}
                                 <td className="p-2.5 text-[11px] text-text-secondary max-w-[150px] truncate" title={cust.health_concern || ''}>
                                   {cust.health_concern || '—'}
                                 </td>
 
                                 {/* Direct Actions */}
                                 <td className="p-2.5 text-right pr-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                                  <div className="flex items-center justify-end gap-1">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {/* Follow-up scheduled badge if active */}
+                                    {cust.followup_date && (
+                                      <span
+                                        className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1 shrink-0"
+                                        title={`Follow-up scheduled for ${cust.followup_date} ${cust.followup_time || ''}`}
+                                      >
+                                        <Calendar className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                        <span>{cust.followup_date}</span>
+                                      </span>
+                                    )}
+
                                     {/* Book Next Session */}
                                     <button
                                       type="button"
@@ -13010,7 +13027,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         setIsAddBookingOpen(true);
                                       }}
                                       className="px-2 py-1 text-[11px] font-medium bg-surface hover:bg-surface-subtle text-text-primary border border-border rounded-sm flex items-center gap-1 transition-colors cursor-pointer shadow-2xs hover:border-accent"
-                                      title="Book next appointment for this repeat client"
+                                      title="Book next session for this repeat client"
                                     >
                                       <CalendarClock className="w-3 h-3 text-accent stroke-[1.8]" />
                                       <span>Book Next</span>
@@ -13032,10 +13049,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         }
                                         navigateTo('inbox');
                                       }}
-                                      className="p-1 text-text-muted hover:text-accent hover:bg-surface-subtle border border-border rounded-sm transition-colors cursor-pointer"
+                                      className="p-1 text-[#25D366] hover:bg-[#25D366]/10 border border-border hover:border-[#25D366]/40 rounded-sm transition-colors cursor-pointer"
                                       title="Chat on WhatsApp"
                                     >
-                                      <MessageSquare className="w-3.5 h-3.5 stroke-[1.5]" />
+                                      <WhatsAppIcon className="w-3.5 h-3.5" />
                                     </button>
 
                                     {/* View History Drawer */}
