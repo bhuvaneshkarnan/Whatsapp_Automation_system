@@ -1337,11 +1337,23 @@ class CoreWorker:
 
         return empty_slots_by_day
 
-    def _sanitize_tenant_response(self, text: str, tenant_slug: str, tenant_name: str, assistant_name: str) -> str:
+    def _sanitize_tenant_response(
+        self,
+        text: str,
+        tenant_slug: str,
+        tenant_name: str,
+        assistant_name: str,
+        contact_phone: Optional[str] = None,
+        admin_phone: Optional[str] = None,
+        admin_name: Optional[str] = None,
+        customer_name: Optional[str] = None,
+    ) -> str:
         """
         Global strict tenant isolation firewall.
-        Scans and sanitizes outgoing text to guarantee that no tenant ever sends
-        another tenant's brand name, persona, pricing, or promotional copy.
+        Scans and sanitizes outgoing text to guarantee that:
+        1. No tenant ever sends another tenant's brand name, persona, or pricing.
+        2. No customer is ever given their OWN phone number when asking for contact details!
+        3. No customer is ever greeted or addressed by the business owner/staff name!
         """
         if not text:
             return ""
@@ -1377,6 +1389,39 @@ class CoreWorker:
                 if re.search(term, text, re.IGNORECASE):
                     logger.warn("cross_tenant_sanitized_clinic_copy", tenant_slug=clean_slug, term=term)
                     text = re.sub(term, assistant_name or "Rakshaya", text, flags=re.IGNORECASE)
+
+        # ── Strict Phone Leak Firewall ──
+        # Intercept any instance where the outgoing text accidentally gives the customer's own phone number!
+        if contact_phone and text:
+            clean_cp = re.sub(r'\D', '', str(contact_phone))
+            cp_last10 = clean_cp[-10:] if len(clean_cp) >= 10 else clean_cp
+            if cp_last10:
+                digits_in_text = re.sub(r'\D', '', text)
+                if cp_last10 in digits_in_text:
+                    logger.warn(
+                        "intercepted_customer_phone_leak_in_outbound",
+                        customer_phone=contact_phone,
+                        admin_phone=admin_phone,
+                    )
+                    replacement = admin_phone if admin_phone else "our team directly"
+                    text = re.sub(rf'\+?{re.escape(clean_cp)}', replacement, text)
+                    text = re.sub(rf'\b{re.escape(cp_last10)}\b', replacement, text)
+                    # Also handle spaced formats like 94449 84857
+                    spaced_pat = r'\b' + r'[\s\-]?'.join(list(cp_last10)) + r'\b'
+                    text = re.sub(spaced_pat, replacement, text)
+
+        # ── Strict Name Confusion Firewall ──
+        # Prevent addressing the customer with the admin/owner's name (e.g. calling Kathir 'Bhuvan')
+        if admin_name and customer_name and text:
+            adm_first = admin_name.split()[0].strip()
+            cust_first = customer_name.split()[0].strip()
+            if adm_first and cust_first and adm_first.lower() != cust_first.lower():
+                adm_variants = [re.escape(adm_first)]
+                if len(adm_first) > 5 and adm_first.lower().endswith("esh"):
+                    adm_variants.append(re.escape(adm_first[:-3]))  # e.g. 'bhuvan' for 'bhuvanesh'
+                for v in adm_variants:
+                    text = re.sub(rf'([\.\!\?\,]\s+){v}\b', rf'\g<1>{cust_first}', text, flags=re.IGNORECASE)
+                    text = re.sub(rf'\b(hey|hi|hello)\s+{v}\b', rf'\1 {cust_first}', text, flags=re.IGNORECASE)
 
         return text.strip()
 
@@ -1778,11 +1823,30 @@ class CoreWorker:
         except Exception:
             tenant_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
 
+        # Extract official business/admin contact info
+        admin_phone = ""
+        admin_name = ""
+        if creds:
+            admin_phone = (creds.get("admin_whatsapp_number") or "").strip()
+        if tenant_st_row:
+            if not admin_phone:
+                admin_phone = (
+                    tenant_st_row.get("admin_whatsapp_number")
+                    or tenant_st_row.get("business_phone")
+                    or tenant_st_row.get("contact_phone")
+                    or tenant_st_row.get("phone")
+                    or ""
+                ).strip()
+            admin_name = (tenant_st_row.get("admin_name") or "").strip()
+        if not admin_name:
+            admin_name = "Bhuvanesh" if tenant_slug == "boldlabs" else (tenant_name or "our team")
+
         now = datetime.datetime.now(tenant_tz)
         time_context = (
             f"Today is {now.strftime('%A, %d %B %Y')} and current time is {now.strftime('%I:%M %p')} ({tenant_timezone_str} time).\n"
-            f"Customer WhatsApp number: {contact_phone}\n"
-            f"Business Currency: {tenant_currency_str} ({tenant_currency_sym})\n"
+            f"Customer's Inbound WhatsApp Number: {contact_phone} (THIS IS THE CUSTOMER'S OWN PHONE NUMBER - NEVER GIVE THIS NUMBER OUT AS OUR BUSINESS/TEAM NUMBER!)\n"
+            + (f"Official Business / Team Contact Phone: {admin_phone}\n" if admin_phone else "")
+            + f"Business Currency: {tenant_currency_str} ({tenant_currency_sym})\n"
             "Use this live timestamp to resolve relative dates (today, tomorrow, next Monday) and know if a time has already passed.\n\n"
         )
 
@@ -1918,7 +1982,7 @@ class CoreWorker:
                 "### CUSTOMER PROFILE & CONVERSATION MEMORY (RETURNING CUSTOMER ON FILE):\n"
                 f"- Returning Customer: YES (Known customer with active profile or history)\n"
                 f"- Customer Name: {confirmed_name if confirmed_name else customer_name_display}\n"
-                f"- Customer WhatsApp Phone: {contact_phone}\n"
+                f"- Customer's Own Inbound Phone: {contact_phone} (CUSTOMER PHONE - NEVER GIVE OUT AS BUSINESS NUMBER)\n"
                 f"- Health Concern / Reason for Visit: {customer_health_concern or 'Not specified yet'}\n"
                 f"- Assigned / Preferred Doctor: {customer_doctor or 'Not assigned yet'}\n"
                 f"- Patient / Lead Status: {customer_status or 'Active'}\n"
@@ -1941,7 +2005,7 @@ class CoreWorker:
                 "### CUSTOMER PROFILE & CONVERSATION MEMORY (NEW INQUIRY):\n"
                 "- Returning Customer: NO (First contact / New customer)\n"
                 f"- Customer Name: {customer_name_display}\n"
-                f"- Customer WhatsApp Phone: {contact_phone}\n"
+                f"- Customer's Own Inbound Phone: {contact_phone} (CUSTOMER PHONE - NEVER GIVE OUT AS BUSINESS NUMBER)\n"
                 f"- WhatsApp Handle: {wa_name or 'Unknown'}\n"
                 f"- Customer Email on File: {customer_email if customer_email else 'Not provided yet'}\n"
                 f"- Customer Age on File: {customer_age if customer_age is not None else 'Not provided yet'}\n"
@@ -2006,7 +2070,40 @@ class CoreWorker:
         inbound_clean = (message_text or "").lower().strip()
         has_upcoming = bool(upcoming_active_bookings)
 
-        if has_upcoming:
+        # Check high-specificity intents that take precedence over generic upcoming appointments
+        is_missed_call_query = any(p in inbound_clean for p in [
+            "why didn't you call", "why u didn't call", "why you didn't call", "why didn't u call",
+            "why u missed", "why missed", "missed today", "missed my call", "didn't call", "did not call",
+            "no one called", "nobody called", "why no call", "haven't called", "waiting for your call",
+            "waiting for call", "why u didn't contact", "why didn't you reach out"
+        ])
+
+        is_contact_number_query = any(p in inbound_clean for p in [
+            "give contact number", "give phone number", "share contact number", "share phone number",
+            "send contact number", "send phone number", "give your number", "give your contact",
+            "your number", "your phone number", "your contact number", "whats your number", "what's your number",
+            "what is your number", "contact number", "call number", "direct number", "how to call you",
+            "can i call you", "can i call", "let me call", "who can i call", "phone number please",
+            "send number", "give number", "number please"
+        ])
+
+        if is_missed_call_query:
+            funnel_stage = "MISSED_CALL_APOLOGY"
+            stage_directive = (
+                f"The customer is asking why they were not called or why their scheduled demo/call was missed today. "
+                f"1. Sincerely apologize on behalf of {admin_name or 'our team'} for the delay and for missing the scheduled connection today. "
+                f"2. NEVER make contradictory excuses (do NOT say 'today is fully booked' when they had a time, and do NOT dismiss them saying 'this is just a demo'). "
+                f"3. Offer an immediate callback right now if they are free, or ask if they would prefer a call at a specific time tomorrow. "
+                + (f"4. You can also share that they can call {admin_name} directly at {admin_phone}." if admin_phone else "")
+            )
+        elif is_contact_number_query:
+            funnel_stage = "CONTACT_NUMBER_REQUEST"
+            stage_directive = (
+                f"The customer is asking for our direct contact / phone number. "
+                + (f"Directly provide our official contact number: '{admin_phone}'. Mention they can reach or call {admin_name or 'our team'} directly at {admin_phone}. " if admin_phone else f"State that {admin_name or 'our team'} will call them directly on WhatsApp at their scheduled time, or ask if they want a call right away. ") +
+                f"CRITICAL: The customer's phone number is {contact_phone}. NEVER GIVE {contact_phone} TO THE CUSTOMER AS OUR NUMBER!"
+            )
+        elif has_upcoming:
             funnel_stage = "ACTIVE_APPOINTMENT"
             stage_directive = (
                 "The customer already has an active upcoming appointment. "
@@ -2115,6 +2212,33 @@ class CoreWorker:
             "3. Under NO circumstances should you mention, adopt, refer to, or use branding, personas, names, pricing, or workflows from any other business unless explicitly defined in this business's knowledge base below."
         )
 
+        admin_phone_clean = (admin_phone or "").strip()
+        admin_contact_instruction = (
+            f"If the customer asks for a phone number, contact number, or how to call/speak directly with someone:\n"
+            f"  - Provide our official contact number: '{admin_phone_clean}'.\n"
+            f"  - Example: 'You can reach {admin_name or 'our team'} directly at {admin_phone_clean}.'\n"
+            if admin_phone_clean else
+            f"If the customer asks for a contact number:\n"
+            f"  - State that {admin_name or 'our team'} will call them directly on this WhatsApp number at their scheduled time, or ask if they'd like an immediate callback.\n"
+        )
+
+        contact_integrity_block = (
+            "### STRICT IDENTITY, NAMES & CONTACT NUMBER INTEGRITY (ZERO HALLUCINATION DIRECTIVE):\n"
+            f"1. YOU ARE TALKING TO: Customer '{confirmed_name or customer_name_display or 'the customer'}' (Their phone: {contact_phone}).\n"
+            f"2. TEAM / BUSINESS OWNER: '{admin_name or tenant_name or 'our team'}'" + (f" (Direct Contact Phone: {admin_phone_clean})" if admin_phone_clean else "") + ".\n"
+            "3. ABSOLUTELY FORBIDDEN - NEVER GIVE THE CUSTOMER'S OWN PHONE NUMBER TO THEM:\n"
+            f"   - The number '{contact_phone}' belongs to the CUSTOMER, NOT the business or team!\n"
+            f"   - NEVER reply saying 'You can reach {admin_name or 'us'} at {contact_phone}'! That is the customer's own phone number!\n"
+            + admin_contact_instruction +
+            f"4. ABSOLUTELY FORBIDDEN - NEVER CONFUSE CUSTOMER AND STAFF NAMES:\n"
+            f"   - The customer's name is '{confirmed_name or customer_name_display}'. NEVER call the customer '{admin_name}' or 'Bhuvan'!\n"
+            f"   - '{admin_name}' is the staff member / owner, NOT the customer!\n"
+            "5. WHEN CUSTOMER ASKS 'WHY DIDN'T YOU CALL?' OR 'WHY MISSED TODAY?':\n"
+            f"   - Sincerely apologize on behalf of {admin_name or 'the team'} for missing the connection or the delay.\n"
+            "   - NEVER make contradictory excuses (do NOT say 'today is fully booked' when they had a time scheduled, and do NOT claim 'this is just a demo').\n"
+            f"   - Reassure them: ask if they are free right now for an immediate callback, or give {admin_phone_clean or 'our direct number'} so they can connect right away."
+        )
+
         prompt_blocks = [
             time_context,
             tenant_isolation_boundary,
@@ -2124,6 +2248,7 @@ class CoreWorker:
             funnel_stage_block,
             memory_suppression_block,
             memory_block,
+            contact_integrity_block,
             busy_slots_block,
         ]
         if upcoming_booking_block:
@@ -2173,6 +2298,8 @@ class CoreWorker:
             "- FUNNEL PROGRESSION: Always advance the conversation according to the current Funnel Stage objective. Never loop or stay stuck.\n"
             "- When handling objections or hesitation: validate empathetically in sentence 1, then follow up with a short low-friction question.\n"
             "- PROACTIVE BOOKING: If scheduling or booking is discussed without a specific time, propose 2 specific open times instead of asking an open-ended question.\n"
+            "- ZERO PHONE LEAK: NEVER give the customer's phone number (" + str(contact_phone) + ") as our contact number! If asked, give " + str(admin_phone or 'our team directly') + ".\n"
+            "- ZERO NAME CONFUSION: Customer is " + str(confirmed_name or customer_name_display) + ". NEVER call them '" + str(admin_name or 'Bhuvan') + "'.\n"
             "- Sound like an authentic, helpful human texting on WhatsApp (no AI or support-ticket clichés)."
         )
         prompt_blocks.append(reinforcement_rule)
@@ -2401,7 +2528,16 @@ class CoreWorker:
             if is_ongoing_conversation:
                 response_text = strip_repetitive_greetings(response_text)
             # Global strict tenant isolation firewall check
-            response_text = self._sanitize_tenant_response(response_text, tenant_slug, tenant_name, assistant_name)
+            response_text = self._sanitize_tenant_response(
+                response_text,
+                tenant_slug,
+                tenant_name,
+                assistant_name,
+                contact_phone=contact_phone,
+                admin_phone=admin_phone,
+                admin_name=admin_name,
+                customer_name=confirmed_name or customer_name_display,
+            )
 
         # Multi-Bubble WhatsApp Pacing & Persistence:
         bubbles = self._split_into_whatsapp_bubbles(response_text)
