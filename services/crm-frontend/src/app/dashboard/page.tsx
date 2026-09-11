@@ -1766,7 +1766,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   });
 
   // Table row quick interaction states
-  const [activeRatePopover, setActiveRatePopover] = useState<{ customerId: string; currentRate?: number } | null>(null);
+  const [activeRatePopover, setActiveRatePopover] = useState<{
+    customerId: string;
+    currentRate?: number;
+    top?: number;
+    bottom?: number;
+    left?: number;
+  } | null>(null);
   const [activeCalendarPopover, setActiveCalendarPopover] = useState<{ customerId: string } | null>(null);
   const [activeTimePopover, setActiveTimePopover] = useState<{ customerId: string } | null>(null);
   const [calViewDate, setCalViewDate] = useState<Date>(() => new Date());
@@ -2949,6 +2955,31 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   };
 
+  const openRatePopover = (
+    customerId: string,
+    currentRate: number,
+    element: HTMLElement
+  ) => {
+    const rect = element.getBoundingClientRect();
+    const popoverHeight = 240;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUpwards = spaceBelow < popoverHeight && rect.top > popoverHeight;
+
+    const popoverWidth = 256;
+    let left = rect.left;
+    if (left + popoverWidth > window.innerWidth - 12) {
+      left = Math.max(12, window.innerWidth - popoverWidth - 12);
+    }
+
+    setActiveRatePopover({
+      customerId,
+      currentRate,
+      top: openUpwards ? undefined : Math.min(window.innerHeight - popoverHeight, rect.bottom + 6),
+      bottom: openUpwards ? window.innerHeight - rect.top + 6 : undefined,
+      left,
+    });
+  };
+
   function renderStaffAssignTrigger({
     value,
     onClick,
@@ -3209,6 +3240,167 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             >
               <Users className="w-3 h-3" /> Manage Staff & Presets
             </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  function renderLeadRatePopover() {
+    if (!activeRatePopover) return null;
+    const targetCust = customers.find((c) => c.id === activeRatePopover.customerId);
+    if (!targetCust) return null;
+
+    const currentRate = targetCust.conversion_rate != null
+      ? targetCust.conversion_rate
+      : (targetCust.lead_probability === 'hot' ? 90 : (targetCust.lead_probability === 'cold' ? 20 : 50));
+    const isConverted = targetCust.converted || targetCust.status === 'converted';
+
+    const options = [
+      {
+        pct: 90,
+        prob: 'hot' as const,
+        icon: Flame,
+        label: 'Hot Lead',
+        sub: 'High intent • Ready to close',
+        pillBg: 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-950/50 dark:border-rose-800 dark:text-rose-300',
+        iconColor: 'text-rose-500 fill-rose-500/20',
+        activeBg: 'bg-rose-50/90 border-rose-300 dark:bg-rose-950/60 dark:border-rose-800',
+        checkColor: 'text-rose-600 dark:text-rose-400',
+        hoverBg: 'hover:bg-rose-50/50 dark:hover:bg-rose-950/30',
+      },
+      {
+        pct: 50,
+        prob: 'warm' as const,
+        icon: Sun,
+        label: 'Warm Lead',
+        sub: 'Interested • Follow-up active',
+        pillBg: 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/50 dark:border-amber-800 dark:text-amber-300',
+        iconColor: 'text-amber-500',
+        activeBg: 'bg-amber-50/90 border-amber-300 dark:bg-amber-950/60 dark:border-amber-800',
+        checkColor: 'text-amber-600 dark:text-amber-400',
+        hoverBg: 'hover:bg-amber-50/50 dark:hover:bg-amber-950/30',
+      },
+      {
+        pct: 20,
+        prob: 'cold' as const,
+        icon: Snowflake,
+        label: 'Cold Lead',
+        sub: 'Low engagement • Nurture',
+        pillBg: 'bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-950/50 dark:border-sky-800 dark:text-sky-300',
+        iconColor: 'text-sky-500',
+        activeBg: 'bg-sky-50/90 border-sky-300 dark:bg-sky-950/60 dark:border-sky-800',
+        checkColor: 'text-sky-600 dark:text-sky-400',
+        hoverBg: 'hover:bg-sky-50/50 dark:hover:bg-sky-950/30',
+      },
+      {
+        pct: 100,
+        prob: 'hot' as const,
+        icon: CheckCircle2,
+        label: 'Converted',
+        sub: 'Successfully closed & won',
+        pillBg: 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/50 dark:border-emerald-800 dark:text-emerald-300',
+        iconColor: 'text-emerald-600',
+        activeBg: 'bg-emerald-50/90 border-emerald-300 dark:bg-emerald-950/60 dark:border-emerald-800',
+        checkColor: 'text-emerald-600 dark:text-emerald-400',
+        hoverBg: 'hover:bg-emerald-50/50 dark:hover:bg-emerald-950/30',
+      },
+    ];
+
+    return (
+      <>
+        {/* Invisible Backdrop to close on click outside */}
+        <div
+          className="fixed inset-0 z-[100]"
+          onClick={() => setActiveRatePopover(null)}
+        />
+
+        {/* Floating Popover Container */}
+        <div
+          className="fixed z-[101] w-64 bg-surface/98 backdrop-blur-md border border-border/80 rounded-xl shadow-2xl p-1.5 animate-in fade-in zoom-in-95 duration-100"
+          style={{
+            top: activeRatePopover.top !== undefined ? `${activeRatePopover.top}px` : undefined,
+            bottom: activeRatePopover.bottom !== undefined ? `${activeRatePopover.bottom}px` : undefined,
+            left: `${activeRatePopover.left}px`,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-2 py-1.5 mb-1 border-b border-border/40">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
+                Lead Status
+              </span>
+              <span className="text-[10px] text-text-muted/60 truncate max-w-[120px]">
+                • {targetCust.name || 'Customer'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveRatePopover(null)}
+              className="text-text-muted hover:text-text-primary p-0.5 rounded hover:bg-surface-subtle transition-colors cursor-pointer"
+              title="Close"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+
+          {/* Options List */}
+          <div className="space-y-1">
+            {options.map((opt) => {
+              const isSelected =
+                (opt.pct === 100 && isConverted) ||
+                (opt.pct === 90 && currentRate >= 75 && !isConverted) ||
+                (opt.pct === 50 && currentRate >= 40 && currentRate < 75 && !isConverted) ||
+                (opt.pct === 20 && currentRate < 40 && !isConverted);
+              const IconComp = opt.icon;
+
+              return (
+                <button
+                  key={opt.pct}
+                  type="button"
+                  onClick={() => {
+                    handleUpdateCustomer(targetCust.id, {
+                      conversion_rate: opt.pct,
+                      lead_probability: opt.prob,
+                      converted: opt.pct === 100,
+                      status: opt.pct === 100 ? 'converted' : (targetCust.status === 'converted' ? 'contacted' : undefined),
+                    });
+                    setActiveRatePopover(null);
+                  }}
+                  className={`w-full p-2 rounded-lg border text-left flex items-center justify-between transition-all cursor-pointer ${
+                    isSelected
+                      ? `${opt.activeBg} shadow-2xs font-semibold`
+                      : `border-transparent ${opt.hoverBg} text-text-primary`
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-6 h-6 rounded-md bg-surface border border-border/60 flex items-center justify-center shrink-0 shadow-2xs">
+                      <IconComp className={`w-3.5 h-3.5 ${opt.iconColor}`} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-bold leading-tight flex items-center gap-1.5">
+                        <span>{opt.label}</span>
+                      </div>
+                      <div className="text-[9px] text-text-muted leading-tight truncate">
+                        {opt.sub}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0 pl-1">
+                    <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full border ${opt.pillBg}`}>
+                      {opt.pct}%
+                    </span>
+                    {isSelected ? (
+                      <Check className={`w-3.5 h-3.5 ${opt.checkColor} stroke-[2.5]`} />
+                    ) : (
+                      <div className="w-3.5 h-3.5" />
+                    )}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       </>
@@ -11029,7 +11221,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     }`}
                                   >
                                     {/* 1. Customer & Tags (Clean, Organised with Full Note, Delete Note, Real WhatsApp Icon, and Improved Lead Status) */}
-                                    <td className="pt-2.5 pb-3 pl-4 pr-3 align-top w-[40%] overflow-hidden">
+                                    <td className="pt-2.5 pb-3 pl-4 pr-3 align-top w-[40%]">
                                       <div className="space-y-2 min-w-0">
                                         {/* Row A: Customer Identity, Type Badge */}
                                         <div className="flex items-center justify-between gap-2">
@@ -11170,100 +11362,47 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         {/* Row F: Action Toolbar (Improved Lead Status + Real WhatsApp + Profile) */}
                                         <div className="flex items-center gap-1.5 pt-1.5 border-t border-border/40" onClick={(e) => e.stopPropagation()}>
                                           {/* Improved Lead Status Pill */}
-                                          <div className="relative">
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                setActiveRatePopover(activeRatePopover?.customerId === cust.id ? null : { customerId: cust.id, currentRate: rate });
-                                              }}
-                                              className={`h-6 px-2 rounded-md border flex items-center gap-1 text-[10px] font-bold transition-all shadow-2xs cursor-pointer ${
-                                                cust.converted || cust.status === 'converted'
-                                                  ? 'bg-emerald-50 hover:bg-emerald-100/90 border-emerald-200 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300'
-                                                  : rate >= 75
-                                                  ? 'bg-rose-50 hover:bg-rose-100/90 border-rose-200 text-rose-700 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300'
-                                                  : rate >= 40
-                                                  ? 'bg-amber-50 hover:bg-amber-100/90 border-amber-200 text-amber-700 dark:bg-amber-950/40 dark:border-amber-900 dark:text-amber-300'
-                                                  : 'bg-sky-50 hover:bg-sky-100/90 border-sky-200 text-sky-700 dark:bg-sky-950/40 dark:border-sky-900 dark:text-sky-300'
-                                              }`}
-                                              title={`Lead Status: ${cust.converted || cust.status === 'converted' ? 'Converted (100%)' : rate >= 75 ? 'Hot (90%)' : rate >= 40 ? 'Warm (50%)' : 'Cold (20%)'} — Click to change`}
-                                            >
-                                              {cust.converted || cust.status === 'converted' ? (
-                                                <CheckCircle2 className="w-3 h-3 text-emerald-600 stroke-[2.2]" />
-                                              ) : rate >= 75 ? (
-                                                <Flame className="w-3 h-3 text-rose-600 fill-rose-500/20 stroke-[2.2]" />
-                                              ) : rate >= 40 ? (
-                                                <Sun className="w-3 h-3 text-amber-600 stroke-[2.2]" />
-                                              ) : (
-                                                <Snowflake className="w-3 h-3 text-sky-600 stroke-[2.2]" />
-                                              )}
-                                              <span>
-                                                {cust.converted || cust.status === 'converted'
-                                                  ? 'Converted'
-                                                  : rate >= 75
-                                                  ? `Hot (${rate}%)`
-                                                  : rate >= 40
-                                                  ? `Warm (${rate}%)`
-                                                  : `Cold (${rate}%)`}
-                                              </span>
-                                              <ChevronDown className="w-2.5 h-2.5 opacity-60 shrink-0 stroke-[2.2]" />
-                                            </button>
-
-                                            {/* Quick Lead Status Picker Popover */}
-                                            {activeRatePopover?.customerId === cust.id && (
-                                              <div className="absolute left-0 bottom-full mb-1.5 z-40 w-52 bg-surface border border-border rounded-lg shadow-xl p-2 animate-in fade-in zoom-in-95 duration-150">
-                                                <div className="flex items-center justify-between text-[11px] text-text-primary mb-1.5 font-bold pb-1 border-b border-border">
-                                                  <span>Set Lead Status</span>
-                                                  <button onClick={() => setActiveRatePopover(null)} className="text-text-muted hover:text-text-primary p-0.5 rounded">
-                                                    <X className="w-3 h-3" />
-                                                  </button>
-                                                </div>
-                                                <div className="grid grid-cols-1 gap-1">
-                                                  {[
-                                                    { pct: 90, icon: Flame, label: 'Hot Lead', sub: 'High interest / Ready', color: 'text-rose-600 fill-rose-500/20', bg: 'hover:bg-rose-50 text-rose-800' },
-                                                    { pct: 50, icon: Sun, label: 'Warm Lead', sub: 'Interested, follow-up', color: 'text-amber-600', bg: 'hover:bg-amber-50 text-amber-800' },
-                                                    { pct: 20, icon: Snowflake, label: 'Cold Lead', sub: 'Low engagement', color: 'text-sky-600', bg: 'hover:bg-sky-50 text-sky-800' },
-                                                    { pct: 100, icon: CheckCircle2, label: 'Converted', sub: 'Successfully closed', color: 'text-emerald-600', bg: 'hover:bg-emerald-50 text-emerald-800' },
-                                                  ].map((item) => {
-                                                    const isSelected = (item.pct === 100 && (cust.converted || cust.status === 'converted')) ||
-                                                                       (item.pct === 90 && rate >= 75 && !cust.converted && cust.status !== 'converted') ||
-                                                                       (item.pct === 50 && rate >= 40 && rate < 75 && !cust.converted && cust.status !== 'converted') ||
-                                                                       (item.pct === 20 && rate < 40 && !cust.converted && cust.status !== 'converted');
-                                                    const IconComponent = item.icon;
-                                                    return (
-                                                      <button
-                                                        key={item.pct}
-                                                        type="button"
-                                                        onClick={() => {
-                                                          handleUpdateCustomer(cust.id, {
-                                                            conversion_rate: item.pct,
-                                                            lead_probability: item.pct >= 75 ? 'hot' : (item.pct <= 35 ? 'cold' : 'warm'),
-                                                            converted: item.pct === 100,
-                                                            status: item.pct === 100 ? 'converted' : undefined
-                                                          });
-                                                          setActiveRatePopover(null);
-                                                        }}
-                                                        className={`w-full px-2 py-1.5 rounded border text-left flex items-center justify-between transition-colors cursor-pointer ${
-                                                          isSelected
-                                                            ? 'bg-accent/10 border-accent text-accent font-bold'
-                                                            : `border-transparent hover:border-border ${item.bg}`
-                                                        }`}
-                                                      >
-                                                        <div className="flex items-center gap-2">
-                                                          <IconComponent className={`w-3.5 h-3.5 shrink-0 ${item.color}`} />
-                                                          <div>
-                                                            <div className="text-[11px] font-bold leading-tight">{item.label}</div>
-                                                            <div className="text-[9px] text-text-muted leading-tight">{item.sub}</div>
-                                                          </div>
-                                                        </div>
-                                                        <span className="text-[10px] font-mono font-semibold opacity-80">{item.pct}%</span>
-                                                      </button>
-                                                    );
-                                                  })}
-                                                </div>
-                                              </div>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (activeRatePopover?.customerId === cust.id) {
+                                                setActiveRatePopover(null);
+                                              } else {
+                                                openRatePopover(cust.id, rate, e.currentTarget);
+                                              }
+                                            }}
+                                            className={`h-6 px-2 rounded-md border flex items-center gap-1 text-[10px] font-bold transition-all shadow-2xs cursor-pointer ${
+                                              cust.converted || cust.status === 'converted'
+                                                ? 'bg-emerald-50 hover:bg-emerald-100/90 border-emerald-200 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300'
+                                                : rate >= 75
+                                                ? 'bg-rose-50 hover:bg-rose-100/90 border-rose-200 text-rose-700 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300'
+                                                : rate >= 40
+                                                ? 'bg-amber-50 hover:bg-amber-100/90 border-amber-200 text-amber-700 dark:bg-amber-950/40 dark:border-amber-900 dark:text-amber-300'
+                                                : 'bg-sky-50 hover:bg-sky-100/90 border-sky-200 text-sky-700 dark:bg-sky-950/40 dark:border-sky-900 dark:text-sky-300'
+                                            }`}
+                                            title={`Lead Status: ${cust.converted || cust.status === 'converted' ? 'Converted (100%)' : rate >= 75 ? 'Hot (90%)' : rate >= 40 ? 'Warm (50%)' : 'Cold (20%)'} — Click to change`}
+                                          >
+                                            {cust.converted || cust.status === 'converted' ? (
+                                              <CheckCircle2 className="w-3 h-3 text-emerald-600 stroke-[2.2]" />
+                                            ) : rate >= 75 ? (
+                                              <Flame className="w-3 h-3 text-rose-600 fill-rose-500/20 stroke-[2.2]" />
+                                            ) : rate >= 40 ? (
+                                              <Sun className="w-3 h-3 text-amber-600 stroke-[2.2]" />
+                                            ) : (
+                                              <Snowflake className="w-3 h-3 text-sky-600 stroke-[2.2]" />
                                             )}
-                                          </div>
+                                            <span>
+                                              {cust.converted || cust.status === 'converted'
+                                                ? 'Converted'
+                                                : rate >= 75
+                                                ? `Hot (${rate}%)`
+                                                : rate >= 40
+                                                ? `Warm (${rate}%)`
+                                                : `Cold (${rate}%)`}
+                                            </span>
+                                            <ChevronDown className="w-2.5 h-2.5 opacity-60 shrink-0 stroke-[2.2]" />
+                                          </button>
 
                                           {/* Action Buttons: Real WhatsApp & Profile */}
                                           <div className="flex items-center gap-1">
@@ -17610,6 +17749,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       </nav>
 
       {renderCustomerAssignPopover()}
+      {renderLeadRatePopover()}
 
       </div>
   );
