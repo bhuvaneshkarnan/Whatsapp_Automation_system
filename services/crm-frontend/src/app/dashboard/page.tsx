@@ -572,6 +572,19 @@ function getFollowupDateString(offsetDays: number = 0): string {
   return `${y}-${m}-${day}`;
 }
 
+function parseFollowupTime(timeStr?: string | null) {
+  const def = { hour: '10', minute: ':00', period: 'AM' as const };
+  if (!timeStr) return def;
+  const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return def;
+  let h = parseInt(match[1], 10);
+  const m = match[2];
+  const p = (match[3] || 'AM').toUpperCase() === 'PM' ? 'PM' : 'AM';
+  const hStr = String(h).padStart(2, '0');
+  const mStr = `:${m}`;
+  return { hour: hStr, minute: mStr, period: p as 'AM' | 'PM' };
+}
+
 function getFollowupScheduleInfo(dateStr?: string | null, timeStr?: string | null) {
   if (!dateStr) return null;
   try {
@@ -615,7 +628,7 @@ function getFollowupScheduleInfo(dateStr?: string | null, timeStr?: string | nul
       return {
         status: 'tomorrow' as const,
         label: 'Tomorrow',
-        shortLabel: 'Tmrw',
+        shortLabel: 'Tomorrow',
         time,
         diffDays
       };
@@ -1393,6 +1406,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   // Table row quick interaction states
   const [activeRatePopover, setActiveRatePopover] = useState<{ customerId: string; currentRate?: number } | null>(null);
   const [activeCalendarPopover, setActiveCalendarPopover] = useState<{ customerId: string } | null>(null);
+  const [activeTimePopover, setActiveTimePopover] = useState<{ customerId: string } | null>(null);
   const [calViewDate, setCalViewDate] = useState<Date>(() => new Date());
   const [quickNoteCustomer, setQuickNoteCustomer] = useState<{ customerId: string; name: string } | null>(null);
   const [quickNoteText, setQuickNoteText] = useState('');
@@ -10554,9 +10568,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <table className="w-full text-left text-xs min-w-0">
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-semibold text-[11px] sticky top-0 z-10">
                             <tr>
-                              <th className="p-3 pl-4 w-[48%] min-w-[280px]">{currentTaxonomy.client_label || 'Customer'} & Tags</th>
-                              <th className="p-3 w-[26%] min-w-[160px]">{(currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() : 'Assigned')} & {(currentTaxonomy.status_label || 'Outcome')}</th>
-                              <th className="p-3 pr-4 w-[26%] min-w-[170px]">{(currentTaxonomy.followup_label || 'Follow-up')} & {(currentTaxonomy.actions_label || 'Action')}</th>
+                              <th className="p-3 pl-4 w-[54%] min-w-[280px]">{currentTaxonomy.client_label || 'Customer'} & Tags</th>
+                              <th className="p-3 w-[23%] min-w-[150px]">{(currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() : 'Assigned')} & {(currentTaxonomy.status_label || 'Outcome')}</th>
+                              <th className="p-3 pr-4 w-[23%] min-w-[170px]">{(currentTaxonomy.followup_label || 'Follow-up')} & {(currentTaxonomy.actions_label || 'Action')}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
@@ -10863,81 +10877,86 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                                     {/* 3. Follow up & Action */}
                                     <td className="p-3 pr-4 align-top relative" onClick={(e) => e.stopPropagation()}>
-                                      <div className="space-y-1.5 max-w-[215px]">
-                                        {/* Row 1: Easy Date & Time Selectors (Zero Manual Typing, No Presets) */}
-                                        {cust.followup_date ? (
-                                          <div className="flex items-center gap-1">
-                                            {/* Date Button (opens mini calendar) */}
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (activeCalendarPopover?.customerId === cust.id) {
+                                      <div className="space-y-1.5 w-full">
+                                        {/* Row 1: Follow-up Date & Time Selectors */}
+                                        {cust.followup_date ? (() => {
+                                          const parsedTime = parseFollowupTime(cust.followup_time);
+                                          return (
+                                            <div className="flex items-center gap-1.5 w-full">
+                                              {/* Date Button (opens visual mini calendar) */}
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setActiveTimePopover(null);
+                                                  if (activeCalendarPopover?.customerId === cust.id) {
+                                                    setActiveCalendarPopover(null);
+                                                  } else {
+                                                    const parts = (cust.followup_date || '').split('-');
+                                                    const y = parseInt(parts[0], 10);
+                                                    const m = parseInt(parts[1], 10);
+                                                    setCalViewDate(y && m ? new Date(y, m - 1, 1) : new Date());
+                                                    setActiveCalendarPopover({ customerId: cust.id });
+                                                  }
+                                                }}
+                                                className={`h-7 px-2 flex-1 min-w-0 rounded-md border text-[11px] font-medium flex items-center justify-between gap-1 shadow-2xs transition-colors cursor-pointer ${
+                                                  fuInfo?.status === 'overdue'
+                                                    ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200 font-semibold'
+                                                    : fuInfo?.status === 'today'
+                                                    ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200 font-semibold'
+                                                    : fuInfo?.status === 'tomorrow'
+                                                    ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 font-semibold'
+                                                    : 'bg-surface hover:bg-surface-subtle text-text-primary border-border'
+                                                }`}
+                                                title={`Scheduled Date: ${cust.followup_date}. Click to change on calendar`}
+                                              >
+                                                <div className="flex items-center gap-1 truncate">
+                                                  <Calendar className="w-3 h-3 text-accent shrink-0" />
+                                                  <span className="truncate">{fuInfo?.shortLabel || cust.followup_date}</span>
+                                                </div>
+                                                <ChevronDown className="w-2.5 h-2.5 opacity-50 shrink-0" />
+                                              </button>
+
+                                              {/* Time Button (opens interactive time popover) */}
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
                                                   setActiveCalendarPopover(null);
-                                                } else {
-                                                  const parts = (cust.followup_date || '').split('-');
-                                                  const y = parseInt(parts[0], 10);
-                                                  const m = parseInt(parts[1], 10);
-                                                  setCalViewDate(y && m ? new Date(y, m - 1, 1) : new Date());
-                                                  setActiveCalendarPopover({ customerId: cust.id });
-                                                }
-                                              }}
-                                              className={`h-7 px-1.5 flex-1 min-w-0 rounded-md border text-[11px] font-medium flex items-center justify-between gap-1 shadow-2xs transition-colors cursor-pointer ${
-                                                fuInfo?.status === 'overdue'
-                                                  ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200 font-semibold'
-                                                  : fuInfo?.status === 'today'
-                                                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200 font-semibold'
-                                                  : fuInfo?.status === 'tomorrow'
-                                                  ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 font-semibold'
-                                                  : 'bg-surface hover:bg-surface-subtle text-text-primary border-border'
-                                              }`}
-                                              title={`Scheduled: ${cust.followup_date}. Click to choose date on calendar`}
-                                            >
-                                              <div className="flex items-center gap-1 truncate">
-                                                <Calendar className="w-3 h-3 text-accent shrink-0" />
-                                                <span className="truncate">{fuInfo?.shortLabel || cust.followup_date}</span>
-                                              </div>
-                                              <ChevronDown className="w-2.5 h-2.5 opacity-50 shrink-0" />
-                                            </button>
+                                                  setActiveTimePopover(activeTimePopover?.customerId === cust.id ? null : { customerId: cust.id });
+                                                }}
+                                                className="h-7 px-2 shrink-0 rounded-md border border-border bg-surface hover:bg-surface-subtle text-text-primary text-[11px] font-medium shadow-2xs flex items-center gap-1 transition-colors cursor-pointer"
+                                                title="Click to select time"
+                                              >
+                                                <Clock className="w-3 h-3 text-accent shrink-0" />
+                                                <span>{cust.followup_time || '10:00 AM'}</span>
+                                                <ChevronDown className="w-2.5 h-2.5 opacity-50 shrink-0" />
+                                              </button>
 
-                                            {/* Time Dropdown (15-min options, pick in 1 click) */}
-                                            <select
-                                              value={cust.followup_time || '10:00 AM'}
-                                              onChange={(e) => {
-                                                handleUpdateCustomer(cust.id, { followup_time: e.target.value });
-                                              }}
-                                              className="h-7 px-1 rounded-md border border-border bg-surface text-text-primary text-[10px] font-mono font-medium shadow-2xs hover:border-border-hover focus:outline-none focus:ring-1 focus:ring-accent transition-colors table-control cursor-pointer shrink-0 max-w-[84px]"
-                                              title="Select time (15-min intervals)"
-                                            >
-                                              {(cust.followup_time && !TIME_OPTIONS.includes(cust.followup_time)
-                                                ? [cust.followup_time, ...TIME_OPTIONS]
-                                                : TIME_OPTIONS
-                                              ).map((t) => (
-                                                <option key={t} value={t}>{t}</option>
-                                              ))}
-                                            </select>
-
-                                            {/* Clear Button */}
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                handleUpdateCustomer(cust.id, {
-                                                  followup_date: null as any,
-                                                  followup_time: null as any
-                                                });
-                                                setActiveCalendarPopover(null);
-                                              }}
-                                              className="h-7 w-6 rounded-md border border-border bg-surface hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 text-text-muted flex items-center justify-center transition-colors shadow-2xs cursor-pointer shrink-0"
-                                              title="Clear follow-up"
-                                            >
-                                              <X className="w-3 h-3" />
-                                            </button>
-                                          </div>
-                                        ) : (
+                                              {/* Clear Button */}
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  handleUpdateCustomer(cust.id, {
+                                                    followup_date: null as any,
+                                                    followup_time: null as any
+                                                  });
+                                                  setActiveCalendarPopover(null);
+                                                  setActiveTimePopover(null);
+                                                }}
+                                                className="h-7 w-6.5 rounded-md border border-border bg-surface hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 text-text-muted flex items-center justify-center transition-colors shadow-2xs cursor-pointer shrink-0"
+                                                title="Clear follow-up"
+                                              >
+                                                <X className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          );
+                                        })() : (
                                           <button
                                             type="button"
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              setActiveTimePopover(null);
                                               setCalViewDate(new Date());
                                               setActiveCalendarPopover({ customerId: cust.id });
                                             }}
@@ -11061,6 +11080,131 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             </div>
                                           </>
                                         )}
+
+                                        {/* Floating Interactive Time Popover */}
+                                        {activeTimePopover?.customerId === cust.id && (() => {
+                                          const parsed = parseFollowupTime(cust.followup_time);
+                                          const setTime = (newH: string, newM: string, newP: 'AM' | 'PM') => {
+                                            const timeStr = `${newH}${newM} ${newP}`;
+                                            handleUpdateCustomer(cust.id, {
+                                              followup_time: timeStr,
+                                              ...(!cust.followup_date ? { followup_date: getFollowupDateString(1) } : {})
+                                            });
+                                          };
+                                          return (
+                                            <>
+                                              <div
+                                                className="fixed inset-0 z-30"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setActiveTimePopover(null);
+                                                }}
+                                              />
+                                              <div
+                                                className="absolute right-2 top-full mt-1 z-40 w-60 bg-surface border border-border rounded-lg shadow-xl p-3 animate-in fade-in zoom-in-95 duration-150"
+                                                onClick={(e) => e.stopPropagation()}
+                                              >
+                                                {/* Header with Title and AM/PM Toggle */}
+                                                <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
+                                                  <div className="flex items-center gap-1.5 font-semibold text-xs text-text-primary">
+                                                    <Clock className="w-3.5 h-3.5 text-accent" />
+                                                    <span>Select Time</span>
+                                                  </div>
+                                                  <div className="flex items-center bg-surface-subtle border border-border rounded p-0.5 text-[10px] font-bold">
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => setTime(parsed.hour, parsed.minute, 'AM')}
+                                                      className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                                                        parsed.period === 'AM'
+                                                          ? 'bg-accent text-white shadow-xs'
+                                                          : 'text-text-muted hover:text-text-primary'
+                                                      }`}
+                                                    >
+                                                      AM
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => setTime(parsed.hour, parsed.minute, 'PM')}
+                                                      className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                                                        parsed.period === 'PM'
+                                                          ? 'bg-accent text-white shadow-xs'
+                                                          : 'text-text-muted hover:text-text-primary'
+                                                      }`}
+                                                    >
+                                                      PM
+                                                    </button>
+                                                  </div>
+                                                </div>
+
+                                                {/* Hour Grid (08 to 07) */}
+                                                <div className="mb-2.5">
+                                                  <div className="text-[10px] font-semibold text-text-muted mb-1 uppercase tracking-wider">
+                                                    Hour
+                                                  </div>
+                                                  <div className="grid grid-cols-4 gap-1">
+                                                    {['09', '10', '11', '12', '01', '02', '03', '04', '05', '06', '07', '08'].map((h) => {
+                                                      const isSel = parsed.hour === h;
+                                                      return (
+                                                        <button
+                                                          key={h}
+                                                          type="button"
+                                                          onClick={() => setTime(h, parsed.minute, parsed.period)}
+                                                          className={`py-1 text-[11px] font-semibold rounded border transition-colors cursor-pointer ${
+                                                            isSel
+                                                              ? 'bg-accent text-white border-accent shadow-xs'
+                                                              : 'bg-surface hover:bg-surface-subtle border-border text-text-primary'
+                                                          }`}
+                                                        >
+                                                          {h}
+                                                        </button>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                </div>
+
+                                                {/* Minute Grid (:00, :15, :30, :45) */}
+                                                <div className="mb-2">
+                                                  <div className="text-[10px] font-semibold text-text-muted mb-1 uppercase tracking-wider">
+                                                    Minute
+                                                  </div>
+                                                  <div className="grid grid-cols-4 gap-1">
+                                                    {[':00', ':15', ':30', ':45'].map((m) => {
+                                                      const isSel = parsed.minute === m;
+                                                      return (
+                                                        <button
+                                                          key={m}
+                                                          type="button"
+                                                          onClick={() => setTime(parsed.hour, m, parsed.period)}
+                                                          className={`py-1 text-[11px] font-semibold rounded border transition-colors cursor-pointer ${
+                                                            isSel
+                                                              ? 'bg-accent text-white border-accent shadow-xs'
+                                                              : 'bg-surface hover:bg-surface-subtle border-border text-text-primary'
+                                                          }`}
+                                                        >
+                                                          {m}
+                                                        </button>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                </div>
+
+                                                {/* Footer: Done button */}
+                                                <div className="pt-2 border-t border-border flex items-center justify-between">
+                                                  <span className="text-[11px] font-mono text-accent font-semibold">
+                                                    {cust.followup_time || '10:00 AM'}
+                                                  </span>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setActiveTimePopover(null)}
+                                                    className="px-3 py-0.5 bg-accent hover:bg-accent-hover text-white text-[10px] font-semibold rounded transition-colors cursor-pointer"
+                                                  >
+                                                    Done
+                                                  </button>
+                                                </div>
+                                              </div>
+                                            </>
+                                          );
+                                        })()}
 
                                         {/* Row 2: Next Action Dropdown */}
                                         <select
