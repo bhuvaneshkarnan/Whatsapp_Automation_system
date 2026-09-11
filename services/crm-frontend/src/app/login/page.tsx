@@ -84,26 +84,28 @@ export default function LoginPage() {
         return;
       }
 
-      if (userRole === 'super_admin') {
-        router.push('/bhuvanesh');
-        return;
-      }
-
-      // Standard client: route directly to their business workspace
+      // Workspace routing: route directly to their business workspace (e.g. /boldlabs)
       let targetSlug = userSlug;
       if (!targetSlug) {
         try {
           const settings = await crm.getSettings();
-          targetSlug = settings.slug;
+          targetSlug = settings?.slug;
         } catch {}
       }
 
       if (targetSlug) {
         localStorage.setItem('tenant_slug', targetSlug);
         router.push(`/${targetSlug}`);
-      } else {
-        router.push('/dashboard');
+        return;
       }
+
+      // If user is a super_admin without an assigned business workspace, route to master console
+      if (userRole === 'super_admin') {
+        router.push('/bhuvanesh');
+        return;
+      }
+
+      router.push('/dashboard');
     } catch (err: any) {
       if (err?.code === 'PAYMENT_REQUIRED' && err.paymentDetails) {
         setPaymentRequired(err.paymentDetails);

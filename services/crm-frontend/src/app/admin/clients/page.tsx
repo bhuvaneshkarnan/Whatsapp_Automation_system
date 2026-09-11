@@ -1364,15 +1364,15 @@ export default function SuperAdminClients() {
           })}
         </nav>
 
-        {/* Footer: Quick switch back to CRM Dashboard & /bhuvanesh */}
+        {/* Footer: Quick switch back to CRM Dashboard */}
         <div className="p-3 border-t border-border space-y-1.5">
           <button
-            onClick={() => router.push('/bhuvanesh')}
+            onClick={() => router.push('/boldlabs')}
             className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 text-accent rounded-sm text-xs font-semibold transition-colors duration-150 cursor-pointer border border-accent/20"
-            title="Open /bhuvanesh Workspace"
+            title="Open Boldlabs Workspace"
           >
             <MessageSquare className="w-3.5 h-3.5 stroke-[1.5]" />
-            <span>Open /bhuvanesh CRM</span>
+            <span>Open Boldlabs CRM</span>
           </button>
           <button
             onClick={() => router.push('/dashboard')}

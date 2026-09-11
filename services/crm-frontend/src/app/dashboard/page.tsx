@@ -14194,14 +14194,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <div className="bg-surface p-4 rounded-md border border-border space-y-4">
                         {/* Super Admin Notice if inspecting workspace */}
                         {user?.role === 'super_admin' && (
-                          <div className="p-3.5 bg-blue-500/10 border border-blue-500/20 rounded-md text-xs text-blue-700 dark:text-blue-300 flex items-start gap-2.5">
-                            <ShieldCheck className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
-                            <div>
-                              <p className="font-semibold">Super Admin Master View</p>
-                              <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
-                                You are currently inspecting this organization workspace with Super Admin privileges. The client logs in with their own registered admin credentials below.
-                              </p>
+                          <div className="p-3.5 bg-blue-500/10 border border-blue-500/20 rounded-md text-xs text-blue-700 dark:text-blue-300 flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-2.5">
+                              <ShieldCheck className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                              <div>
+                                <p className="font-semibold">Super Admin Master Session</p>
+                                <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
+                                  You are viewing this workspace with Super Admin privileges. You can manage all client organizations and subscriptions from the Platform Master Console.
+                                </p>
+                              </div>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => router.push('/bhuvanesh')}
+                              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-sm text-[11px] font-medium shrink-0 flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+                              title="Go to Platform Super Admin Portal"
+                            >
+                              <span>Master Console</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </button>
                           </div>
                         )}
 
