@@ -6487,7 +6487,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         </aside>
 
           {/* ── 2. CENTER / MAIN VIEW AREA ───────────────────────────────────── */}
-          <main className="flex-1 flex flex-col overflow-hidden bg-canvas p-2 sm:p-6 space-y-2.5 sm:space-y-6 pb-20 md:pb-6">
+          <main className="flex-1 flex flex-col overflow-hidden bg-canvas p-2 sm:p-6 space-y-2.5 sm:space-y-6 pb-24 md:pb-6">
             
             {/* ── VIEW 0: DEDICATED OVERVIEW DASHBOARD ─────────────────────────── */}
             {activeNav === 'overview' && (
@@ -6982,7 +6982,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <span className="text-text-primary font-medium">Schedule</span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                     {/* Status Filter Segmented Control (Upcoming, Completed, No-Show, Cancelled) */}
                     <div className="flex overflow-x-auto no-scrollbar gap-0.5 bg-surface-subtle p-0.5 rounded-md border border-border shrink-0 max-w-full">
                       {[
@@ -7010,7 +7010,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <button
                             key={st.id}
                             onClick={() => setBookingFilter(st.id)}
-                            className={`px-3 py-1 text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 ${
+                            className={`px-3 py-1 text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
                               bookingFilter === st.id
                                 ? 'bg-surface text-text-primary font-semibold border border-border shadow-subtle'
                                 : 'text-text-secondary hover:text-text-primary font-medium'
@@ -7034,7 +7034,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {/* Switch to Calendar Schedule Button */}
                     <button
                       onClick={() => navigateTo('calendar')}
-                      className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 border border-border cursor-pointer shadow-xs"
+                      className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 border border-border cursor-pointer shadow-xs whitespace-nowrap shrink-0"
                       title="Switch to Calendar Schedule view"
                     >
                       <CalendarDays className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
@@ -7044,7 +7044,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {/* Add Booking Button */}
                     <button
                       onClick={() => setIsAddBookingOpen(true)}
-                      className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer"
+                      className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
                     >
                       <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
                       <span>Add booking</span>
@@ -7053,7 +7053,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </div>
 
                 {/* Bookings Data Table */}
-                <div className="flex-1 overflow-y-auto border border-border rounded-md bg-surface">
+                <div className="flex-1 overflow-y-auto overflow-x-auto border border-border rounded-md bg-surface">
                   {loadingBookings ? (
                     <div className="p-12 text-center text-xs text-text-muted">Loading bookings...</div>
                   ) : filteredBookings.length === 0 ? (
@@ -9521,7 +9521,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {/* Main Table + Customer Detail Drawer */}
                     <div className="flex-1 flex overflow-hidden gap-3">
                       {/* Customers Table */}
-                      <div className={`flex-1 overflow-y-auto border border-border rounded-sm bg-surface ${selectedCustomer ? 'hidden md:block min-w-0' : ''}`}>
+                      <div className={`flex-1 overflow-y-auto overflow-x-auto border border-border rounded-sm bg-surface ${selectedCustomer ? 'hidden md:block min-w-0' : ''}`}>
                         <table className="w-full text-left text-xs min-w-0">
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-semibold text-[11px] sticky top-0 z-10">
                             <tr>
@@ -9947,7 +9947,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       {/* Customer Detail Drawer / Profile Panel */}
                       {selectedCustomer && (
-                        <div className={`fixed inset-0 z-50 md:relative md:inset-auto md:z-auto w-full ${isDrawerExpanded ? 'md:w-[740px] md:max-w-[55vw]' : 'md:w-[480px] xl:w-[540px]'} bg-surface border border-border md:rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-2xl md:shadow-sm`}>
+                        <div className={`fixed inset-0 z-50 md:relative md:inset-auto md:z-auto w-full ${isDrawerExpanded ? 'md:w-[740px] md:max-w-[55vw]' : 'md:w-[480px] xl:w-[540px]'} bg-surface border border-border md:rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-2xl md:shadow-sm safe-area-pt safe-area-pb md:pt-0 md:pb-0`}>
                           {/* Panel Header */}
                           <div className="p-3 border-b border-border flex items-center justify-between bg-surface-subtle/50">
                             <div>
@@ -10557,7 +10557,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                     {/* Database Table & Profile Drawer */}
                     <div className="flex-1 flex overflow-hidden gap-3">
-                      <div className={`flex-1 overflow-y-auto border border-border rounded-sm bg-surface ${selectedCustomer ? 'hidden md:block min-w-0' : ''}`}>
+                      <div className={`flex-1 overflow-y-auto overflow-x-auto border border-border rounded-sm bg-surface ${selectedCustomer ? 'hidden md:block min-w-0' : ''}`}>
                         <table className="w-full text-left text-xs min-w-[860px]">
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                             <tr>
@@ -10705,7 +10705,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       {/* Customer Profile Drawer in Database View */}
                       {selectedCustomer && (
-                        <div className={`fixed inset-0 z-50 md:relative md:inset-auto md:z-auto w-full ${isDrawerExpanded ? 'md:w-[740px] md:max-w-[55vw]' : 'md:w-[480px] xl:w-[540px]'} bg-surface border border-border md:rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-2xl md:shadow-sm`}>
+                        <div className={`fixed inset-0 z-50 md:relative md:inset-auto md:z-auto w-full ${isDrawerExpanded ? 'md:w-[740px] md:max-w-[55vw]' : 'md:w-[480px] xl:w-[540px]'} bg-surface border border-border md:rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-2xl md:shadow-sm safe-area-pt safe-area-pb md:pt-0 md:pb-0`}>
                           <div className="p-3 border-b border-border flex items-center justify-between bg-surface-subtle/50">
                             <div>
                               <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
@@ -11992,7 +11992,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                 {/* ── Repeat Clients Table & Drawer ── */}
                 <div className="flex-1 flex overflow-hidden gap-3">
-                  <div className="flex-1 overflow-y-auto border border-border rounded-sm bg-surface">
+                  <div className="flex-1 overflow-y-auto overflow-x-auto border border-border rounded-sm bg-surface">
                     <table className="w-full text-left text-xs min-w-[760px]">
                       <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                         <tr>
@@ -12286,7 +12286,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </div>
 
                 {/* Sub-Tab Switcher */}
-                <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5 w-fit">
+                <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5 max-w-full overflow-x-auto no-scrollbar shrink-0">
                   {([
                     { key: 'broadcasts', Icon: Megaphone, label: 'Broadcasts' },
                     { key: 'reengagement', Icon: RotateCcw, label: 'Re-engagement' },
@@ -12295,7 +12295,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <button
                       key={tab.key}
                       onClick={() => setMarketingSubTab(tab.key)}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 ${
+                      className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                         marketingSubTab === tab.key
                           ? 'bg-surface text-text-primary border border-border-strong shadow-subtle font-semibold'
                           : 'text-text-secondary hover:text-text-primary'
@@ -13154,8 +13154,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                 )}
 
-                {/* Subtabs Bar */}
-                <div className="flex gap-1 border-b border-border pb-3 flex-wrap">
+                {/* Subtabs Bar - Horizontally Scrollable Strip on Mobile */}
+                <div className="flex gap-1 border-b border-border pb-3 overflow-x-auto no-scrollbar flex-nowrap shrink-0 max-w-full">
                   {[
                     { id: 'branding', label: 'Profile & Branding', icon: Building2 },
                     { id: 'calendar', label: 'Google Calendar & Scheduling', icon: CalendarDays },
@@ -13170,7 +13170,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         key={tab.id}
                         onClick={() => setSettingsTab(tab.id as any)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 ${
                           settingsTab === tab.id
                             ? 'bg-surface-subtle text-text-primary font-semibold border border-border-strong'
                             : 'bg-surface text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium border border-border'
@@ -16569,12 +16569,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           </div>
         )}
       {/* ── Mobile Bottom Navigation Bar (md:hidden) ────────────────────────── */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-border flex items-center justify-around h-14 px-1 safe-area-pb shadow-lg">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-border flex items-center justify-around min-h-[56px] py-1 px-1 safe-area-pb shadow-lg">
         {canViewAnalytics && (
           <button
             type="button"
             onClick={() => navigateTo('overview')}
-            className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer touch-manipulation ${
               activeNav === 'overview'
                 ? 'text-accent font-semibold'
                 : 'text-text-muted hover:text-text-primary'
@@ -16600,7 +16600,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 navigateTo('inbox');
               }
             }}
-            className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer relative ${
+            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer relative touch-manipulation ${
               activeNav === 'inbox'
                 ? 'text-accent font-semibold'
                 : 'text-text-muted hover:text-text-primary'
@@ -16622,7 +16622,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <button
             type="button"
             onClick={() => navigateTo('customers')}
-            className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer touch-manipulation ${
               activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients'
                 ? 'text-accent font-semibold'
                 : 'text-text-muted hover:text-text-primary'
@@ -16637,7 +16637,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <button
             type="button"
             onClick={() => navigateTo('bookings')}
-            className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer touch-manipulation ${
               activeNav === 'bookings'
                 ? 'text-accent font-semibold'
                 : 'text-text-muted hover:text-text-primary'
@@ -16652,7 +16652,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <button
             type="button"
             onClick={() => navigateTo('calendar')}
-            className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer touch-manipulation ${
               activeNav === 'calendar'
                 ? 'text-accent font-semibold'
                 : 'text-text-muted hover:text-text-primary'
@@ -16667,7 +16667,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <button
             type="button"
             onClick={() => navigateTo('settings')}
-            className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm transition-colors cursor-pointer ${
+            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer touch-manipulation ${
               activeNav === 'settings'
                 ? 'text-accent font-semibold'
                 : 'text-text-muted hover:text-text-primary'

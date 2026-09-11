@@ -507,7 +507,7 @@ export default function BookingClient() {
                     placeholder="e.g. John Doe"
                     value={patientName}
                     onChange={(e) => setPatientName(e.target.value)}
-                    className="w-full px-3 py-2 bg-surface border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none transition-colors"
+                    className="w-full px-3 py-2 bg-surface border border-border rounded-sm text-base sm:text-xs text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none transition-colors"
                   />
                 </div>
 
@@ -521,7 +521,7 @@ export default function BookingClient() {
                     placeholder="+91 98765 43210"
                     value={patientPhone}
                     onChange={(e) => setPatientPhone(e.target.value)}
-                    className="w-full px-3 py-2 bg-surface border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none transition-colors font-mono"
+                    className="w-full px-3 py-2 bg-surface border border-border rounded-sm text-base sm:text-xs text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none transition-colors font-mono"
                   />
                   <p className="text-[10px] text-text-muted mt-1">Instant confirmation and alerts will be sent here.</p>
                 </div>
@@ -535,7 +535,7 @@ export default function BookingClient() {
                     placeholder="john@example.com"
                     value={patientEmail}
                     onChange={(e) => setPatientEmail(e.target.value)}
-                    className="w-full px-3 py-2 bg-surface border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none transition-colors"
+                    className="w-full px-3 py-2 bg-surface border border-border rounded-sm text-base sm:text-xs text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none transition-colors"
                   />
                 </div>
 
@@ -548,7 +548,7 @@ export default function BookingClient() {
                     placeholder="e.g. Follow-up consultation"
                     value={patientNotes}
                     onChange={(e) => setPatientNotes(e.target.value)}
-                    className="w-full px-3 py-2 bg-surface border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none transition-colors"
+                    className="w-full px-3 py-2 bg-surface border border-border rounded-sm text-base sm:text-xs text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none transition-colors"
                   />
                 </div>
               </div>

@@ -1,5 +1,5 @@
 import "./globals.css";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Urbanist, Open_Sans } from "next/font/google";
 
 const urbanist = Urbanist({
@@ -16,11 +16,19 @@ const openSans = Open_Sans({
   display: "swap",
 });
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#090d16",
+};
+
 export const metadata: Metadata = {
   title: "Boldlabs CRM | Enterprise WhatsApp Platform",
   description: "Boldlabs CRM — Enterprise WhatsApp Automation, AI Booking, and Live Customer Inbox",
   manifest: "/manifest.json",
-  themeColor: "#090d16",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -40,6 +48,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${urbanist.variable} ${openSans.variable}`}>
       <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
         <meta name="theme-color" content="#090d16" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
