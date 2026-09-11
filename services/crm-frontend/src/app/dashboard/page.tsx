@@ -848,6 +848,407 @@ const INDUSTRY_PRESETS = [
   },
 ];
 
+
+function FollowupCalendarPopover({
+  currentDate,
+  calViewDate,
+  setCalViewDate,
+  onSelectDate,
+  onClear,
+  onClose,
+}: {
+  currentDate?: string | null;
+  calViewDate: Date;
+  setCalViewDate: React.Dispatch<React.SetStateAction<Date>>;
+  onSelectDate: (dateStr: string) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-30"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+      />
+      <div
+        className="absolute right-0 top-full mt-1 z-40 w-64 bg-surface border border-border rounded-lg shadow-xl p-3 animate-in fade-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Month/Year Nav */}
+        <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
+          <button
+            type="button"
+            onClick={() => {
+              setCalViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+            }}
+            className="p-1 rounded hover:bg-surface-subtle text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+            title="Previous month"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+          <span className="text-xs font-semibold text-text-primary select-none">
+            {calViewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setCalViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+            }}
+            className="p-1 rounded hover:bg-surface-subtle text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+            title="Next month"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Weekday headers */}
+        <div className="grid grid-cols-7 gap-1 text-center mb-1">
+          {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
+            <span key={d} className="text-[10px] font-semibold text-text-muted select-none">
+              {d}
+            </span>
+          ))}
+        </div>
+
+        {/* Day Grid */}
+        <div className="grid grid-cols-7 gap-1 text-center">
+          {getMonthDays(calViewDate.getFullYear(), calViewDate.getMonth()).map((cell, idx) => {
+            const isSelected = currentDate === cell.dateStr;
+            const isToday = cell.dateStr === getFollowupDateString(0);
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  onSelectDate(cell.dateStr);
+                  onClose();
+                }}
+                className={`h-6 w-full rounded text-[11px] font-medium flex items-center justify-center transition-colors cursor-pointer ${
+                  isSelected
+                    ? 'bg-accent text-white font-bold shadow-xs'
+                    : isToday
+                    ? 'bg-accent/15 text-accent font-semibold hover:bg-accent/25'
+                    : cell.isCurrentMonth
+                    ? 'text-text-primary hover:bg-surface-subtle'
+                    : 'text-text-muted/40 hover:bg-surface-subtle hover:text-text-muted'
+                }`}
+                title={cell.dateStr}
+              >
+                {cell.day}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Popover Footer */}
+        <div className="pt-2 mt-2 border-t border-border flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => {
+              onClear();
+              onClose();
+            }}
+            className="text-[10px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2 py-0.5 rounded border border-rose-200 font-medium transition-colors cursor-pointer"
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-[10px] text-text-muted hover:text-text-primary px-2 py-0.5 rounded hover:bg-surface-subtle transition-colors cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function FollowupTimePickerPopover({
+  initialTime,
+  onSave,
+  onClose,
+}: {
+  initialTime?: string | null;
+  onSave: (newTime: string) => void;
+  onClose: () => void;
+}) {
+  const parsed = parseFollowupTime(initialTime || '10:00 AM');
+  const [hour, setHour] = useState(parsed.hour || '10');
+  const [minute, setMinute] = useState(parsed.minute.replace(':', '') || '00');
+  const [period, setPeriod] = useState<'AM' | 'PM'>(parsed.period || 'AM');
+
+  const formatCleanTime = (hVal: string, mVal: string, pVal: 'AM' | 'PM') => {
+    const hNum = parseInt(hVal, 10);
+    const safeH = !isNaN(hNum) && hNum >= 1 && hNum <= 12 ? String(hNum).padStart(2, '0') : '10';
+    const mNum = parseInt(mVal, 10);
+    const safeM = !isNaN(mNum) && mNum >= 0 && mNum <= 59 ? String(mNum).padStart(2, '0') : '00';
+    return `${safeH}:${safeM} ${pVal}`;
+  };
+
+  const handleApply = () => {
+    const finalTime = formatCleanTime(hour, minute, period);
+    onSave(finalTime);
+    onClose();
+  };
+
+  const updateHour = (hVal: string) => {
+    setHour(hVal);
+    onSave(formatCleanTime(hVal, minute, period));
+  };
+
+  const updateMinute = (mVal: string) => {
+    const clean = mVal.replace(':', '');
+    setMinute(clean);
+    onSave(formatCleanTime(hour, clean, period));
+  };
+
+  const updatePeriod = (pVal: 'AM' | 'PM') => {
+    setPeriod(pVal);
+    onSave(formatCleanTime(hour, minute, pVal));
+  };
+
+  const stepHour = (delta: number) => {
+    const cur = parseInt(hour, 10) || 10;
+    const next = ((cur - 1 + delta + 12) % 12) + 1;
+    const nextH = String(next).padStart(2, '0');
+    updateHour(nextH);
+  };
+
+  const stepMinute = (delta: number) => {
+    const cur = parseInt(minute, 10) || 0;
+    const next = (cur + delta + 60) % 60;
+    const nextM = String(next).padStart(2, '0');
+    updateMinute(nextM);
+  };
+
+  const hoursList = ['09', '10', '11', '12', '01', '02', '03', '04', '05', '06', '07', '08'];
+  const minutesList = ['00', '15', '30', '45'];
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-30"
+        onClick={(e) => {
+          e.stopPropagation();
+          handleApply();
+        }}
+      />
+      <div
+        className="absolute right-0 top-full mt-1 z-40 w-64 bg-surface border border-border rounded-lg shadow-xl p-3 animate-in fade-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-border">
+          <div className="flex items-center gap-1.5 font-semibold text-xs text-text-primary">
+            <Clock className="w-3.5 h-3.5 text-accent" />
+            <span>Set Follow-up Time</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleApply}
+            className="text-text-muted hover:text-text-primary p-0.5 rounded hover:bg-surface-subtle cursor-pointer transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Digital Time Display with Inputs & Steppers */}
+        <div className="flex items-center justify-center gap-2 py-2 px-3 bg-surface-subtle border border-border rounded-md mb-2.5">
+          {/* Hour input + steppers */}
+          <div className="flex flex-col items-center">
+            <button
+              type="button"
+              onClick={() => stepHour(1)}
+              className="text-text-muted hover:text-text-primary p-0.5 hover:bg-surface rounded transition-colors cursor-pointer"
+              title="Next hour"
+            >
+              <ChevronUp className="w-3 h-3" />
+            </button>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={2}
+              value={hour}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^0-9]/g, '');
+                if (v.length <= 2) {
+                  setHour(v);
+                  const n = parseInt(v, 10);
+                  if (!isNaN(n) && n >= 1 && n <= 12) {
+                    onSave(formatCleanTime(v, minute, period));
+                  }
+                }
+              }}
+              onBlur={() => {
+                const n = parseInt(hour, 10);
+                const safeH = !isNaN(n) && n >= 1 && n <= 12 ? String(n).padStart(2, '0') : '10';
+                setHour(safeH);
+                onSave(formatCleanTime(safeH, minute, period));
+              }}
+              className="w-10 text-center text-sm font-bold bg-surface border border-border rounded py-0.5 text-text-primary focus:outline-none focus:ring-1 focus:ring-accent font-mono"
+              title="Type any hour (1-12)"
+            />
+            <button
+              type="button"
+              onClick={() => stepHour(-1)}
+              className="text-text-muted hover:text-text-primary p-0.5 hover:bg-surface rounded transition-colors cursor-pointer"
+              title="Previous hour"
+            >
+              <ChevronDown className="w-3 h-3" />
+            </button>
+          </div>
+
+          <span className="text-base font-bold text-text-muted pb-1 select-none">:</span>
+
+          {/* Minute input + steppers (Accepts ANY 00-59) */}
+          <div className="flex flex-col items-center">
+            <button
+              type="button"
+              onClick={() => stepMinute(5)}
+              className="text-text-muted hover:text-text-primary p-0.5 hover:bg-surface rounded transition-colors cursor-pointer"
+              title="+5 minutes"
+            >
+              <ChevronUp className="w-3 h-3" />
+            </button>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={2}
+              value={minute}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^0-9]/g, '');
+                if (v.length <= 2) {
+                  setMinute(v);
+                  const n = parseInt(v, 10);
+                  if (!isNaN(n) && n >= 0 && n <= 59) {
+                    onSave(formatCleanTime(hour, v, period));
+                  }
+                }
+              }}
+              onBlur={() => {
+                const n = parseInt(minute, 10);
+                const safeM = !isNaN(n) && n >= 0 && n <= 59 ? String(n).padStart(2, '0') : '00';
+                setMinute(safeM);
+                onSave(formatCleanTime(hour, safeM, period));
+              }}
+              className="w-10 text-center text-sm font-bold bg-surface border border-border rounded py-0.5 text-text-primary focus:outline-none focus:ring-1 focus:ring-accent font-mono"
+              title="Type ANY minute (00-59)"
+            />
+            <button
+              type="button"
+              onClick={() => stepMinute(-5)}
+              className="text-text-muted hover:text-text-primary p-0.5 hover:bg-surface rounded transition-colors cursor-pointer"
+              title="-5 minutes"
+            >
+              <ChevronDown className="w-3 h-3" />
+            </button>
+          </div>
+
+          {/* AM / PM Toggle */}
+          <div className="flex flex-col gap-1 ml-1.5">
+            <button
+              type="button"
+              onClick={() => updatePeriod('AM')}
+              className={`px-2 py-0.5 text-[10px] font-bold rounded border transition-colors cursor-pointer ${
+                period === 'AM'
+                  ? 'bg-accent text-white border-accent shadow-xs'
+                  : 'bg-surface border-border text-text-muted hover:text-text-primary'
+              }`}
+            >
+              AM
+            </button>
+            <button
+              type="button"
+              onClick={() => updatePeriod('PM')}
+              className={`px-2 py-0.5 text-[10px] font-bold rounded border transition-colors cursor-pointer ${
+                period === 'PM'
+                  ? 'bg-accent text-white border-accent shadow-xs'
+                  : 'bg-surface border-border text-text-muted hover:text-text-primary'
+              }`}
+            >
+              PM
+            </button>
+          </div>
+        </div>
+
+        {/* Quick Hour Tap Chips (1 to 12) */}
+        <div className="mb-2">
+          <div className="text-[10px] font-semibold text-text-muted mb-1 uppercase tracking-wider">
+            Hour
+          </div>
+          <div className="grid grid-cols-6 gap-1">
+            {hoursList.map((h) => {
+              const isSel = (parseInt(hour, 10) || 10) === parseInt(h, 10);
+              return (
+                <button
+                  key={h}
+                  type="button"
+                  onClick={() => updateHour(h)}
+                  className={`py-0.5 text-[10px] font-semibold rounded border transition-colors cursor-pointer ${
+                    isSel
+                      ? 'bg-accent text-white border-accent shadow-xs'
+                      : 'bg-surface hover:bg-surface-subtle border-border text-text-primary'
+                  }`}
+                >
+                  {h}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Quick Minute Chips (or type ANY minute above) */}
+        <div className="mb-2.5">
+          <div className="text-[10px] font-semibold text-text-muted mb-1 uppercase tracking-wider">
+            Quick Minutes
+          </div>
+          <div className="grid grid-cols-4 gap-1">
+            {minutesList.map((m) => {
+              const isSel = (parseInt(minute, 10) || 0) === parseInt(m, 10);
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => updateMinute(m)}
+                  className={`py-0.5 text-[10px] font-mono font-medium rounded border transition-colors cursor-pointer ${
+                    isSel
+                      ? 'bg-accent text-white border-accent shadow-xs'
+                      : 'bg-surface hover:bg-surface-subtle border-border text-text-primary'
+                  }`}
+                >
+                  :{m}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Footer: Live preview + Apply / Done button */}
+        <div className="pt-2 border-t border-border flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-text-muted">Time:</span>
+            <span className="text-[11px] font-mono text-accent font-bold">
+              {formatCleanTime(hour, minute, period)}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleApply}
+            className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-[10px] font-semibold rounded transition-colors cursor-pointer shadow-2xs"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function FollowupTimeInput({
   value,
   onChange,
@@ -10877,435 +11278,161 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </td>
 
                                     {/* 3. Follow up & Action */}
-                                    <td className="pt-1.5 pb-2.5 pr-4 pl-2.5 align-top relative w-[215px] min-w-[210px]" onClick={(e) => e.stopPropagation()}>
+                                    <td className="pt-1.5 pb-2.5 pr-4 pl-2.5 align-top w-[215px] min-w-[210px]" onClick={(e) => e.stopPropagation()}>
                                       <div className="space-y-1.5 w-full">
                                         {/* Row 1: Follow-up Date & Time Selectors */}
-                                        {cust.followup_date ? (() => {
-                                          const parsedTime = parseFollowupTime(cust.followup_time);
-                                          return (
-                                            <div className="flex items-center gap-1.5 w-full">
-                                              {/* Date Button (opens visual mini calendar) */}
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  setActiveTimePopover(null);
-                                                  if (activeCalendarPopover?.customerId === cust.id) {
-                                                    setActiveCalendarPopover(null);
-                                                  } else {
-                                                    const parts = (cust.followup_date || '').split('-');
-                                                    const y = parseInt(parts[0], 10);
-                                                    const m = parseInt(parts[1], 10);
-                                                    setCalViewDate(y && m ? new Date(y, m - 1, 1) : new Date());
-                                                    setActiveCalendarPopover({ customerId: cust.id });
-                                                  }
-                                                }}
-                                                className={`h-7 px-2 flex-1 min-w-0 rounded-md border text-[11px] font-medium flex items-center justify-between gap-1 shadow-2xs transition-colors cursor-pointer ${
-                                                  fuInfo?.status === 'overdue'
-                                                    ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200 font-semibold'
-                                                    : fuInfo?.status === 'today'
-                                                    ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200 font-semibold'
-                                                    : fuInfo?.status === 'tomorrow'
-                                                    ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 font-semibold'
-                                                    : 'bg-surface hover:bg-surface-subtle text-text-primary border-border'
-                                                }`}
-                                                title={`Scheduled Date: ${cust.followup_date}. Click to change on calendar`}
-                                              >
-                                                <div className="flex items-center gap-1 truncate">
-                                                  <Calendar className="w-3 h-3 text-accent shrink-0" />
-                                                  <span className="truncate">{fuInfo?.shortLabel || cust.followup_date}</span>
-                                                </div>
-                                                <ChevronDown className="w-2.5 h-2.5 opacity-50 shrink-0" />
-                                              </button>
-
-                                              {/* Time Button (opens interactive time popover) */}
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
+                                        {cust.followup_date ? (
+                                          <div className="relative flex items-center gap-1.5 w-full">
+                                            {/* Date Button */}
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setActiveTimePopover(null);
+                                                if (activeCalendarPopover?.customerId === cust.id) {
                                                   setActiveCalendarPopover(null);
-                                                  setActiveTimePopover(activeTimePopover?.customerId === cust.id ? null : { customerId: cust.id });
-                                                }}
-                                                className="h-7 px-2 shrink-0 rounded-md border border-border bg-surface hover:bg-surface-subtle text-text-primary text-[11px] font-medium shadow-2xs flex items-center gap-1 transition-colors cursor-pointer"
-                                                title="Click to set any time"
-                                              >
-                                                <Clock className="w-3 h-3 text-accent shrink-0" />
-                                                <span>{cust.followup_time || '10:00 AM'}</span>
-                                                <ChevronDown className="w-2.5 h-2.5 opacity-50 shrink-0" />
-                                              </button>
+                                                } else {
+                                                  const parts = (cust.followup_date || '').split('-');
+                                                  const y = parseInt(parts[0], 10);
+                                                  const m = parseInt(parts[1], 10);
+                                                  setCalViewDate(y && m ? new Date(y, m - 1, 1) : new Date());
+                                                  setActiveCalendarPopover({ customerId: cust.id });
+                                                }
+                                              }}
+                                              className={`h-7 px-2 flex-1 min-w-0 rounded-md border text-[11px] font-medium flex items-center justify-between gap-1 shadow-2xs transition-colors cursor-pointer ${
+                                                fuInfo?.status === 'overdue'
+                                                  ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200 font-semibold'
+                                                  : fuInfo?.status === 'today'
+                                                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200 font-semibold'
+                                                  : fuInfo?.status === 'tomorrow'
+                                                  ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 font-semibold'
+                                                  : 'bg-surface hover:bg-surface-subtle text-text-primary border-border'
+                                              }`}
+                                              title={`Scheduled Date: ${cust.followup_date}. Click to change on calendar`}
+                                            >
+                                              <div className="flex items-center gap-1 truncate">
+                                                <Calendar className="w-3 h-3 text-accent shrink-0" />
+                                                <span className="truncate">{fuInfo?.shortLabel || cust.followup_date}</span>
+                                              </div>
+                                              <ChevronDown className="w-2.5 h-2.5 opacity-50 shrink-0" />
+                                            </button>
 
-                                              {/* Clear Button */}
-                                              <button
-                                                type="button"
-                                                onClick={() => {
+                                            {/* Time Button */}
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setActiveCalendarPopover(null);
+                                                setActiveTimePopover(activeTimePopover?.customerId === cust.id ? null : { customerId: cust.id });
+                                              }}
+                                              className="h-7 px-2 shrink-0 rounded-md border border-border bg-surface hover:bg-surface-subtle text-text-primary text-[11px] font-medium shadow-2xs flex items-center gap-1 transition-colors cursor-pointer"
+                                              title="Click to set any time"
+                                            >
+                                              <Clock className="w-3 h-3 text-accent shrink-0" />
+                                              <span>{cust.followup_time || '10:00 AM'}</span>
+                                              <ChevronDown className="w-2.5 h-2.5 opacity-50 shrink-0" />
+                                            </button>
+
+                                            {/* Clear Button */}
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                handleUpdateCustomer(cust.id, {
+                                                  followup_date: null as any,
+                                                  followup_time: null as any
+                                                });
+                                                setActiveCalendarPopover(null);
+                                                setActiveTimePopover(null);
+                                              }}
+                                              className="h-7 w-6.5 rounded-md border border-border bg-surface hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 text-text-muted flex items-center justify-center transition-colors shadow-2xs cursor-pointer shrink-0"
+                                              title="Clear follow-up"
+                                            >
+                                              <X className="w-3 h-3" />
+                                            </button>
+
+                                            {/* Floating Interactive Mini Calendar Popover: Opens directly beneath Row 1 */}
+                                            {activeCalendarPopover?.customerId === cust.id && (
+                                              <FollowupCalendarPopover
+                                                currentDate={cust.followup_date}
+                                                calViewDate={calViewDate}
+                                                setCalViewDate={setCalViewDate}
+                                                onSelectDate={(newDate) => {
+                                                  handleUpdateCustomer(cust.id, {
+                                                    followup_date: newDate,
+                                                    ...(!cust.followup_time ? { followup_time: '10:00 AM' } : {})
+                                                  });
+                                                  setActiveCalendarPopover(null);
+                                                }}
+                                                onClear={() => {
                                                   handleUpdateCustomer(cust.id, {
                                                     followup_date: null as any,
                                                     followup_time: null as any
                                                   });
                                                   setActiveCalendarPopover(null);
-                                                  setActiveTimePopover(null);
                                                 }}
-                                                className="h-7 w-6.5 rounded-md border border-border bg-surface hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 text-text-muted flex items-center justify-center transition-colors shadow-2xs cursor-pointer shrink-0"
-                                                title="Clear follow-up"
-                                              >
-                                                <X className="w-3 h-3" />
-                                              </button>
-                                            </div>
-                                          );
-                                        })() : (
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setActiveTimePopover(null);
-                                              setCalViewDate(new Date());
-                                              setActiveCalendarPopover({ customerId: cust.id });
-                                            }}
-                                            className="w-full h-7 px-2 rounded-md border border-dashed border-border bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary text-[11px] font-medium flex items-center justify-between gap-1 transition-colors shadow-2xs cursor-pointer group"
-                                            title="Click to schedule a follow-up date & time"
-                                          >
-                                            <div className="flex items-center gap-1.5 truncate">
-                                              <Calendar className="w-3 h-3 text-text-muted group-hover:text-accent shrink-0" />
-                                              <span className="truncate">Set Date & Time</span>
-                                            </div>
-                                            <ChevronDown className="w-2.5 h-2.5 opacity-40 shrink-0 group-hover:opacity-80" />
-                                          </button>
-                                        )}
+                                                onClose={() => setActiveCalendarPopover(null)}
+                                              />
+                                            )}
 
-                                        {/* Floating Interactive Mini Calendar Popover */}
-                                        {activeCalendarPopover?.customerId === cust.id && (
-                                          <>
-                                            <div
-                                              className="fixed inset-0 z-30"
+                                            {/* Floating Interactive Time Popover: Opens directly beneath Row 1 */}
+                                            {activeTimePopover?.customerId === cust.id && (
+                                              <FollowupTimePickerPopover
+                                                initialTime={cust.followup_time || '10:00 AM'}
+                                                onSave={(newTime) => {
+                                                  handleUpdateCustomer(cust.id, {
+                                                    followup_time: newTime,
+                                                    ...(!cust.followup_date ? { followup_date: getFollowupDateString(1) } : {})
+                                                  });
+                                                }}
+                                                onClose={() => setActiveTimePopover(null)}
+                                              />
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <div className="relative w-full">
+                                            <button
+                                              type="button"
                                               onClick={(e) => {
                                                 e.stopPropagation();
-                                                setActiveCalendarPopover(null);
+                                                setActiveTimePopover(null);
+                                                setCalViewDate(new Date());
+                                                setActiveCalendarPopover({ customerId: cust.id });
                                               }}
-                                            />
-                                            <div
-                                              className="absolute right-2 top-full mt-1 z-40 w-64 bg-surface border border-border rounded-lg shadow-xl p-3 animate-in fade-in zoom-in-95 duration-150"
-                                              onClick={(e) => e.stopPropagation()}
+                                              className="w-full h-7 px-2 rounded-md border border-dashed border-border bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary text-[11px] font-medium flex items-center justify-between gap-1 transition-colors shadow-2xs cursor-pointer group"
+                                              title="Click to schedule a follow-up date & time"
                                             >
-                                              {/* Month/Year Nav */}
-                                              <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
-                                                <button
-                                                  type="button"
-                                                  onClick={() => {
-                                                    setCalViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
-                                                  }}
-                                                  className="p-1 rounded hover:bg-surface-subtle text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
-                                                  title="Previous month"
-                                                >
-                                                  <ChevronLeft className="w-3.5 h-3.5" />
-                                                </button>
-                                                <span className="text-xs font-semibold text-text-primary select-none">
-                                                  {calViewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                                                </span>
-                                                <button
-                                                  type="button"
-                                                  onClick={() => {
-                                                    setCalViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
-                                                  }}
-                                                  className="p-1 rounded hover:bg-surface-subtle text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
-                                                  title="Next month"
-                                                >
-                                                  <ChevronRight className="w-3.5 h-3.5" />
-                                                </button>
+                                              <div className="flex items-center gap-1.5 truncate">
+                                                <Calendar className="w-3 h-3 text-text-muted group-hover:text-accent shrink-0" />
+                                                <span className="truncate">Set Date & Time</span>
                                               </div>
+                                              <ChevronDown className="w-2.5 h-2.5 opacity-40 shrink-0 group-hover:opacity-80" />
+                                            </button>
 
-                                              {/* Weekday headers */}
-                                              <div className="grid grid-cols-7 gap-1 text-center mb-1">
-                                                {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
-                                                  <span key={d} className="text-[10px] font-semibold text-text-muted select-none">
-                                                    {d}
-                                                  </span>
-                                                ))}
-                                              </div>
-
-                                              {/* Day Grid */}
-                                              <div className="grid grid-cols-7 gap-1 text-center">
-                                                {getMonthDays(calViewDate.getFullYear(), calViewDate.getMonth()).map((cell, idx) => {
-                                                  const isSelected = cust.followup_date === cell.dateStr;
-                                                  const isToday = cell.dateStr === getFollowupDateString(0);
-                                                  return (
-                                                    <button
-                                                      key={idx}
-                                                      type="button"
-                                                      onClick={() => {
-                                                        handleUpdateCustomer(cust.id, {
-                                                          followup_date: cell.dateStr,
-                                                          ...(!cust.followup_time ? { followup_time: '10:00 AM' } : {})
-                                                        });
-                                                        setActiveCalendarPopover(null);
-                                                      }}
-                                                      className={`h-6 w-full rounded text-[11px] font-medium flex items-center justify-center transition-colors cursor-pointer ${
-                                                        isSelected
-                                                          ? 'bg-accent text-white font-bold shadow-xs'
-                                                          : isToday
-                                                          ? 'bg-accent/15 text-accent font-semibold hover:bg-accent/25'
-                                                          : cell.isCurrentMonth
-                                                          ? 'text-text-primary hover:bg-surface-subtle'
-                                                          : 'text-text-muted/40 hover:bg-surface-subtle hover:text-text-muted'
-                                                      }`}
-                                                      title={cell.dateStr}
-                                                    >
-                                                      {cell.day}
-                                                    </button>
-                                                  );
-                                                })}
-                                              </div>
-
-                                              {/* Popover Footer */}
-                                              <div className="pt-2 mt-2 border-t border-border flex items-center justify-between">
-                                                <button
-                                                  type="button"
-                                                  onClick={() => {
-                                                    handleUpdateCustomer(cust.id, {
-                                                      followup_date: null as any,
-                                                      followup_time: null as any
-                                                    });
-                                                    setActiveCalendarPopover(null);
-                                                  }}
-                                                  className="text-[10px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2 py-0.5 rounded border border-rose-200 font-medium transition-colors cursor-pointer"
-                                                >
-                                                  Clear
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  onClick={() => setActiveCalendarPopover(null)}
-                                                  className="text-[10px] text-text-muted hover:text-text-primary px-2 py-0.5 rounded hover:bg-surface-subtle transition-colors cursor-pointer"
-                                                >
-                                                  Close
-                                                </button>
-                                              </div>
-                                            </div>
-                                          </>
-                                        )}
-
-                                        {/* Floating Interactive Time Popover (Can add ANY time) */}
-                                        {activeTimePopover?.customerId === cust.id && (() => {
-                                          const parsed = parseFollowupTime(cust.followup_time);
-                                          const setTimeDirect = (h: string, m: string, p: 'AM' | 'PM') => {
-                                            const hNorm = String(Math.min(Math.max(1, parseInt(h, 10) || 10), 12)).padStart(2, '0');
-                                            const mClean = m.startsWith(':') ? m.slice(1) : m;
-                                            const mNorm = String(Math.min(Math.max(0, parseInt(mClean, 10) || 0), 59)).padStart(2, '0');
-                                            const timeStr = `${hNorm}:${mNorm} ${p}`;
-                                            handleUpdateCustomer(cust.id, {
-                                              followup_time: timeStr,
-                                              ...(!cust.followup_date ? { followup_date: getFollowupDateString(1) } : {})
-                                            });
-                                          };
-                                          const stepHour = (delta: number) => {
-                                            let cur = parseInt(parsed.hour, 10) || 10;
-                                            cur = cur + delta;
-                                            if (cur > 12) cur = 1;
-                                            if (cur < 1) cur = 12;
-                                            setTimeDirect(String(cur), parsed.minute, parsed.period);
-                                          };
-                                          const stepMinute = (delta: number) => {
-                                            const mClean = parsed.minute.replace(':', '');
-                                            let cur = parseInt(mClean, 10) || 0;
-                                            cur = cur + delta;
-                                            if (cur > 59) cur = 0;
-                                            if (cur < 0) cur = 55;
-                                            setTimeDirect(parsed.hour, String(cur), parsed.period);
-                                          };
-                                          return (
-                                            <>
-                                              <div
-                                                className="fixed inset-0 z-30"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  setActiveTimePopover(null);
+                                            {/* Floating Interactive Mini Calendar Popover */}
+                                            {activeCalendarPopover?.customerId === cust.id && (
+                                              <FollowupCalendarPopover
+                                                currentDate={cust.followup_date}
+                                                calViewDate={calViewDate}
+                                                setCalViewDate={setCalViewDate}
+                                                onSelectDate={(newDate) => {
+                                                  handleUpdateCustomer(cust.id, {
+                                                    followup_date: newDate,
+                                                    ...(!cust.followup_time ? { followup_time: '10:00 AM' } : {})
+                                                  });
+                                                  setActiveCalendarPopover(null);
                                                 }}
+                                                onClear={() => {
+                                                  handleUpdateCustomer(cust.id, {
+                                                    followup_date: null as any,
+                                                    followup_time: null as any
+                                                  });
+                                                  setActiveCalendarPopover(null);
+                                                }}
+                                                onClose={() => setActiveCalendarPopover(null)}
                                               />
-                                              <div
-                                                className="absolute right-2 top-full mt-1 z-40 w-64 bg-surface border border-border rounded-lg shadow-xl p-3 animate-in fade-in zoom-in-95 duration-150"
-                                                onClick={(e) => e.stopPropagation()}
-                                              >
-                                                {/* Header */}
-                                                <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-border">
-                                                  <div className="flex items-center gap-1.5 font-semibold text-xs text-text-primary">
-                                                    <Clock className="w-3.5 h-3.5 text-accent" />
-                                                    <span>Set Follow-up Time</span>
-                                                  </div>
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => setActiveTimePopover(null)}
-                                                    className="text-text-muted hover:text-text-primary p-0.5 rounded hover:bg-surface-subtle cursor-pointer"
-                                                  >
-                                                    <X className="w-3.5 h-3.5" />
-                                                  </button>
-                                                </div>
-
-                                                {/* Direct Digital Inputs (Type or Step ANY time) */}
-                                                <div className="flex items-center justify-center gap-1.5 py-2 px-3 bg-surface-subtle border border-border rounded-md mb-3">
-                                                  {/* Hour Input + Steppers */}
-                                                  <div className="flex flex-col items-center">
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => stepHour(1)}
-                                                      className="text-text-muted hover:text-text-primary p-0.5 hover:bg-surface rounded transition-colors cursor-pointer"
-                                                      title="Hour up"
-                                                    >
-                                                      <ChevronUp className="w-3 h-3" />
-                                                    </button>
-                                                    <input
-                                                      type="text"
-                                                      inputMode="numeric"
-                                                      maxLength={2}
-                                                      value={parsed.hour}
-                                                      onChange={(e) => {
-                                                        const v = e.target.value.replace(/[^0-9]/g, '');
-                                                        if (v === '' || (parseInt(v, 10) >= 1 && parseInt(v, 10) <= 12)) {
-                                                          setTimeDirect(v || '10', parsed.minute, parsed.period);
-                                                        }
-                                                      }}
-                                                      className="w-10 text-center text-sm font-bold bg-surface border border-border rounded py-0.5 text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
-                                                      title="Type any hour (1-12)"
-                                                    />
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => stepHour(-1)}
-                                                      className="text-text-muted hover:text-text-primary p-0.5 hover:bg-surface rounded transition-colors cursor-pointer"
-                                                      title="Hour down"
-                                                    >
-                                                      <ChevronDown className="w-3 h-3" />
-                                                    </button>
-                                                  </div>
-
-                                                  <span className="text-base font-bold text-text-muted pb-1 select-none">:</span>
-
-                                                  {/* Minute Input + Steppers (Accepts ANY 00-59) */}
-                                                  <div className="flex flex-col items-center">
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => stepMinute(5)}
-                                                      className="text-text-muted hover:text-text-primary p-0.5 hover:bg-surface rounded transition-colors cursor-pointer"
-                                                      title="+5 minutes"
-                                                    >
-                                                      <ChevronUp className="w-3 h-3" />
-                                                    </button>
-                                                    <input
-                                                      type="text"
-                                                      inputMode="numeric"
-                                                      maxLength={2}
-                                                      value={parsed.minute.replace(':', '')}
-                                                      onChange={(e) => {
-                                                        const v = e.target.value.replace(/[^0-9]/g, '');
-                                                        if (v === '' || parseInt(v, 10) <= 59) {
-                                                          setTimeDirect(parsed.hour, v ? `:${v}` : ':00', parsed.period);
-                                                        }
-                                                      }}
-                                                      className="w-10 text-center text-sm font-bold bg-surface border border-border rounded py-0.5 text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
-                                                      title="Type ANY minute (00-59)"
-                                                    />
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => stepMinute(-5)}
-                                                      className="text-text-muted hover:text-text-primary p-0.5 hover:bg-surface rounded transition-colors cursor-pointer"
-                                                      title="-5 minutes"
-                                                    >
-                                                      <ChevronDown className="w-3 h-3" />
-                                                    </button>
-                                                  </div>
-
-                                                  {/* AM / PM Toggle */}
-                                                  <div className="flex flex-col gap-1 ml-2">
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => setTimeDirect(parsed.hour, parsed.minute, 'AM')}
-                                                      className={`px-2 py-0.5 text-[10px] font-bold rounded border transition-colors cursor-pointer ${
-                                                        parsed.period === 'AM'
-                                                          ? 'bg-accent text-white border-accent shadow-xs'
-                                                          : 'bg-surface border-border text-text-muted hover:text-text-primary'
-                                                      }`}
-                                                    >
-                                                      AM
-                                                    </button>
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => setTimeDirect(parsed.hour, parsed.minute, 'PM')}
-                                                      className={`px-2 py-0.5 text-[10px] font-bold rounded border transition-colors cursor-pointer ${
-                                                        parsed.period === 'PM'
-                                                          ? 'bg-accent text-white border-accent shadow-xs'
-                                                          : 'bg-surface border-border text-text-muted hover:text-text-primary'
-                                                      }`}
-                                                    >
-                                                      PM
-                                                    </button>
-                                                  </div>
-                                                </div>
-
-                                                {/* Quick Hour Tap Chips (1 to 12) */}
-                                                <div className="mb-2">
-                                                  <div className="text-[10px] font-semibold text-text-muted mb-1 uppercase tracking-wider">
-                                                    Hour
-                                                  </div>
-                                                  <div className="grid grid-cols-6 gap-1">
-                                                    {['09', '10', '11', '12', '01', '02', '03', '04', '05', '06', '07', '08'].map((h) => {
-                                                      const isSel = parsed.hour === h;
-                                                      return (
-                                                        <button
-                                                          key={h}
-                                                          type="button"
-                                                          onClick={() => setTimeDirect(h, parsed.minute, parsed.period)}
-                                                          className={`py-0.5 text-[10px] font-semibold rounded border transition-colors cursor-pointer ${
-                                                            isSel
-                                                              ? 'bg-accent text-white border-accent shadow-xs'
-                                                              : 'bg-surface hover:bg-surface-subtle border-border text-text-primary'
-                                                          }`}
-                                                        >
-                                                          {h}
-                                                        </button>
-                                                      );
-                                                    })}
-                                                  </div>
-                                                </div>
-
-                                                {/* Quick Minute Chips (or type any minute above) */}
-                                                <div className="mb-2.5">
-                                                  <div className="text-[10px] font-semibold text-text-muted mb-1 uppercase tracking-wider">
-                                                    Quick Minutes
-                                                  </div>
-                                                  <div className="grid grid-cols-4 gap-1">
-                                                    {[':00', ':15', ':30', ':45'].map((m) => {
-                                                      const isSel = parsed.minute === m;
-                                                      return (
-                                                        <button
-                                                          key={m}
-                                                          type="button"
-                                                          onClick={() => setTimeDirect(parsed.hour, m, parsed.period)}
-                                                          className={`py-0.5 text-[10px] font-mono font-medium rounded border transition-colors cursor-pointer ${
-                                                            isSel
-                                                              ? 'bg-accent text-white border-accent shadow-xs'
-                                                              : 'bg-surface hover:bg-surface-subtle border-border text-text-primary'
-                                                          }`}
-                                                        >
-                                                          {m}
-                                                        </button>
-                                                      );
-                                                    })}
-                                                  </div>
-                                                </div>
-
-                                                {/* Footer: Current Time display & Done */}
-                                                <div className="pt-2 border-t border-border flex items-center justify-between">
-                                                  <span className="text-[11px] font-mono text-accent font-semibold">
-                                                    {cust.followup_time || '10:00 AM'}
-                                                  </span>
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => setActiveTimePopover(null)}
-                                                    className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-[10px] font-semibold rounded transition-colors cursor-pointer"
-                                                  >
-                                                    Done
-                                                  </button>
-                                                </div>
-                                              </div>
-                                            </>
-                                          );
-                                        })()}
+                                            )}
+                                          </div>
+                                        )}
 
                                         {/* Row 2: Next Action Dropdown */}
                                         <select
