@@ -9284,34 +9284,36 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* ── SUB-VIEW A: FOLLOW-UP PIPELINE ──────────────────────────────── */}
                 {followupView === 'list' && (
                   <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
-                    {/* Filter & Segment Controls */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 p-1.5 px-2 bg-surface border border-border rounded-sm">
-                      {/* Left: Outcome Filter Pills & Specific Outcome Selector */}
-                      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 max-w-full shrink-0">
-                        <span className="text-[11px] font-semibold text-text-secondary mr-0.5">Outcome:</span>
-                        {[
-                          { key: 'all', label: 'All' },
-                          { key: 'new', label: 'New' },
-                          { key: 'follow-up', label: 'Follow-up' },
-                          { key: 'converted', label: 'Converted' },
-                          { key: 'lost', label: 'Lost' },
-                        ].map((st) => {
-                          const isActive = followupStatusFilter.toLowerCase() === st.key;
-                          return (
-                            <button
-                              key={st.key}
-                              type="button"
-                              onClick={() => setFollowupStatusFilter(st.key)}
-                              className={`px-2.5 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer font-medium ${
-                                isActive
-                                  ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary shadow-2xs'
-                                  : 'bg-surface border-border text-text-secondary hover:text-text-primary hover:bg-surface-subtle'
-                              }`}
-                            >
-                              {st.label}
-                            </button>
-                          );
-                        })}
+                    {/* Filter & Segment Controls - Streamlined Single Compact Bar */}
+                    <div className="flex items-center gap-2 p-1 px-2 bg-surface border border-border rounded-sm overflow-x-auto no-scrollbar">
+                      {/* Outcome Filter Pills & Specific Outcome Selector */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[11px] font-medium text-text-secondary mr-0.5">Outcome:</span>
+                        <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border/80 rounded-sm gap-0.5">
+                          {[
+                            { key: 'all', label: 'All' },
+                            { key: 'new', label: 'New' },
+                            { key: 'follow-up', label: 'Follow-up' },
+                            { key: 'converted', label: 'Converted' },
+                            { key: 'lost', label: 'Lost' },
+                          ].map((st) => {
+                            const isActive = followupStatusFilter.toLowerCase() === st.key;
+                            return (
+                              <button
+                                key={st.key}
+                                type="button"
+                                onClick={() => setFollowupStatusFilter(st.key)}
+                                className={`px-2 py-0.5 text-[11px] rounded-xs transition-colors cursor-pointer font-medium ${
+                                  isActive
+                                    ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
+                                    : 'text-text-muted hover:text-text-primary hover:bg-surface/50'
+                                }`}
+                              >
+                                {st.label}
+                              </button>
+                            );
+                          })}
+                        </div>
 
                         {/* Specific Outcome Dropdown */}
                         <select
@@ -9327,57 +9329,65 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               setFollowupStatusFilter('all');
                             }
                           }}
-                          className={`px-2 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer max-w-[150px] truncate ${
+                          className={`px-1.5 py-0.5 text-[11px] rounded-sm border transition-colors cursor-pointer max-w-[105px] truncate h-[26px] ${
                             !['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) && followupStatusFilter !== ''
                               ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary shadow-2xs'
                               : 'bg-surface border-border text-text-secondary hover:text-text-primary'
                           }`}
                           title="Filter by specific outcome status"
                         >
-                          <option value="">More Outcomes...</option>
+                          <option value="">More...</option>
                           {crmDropdowns.outcome_statuses.map((st) => (
                             <option key={st} value={st}>{st}</option>
                           ))}
                         </select>
                       </div>
 
-                      {/* Middle: Lead Warmth Badges (Minimal Clean Icons) */}
-                      <div className="flex items-center gap-1">
-                        <span className="text-[11px] font-semibold text-text-secondary mr-0.5">Lead:</span>
-                        {[
-                          { key: 'all', label: 'All' },
-                          { key: 'hot', label: 'Hot', icon: Flame, color: 'text-amber-500 fill-amber-500/20' },
-                          { key: 'warm', label: 'Warm', icon: Sun, color: 'text-amber-500 stroke-[2.2]' },
-                          { key: 'cold', label: 'Cold', icon: Snowflake, color: 'text-sky-500 stroke-[2.2]' },
-                        ].map((prob) => {
-                          const isActive = followupProbabilityFilter === prob.key;
-                          const ProbIcon = prob.icon;
-                          return (
-                            <button
-                              key={prob.key}
-                              type="button"
-                              onClick={() => setFollowupProbabilityFilter(prob.key)}
-                              className={`px-2 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer flex items-center gap-1 font-medium ${
-                                isActive
-                                  ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary shadow-2xs'
-                                  : 'bg-surface border-border text-text-secondary hover:text-text-primary hover:bg-surface-subtle'
-                              }`}
-                            >
-                              {ProbIcon && <ProbIcon className={`w-3 h-3 ${prob.color}`} />}
-                              <span>{prob.label}</span>
-                            </button>
-                          );
-                        })}
+                      {/* Divider */}
+                      <div className="h-4 w-px bg-border/80 shrink-0" />
+
+                      {/* Lead Warmth Badges (Minimal Clean Icons) */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[11px] font-medium text-text-secondary mr-0.5">Lead:</span>
+                        <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border/80 rounded-sm gap-0.5">
+                          {[
+                            { key: 'all', label: 'All' },
+                            { key: 'hot', label: 'Hot', icon: Flame, color: 'text-amber-500 fill-amber-500/20' },
+                            { key: 'warm', label: 'Warm', icon: Sun, color: 'text-amber-500 stroke-[2.2]' },
+                            { key: 'cold', label: 'Cold', icon: Snowflake, color: 'text-sky-500 stroke-[2.2]' },
+                          ].map((prob) => {
+                            const isActive = followupProbabilityFilter === prob.key;
+                            const ProbIcon = prob.icon;
+                            return (
+                              <button
+                                key={prob.key}
+                                type="button"
+                                onClick={() => setFollowupProbabilityFilter(prob.key)}
+                                className={`px-1.5 py-0.5 text-[11px] rounded-xs transition-colors cursor-pointer flex items-center gap-1 font-medium ${
+                                  isActive
+                                    ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
+                                    : 'text-text-muted hover:text-text-primary hover:bg-surface/50'
+                                }`}
+                              >
+                                {ProbIcon && <ProbIcon className={`w-3 h-3 ${prob.color}`} />}
+                                <span>{prob.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
 
-                      {/* Right: Staff & Next Action Selectors & Search */}
-                      <div className="flex items-center gap-2 flex-wrap">
+                      {/* Divider */}
+                      <div className="h-4 w-px bg-border/80 shrink-0" />
+
+                      {/* Staff & Next Action Selectors & Search */}
+                      <div className="flex items-center gap-1.5 shrink-0">
                         {/* Staff / Doctor Selector */}
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-0.5">
                           <select
                             value={followupDoctorFilter}
                             onChange={(e) => setFollowupDoctorFilter(e.target.value)}
-                            className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[150px]"
+                            className="px-2 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[125px] h-[26px]"
                           >
                             <option value="all">All {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff & Doctors'}</option>
                             {categorizedStaffOptions.teamDoctors.length > 0 && (
@@ -9413,9 +9423,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             type="button"
                             onClick={openDoctorEditor}
                             title={`Manage ${currentTaxonomy.staff_label || 'Doctors / Staff'}`}
-                            className="p-1 text-text-muted hover:text-accent hover:bg-surface-subtle border border-border rounded-sm transition-colors cursor-pointer"
+                            className="p-1 text-text-muted hover:text-accent hover:bg-surface-subtle border border-border rounded-sm transition-colors cursor-pointer h-[26px] w-[26px] flex items-center justify-center"
                           >
-                            <Pencil className="w-3 h-3 stroke-[1.8]" />
+                            <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
                           </button>
                         </div>
 
@@ -9423,7 +9433,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <select
                           value={followupActionFilter}
                           onChange={(e) => setFollowupActionFilter(e.target.value)}
-                          className={`px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[130px] ${
+                          className={`px-2 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[110px] h-[26px] ${
                             followupActionFilter !== 'all' ? 'border-text-primary font-semibold bg-surface-subtle' : ''
                           }`}
                           title="Filter by Next Action"
@@ -9433,38 +9443,41 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             <option key={act} value={act}>{act}</option>
                           ))}
                         </select>
-
-                        {/* Search Input */}
-                        <div className="relative">
-                          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
-                          <input
-                            type="text"
-                            placeholder={`Filter ${(currentTaxonomy.client_plural || 'customers').toLowerCase()}, phone...`}
-                            value={followupSearch}
-                            onChange={(e) => setFollowupSearch(e.target.value)}
-                            className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-44"
-                          />
-                        </div>
-
-                        {/* Quick Reset All Filters Button */}
-                        {(followupStatusFilter !== 'all' || followupProbabilityFilter !== 'all' || followupDoctorFilter !== 'all' || followupActionFilter !== 'all' || followupSearch.trim()) && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFollowupStatusFilter('all');
-                              setFollowupProbabilityFilter('all');
-                              setFollowupDoctorFilter('all');
-                              setFollowupActionFilter('all');
-                              setFollowupSearch('');
-                            }}
-                            className="text-[11px] text-accent hover:underline flex items-center gap-0.5 px-1.5 py-0.5 rounded hover:bg-surface-subtle font-medium cursor-pointer"
-                            title="Reset all filters"
-                          >
-                            <X className="w-3 h-3" />
-                            <span>Reset</span>
-                          </button>
-                        )}
                       </div>
+
+                      {/* Divider */}
+                      <div className="h-4 w-px bg-border/80 shrink-0" />
+
+                      {/* Search Input */}
+                      <div className="relative shrink-0">
+                        <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" />
+                        <input
+                          type="text"
+                          placeholder={`Filter ${(currentTaxonomy.client_plural || 'customers').toLowerCase()}, phone...`}
+                          value={followupSearch}
+                          onChange={(e) => setFollowupSearch(e.target.value)}
+                          className="pl-6.5 pr-2 py-0.5 bg-surface-subtle border border-border rounded-sm text-[11px] text-text-primary focus:outline-none focus:border-accent w-36 lg:w-44 h-[26px]"
+                        />
+                      </div>
+
+                      {/* Quick Reset All Filters Button */}
+                      {(followupStatusFilter !== 'all' || followupProbabilityFilter !== 'all' || followupDoctorFilter !== 'all' || followupActionFilter !== 'all' || followupSearch.trim()) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFollowupStatusFilter('all');
+                            setFollowupProbabilityFilter('all');
+                            setFollowupDoctorFilter('all');
+                            setFollowupActionFilter('all');
+                            setFollowupSearch('');
+                          }}
+                          className="text-[11px] text-accent hover:underline flex items-center gap-0.5 px-1 py-0.5 rounded hover:bg-surface-subtle font-medium cursor-pointer shrink-0 ml-auto"
+                          title="Reset all filters"
+                        >
+                          <X className="w-3 h-3" />
+                          <span>Reset</span>
+                        </button>
+                      )}
                     </div>
 
                     {/* Compact KPI Summary Strip */}
