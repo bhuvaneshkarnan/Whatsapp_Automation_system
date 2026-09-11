@@ -512,6 +512,91 @@ function formatConversationDate(dateStrOrObj: string | Date | null | undefined):
   }
 }
 
+function getFollowupDateString(offsetDays: number = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getNextMondayString(): string {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = day === 0 ? 1 : 8 - day;
+  d.setDate(d.getDate() + diff);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dayStr = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dayStr}`;
+}
+
+function getFollowupScheduleInfo(dateStr?: string | null, timeStr?: string | null) {
+  if (!dateStr) return null;
+  try {
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return { status: 'future' as const, label: dateStr, time: timeStr || '10:00 AM', diffDays: 0 };
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const d = parseInt(parts[2], 10);
+    if (isNaN(y) || isNaN(m) || isNaN(d)) return { status: 'future' as const, label: dateStr, time: timeStr || '10:00 AM', diffDays: 0 };
+
+    const target = new Date(y, m - 1, d);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const targetDate = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+
+    const diffDays = Math.round((targetDate.getTime() - today.getTime()) / 86400000);
+    const time = timeStr || '10:00 AM';
+
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const formattedShort = `${monthNames[m - 1]} ${d}`;
+
+    if (diffDays < 0) {
+      return {
+        status: 'overdue' as const,
+        label: diffDays === -1 ? 'Overdue (Yesterday)' : `Overdue (${formattedShort})`,
+        time,
+        diffDays
+      };
+    }
+    if (diffDays === 0) {
+      return {
+        status: 'today' as const,
+        label: 'Today',
+        time,
+        diffDays
+      };
+    }
+    if (diffDays === 1) {
+      return {
+        status: 'tomorrow' as const,
+        label: 'Tomorrow',
+        time,
+        diffDays
+      };
+    }
+    if (diffDays > 1 && diffDays <= 6) {
+      const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      return {
+        status: 'upcoming' as const,
+        label: `${weekdays[target.getDay()]}, ${formattedShort}`,
+        time,
+        diffDays
+      };
+    }
+    return {
+      status: 'future' as const,
+      label: formattedShort,
+      time,
+      diffDays
+    };
+  } catch {
+    return { status: 'future' as const, label: dateStr, time: timeStr || '10:00 AM', diffDays: 0 };
+  }
+}
+
 function formatMilitaryTo12(timeStr: string | null | undefined): string {
   if (!timeStr) return '';
   const m = timeStr.trim().match(/^(\d{1,2}):(\d{2})$/);
@@ -1272,8 +1357,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // Table row quick interaction states
   const [activeRatePopover, setActiveRatePopover] = useState<{ customerId: string; currentRate?: number } | null>(null);
-  const [activeTimePopover, setActiveTimePopover] = useState<{ customerId: string; currentTime?: string } | null>(null);
-  const [customTimeInput, setCustomTimeInput] = useState('');
+  const [activeFollowupPopover, setActiveFollowupPopover] = useState<{ customerId: string } | null>(null);
   const [quickNoteCustomer, setQuickNoteCustomer] = useState<{ customerId: string; name: string } | null>(null);
   const [quickNoteText, setQuickNoteText] = useState('');
   const [quickNoteColor, setQuickNoteColor] = useState('slate');
@@ -6569,7 +6653,34 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Date</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] text-text-muted">Follow-up Date</label>
+                    <span className="text-[9px] font-mono text-accent">{selectedCustomer.followup_date || ''}</span>
+                  </div>
+                  <div className="flex items-center gap-1 mb-1.5 flex-wrap">
+                    {[
+                      { label: 'Today', val: getFollowupDateString(0) },
+                      { label: 'Tmrw', val: getFollowupDateString(1) },
+                      { label: '+2d', val: getFollowupDateString(2) },
+                      { label: 'Mon', val: getNextMondayString() },
+                    ].map((item) => (
+                      <button
+                        key={item.label}
+                        type="button"
+                        onClick={() => handleUpdateCustomer(selectedCustomer.id, {
+                          followup_date: item.val,
+                          ...(!selectedCustomer.followup_time ? { followup_time: '10:00 AM' } : {})
+                        })}
+                        className={`px-1.5 py-0.5 text-[9px] font-semibold rounded border cursor-pointer ${
+                          selectedCustomer.followup_date === item.val
+                            ? 'bg-accent text-white border-accent'
+                            : 'bg-surface hover:bg-surface-subtle border-border text-text-secondary'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
                   <input
                     type="date"
                     value={selectedCustomer.followup_date || ''}
@@ -6578,7 +6689,29 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Time</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] text-text-muted">Follow-up Time</label>
+                    <span className="text-[9px] font-mono text-accent">{selectedCustomer.followup_time || '10:00 AM'}</span>
+                  </div>
+                  <div className="flex items-center gap-1 mb-1.5 flex-wrap">
+                    {['10:00 AM', '11:30 AM', '02:30 PM', '04:00 PM'].map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => handleUpdateCustomer(selectedCustomer.id, {
+                          followup_time: t,
+                          ...(!selectedCustomer.followup_date ? { followup_date: getFollowupDateString(1) } : {})
+                        })}
+                        className={`px-1.5 py-0.5 text-[9px] font-semibold rounded border cursor-pointer ${
+                          (selectedCustomer.followup_time || '10:00 AM') === t
+                            ? 'bg-accent text-white border-accent'
+                            : 'bg-surface hover:bg-surface-subtle border-border text-text-secondary'
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
                   <FollowupTimeInput
                     value={selectedCustomer.followup_time || '10:00 AM'}
                     onChange={(newTime) => handleUpdateCustomer(selectedCustomer.id, { followup_time: newTime })}
@@ -10447,16 +10580,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             ) : (
                               customers.map((cust) => {
                                 const isSelected = selectedCustomer?.id === cust.id;
-                                let fuBadge: React.ReactNode = <span className="text-text-muted text-[11px]">—</span>;
-                                if (cust.followup_date) {
-                                  const today = new Date(); today.setHours(0,0,0,0);
-                                  const fuDate = new Date(cust.followup_date); fuDate.setHours(0,0,0,0);
-                                  const diff = Math.round((fuDate.getTime() - today.getTime()) / 86400000);
-                                  if (diff < 0) fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1 shrink-0"><AlertCircle className="w-2.5 h-2.5" />Overdue</span>;
-                                  else if (diff === 0) fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200 flex items-center gap-1 shrink-0"><Clock className="w-2.5 h-2.5" />Today</span>;
-                                  else if (diff === 1) fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-blue-100 text-blue-700 border border-blue-200 flex items-center gap-1 shrink-0"><CalendarClock className="w-2.5 h-2.5" />Tomorrow</span>;
-                                  else fuBadge = <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 flex items-center gap-1 shrink-0"><Calendar className="w-2.5 h-2.5" />{cust.followup_date}</span>;
-                                }
+                                const fuInfo = getFollowupScheduleInfo(cust.followup_date, cust.followup_time);
 
                                 const concerns = Array.isArray(cust.primary_concerns) && cust.primary_concerns.length > 0
                                   ? cust.primary_concerns
@@ -10744,106 +10868,284 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                                     {/* 3. Follow up & Action */}
                                     <td className="p-3 pr-4 align-top relative" onClick={(e) => e.stopPropagation()}>
-                                      <div className="space-y-1.5 max-w-[200px]">
-                                        {/* Date & Time Row */}
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                          {fuBadge}
-                                          <input
-                                            type="date"
-                                            value={cust.followup_date || ''}
-                                            onChange={(e) => {
-                                              const d = e.target.value;
-                                              handleUpdateCustomer(cust.id, {
-                                                followup_date: d,
-                                                ...(d && !cust.followup_time ? { followup_time: '10:00 AM' } : {})
-                                              });
+                                      <div className="space-y-1.5 max-w-[210px]">
+                                        {/* Single Unified Follow-up Trigger Button */}
+                                        {fuInfo ? (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setActiveFollowupPopover(activeFollowupPopover?.customerId === cust.id ? null : { customerId: cust.id });
                                             }}
-                                            className="text-[11px] font-medium bg-surface border border-border rounded-md px-1.5 py-0.5 h-6 text-text-primary hover:border-border-hover shadow-2xs focus:outline-none focus:ring-1 focus:ring-accent table-control"
-                                            title="Click to change follow-up date"
-                                          />
-                                          {cust.followup_date && (
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                const curr = cust.followup_time || '10:00 AM';
-                                                setActiveTimePopover(activeTimePopover?.customerId === cust.id ? null : { customerId: cust.id, currentTime: curr });
-                                                setCustomTimeInput(curr);
-                                              }}
-                                              className="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-medium bg-surface-subtle hover:bg-surface border border-border text-text-secondary hover:text-text-primary flex items-center gap-1 transition-colors"
-                                              title="Click to adjust scheduled follow-up time"
-                                            >
-                                              <Clock className="w-2.5 h-2.5 text-accent shrink-0" />
-                                              <span>{cust.followup_time || '10:00 AM'}</span>
-                                            </button>
-                                          )}
-                                        </div>
+                                            className={`w-full h-7 px-2 rounded-md border text-[11px] font-semibold flex items-center justify-between gap-1 transition-colors shadow-2xs cursor-pointer group ${
+                                              fuInfo.status === 'overdue'
+                                                ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                                                : fuInfo.status === 'today'
+                                                ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                                                : fuInfo.status === 'tomorrow'
+                                                ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200'
+                                                : 'bg-surface hover:bg-surface-subtle text-text-primary border-border'
+                                            }`}
+                                            title={`Follow-up: ${fuInfo.label} at ${fuInfo.time}. Click to reschedule`}
+                                          >
+                                            <div className="flex items-center gap-1.5 truncate">
+                                              {fuInfo.status === 'overdue' ? (
+                                                <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
+                                              ) : fuInfo.status === 'today' ? (
+                                                <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                                              ) : fuInfo.status === 'tomorrow' ? (
+                                                <CalendarClock className="w-3 h-3 text-blue-600 shrink-0" />
+                                              ) : (
+                                                <Calendar className="w-3 h-3 text-accent shrink-0" />
+                                              )}
+                                              <span className="truncate">{fuInfo.label} • {fuInfo.time}</span>
+                                            </div>
+                                            <ChevronDown className="w-2.5 h-2.5 opacity-50 shrink-0 group-hover:opacity-100" />
+                                          </button>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setActiveFollowupPopover(activeFollowupPopover?.customerId === cust.id ? null : { customerId: cust.id });
+                                            }}
+                                            className="w-full h-7 px-2 rounded-md border border-dashed border-border bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary text-[11px] font-medium flex items-center justify-between gap-1 transition-colors shadow-2xs cursor-pointer group"
+                                            title="Click to schedule a follow-up"
+                                          >
+                                            <div className="flex items-center gap-1.5 truncate">
+                                              <CalendarClock className="w-3 h-3 text-text-muted group-hover:text-accent shrink-0" />
+                                              <span className="truncate">Set Follow-up</span>
+                                            </div>
+                                            <ChevronDown className="w-2.5 h-2.5 opacity-40 shrink-0 group-hover:opacity-80" />
+                                          </button>
+                                        )}
 
-                                        {/* Floating Quick Time Picker Popover */}
-                                        {activeTimePopover?.customerId === cust.id && (
-                                          <div className="absolute right-4 top-full mt-1 z-30 w-52 bg-surface border border-border rounded-lg shadow-xl p-2.5 animate-in fade-in zoom-in-95 duration-150">
-                                            <div className="flex items-center justify-between text-[10px] text-text-muted mb-2">
-                                              <span className="flex items-center gap-1 font-semibold text-text-primary">
-                                                <Clock className="w-3 h-3 text-accent" />
-                                                <span>Set Follow-up Time</span>
-                                              </span>
-                                              <button onClick={() => setActiveTimePopover(null)} className="text-text-muted hover:text-text-primary p-0.5">
-                                                <X className="w-3 h-3" />
-                                              </button>
-                                            </div>
-                                            <div className="grid grid-cols-3 gap-1 mb-2">
-                                              {[
-                                                '09:00 AM', '10:00 AM', '11:00 AM',
-                                                '12:00 PM', '02:00 PM', '03:00 PM',
-                                                '04:00 PM', '05:00 PM', '06:00 PM'
-                                              ].map((tStr) => (
+                                        {/* Floating Smart Follow-up Scheduler Popover (Zero Manual Typing) */}
+                                        {activeFollowupPopover?.customerId === cust.id && (
+                                          <>
+                                            {/* Invisible Dismiss Overlay */}
+                                            <div
+                                              className="fixed inset-0 z-30"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setActiveFollowupPopover(null);
+                                              }}
+                                            />
+                                            <div
+                                              className="absolute right-4 top-full mt-1 z-40 w-72 bg-surface border border-border rounded-lg shadow-xl p-3 animate-in fade-in zoom-in-95 duration-150"
+                                              onClick={(e) => e.stopPropagation()}
+                                            >
+                                              {/* Popover Header */}
+                                              <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
+                                                <div className="flex items-center gap-1.5">
+                                                  <CalendarClock className="w-3.5 h-3.5 text-accent" />
+                                                  <span className="text-xs font-semibold text-text-primary">Schedule Follow-up</span>
+                                                </div>
                                                 <button
-                                                  key={tStr}
                                                   type="button"
-                                                  onClick={() => {
-                                                    handleUpdateCustomer(cust.id, { followup_time: tStr });
-                                                    setActiveTimePopover(null);
-                                                  }}
-                                                  className={`px-1 py-1 text-[10px] font-mono font-semibold rounded border transition-colors ${
-                                                    (cust.followup_time || '10:00 AM') === tStr
-                                                      ? 'bg-accent text-white border-accent shadow-xs'
-                                                      : 'bg-surface hover:bg-surface-subtle border-border text-text-primary'
-                                                  }`}
+                                                  onClick={() => setActiveFollowupPopover(null)}
+                                                  className="text-text-muted hover:text-text-primary p-0.5 rounded hover:bg-surface-subtle cursor-pointer"
                                                 >
-                                                  {tStr}
+                                                  <X className="w-3.5 h-3.5" />
                                                 </button>
-                                              ))}
+                                              </div>
+
+                                              {/* ⚡ Quick 1-Click Presets */}
+                                              <div className="mb-2.5">
+                                                <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-1 flex items-center gap-1">
+                                                  <Zap className="w-2.5 h-2.5 text-amber-500" />
+                                                  <span>Quick 1-Click Presets</span>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-1">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      handleUpdateCustomer(cust.id, {
+                                                        followup_date: getFollowupDateString(0),
+                                                        followup_time: '04:00 PM'
+                                                      });
+                                                      setActiveFollowupPopover(null);
+                                                    }}
+                                                    className="px-2 py-1 text-left text-[10px] font-medium rounded border border-border bg-surface hover:bg-surface-subtle hover:border-accent/40 text-text-primary flex items-center justify-between group transition-colors cursor-pointer"
+                                                  >
+                                                    <span>Today 4 PM</span>
+                                                    <span className="text-[9px] text-text-muted group-hover:text-accent font-mono">16:00</span>
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      handleUpdateCustomer(cust.id, {
+                                                        followup_date: getFollowupDateString(1),
+                                                        followup_time: '10:00 AM'
+                                                      });
+                                                      setActiveFollowupPopover(null);
+                                                    }}
+                                                    className="px-2 py-1 text-left text-[10px] font-semibold rounded border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-blue-900 flex items-center justify-between group transition-colors cursor-pointer"
+                                                  >
+                                                    <span>Tomorrow 10 AM</span>
+                                                    <span className="text-[9px] text-blue-600 font-mono">10:00</span>
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      handleUpdateCustomer(cust.id, {
+                                                        followup_date: getFollowupDateString(1),
+                                                        followup_time: '03:00 PM'
+                                                      });
+                                                      setActiveFollowupPopover(null);
+                                                    }}
+                                                    className="px-2 py-1 text-left text-[10px] font-medium rounded border border-border bg-surface hover:bg-surface-subtle hover:border-accent/40 text-text-primary flex items-center justify-between group transition-colors cursor-pointer"
+                                                  >
+                                                    <span>Tomorrow 3 PM</span>
+                                                    <span className="text-[9px] text-text-muted group-hover:text-accent font-mono">15:00</span>
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      handleUpdateCustomer(cust.id, {
+                                                        followup_date: getFollowupDateString(2),
+                                                        followup_time: '11:00 AM'
+                                                      });
+                                                      setActiveFollowupPopover(null);
+                                                    }}
+                                                    className="px-2 py-1 text-left text-[10px] font-medium rounded border border-border bg-surface hover:bg-surface-subtle hover:border-accent/40 text-text-primary flex items-center justify-between group transition-colors cursor-pointer"
+                                                  >
+                                                    <span>In 2 Days</span>
+                                                    <span className="text-[9px] text-text-muted group-hover:text-accent font-mono">11:00</span>
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      handleUpdateCustomer(cust.id, {
+                                                        followup_date: getNextMondayString(),
+                                                        followup_time: '10:00 AM'
+                                                      });
+                                                      setActiveFollowupPopover(null);
+                                                    }}
+                                                    className="col-span-2 px-2 py-1 text-left text-[10px] font-medium rounded border border-border bg-surface hover:bg-surface-subtle hover:border-accent/40 text-text-primary flex items-center justify-between group transition-colors cursor-pointer"
+                                                  >
+                                                    <span>Next Monday (10:00 AM)</span>
+                                                    <Calendar className="w-2.5 h-2.5 text-text-muted group-hover:text-accent" />
+                                                  </button>
+                                                </div>
+                                              </div>
+
+                                              {/* Quick Day Selector */}
+                                              <div className="mb-2.5 pt-2 border-t border-border">
+                                                <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-1 flex items-center justify-between">
+                                                  <span>Choose Day</span>
+                                                  {cust.followup_date && (
+                                                    <span className="text-[10px] font-mono text-accent">{cust.followup_date}</span>
+                                                  )}
+                                                </div>
+                                                <div className="grid grid-cols-4 gap-1 mb-1.5">
+                                                  {[
+                                                    { label: 'Today', val: getFollowupDateString(0) },
+                                                    { label: 'Tmrw', val: getFollowupDateString(1) },
+                                                    { label: '+2 Days', val: getFollowupDateString(2) },
+                                                    { label: 'Next Mon', val: getNextMondayString() },
+                                                  ].map((item) => {
+                                                    const isSel = cust.followup_date === item.val;
+                                                    return (
+                                                      <button
+                                                        key={item.label}
+                                                        type="button"
+                                                        onClick={() => {
+                                                          handleUpdateCustomer(cust.id, {
+                                                            followup_date: item.val,
+                                                            ...(!cust.followup_time ? { followup_time: '10:00 AM' } : {})
+                                                          });
+                                                        }}
+                                                        className={`py-1 text-[10px] font-semibold rounded border transition-colors cursor-pointer ${
+                                                          isSel
+                                                            ? 'bg-accent text-white border-accent shadow-xs'
+                                                            : 'bg-surface hover:bg-surface-subtle border-border text-text-primary'
+                                                        }`}
+                                                      >
+                                                        {item.label}
+                                                      </button>
+                                                    );
+                                                  })}
+                                                </div>
+                                                <input
+                                                  type="date"
+                                                  value={cust.followup_date || ''}
+                                                  onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    handleUpdateCustomer(cust.id, {
+                                                      followup_date: val,
+                                                      ...(val && !cust.followup_time ? { followup_time: '10:00 AM' } : {})
+                                                    });
+                                                  }}
+                                                  className="w-full text-[11px] font-medium bg-surface-subtle border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
+                                                  title="Or pick any calendar date"
+                                                />
+                                              </div>
+
+                                              {/* Quick Time Selector */}
+                                              <div className="mb-2.5 pt-2 border-t border-border">
+                                                <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-1 flex items-center justify-between">
+                                                  <span>Choose Time</span>
+                                                  <span className="text-[10px] font-mono text-accent">{cust.followup_time || '10:00 AM'}</span>
+                                                </div>
+                                                <div className="grid grid-cols-3 gap-1">
+                                                  {[
+                                                    '09:30 AM', '10:00 AM', '10:30 AM',
+                                                    '11:00 AM', '11:30 AM', '12:00 PM',
+                                                    '02:30 PM', '04:00 PM', '05:30 PM'
+                                                  ].map((tStr) => {
+                                                    const isSel = (cust.followup_time || '10:00 AM') === tStr;
+                                                    return (
+                                                      <button
+                                                        key={tStr}
+                                                        type="button"
+                                                        onClick={() => {
+                                                          handleUpdateCustomer(cust.id, {
+                                                            followup_time: tStr,
+                                                            ...(!cust.followup_date ? { followup_date: getFollowupDateString(1) } : {})
+                                                          });
+                                                        }}
+                                                        className={`py-1 text-[10px] font-mono font-medium rounded border transition-colors cursor-pointer ${
+                                                          isSel
+                                                            ? 'bg-accent text-white border-accent shadow-xs'
+                                                            : 'bg-surface hover:bg-surface-subtle border-border text-text-primary'
+                                                        }`}
+                                                      >
+                                                        {tStr}
+                                                      </button>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </div>
+
+                                              {/* Footer: Clear Follow-up & Done */}
+                                              <div className="pt-2 border-t border-border flex items-center justify-between">
+                                                {cust.followup_date ? (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      handleUpdateCustomer(cust.id, {
+                                                        followup_date: null as any,
+                                                        followup_time: null as any
+                                                      });
+                                                      setActiveFollowupPopover(null);
+                                                    }}
+                                                    className="text-[10px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded border border-rose-200 font-medium transition-colors flex items-center gap-1 cursor-pointer"
+                                                  >
+                                                    <Trash2 className="w-2.5 h-2.5" />
+                                                    <span>Clear</span>
+                                                  </button>
+                                                ) : <div />}
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setActiveFollowupPopover(null)}
+                                                  className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-[10px] font-semibold rounded transition-colors cursor-pointer"
+                                                >
+                                                  Done
+                                                </button>
+                                              </div>
                                             </div>
-                                            <div className="pt-1.5 border-t border-border flex gap-1">
-                                              <input
-                                                type="text"
-                                                placeholder="e.g. 10:30 AM"
-                                                value={customTimeInput}
-                                                onChange={(e) => setCustomTimeInput(e.target.value)}
-                                                onKeyDown={(e) => {
-                                                  if (e.key === 'Enter') {
-                                                    e.preventDefault();
-                                                    if (customTimeInput.trim()) {
-                                                      handleUpdateCustomer(cust.id, { followup_time: customTimeInput.trim() });
-                                                      setActiveTimePopover(null);
-                                                    }
-                                                  }
-                                                }}
-                                                className="flex-1 px-2 py-1 text-[11px] bg-surface-subtle border border-border rounded text-text-primary placeholder:text-text-muted"
-                                              />
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  if (customTimeInput.trim()) {
-                                                    handleUpdateCustomer(cust.id, { followup_time: customTimeInput.trim() });
-                                                    setActiveTimePopover(null);
-                                                  }
-                                                }}
-                                                className="px-2.5 py-1 bg-accent hover:bg-accent-hover text-white text-[10px] font-semibold rounded"
-                                              >
-                                                Set
-                                              </button>
-                                            </div>
-                                          </div>
+                                          </>
                                         )}
 
                                         {/* Next Action Dropdown */}
@@ -11810,7 +12112,30 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-[11px] text-text-muted mb-1">Follow-up Date</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[11px] text-text-muted">Follow-up Date</label>
+                        </div>
+                        <div className="flex items-center gap-1 mb-1.5 flex-wrap">
+                          {[
+                            { label: 'Today', val: getFollowupDateString(0) },
+                            { label: 'Tmrw', val: getFollowupDateString(1) },
+                            { label: '+2d', val: getFollowupDateString(2) },
+                            { label: 'Mon', val: getNextMondayString() },
+                          ].map((item) => (
+                            <button
+                              key={item.label}
+                              type="button"
+                              onClick={() => setAddCustomerForm(p => ({ ...p, followup_date: item.val }))}
+                              className={`px-1.5 py-0.5 text-[10px] font-semibold rounded border cursor-pointer ${
+                                addCustomerForm.followup_date === item.val
+                                  ? 'bg-accent text-white border-accent'
+                                  : 'bg-surface hover:bg-surface-subtle border-border text-text-secondary'
+                              }`}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
                         <input
                           type="date"
                           value={addCustomerForm.followup_date}
@@ -11819,7 +12144,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] text-text-muted mb-1">Follow-up Time</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[11px] text-text-muted">Follow-up Time</label>
+                        </div>
+                        <div className="flex items-center gap-1 mb-1.5 flex-wrap">
+                          {['10:00 AM', '11:30 AM', '02:30 PM', '04:00 PM'].map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => setAddCustomerForm(p => ({ ...p, followup_time: t }))}
+                              className={`px-1.5 py-0.5 text-[10px] font-semibold rounded border cursor-pointer ${
+                                (addCustomerForm.followup_time || '10:00 AM') === t
+                                  ? 'bg-accent text-white border-accent'
+                                  : 'bg-surface hover:bg-surface-subtle border-border text-text-secondary'
+                              }`}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
                         <FollowupTimeInput
                           value={addCustomerForm.followup_time || '10:00 AM'}
                           onChange={(newTime) => setAddCustomerForm(p => ({...p, followup_time: newTime}))}
