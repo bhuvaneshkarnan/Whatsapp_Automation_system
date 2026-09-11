@@ -849,6 +849,15 @@ const INDUSTRY_PRESETS = [
 ];
 
 
+export function WhatsAppIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+    </svg>
+  );
+}
+
+
 function FollowupCalendarPopover({
   currentDate,
   calViewDate,
@@ -1795,7 +1804,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [activeCalendarPopover, setActiveCalendarPopover] = useState<{ customerId: string } | null>(null);
   const [activeTimePopover, setActiveTimePopover] = useState<{ customerId: string } | null>(null);
   const [calViewDate, setCalViewDate] = useState<Date>(() => new Date());
-  const [quickNoteCustomer, setQuickNoteCustomer] = useState<{ customerId: string; name: string } | null>(null);
+  const [quickNoteCustomer, setQuickNoteCustomer] = useState<{ customerId: string; name: string; noteId?: string | null } | null>(null);
   const [quickNoteText, setQuickNoteText] = useState('');
   const [quickNoteColor, setQuickNoteColor] = useState('slate');
   const [savingQuickNote, setSavingQuickNote] = useState(false);
@@ -4258,6 +4267,42 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       alert('Failed to save note.');
     } finally {
       setSavingQuickNote(false);
+    }
+  };
+
+  const handleDeleteCustomerLatestNote = async (cust: { id: string; name?: string | null; latest_note_id?: string | null }) => {
+    if (!confirm(`Are you sure you want to delete the note for ${cust.name || 'this customer'}?`)) return;
+    try {
+      if (cust.latest_note_id) {
+        await crm.deleteCustomerNote(cust.latest_note_id);
+      } else {
+        await crm.deleteLatestCustomerNote(cust.id);
+      }
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === cust.id
+            ? { ...c, notes_count: Math.max(0, (c.notes_count || 1) - 1), latest_note: null, latest_note_id: null, latest_note_color: null }
+            : c
+        )
+      );
+      if (selectedCustomer && selectedCustomer.id === cust.id) {
+        setSelectedCustomer((prev) =>
+          prev
+            ? { ...prev, notes_count: Math.max(0, (prev.notes_count || 1) - 1), latest_note: null, latest_note_id: null, latest_note_color: null }
+            : null
+        );
+        crm.getCustomerNotes(cust.id).then((nts) => {
+          if (Array.isArray(nts)) setCustomerNotes(nts);
+        }).catch(() => {});
+      }
+      if (cust.latest_note_id) {
+        setAllNotes((prev) => prev.filter((n) => n.id !== cust.latest_note_id));
+      }
+      setActionNotice('Note deleted successfully.');
+      setTimeout(() => setActionNotice(null), 2500);
+    } catch (err) {
+      console.error('Failed to delete customer note:', err);
+      alert('Failed to delete note.');
     }
   };
 
@@ -11009,97 +11054,84 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       isSelected ? 'bg-blue-50/50 border-l-2 border-l-accent' : 'hover:bg-surface-subtle/70'
                                     }`}
                                   >
-                                    {/* 1. Customer & Tags (With inline Conversion Emoji + WhatsApp & Profile icons) */}
-                                    <td className="pt-2 pb-2.5 pl-4 pr-3 align-top w-[40%] min-w-[280px]">
-                                      <div className="space-y-1.5 min-w-0">
-                                        {/* Customer Identity & Phone */}
-                                        <div className="space-y-0.5">
-                                          <div className="flex items-center gap-1.5 flex-wrap">
-                                            <span className="font-bold text-text-primary text-[13px] tracking-tight">
+                                    {/* 1. Customer & Tags (Clean, Organised with Full Note, Delete Note, Real WhatsApp Icon, and Improved Lead Status) */}
+                                    <td className="pt-2.5 pb-3 pl-4 pr-3 align-top w-[40%] min-w-[280px]">
+                                      <div className="space-y-2 min-w-0">
+                                        {/* Row A: Customer Identity, Type Badge */}
+                                        <div className="flex items-center justify-between gap-2">
+                                          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                            <span className="font-bold text-text-primary text-[13px] tracking-tight truncate">
                                               {cust.name || 'Customer'}
                                             </span>
                                             {(cust.completed_bookings_count ?? 0) > 0 || cust.client_type === 'repeat' ? (
-                                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center gap-0.5" title={`Repeat client (${cust.completed_bookings_count ?? 0} completed visits)`}>
+                                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center gap-0.5 shrink-0" title={`Repeat client (${cust.completed_bookings_count ?? 0} completed visits)`}>
                                                 <UserCheck className="w-2.5 h-2.5 stroke-[2] shrink-0" />
                                                 <span>Repeat</span>
                                                 {(cust.completed_bookings_count ?? 0) > 0 && <span className="font-mono">({cust.completed_bookings_count})</span>}
                                               </span>
                                             ) : (
-                                              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-0.5" title="First-time lead">
+                                              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-0.5 shrink-0" title="First-time lead">
                                                 <UserPlus className="w-2.5 h-2.5 stroke-[2] shrink-0" />
                                                 <span>Lead</span>
                                               </span>
                                             )}
                                           </div>
-                                          <div className="flex items-center gap-2 font-mono text-[11px] text-text-muted flex-wrap">
-                                            <span>{cust.phone}</span>
-                                            {(cust.age || cust.location) && (
-                                              <>
-                                                <span className="opacity-40">•</span>
-                                                <span className="font-sans text-[11px]">{[cust.age ? `${cust.age}y` : null, cust.location].filter(Boolean).join(', ')}</span>
-                                              </>
-                                            )}
-                                            {(cust.last_chat_at || (cust as any).last_messaged_at) && (
-                                              <>
-                                                <span className="opacity-40">•</span>
-                                                <span className="text-[10px] text-text-secondary flex items-center gap-1 font-sans font-medium">
-                                                  <Clock className="w-2.5 h-2.5 text-text-muted shrink-0" />
-                                                  <span>Last: {formatWhatsAppRelativeDate(cust.last_chat_at || (cust as any).last_messaged_at)}</span>
-                                                </span>
-                                              </>
-                                            )}
-                                          </div>
-                                          {cust.last_message && (
-                                            <div
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleSelectCustomer(cust);
-                                                setDrawerActiveTab('chat');
-                                              }}
-                                              className="flex items-center gap-1.5 text-[11px] text-text-secondary hover:text-emerald-700 dark:hover:text-emerald-400 group cursor-pointer max-w-[340px] truncate pt-0.5"
-                                              title={`Latest WhatsApp: "${cust.last_message}" (Click to view chat)`}
-                                            >
-                                              <MessageSquare className="w-3 h-3 text-emerald-600 shrink-0 group-hover:scale-110 transition-transform" />
-                                              <span className="truncate italic font-medium">"{cust.last_message}"</span>
-                                            </div>
+                                        </div>
+
+                                        {/* Row B: Contact Phone, Location, Last Activity */}
+                                        <div className="flex items-center gap-2 font-mono text-[11px] text-text-muted flex-wrap">
+                                          <span className="font-medium text-text-secondary">{cust.phone}</span>
+                                          {(cust.age || cust.location) && (
+                                            <>
+                                              <span className="opacity-40">•</span>
+                                              <span className="font-sans text-[11px] text-text-muted">
+                                                {[cust.age ? `${cust.age}y` : null, cust.location].filter(Boolean).join(', ')}
+                                              </span>
+                                            </>
+                                          )}
+                                          {(cust.last_chat_at || (cust as any).last_messaged_at) && (
+                                            <>
+                                              <span className="opacity-40">•</span>
+                                              <span className="text-[10px] text-text-secondary flex items-center gap-1 font-sans font-medium">
+                                                <Clock className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                                                <span>Last: {formatWhatsAppRelativeDate(cust.last_chat_at || (cust as any).last_messaged_at)}</span>
+                                              </span>
+                                            </>
                                           )}
                                         </div>
 
-                                        {/* Tags & Inline Note Row (Cleanly Left-Aligned) */}
+                                        {/* Row C: Latest WhatsApp Message Snippet (With Real WhatsApp Icon) */}
+                                        {cust.last_message && (
+                                          <div
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleSelectCustomer(cust);
+                                              setDrawerActiveTab('chat');
+                                            }}
+                                            className="flex items-center gap-1.5 text-[11px] text-text-secondary hover:text-[#128C7E] dark:hover:text-[#25D366] group cursor-pointer max-w-full truncate pt-0.5"
+                                            title={`Latest WhatsApp: "${cust.last_message}" (Click to view chat)`}
+                                          >
+                                            <WhatsAppIcon className="w-3 h-3 text-[#25D366] shrink-0 group-hover:scale-110 transition-transform" />
+                                            <span className="truncate italic font-medium">"{cust.last_message}"</span>
+                                          </div>
+                                        )}
+
+                                        {/* Row D: Tags & Add Note Trigger */}
                                         <div className="flex items-center gap-1.5 flex-wrap pt-0.5" onClick={(e) => e.stopPropagation()}>
                                           {allTags.map((t, idx) => (
                                             <span
                                               key={idx}
                                               className={`text-[9px] px-1.5 py-0.5 rounded-sm font-semibold border ${
                                                 t.type === 'concern'
-                                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                  ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:border-blue-900 dark:text-blue-300'
+                                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300'
                                               }`}
                                             >
                                               {t.label}
                                             </span>
                                           ))}
 
-                                          {/* Inline Note Preview / Add Note Trigger */}
-                                          {cust.latest_note ? (() => {
-                                            const noteStyle = getNoteBadgeStyle(cust.latest_note_color);
-                                            return (
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  setQuickNoteCustomer({ customerId: cust.id, name: cust.name || 'Customer' });
-                                                  setQuickNoteText(cust.latest_note || '');
-                                                  setQuickNoteColor((cust.latest_note_color || 'slate').toLowerCase());
-                                                }}
-                                                className={`text-[10px] font-medium flex items-center gap-1 group truncate max-w-[260px] border px-1.5 py-0.5 rounded transition-colors ${noteStyle.badge}`}
-                                                title={`Note: ${cust.latest_note} (Click to view/edit)`}
-                                              >
-                                                <StickyNote className={`w-2.5 h-2.5 shrink-0 ${noteStyle.icon}`} />
-                                                <span className="truncate italic">"{cust.latest_note}"</span>
-                                              </button>
-                                            );
-                                          })() : (
+                                          {!cust.latest_note && (
                                             <button
                                               type="button"
                                               onClick={(e) => {
@@ -11108,121 +11140,187 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                 setQuickNoteText('');
                                                 setQuickNoteColor('slate');
                                               }}
-                                              className="text-[10px] font-semibold text-accent hover:underline flex items-center gap-0.5 px-1 py-0.5 rounded hover:bg-surface-subtle transition-colors"
+                                              className="text-[10px] font-semibold text-accent hover:underline flex items-center gap-0.5 px-1.5 py-0.5 rounded hover:bg-surface-subtle transition-colors cursor-pointer border border-dashed border-accent/40"
                                             >
                                               <Plus className="w-2.5 h-2.5 stroke-[2.5]" />
-                                              <span>Add Notes</span>
+                                              <span>Add Note</span>
                                             </button>
                                           )}
                                         </div>
 
-                                          {/* Bottom Row: Compact & Clean Warmth Box + WhatsApp & Profile Actions */}
-                                          <div className="flex items-center gap-1.5 pt-1.5 border-t border-border/40" onClick={(e) => e.stopPropagation()}>
-                                            {/* Compact Lead Warmth Button */}
-                                            <div className="relative">
-                                              <button
-                                                type="button"
+                                        {/* Row E: Full Note Card (With Complete Visible Text + Delete Note Button) */}
+                                        {cust.latest_note ? (() => {
+                                          const noteStyle = getNoteBadgeStyle(cust.latest_note_color);
+                                          return (
+                                            <div
+                                              onClick={(e) => e.stopPropagation()}
+                                              className={`group/note relative flex items-start gap-1.5 p-2 rounded-md border text-[11px] leading-relaxed transition-all shadow-2xs mt-1 ${noteStyle.badge}`}
+                                            >
+                                              <StickyNote className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${noteStyle.icon}`} />
+                                              <div
+                                                className="flex-1 cursor-pointer select-text pr-6 min-w-0"
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  setActiveRatePopover(activeRatePopover?.customerId === cust.id ? null : { customerId: cust.id, currentRate: rate });
+                                                  setQuickNoteCustomer({
+                                                    customerId: cust.id,
+                                                    name: cust.name || 'Customer',
+                                                    noteId: cust.latest_note_id
+                                                  });
+                                                  setQuickNoteText(cust.latest_note || '');
+                                                  setQuickNoteColor((cust.latest_note_color || 'slate').toLowerCase());
                                                 }}
-                                                className={`h-6 px-1.5 rounded border flex items-center gap-1 text-[10px] font-medium transition-colors shadow-2xs cursor-pointer ${
-                                                  rate >= 75
-                                                    ? 'bg-amber-50 border-amber-300/80 text-amber-700 hover:bg-amber-100'
-                                                    : rate >= 40
-                                                    ? 'bg-yellow-50 border-yellow-300/80 text-yellow-700 hover:bg-yellow-100'
-                                                    : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
-                                                }`}
-                                                title={`Lead Warmth: ${rate >= 75 ? 'Hot (90%)' : rate >= 40 ? 'Warm (50%)' : 'Cold (20%)'} — Click to change`}
+                                                title="Click to edit note"
                                               >
-                                                {rate >= 75 ? (
-                                                  <Flame className="w-3 h-3 text-amber-600 fill-amber-500/20 stroke-[2]" />
-                                                ) : rate >= 40 ? (
-                                                  <Sun className="w-3 h-3 text-amber-600 stroke-[2]" />
-                                                ) : (
-                                                  <Snowflake className="w-3 h-3 text-sky-500 stroke-[2]" />
-                                                )}
-                                                <ChevronDown className="w-2.5 h-2.5 opacity-50 shrink-0 stroke-[2]" />
-                                              </button>
-
-                                              {/* Quick Rate Picker Popover */}
-                                              {activeRatePopover?.customerId === cust.id && (
-                                                <div className="absolute left-0 bottom-full mb-1.5 z-30 w-44 bg-surface border border-border rounded-lg shadow-xl p-2 animate-in fade-in zoom-in-95 duration-150">
-                                                    <div className="flex items-center justify-between text-[10px] text-text-muted mb-1.5 font-semibold">
-                                                      <span>Set Lead Warmth</span>
-                                                      <button onClick={() => setActiveRatePopover(null)} className="text-text-muted hover:text-text-primary p-0.5">
-                                                        <X className="w-3 h-3" />
-                                                      </button>
-                                                    </div>
-                                                    <div className="grid grid-cols-3 gap-1">
-                                                      {[
-                                                        { pct: 90, icon: Flame, label: 'Hot', color: 'text-amber-500 fill-amber-500/20' },
-                                                        { pct: 50, icon: Sun, label: 'Warm', color: 'text-amber-500 stroke-[2.2]' },
-                                                        { pct: 20, icon: Snowflake, label: 'Cold', color: 'text-sky-500 stroke-[2.2]' },
-                                                      ].map((item) => {
-                                                        const isSelected = (item.pct >= 75 && rate >= 75) || (item.pct === 50 && rate >= 40 && rate < 75) || (item.pct === 20 && rate < 40);
-                                                        const IconComponent = item.icon;
-                                                        return (
-                                                          <button
-                                                            key={item.pct}
-                                                            type="button"
-                                                            onClick={() => {
-                                                              handleUpdateCustomer(cust.id, {
-                                                                conversion_rate: item.pct,
-                                                                lead_probability: item.pct >= 75 ? 'hot' : (item.pct <= 35 ? 'cold' : 'warm'),
-                                                                converted: item.pct === 100,
-                                                                status: item.pct === 100 ? 'converted' : undefined
-                                                              });
-                                                              setActiveRatePopover(null);
-                                                            }}
-                                                            className={`px-1 py-1 text-[10px] font-bold rounded border flex flex-col items-center gap-0.5 cursor-pointer transition-colors ${
-                                                              isSelected
-                                                                ? 'bg-accent text-white border-accent shadow-xs'
-                                                                : 'bg-surface hover:bg-surface-subtle border-border text-text-primary'
-                                                            }`}
-                                                          >
-                                                            <IconComponent className={`w-3.5 h-3.5 ${isSelected ? 'text-white fill-white/20 stroke-[2.2]' : item.color}`} />
-                                                            <span className="text-[9px] font-medium leading-none">{item.pct}%</span>
-                                                          </button>
-                                                        );
-                                                      })}
-                                                    </div>
-                                                  </div>
-                                                )}
+                                                <p className="font-normal text-text-primary whitespace-pre-wrap break-words italic">
+                                                  "{cust.latest_note}"
+                                                </p>
                                               </div>
-
-                                            {/* Action Buttons: Compact WhatsApp & Profile */}
-                                            <div className="flex items-center gap-1">
-                                              {/* Compact WhatsApp Chat Trigger */}
+                                              {/* Delete Note Button */}
                                               <button
                                                 type="button"
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  handleSelectCustomer(cust);
-                                                  setDrawerActiveTab('chat');
+                                                  handleDeleteCustomerLatestNote(cust);
                                                 }}
-                                                className="h-6 px-2 bg-emerald-50/80 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 rounded flex items-center gap-1 text-[10px] font-semibold transition-colors shadow-2xs cursor-pointer"
-                                                title="View & reply to WhatsApp chat"
+                                                className="absolute top-1.5 right-1.5 p-1 rounded text-text-muted hover:text-rose-600 hover:bg-rose-100/70 dark:hover:bg-rose-950/50 transition-colors opacity-70 group-hover/note:opacity-100 cursor-pointer"
+                                                title="Delete this note"
                                               >
-                                                <MessageSquare className="w-3 h-3 fill-emerald-600 text-emerald-600 stroke-[1.8]" />
-                                                <span>WhatsApp</span>
-                                              </button>
-
-                                              {/* Compact Profile & Notes Trigger */}
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  handleSelectCustomer(cust);
-                                                  setDrawerActiveTab('profile');
-                                                }}
-                                                className="h-6 w-6 bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary border border-border rounded flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
-                                                title="Open Customer Profile & Notes"
-                                              >
-                                                <User className="w-3 h-3 stroke-[2]" />
+                                                <Trash2 className="w-3.5 h-3.5" />
                                               </button>
                                             </div>
+                                          );
+                                        })() : null}
+
+                                        {/* Row F: Action Toolbar (Improved Lead Status + Real WhatsApp + Profile) */}
+                                        <div className="flex items-center gap-1.5 pt-1.5 border-t border-border/40" onClick={(e) => e.stopPropagation()}>
+                                          {/* Improved Lead Status Pill */}
+                                          <div className="relative">
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setActiveRatePopover(activeRatePopover?.customerId === cust.id ? null : { customerId: cust.id, currentRate: rate });
+                                              }}
+                                              className={`h-6 px-2 rounded-md border flex items-center gap-1 text-[10px] font-bold transition-all shadow-2xs cursor-pointer ${
+                                                cust.converted || cust.status === 'converted'
+                                                  ? 'bg-emerald-50 hover:bg-emerald-100/90 border-emerald-200 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300'
+                                                  : rate >= 75
+                                                  ? 'bg-rose-50 hover:bg-rose-100/90 border-rose-200 text-rose-700 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300'
+                                                  : rate >= 40
+                                                  ? 'bg-amber-50 hover:bg-amber-100/90 border-amber-200 text-amber-700 dark:bg-amber-950/40 dark:border-amber-900 dark:text-amber-300'
+                                                  : 'bg-sky-50 hover:bg-sky-100/90 border-sky-200 text-sky-700 dark:bg-sky-950/40 dark:border-sky-900 dark:text-sky-300'
+                                              }`}
+                                              title={`Lead Status: ${cust.converted || cust.status === 'converted' ? 'Converted (100%)' : rate >= 75 ? 'Hot (90%)' : rate >= 40 ? 'Warm (50%)' : 'Cold (20%)'} — Click to change`}
+                                            >
+                                              {cust.converted || cust.status === 'converted' ? (
+                                                <CheckCircle2 className="w-3 h-3 text-emerald-600 stroke-[2.2]" />
+                                              ) : rate >= 75 ? (
+                                                <Flame className="w-3 h-3 text-rose-600 fill-rose-500/20 stroke-[2.2]" />
+                                              ) : rate >= 40 ? (
+                                                <Sun className="w-3 h-3 text-amber-600 stroke-[2.2]" />
+                                              ) : (
+                                                <Snowflake className="w-3 h-3 text-sky-600 stroke-[2.2]" />
+                                              )}
+                                              <span>
+                                                {cust.converted || cust.status === 'converted'
+                                                  ? 'Converted'
+                                                  : rate >= 75
+                                                  ? `Hot (${rate}%)`
+                                                  : rate >= 40
+                                                  ? `Warm (${rate}%)`
+                                                  : `Cold (${rate}%)`}
+                                              </span>
+                                              <ChevronDown className="w-2.5 h-2.5 opacity-60 shrink-0 stroke-[2.2]" />
+                                            </button>
+
+                                            {/* Quick Lead Status Picker Popover */}
+                                            {activeRatePopover?.customerId === cust.id && (
+                                              <div className="absolute left-0 bottom-full mb-1.5 z-40 w-52 bg-surface border border-border rounded-lg shadow-xl p-2 animate-in fade-in zoom-in-95 duration-150">
+                                                <div className="flex items-center justify-between text-[11px] text-text-primary mb-1.5 font-bold pb-1 border-b border-border">
+                                                  <span>Set Lead Status</span>
+                                                  <button onClick={() => setActiveRatePopover(null)} className="text-text-muted hover:text-text-primary p-0.5 rounded">
+                                                    <X className="w-3 h-3" />
+                                                  </button>
+                                                </div>
+                                                <div className="grid grid-cols-1 gap-1">
+                                                  {[
+                                                    { pct: 90, icon: Flame, label: 'Hot Lead', sub: 'High interest / Ready', color: 'text-rose-600 fill-rose-500/20', bg: 'hover:bg-rose-50 text-rose-800' },
+                                                    { pct: 50, icon: Sun, label: 'Warm Lead', sub: 'Interested, follow-up', color: 'text-amber-600', bg: 'hover:bg-amber-50 text-amber-800' },
+                                                    { pct: 20, icon: Snowflake, label: 'Cold Lead', sub: 'Low engagement', color: 'text-sky-600', bg: 'hover:bg-sky-50 text-sky-800' },
+                                                    { pct: 100, icon: CheckCircle2, label: 'Converted', sub: 'Successfully closed', color: 'text-emerald-600', bg: 'hover:bg-emerald-50 text-emerald-800' },
+                                                  ].map((item) => {
+                                                    const isSelected = (item.pct === 100 && (cust.converted || cust.status === 'converted')) ||
+                                                                       (item.pct === 90 && rate >= 75 && !cust.converted && cust.status !== 'converted') ||
+                                                                       (item.pct === 50 && rate >= 40 && rate < 75 && !cust.converted && cust.status !== 'converted') ||
+                                                                       (item.pct === 20 && rate < 40 && !cust.converted && cust.status !== 'converted');
+                                                    const IconComponent = item.icon;
+                                                    return (
+                                                      <button
+                                                        key={item.pct}
+                                                        type="button"
+                                                        onClick={() => {
+                                                          handleUpdateCustomer(cust.id, {
+                                                            conversion_rate: item.pct,
+                                                            lead_probability: item.pct >= 75 ? 'hot' : (item.pct <= 35 ? 'cold' : 'warm'),
+                                                            converted: item.pct === 100,
+                                                            status: item.pct === 100 ? 'converted' : undefined
+                                                          });
+                                                          setActiveRatePopover(null);
+                                                        }}
+                                                        className={`w-full px-2 py-1.5 rounded border text-left flex items-center justify-between transition-colors cursor-pointer ${
+                                                          isSelected
+                                                            ? 'bg-accent/10 border-accent text-accent font-bold'
+                                                            : `border-transparent hover:border-border ${item.bg}`
+                                                        }`}
+                                                      >
+                                                        <div className="flex items-center gap-2">
+                                                          <IconComponent className={`w-3.5 h-3.5 shrink-0 ${item.color}`} />
+                                                          <div>
+                                                            <div className="text-[11px] font-bold leading-tight">{item.label}</div>
+                                                            <div className="text-[9px] text-text-muted leading-tight">{item.sub}</div>
+                                                          </div>
+                                                        </div>
+                                                        <span className="text-[10px] font-mono font-semibold opacity-80">{item.pct}%</span>
+                                                      </button>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </div>
+                                            )}
                                           </div>
+
+                                          {/* Action Buttons: Real WhatsApp & Profile */}
+                                          <div className="flex items-center gap-1">
+                                            {/* WhatsApp Chat Button with Authentic WhatsApp Icon */}
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleSelectCustomer(cust);
+                                                setDrawerActiveTab('chat');
+                                              }}
+                                              className="h-6 px-2.5 bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#128C7E] dark:text-[#25D366] border border-[#25D366]/30 rounded-md flex items-center gap-1.5 text-[10px] font-bold transition-all shadow-2xs cursor-pointer"
+                                              title="View & reply to WhatsApp chat"
+                                            >
+                                              <WhatsAppIcon className="w-3.5 h-3.5 text-[#25D366]" />
+                                              <span>WhatsApp</span>
+                                            </button>
+
+                                            {/* Profile Trigger */}
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleSelectCustomer(cust);
+                                                setDrawerActiveTab('profile');
+                                              }}
+                                              className="h-6 w-6 bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary border border-border rounded-md flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                                              title="Open Customer Profile & Notes"
+                                            >
+                                              <User className="w-3 h-3 stroke-[2]" />
+                                            </button>
+                                          </div>
+                                        </div>
                                       </div>
                                     </td>
 
@@ -12239,6 +12337,24 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
 
                     <div className="flex items-center gap-2">
+                      {quickNoteCustomer && (quickNoteCustomer.noteId || quickNoteText.trim()) && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await handleDeleteCustomerLatestNote({
+                              id: quickNoteCustomer.customerId,
+                              name: quickNoteCustomer.name,
+                              latest_note_id: quickNoteCustomer.noteId,
+                            });
+                            setQuickNoteCustomer(null);
+                          }}
+                          className="px-2.5 py-1 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-md transition-colors flex items-center gap-1 cursor-pointer mr-1"
+                          title="Delete this note"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Delete</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => setQuickNoteCustomer(null)}
@@ -12250,7 +12366,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         type="button"
                         disabled={!quickNoteText.trim() || savingQuickNote}
                         onClick={handleSaveQuickNote}
-                        className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-2xs"
+                        className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-2xs cursor-pointer"
                       >
                         <Save className="w-3 h-3" />
                         <span>{savingQuickNote ? 'Saving...' : 'Save Note'}</span>

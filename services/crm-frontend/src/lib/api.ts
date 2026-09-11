@@ -380,6 +380,7 @@ export interface Customer {
   retention_status?: 'active' | 'due' | 'lapsed' | 'new';
   notes_count?: number;
   latest_note?: string | null;
+  latest_note_id?: string | null;
   latest_note_color?: string | null;
   last_chat_at?: string | null;
   last_message?: string | null;
@@ -859,6 +860,11 @@ export const crm = {
 
   deleteCustomerNote: (noteId: string) =>
     request<{ status: string; id: string }>(`/api/v1/crm/notes/${noteId}`, {
+      method: 'DELETE',
+    }),
+
+  deleteLatestCustomerNote: (customerId: string) =>
+    request<{ status: string; customer_id: string; deleted_note_id?: string }>(`/api/v1/crm/customers/${customerId}/latest-note`, {
       method: 'DELETE',
     }),
 

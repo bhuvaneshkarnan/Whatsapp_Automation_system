@@ -1259,6 +1259,7 @@ async def list_customers(
                 b_last.last_visit_doctor,
                 ct_match.wa_profile_name,
                 notes_info.notes_count,
+                notes_info.latest_note_id,
                 notes_info.latest_note,
                 notes_info.latest_note_color,
                 msg_info.last_chat_at,
@@ -1284,6 +1285,7 @@ async def list_customers(
             LEFT JOIN LATERAL (
                 SELECT 
                     COUNT(*) AS notes_count,
+                    (SELECT cn2.id FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note_id,
                     (SELECT cn2.note_text FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note,
                     (SELECT COALESCE(cn2.color, 'slate') FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note_color
                 FROM customer_notes cn
@@ -1378,6 +1380,7 @@ async def list_customers(
             "retention_status": retention_status,
             "notes_count": r["notes_count"] or 0,
             "latest_note": r["latest_note"] or None,
+            "latest_note_id": str(r["latest_note_id"]) if r.get("latest_note_id") else None,
             "latest_note_color": r.get("latest_note_color") or "slate",
             "last_chat_at": (r["last_chat_at"] or r["last_messaged_at"]).isoformat() if (r["last_chat_at"] or r["last_messaged_at"]) else None,
             "last_message": r["last_message"] or None,
@@ -2221,6 +2224,24 @@ async def delete_customer_note(
             note_id, tenant_id
         )
     return {"status": "success", "id": note_id}
+
+
+@app.delete("/customers/{customer_id}/latest-note")
+@app.delete("/api/v1/crm/customers/{customer_id}/latest-note")
+async def delete_customer_latest_note(
+    customer_id: str,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Delete the most recent note for a customer."""
+    async with db_pool.acquire() as conn:
+        latest_id = await conn.fetchval(
+            "SELECT id FROM customer_notes WHERE customer_id = $1::uuid AND tenant_id = $2::uuid ORDER BY created_at DESC LIMIT 1",
+            customer_id, tenant_id
+        )
+        if latest_id:
+            await conn.execute("DELETE FROM customer_notes WHERE id = $1::uuid AND tenant_id = $2::uuid", latest_id, tenant_id)
+        await conn.execute("UPDATE customers SET notes = NULL WHERE id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
+    return {"status": "success", "customer_id": customer_id, "deleted_note_id": str(latest_id) if latest_id else None}
 
 
 @app.get("/customers/{customer_id}/chat")
