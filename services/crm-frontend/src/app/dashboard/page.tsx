@@ -1247,6 +1247,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [newCustomerNoteAuthor, setNewCustomerNoteAuthor] = useState('Admin');
   const [newCustomerNoteColor, setNewCustomerNoteColor] = useState('slate');
   const [addingCustomerNote, setAddingCustomerNote] = useState(false);
+  const [drawerActiveTab, setDrawerActiveTab] = useState<'chat' | 'profile'>('chat');
+  const chatBottomRef = useRef<HTMLDivElement>(null);
 
   // CRM Dropdown Options (Outcome statuses, Next actions, Services, Concerns)
   const [crmDropdowns, setCrmDropdowns] = useState<CrmDropdownOptions>({
@@ -3954,6 +3956,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       const chat = await crm.getCustomerChat(selectedCustomer.id);
       setCustomerChat(chat);
       setActionNotice(`WhatsApp message sent to ${selectedCustomer.phone}!`);
+      setTimeout(() => chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 80);
       setTimeout(() => setActionNotice(null), 3500);
     } catch (err) {
       console.error('Error sending WhatsApp message:', err);
@@ -3962,6 +3965,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       setSendingCustomerReply(false);
     }
   }
+
+  useEffect(() => {
+    if (drawerActiveTab === 'chat' && customerChat?.messages?.length) {
+      const timer = setTimeout(() => {
+        chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [drawerActiveTab, customerChat?.messages?.length, selectedCustomer?.id]);
 
   async function handleSyncCustomerToGoogleTasks(customerId: string) {
     setSyncingGoogleTasks(true);
@@ -6052,6 +6064,716 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       </div>
     );
   }
+
+  function renderCustomerDetailDrawer() {
+    if (!selectedCustomer) return null;
+
+    const currentCustIndex = customers.findIndex((c) => c.id === selectedCustomer.id);
+    const hasPrevCust = currentCustIndex > 0;
+    const hasNextCust = currentCustIndex >= 0 && currentCustIndex < customers.length - 1;
+
+    const goToPrevCustomer = () => {
+      if (hasPrevCust) {
+        handleSelectCustomer(customers[currentCustIndex - 1]);
+      }
+    };
+
+    const goToNextCustomer = () => {
+      if (hasNextCust) {
+        handleSelectCustomer(customers[currentCustIndex + 1]);
+      }
+    };
+
+    return (
+      <div
+        className={`fixed inset-0 z-50 md:relative md:inset-auto md:z-auto w-full ${
+          isDrawerExpanded ? 'md:w-[760px] md:max-w-[60vw]' : 'md:w-[500px] xl:w-[560px]'
+        } bg-surface border border-border md:rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-2xl md:shadow-sm safe-area-pt safe-area-pb md:pt-0 md:pb-0`}
+      >
+        {/* Top Header: Customer info, Stepper navigation & controls */}
+        <div className="p-3 border-b border-border flex items-center justify-between bg-surface-subtle/70 shrink-0 gap-2">
+          {/* Left: Customer Name & Phone */}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h4 className="font-bold text-xs text-text-primary flex items-center gap-1.5 truncate">
+                <User className="w-3.5 h-3.5 text-accent stroke-[1.8] shrink-0" />
+                <span className="truncate">{selectedCustomer.name || 'Customer Profile'}</span>
+              </h4>
+              {selectedCustomer.lead_probability && (
+                <span
+                  className={`text-[9px] font-bold px-1.5 py-0.2 rounded-xs uppercase tracking-wider ${
+                    selectedCustomer.lead_probability === 'hot'
+                      ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                      : selectedCustomer.lead_probability === 'warm'
+                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                      : 'bg-slate-100 text-slate-700 border border-slate-200'
+                  }`}
+                >
+                  {selectedCustomer.lead_probability}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 font-mono text-[10px] text-text-muted mt-0.5 flex-wrap">
+              <span>{selectedCustomer.phone}</span>
+              {(selectedCustomer.age || selectedCustomer.location) && (
+                <>
+                  <span className="opacity-40">•</span>
+                  <span className="font-sans">
+                    {[selectedCustomer.age ? `${selectedCustomer.age}y` : null, selectedCustomer.location]
+                      .filter(Boolean)
+                      .join(', ')}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Stepper Navigation: [< Prev] [X / Y] [Next >] */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {customers.length > 1 && (
+              <div className="flex items-center bg-surface border border-border rounded-md px-1 py-0.5 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={goToPrevCustomer}
+                  disabled={!hasPrevCust}
+                  className="p-1 text-text-secondary hover:text-text-primary hover:bg-surface-subtle rounded disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed transition-colors"
+                  title="Previous customer in list"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-[10px] font-mono font-medium text-text-muted select-none px-1.5 whitespace-nowrap">
+                  {currentCustIndex >= 0 ? `${currentCustIndex + 1} / ${customers.length}` : '—'}
+                </span>
+                <button
+                  type="button"
+                  onClick={goToNextCustomer}
+                  disabled={!hasNextCust}
+                  className="p-1 text-text-secondary hover:text-text-primary hover:bg-surface-subtle rounded disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed transition-colors"
+                  title="Next customer in list"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Expand / Minimize */}
+            <button
+              type="button"
+              onClick={() => setIsDrawerExpanded(!isDrawerExpanded)}
+              className="p-1.5 text-text-muted hover:text-text-primary rounded-md hover:bg-surface-subtle transition-colors cursor-pointer"
+              title={isDrawerExpanded ? 'Standard width' : 'Expand panel width'}
+            >
+              {isDrawerExpanded ? <Minimize2 className="w-3.5 h-3.5 stroke-[1.8]" /> : <Maximize2 className="w-3.5 h-3.5 stroke-[1.8]" />}
+            </button>
+
+            {/* Close */}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCustomer(null);
+                setIsDrawerExpanded(false);
+              }}
+              className="p-1.5 text-text-muted hover:text-text-primary rounded-md hover:bg-surface-subtle transition-colors cursor-pointer"
+              title="Close panel"
+            >
+              <X className="w-3.5 h-3.5 stroke-[1.8]" />
+            </button>
+          </div>
+        </div>
+
+        {/* Segmented Tab Header: [💬 WhatsApp Chat] and [📋 Profile & Notes] */}
+        <div className="flex items-center border-b border-border bg-surface px-3 pt-2 gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setDrawerActiveTab('chat')}
+            className={`pb-2 px-3 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
+              drawerActiveTab === 'chat'
+                ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400'
+                : 'border-transparent text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+            <span>WhatsApp Chat</span>
+            {customerChat?.messages && customerChat.messages.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 font-mono">
+                {customerChat.messages.length}
+              </span>
+            )}
+            {customerChat?.unread_count ? (
+              <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-bold">
+                {customerChat.unread_count} new
+              </span>
+            ) : null}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setDrawerActiveTab('profile')}
+            className={`pb-2 px-3 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
+              drawerActiveTab === 'profile'
+                ? 'border-accent text-accent'
+                : 'border-transparent text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <User className="w-3.5 h-3.5 text-accent" />
+            <span>Profile & Notes</span>
+            {customerNotes.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-surface-subtle text-text-secondary border border-border font-mono">
+                {customerNotes.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* TAB 1: WhatsApp Chat View */}
+        {drawerActiveTab === 'chat' && (
+          <div className="flex-1 flex flex-col min-h-0 bg-surface">
+            {/* Top Sub-Bar with quick actions & Inbox link */}
+            <div className="px-3 py-2 bg-surface-subtle/50 border-b border-border flex items-center justify-between gap-2 shrink-0 text-xs">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[11px] text-text-secondary truncate">
+                  {selectedCustomer.health_concern ? (
+                    <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded text-[10px] font-medium mr-1.5">
+                      {selectedCustomer.health_concern}
+                    </span>
+                  ) : null}
+                  {selectedCustomer.last_chat_at ? (
+                    <span className="text-text-muted text-[10px] font-mono">
+                      Active {formatWhatsAppRelativeDate(selectedCustomer.last_chat_at)}
+                    </span>
+                  ) : (
+                    <span className="text-text-muted text-[10px]">WhatsApp conversation</span>
+                  )}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setLoadingCustomerChat(true);
+                    try {
+                      const chat = await crm.getCustomerChat(selectedCustomer.id);
+                      setCustomerChat(chat);
+                    } catch (e) {
+                      console.error('Failed to refresh customer chat:', e);
+                    } finally {
+                      setLoadingCustomerChat(false);
+                    }
+                  }}
+                  className="p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
+                  title="Refresh conversation"
+                >
+                  <RefreshCw className={`w-3 h-3 ${loadingCustomerChat ? 'animate-spin' : ''}`} />
+                  <span className="text-[10px] hidden sm:inline">Refresh</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openChatForContact(selectedCustomer.phone)}
+                  className="text-[11px] text-accent hover:underline flex items-center gap-0.5 font-medium cursor-pointer"
+                  title="Open full conversation in Inbox tab"
+                >
+                  <span>Open in Inbox</span>
+                  <ArrowUpRight className="w-3 h-3 stroke-[2]" />
+                </button>
+              </div>
+            </div>
+
+            {/* Chat Messages Thread */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-canvas/40 dark:bg-canvas/80 min-h-0">
+              {loadingCustomerChat ? (
+                <div className="flex flex-col items-center justify-center py-12 text-text-muted gap-2">
+                  <RefreshCw className="w-5 h-5 animate-spin text-accent" />
+                  <p className="text-xs">Loading WhatsApp conversation...</p>
+                </div>
+              ) : !customerChat || !customerChat.messages || customerChat.messages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-text-muted text-center px-4">
+                  <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-2 border border-emerald-200">
+                    <MessageSquare className="w-5 h-5" />
+                  </div>
+                  <p className="text-xs font-semibold text-text-primary">No WhatsApp messages yet</p>
+                  <p className="text-[11px] text-text-muted mt-1 max-w-[260px]">
+                    Use the reply box below to send a WhatsApp message directly to {selectedCustomer.name || selectedCustomer.phone}.
+                  </p>
+                </div>
+              ) : (
+                customerChat.messages.map((msg, idx) => {
+                  const isInbound = msg.direction === 'inbound';
+                  const currentDateKey = getMessageDateKey(msg.created_at);
+                  const prevDateKey = idx > 0 ? getMessageDateKey(customerChat.messages[idx - 1]?.created_at) : null;
+                  const showDateDivider = idx === 0 || (Boolean(currentDateKey) && currentDateKey !== prevDateKey);
+
+                  return (
+                    <Fragment key={msg.id || idx}>
+                      {showDateDivider && (
+                        <div className="flex justify-center my-2 select-none pointer-events-none">
+                          <span
+                            className="px-2.5 py-0.5 rounded-md text-[10px] font-medium tracking-wide uppercase bg-surface/90 dark:bg-zinc-800/90 backdrop-blur-xs text-text-secondary border border-border/70 shadow-2xs pointer-events-auto"
+                            title={formatFullDateTimeDetailed(msg.created_at)}
+                          >
+                            {formatMessageDateDivider(msg.created_at)}
+                          </span>
+                        </div>
+                      )}
+                      <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
+                        <div
+                          className={`max-w-[85%] sm:max-w-[78%] rounded-2xl px-3 py-2 text-xs shadow-2xs ${
+                            isInbound
+                              ? 'bg-surface text-text-body border border-border rounded-bl-xs'
+                              : 'bg-emerald-600 text-white rounded-br-xs'
+                          }`}
+                        >
+                          {msg.media_url && (
+                            <div className="mb-1.5 rounded-lg overflow-hidden max-w-[240px]">
+                              <img src={msg.media_url} alt="Media" className="w-full h-auto object-cover max-h-48" />
+                            </div>
+                          )}
+                          <p className="leading-relaxed whitespace-pre-wrap">{getDisplayMessageBody(msg)}</p>
+                          <div
+                            className={`text-[9px] mt-1 flex items-center justify-end gap-1 font-mono ${
+                              isInbound ? 'text-text-muted' : 'text-emerald-100'
+                            }`}
+                            title={formatFullDateTimeDetailed(msg.created_at)}
+                          >
+                            <span>{formatTime12(msg.created_at)}</span>
+                            {!isInbound && (
+                              <CheckCheck className="w-3 h-3 stroke-[2] text-emerald-200" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </Fragment>
+                  );
+                })
+              )}
+              <div ref={chatBottomRef} />
+            </div>
+
+            {/* Quick Reply Form */}
+            <form onSubmit={handleSendCustomerReply} className="p-2.5 border-t border-border bg-surface flex gap-2 items-center shrink-0">
+              <input
+                type="text"
+                value={customerReplyText}
+                onChange={(e) => setCustomerReplyText(e.target.value)}
+                placeholder={`Reply to ${selectedCustomer.name || selectedCustomer.phone} on WhatsApp...`}
+                className="flex-1 px-3 py-2 text-xs bg-surface-subtle border border-border rounded-md text-text-primary focus:outline-none focus:border-emerald-600 focus:bg-surface transition-colors"
+              />
+              <button
+                type="submit"
+                disabled={!customerReplyText.trim() || sendingCustomerReply}
+                className="h-8 px-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-semibold rounded-md transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 shadow-2xs"
+              >
+                <Send className="w-3.5 h-3.5 stroke-[2]" />
+                <span>{sendingCustomerReply ? 'Sending...' : 'Send'}</span>
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* TAB 2: Profile, Notes & Follow-up View */}
+        {drawerActiveTab === 'profile' && (
+          <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
+            {/* WhatsApp Quick Jump Banner */}
+            <div
+              onClick={() => setDrawerActiveTab('chat')}
+              className="p-2.5 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200 rounded-sm flex items-center justify-between cursor-pointer transition-colors group"
+              title="Switch to WhatsApp Chat tab"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                  <MessageSquare className="w-3.5 h-3.5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-emerald-950 flex items-center gap-1.5">
+                    <span>WhatsApp Conversation</span>
+                    {customerChat?.unread_count ? (
+                      <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-bold">
+                        {customerChat.unread_count} new
+                      </span>
+                    ) : null}
+                  </p>
+                  {selectedCustomer.last_message ? (
+                    <p className="text-[11px] text-emerald-800 truncate italic">
+                      "{selectedCustomer.last_message}"
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-emerald-700">
+                      Click to read conversation & send replies
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-1 text-[11px] font-medium text-emerald-700 group-hover:text-emerald-800 shrink-0">
+                <span>View Chat</span>
+                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              </div>
+            </div>
+
+            {/* 1. Identity & Attributes Card */}
+            <div className="space-y-2 p-3 bg-surface-subtle border border-border rounded-sm">
+              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Customer Details</p>
+              
+              <div>
+                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.requirement_label || 'Requirement / Concern'}</label>
+                <textarea
+                  value={drawerConcern}
+                  onChange={(e) => setDrawerConcern(e.target.value)}
+                  rows={2}
+                  placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
+                  className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent resize-none"
+                />
+                {/* Prebuilt Chips */}
+                {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                  ? settingsForm.taxonomy.requirement_presets
+                  : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
+                ) && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                      ? settingsForm.taxonomy.requirement_presets
+                      : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
+                    ).map((chip) => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => setDrawerConcern(chip)}
+                        className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${
+                          drawerConcern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'
+                        }`}
+                      >
+                        {chip}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={openPresetEditor}
+                      title="Edit presets (add or remove)"
+                      className="px-1.5 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-text-muted hover:text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
+                    >
+                      <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
+                      <span>Edit</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1">Age</label>
+                  <input
+                    type="number" min="1" max="120"
+                    value={drawerAge}
+                    onChange={(e) => setDrawerAge(e.target.value)}
+                    placeholder="e.g. 35"
+                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1">Location</label>
+                  <input
+                    type="text"
+                    value={drawerLocation}
+                    onChange={(e) => setDrawerLocation(e.target.value)}
+                    placeholder="e.g. Mumbai"
+                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-1">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] text-text-muted">{currentTaxonomy.staff_label || 'Assigned Staff / Doctor'}</label>
+                  <button
+                    type="button"
+                    onClick={openDoctorEditor}
+                    className="text-[10px] text-accent hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
+                  >
+                    <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
+                    <span>Manage {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff'}</span>
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  {renderStaffAssignTrigger({
+                    value: drawerDoctor,
+                    onClick: (e) => {
+                      e.stopPropagation();
+                      openCustomerAssignPopover('drawer', selectedCustomer?.id, drawerDoctor, e.currentTarget);
+                    },
+                    placeholder: `— Select ${currentTaxonomy.staff_label || 'Staff / Doctor'} —`,
+                    fullWidth: true,
+                  })}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveDrawerAttributes}
+                disabled={savingDrawerAttributes}
+                className="w-full py-1.5 px-3 bg-accent hover:bg-accent-hover disabled:opacity-60 text-white text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 mt-2"
+              >
+                <Save className="w-3 h-3 stroke-[1.5]" />
+                {savingDrawerAttributes ? 'Saving...' : 'Save Attributes'}
+              </button>
+            </div>
+
+            {/* 2. Schedule Follow-up Card */}
+            <div className="p-3 bg-surface-subtle border border-border rounded-sm space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                  <CalendarClock className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                  <span>Schedule Follow-up</span>
+                </span>
+                <div className="flex items-center gap-1.5">
+                  {selectedCustomer.google_task_id && (
+                    <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium">
+                      Tasks Synced
+                    </span>
+                  )}
+                  {selectedCustomer.google_calendar_event_id && (
+                    <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-sm font-medium">
+                      Calendar Synced
+                    </span>
+                  )}
+                  {selectedCustomer.followup_date && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCustomerFollowup(selectedCustomer.id)}
+                      className="px-2 py-0.5 text-[10px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-sm font-medium transition-colors cursor-pointer flex items-center gap-1"
+                      title="Delete scheduled follow-up"
+                    >
+                      <Trash2 className="w-2.5 h-2.5 stroke-[1.5]" />
+                      <span>Delete Follow-up</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Date</label>
+                  <input
+                    type="date"
+                    value={selectedCustomer.followup_date || ''}
+                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_date: e.target.value })}
+                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Time</label>
+                  <FollowupTimeInput
+                    value={selectedCustomer.followup_time || '10:00 AM'}
+                    onChange={(newTime) => handleUpdateCustomer(selectedCustomer.id, { followup_time: newTime })}
+                    size="sm"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={syncingGoogleTasks}
+                onClick={() => handleSyncCustomerToGoogleTasks(selectedCustomer.id)}
+                className="w-full py-1.5 px-2.5 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium border border-border rounded-sm flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <CalendarCheck className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                <span>
+                  {syncingGoogleTasks
+                    ? 'Syncing with Google Calendar & Tasks...'
+                    : (selectedCustomer.google_task_id || selectedCustomer.google_calendar_event_id)
+                    ? 'Re-sync with Google Calendar & Tasks'
+                    : 'Sync to Google Calendar & Tasks'}
+                </span>
+              </button>
+            </div>
+
+            {/* 3. Notes History & Add Note */}
+            <div className="space-y-2 border-t border-border pt-3">
+              <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                <StickyNote className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                <span>Staff Notes ({customerNotes.length})</span>
+              </span>
+
+              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                {loadingCustomerNotes ? (
+                  <p className="text-[11px] text-text-muted text-center py-2">Loading notes...</p>
+                ) : customerNotes.length === 0 ? (
+                  <p className="text-[11px] text-text-muted text-center py-2 bg-surface-subtle/50 rounded-sm border border-border">
+                    No notes added yet.
+                  </p>
+                ) : (
+                  customerNotes.map((nt) => {
+                    const noteStyle = getNoteBadgeStyle(nt.color);
+                    return (
+                      <div key={nt.id} className={`pl-2.5 pr-2.5 py-2 border rounded-sm space-y-1 ${noteStyle.leftBorder}`}>
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className={`font-semibold px-1.5 py-0.5 rounded-sm text-[10px] ${noteStyle.badge}`}>{nt.author}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-text-muted font-mono">
+                              {formatDateTime12(nt.created_at)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteNote(nt.id)}
+                              title="Delete note"
+                              className="p-0.5 text-text-muted hover:text-rose-600 rounded cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3 stroke-[1.5]" />
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-xs text-text-body whitespace-pre-wrap leading-relaxed font-sans">{nt.note_text}</p>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <form onSubmit={handleAddCustomerNote} className="space-y-2 pt-1">
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={newCustomerNoteAuthor}
+                    onChange={(e) => setNewCustomerNoteAuthor(e.target.value)}
+                    placeholder="Author"
+                    className="w-24 px-2 py-1 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                  />
+                  <input
+                    type="text"
+                    value={newCustomerNoteText}
+                    onChange={(e) => setNewCustomerNoteText(e.target.value)}
+                    placeholder="Add a staff note..."
+                    className="flex-1 px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-text-muted">Color:</span>
+                    {(['slate','blue','amber','rose','emerald','violet'] as const).map(c => {
+                      const dotClasses: Record<string, string> = {
+                        slate:'bg-slate-400', blue:'bg-blue-400', amber:'bg-amber-400',
+                        rose:'bg-rose-400', emerald:'bg-emerald-400', violet:'bg-violet-400'
+                      };
+                      return (
+                        <button
+                          type="button"
+                          key={c}
+                          title={`Note color: ${c}`}
+                          onClick={() => setNewCustomerNoteColor(c)}
+                          className={`w-4 h-4 rounded-full ${dotClasses[c]} cursor-pointer transition-transform ${newCustomerNoteColor === c ? 'ring-2 ring-offset-1 ring-text-primary scale-115' : 'opacity-60 hover:opacity-100'}`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={!newCustomerNoteText.trim() || addingCustomerNote}
+                    className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {addingCustomerNote ? 'Saving...' : '+ Save Note'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* 4. Bookings & Revenue */}
+            <div className="space-y-2 border-t border-border pt-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                  <CalendarDays className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                  <span>Bookings & Revenue</span>
+                </span>
+                {customerBookingsData && (
+                  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm">
+                    Total: {currentCurrencySymbol}{customerBookingsData.total_revenue ?? 0}
+                  </span>
+                )}
+              </div>
+
+              {loadingCustomerBookings ? (
+                <p className="text-[11px] text-text-muted text-center py-2">Loading bookings...</p>
+              ) : !customerBookingsData || !Array.isArray(customerBookingsData.bookings) || customerBookingsData.bookings.length === 0 ? (
+                <p className="text-[11px] text-text-muted text-center py-2 bg-surface-subtle/50 rounded-sm border border-border">No appointments booked yet.</p>
+              ) : (
+                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                  {(customerBookingsData?.bookings || []).map((bk) => (
+                    <div key={bk.id} className="p-2 bg-surface-subtle border border-border rounded-sm flex items-center justify-between gap-2 text-xs">
+                      <div className="min-w-0">
+                        <p className="font-medium text-text-primary truncate">{bk.service}</p>
+                        <p className="text-[10px] text-text-muted font-mono mt-0.5">
+                          {formatDateTime12(bk.start_time)}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="font-mono font-medium text-text-primary">{currentCurrencySymbol}{bk.price || 0}</p>
+                        <span className={`text-[9px] font-semibold px-1 py-0.2 rounded-sm border ${
+                          bk.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                          bk.status === 'no_show' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                          'bg-blue-50 text-blue-800 border-blue-200'
+                        }`}>
+                          {bk.status}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Customer Data Full History Button */}
+            <div className="border-t border-border pt-3 mt-2">
+              <button
+                type="button"
+                onClick={() => setShowCustomerHistoryModal(true)}
+                className="w-full py-1.5 px-3 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 mb-2"
+              >
+                <FileText className="w-3 h-3 stroke-[1.5]" />
+                View Full Customer History
+              </button>
+            </div>
+
+            {/* 5. 2-Step Permanent Deletion */}
+            <div className="border-t border-border pt-3 mt-2">
+              {!confirmDeleteStep ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteStep(true)}
+                  className="w-full py-1.5 px-3 bg-surface border border-rose-200 hover:bg-rose-50 text-rose-600 text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-3 h-3 stroke-[1.5]" />
+                  Delete {currentTaxonomy.client_label || 'Customer'}
+                </button>
+              ) : (
+                <div className="bg-rose-50 border border-rose-200 rounded-sm p-2.5 space-y-2">
+                  <p className="text-[11px] text-rose-800 font-medium flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    Permanently delete <strong>{selectedCustomer.name || 'this customer'}</strong> and all their notes, tasks, and history?
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteStep(false)}
+                      className="flex-1 py-1 px-2 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-[11px] rounded-sm transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCustomer(selectedCustomer.id)}
+                      disabled={deletingCustomerId === selectedCustomer.id}
+                      className="flex-1 py-1 px-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white text-[11px] font-semibold rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1"
+                    >
+                      <Trash2 className="w-3 h-3 stroke-[1.5]" />
+                      {deletingCustomerId === selectedCustomer.id ? 'Deleting...' : 'Yes, Delete'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
 
   return (
     <div className="w-full h-screen bg-canvas flex flex-col overflow-hidden font-sans text-text-body">
@@ -9747,6 +10469,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                               </>
                                             )}
                                           </div>
+                                          {cust.last_message && (
+                                            <div
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleSelectCustomer(cust);
+                                                setDrawerActiveTab('chat');
+                                              }}
+                                              className="flex items-center gap-1.5 text-[11px] text-text-secondary hover:text-emerald-700 dark:hover:text-emerald-400 group cursor-pointer max-w-[340px] truncate pt-0.5"
+                                              title={`Latest WhatsApp: "${cust.last_message}" (Click to view chat)`}
+                                            >
+                                              <MessageSquare className="w-3 h-3 text-emerald-600 shrink-0 group-hover:scale-110 transition-transform" />
+                                              <span className="truncate italic font-medium">"{cust.last_message}"</span>
+                                            </div>
+                                          )}
                                         </div>
 
                                         {/* Tags & Inline Note Row (Cleanly Left-Aligned) */}
@@ -9876,29 +10612,31 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                               </div>
                                           {/* Action Icons: Small WhatsApp Icon & Small Profile Icon */}
                                           <div className="flex items-center gap-1.5">
-                                            {/* WhatsApp Icon */}
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                openChatForContact(cust.phone);
-                                              }}
-                                              className="h-7 px-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-md flex items-center gap-1 text-[11px] font-semibold transition-colors hover:shadow-2xs"
-                                              title="Chat on WhatsApp"
-                                            >
-                                              <MessageSquare className="w-3.5 h-3.5 fill-emerald-600 text-emerald-600 stroke-[1.8]" />
-                                              <span className="text-[10px]">WhatsApp</span>
-                                            </button>
-
-                                            {/* Profile Icon */}
+                                            {/* WhatsApp Chat Trigger (opens side chat drawer directly) */}
                                             <button
                                               type="button"
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 handleSelectCustomer(cust);
+                                                setDrawerActiveTab('chat');
                                               }}
-                                              className="h-7 w-7 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md flex items-center justify-center transition-colors hover:shadow-2xs"
-                                              title="Open Profile Drawer"
+                                              className="h-7 px-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-md flex items-center gap-1 text-[11px] font-semibold transition-colors hover:shadow-2xs cursor-pointer"
+                                              title="View & reply to WhatsApp chat alongside table"
+                                            >
+                                              <MessageSquare className="w-3.5 h-3.5 fill-emerald-600 text-emerald-600 stroke-[1.8]" />
+                                              <span className="text-[10px]">WhatsApp</span>
+                                            </button>
+
+                                            {/* Profile & Notes Trigger */}
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleSelectCustomer(cust);
+                                                setDrawerActiveTab('profile');
+                                              }}
+                                              className="h-7 w-7 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md flex items-center justify-center transition-colors hover:shadow-2xs cursor-pointer"
+                                              title="Open Customer Profile & Notes"
                                             >
                                               <User className="w-3.5 h-3.5 stroke-[2]" />
                                             </button>
@@ -10077,533 +10815,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </table>
                       </div>
 
-                      {/* Customer Detail Drawer / Profile Panel */}
-                      {selectedCustomer && (
-                        <div className={`fixed inset-0 z-50 md:relative md:inset-auto md:z-auto w-full ${isDrawerExpanded ? 'md:w-[740px] md:max-w-[55vw]' : 'md:w-[480px] xl:w-[540px]'} bg-surface border border-border md:rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-2xl md:shadow-sm safe-area-pt safe-area-pb md:pt-0 md:pb-0`}>
-                          {/* Panel Header */}
-                          <div className="p-3 border-b border-border flex items-center justify-between bg-surface-subtle/50">
-                            <div>
-                              <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
-                                <User className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                                <span>{selectedCustomer.name || 'Customer Profile'}</span>
-                              </h4>
-                              <p className="text-[10px] font-mono text-text-muted mt-0.5">{selectedCustomer.phone}</p>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={() => openChatForContact(selectedCustomer.phone)}
-                                className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary text-[11px] font-medium rounded-sm border border-border flex items-center gap-1 transition-colors cursor-pointer"
-                                title="Open WhatsApp chat"
-                              >
-                                <MessageSquare className="w-3 h-3 text-accent stroke-[1.5]" />
-                                <span>Chat</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setIsDrawerExpanded(!isDrawerExpanded)}
-                                className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
-                                title={isDrawerExpanded ? 'Collapse panel' : 'Expand full width'}
-                              >
-                                {isDrawerExpanded ? <Minimize2 className="w-3.5 h-3.5 stroke-[1.5]" /> : <Maximize2 className="w-3.5 h-3.5 stroke-[1.5]" />}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => { setSelectedCustomer(null); setIsDrawerExpanded(false); }}
-                                className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
-                                title="Close profile"
-                              >
-                                <X className="w-3.5 h-3.5 stroke-[1.5]" />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Latest WhatsApp message bar if available */}
-                          {selectedCustomer.last_message && (
-                            <div
-                              onClick={() => openChatForContact(selectedCustomer.phone)}
-                              className="px-3 py-1.5 bg-blue-50/70 hover:bg-blue-100/60 border-b border-blue-100 flex items-center justify-between gap-2 text-[11px] text-blue-900 cursor-pointer transition-colors"
-                              title="Click to open full conversation in Inbox"
-                            >
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <MessageSquare className="w-3 h-3 text-accent shrink-0" />
-                                <span className="font-semibold text-text-muted shrink-0">Latest WhatsApp:</span>
-                                <span className="truncate italic text-text-primary">"{selectedCustomer.last_message}"</span>
-                              </div>
-                              {selectedCustomer.last_chat_at && (
-                                <span className="text-[10px] text-text-muted shrink-0 font-mono" title={formatFullDateTimeDetailed(selectedCustomer.last_chat_at)}>
-                                  {formatWhatsAppRelativeDate(selectedCustomer.last_chat_at)}
-                                </span>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Panel Body */}
-                          <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
-                            {/* 1. Identity & Attributes Card */}
-                            <div className="space-y-2 p-3 bg-surface-subtle border border-border rounded-sm">
-                              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Customer Details</p>
-                              
-                              <div>
-                                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.requirement_label || 'Requirement / Concern'}</label>
-                                <textarea
-                                  value={drawerConcern}
-                                  onChange={(e) => setDrawerConcern(e.target.value)}
-                                  rows={2}
-                                  placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
-                                  className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent resize-none"
-                                />
-                                {/* Prebuilt Chips */}
-                                {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                                  ? settingsForm.taxonomy.requirement_presets
-                                  : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
-                                ) && (
-                                  <div className="flex flex-wrap gap-1 mt-1">
-                                    {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                                      ? settingsForm.taxonomy.requirement_presets
-                                      : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
-                                    ).map((chip) => (
-                                      <button
-                                        key={chip}
-                                        type="button"
-                                        onClick={() => setDrawerConcern(chip)}
-                                        className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${
-                                          drawerConcern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'
-                                        }`}
-                                      >
-                                        {chip}
-                                      </button>
-                                    ))}
-                                                                        <button
-                                        type="button"
-                                        onClick={openPresetEditor}
-                                        title="Edit presets (add or remove)"
-                                        className="px-1.5 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-text-muted hover:text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
-                                      >
-                                        <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
-                                        <span>Edit</span>
-                                      </button>
-                                    </div>
-                                )}
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-2 pt-1">
-                                <div>
-                                  <label className="text-[10px] text-text-muted block mb-1">Age</label>
-                                  <input
-                                    type="number" min="1" max="120"
-                                    value={drawerAge}
-                                    onChange={(e) => setDrawerAge(e.target.value)}
-                                    placeholder="e.g. 35"
-                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-[10px] text-text-muted block mb-1">Location</label>
-                                  <input
-                                    type="text"
-                                    value={drawerLocation}
-                                    onChange={(e) => setDrawerLocation(e.target.value)}
-                                    placeholder="e.g. Mumbai"
-                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="pt-1">
-                                <div className="flex items-center justify-between mb-1">
-                                  <label className="text-[10px] text-text-muted">{currentTaxonomy.staff_label || 'Assigned Staff / Doctor'}</label>
-                                  <button
-                                    type="button"
-                                    onClick={openDoctorEditor}
-                                    className="text-[10px] text-accent hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
-                                  >
-                                    <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
-                                    <span>Manage {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff'}</span>
-                                  </button>
-                                </div>
-                                <div className="space-y-1">
-                                  {renderStaffAssignTrigger({
-                                    value: drawerDoctor,
-                                    onClick: (e) => {
-                                      e.stopPropagation();
-                                      openCustomerAssignPopover('drawer', selectedCustomer?.id, drawerDoctor, e.currentTarget);
-                                    },
-                                    placeholder: `— Select ${currentTaxonomy.staff_label || 'Staff / Doctor'} —`,
-                                    fullWidth: true,
-                                  })}
-                                </div>
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={handleSaveDrawerAttributes}
-                                disabled={savingDrawerAttributes}
-                                className="w-full py-1.5 px-3 bg-accent hover:bg-accent-hover disabled:opacity-60 text-white text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 mt-2"
-                              >
-                                <Save className="w-3 h-3 stroke-[1.5]" />
-                                {savingDrawerAttributes ? 'Saving...' : 'Save Attributes'}
-                              </button>
-                            </div>
-
-                            {/* 2. Schedule Follow-up Card */}
-                            <div className="p-3 bg-surface-subtle border border-border rounded-sm space-y-2.5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-                                  <CalendarClock className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                                  <span>Schedule Follow-up</span>
-                                </span>
-                                <div className="flex items-center gap-1.5">
-                                  {selectedCustomer.google_task_id && (
-                                    <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium">
-                                      Tasks Synced
-                                    </span>
-                                  )}
-                                  {selectedCustomer.google_calendar_event_id && (
-                                    <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-sm font-medium">
-                                      Calendar Synced
-                                    </span>
-                                  )}
-                                  {selectedCustomer.followup_date && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteCustomerFollowup(selectedCustomer.id)}
-                                      className="px-2 py-0.5 text-[10px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-sm font-medium transition-colors cursor-pointer flex items-center gap-1"
-                                      title="Delete scheduled follow-up"
-                                    >
-                                      <Trash2 className="w-2.5 h-2.5 stroke-[1.5]" />
-                                      <span>Delete Follow-up</span>
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Date</label>
-                                  <input
-                                    type="date"
-                                    value={selectedCustomer.followup_date || ''}
-                                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_date: e.target.value })}
-                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Time</label>
-                                  <FollowupTimeInput
-                                    value={selectedCustomer.followup_time || '10:00 AM'}
-                                    onChange={(newTime) => handleUpdateCustomer(selectedCustomer.id, { followup_time: newTime })}
-                                    size="sm"
-                                  />
-                                </div>
-                              </div>
-
-                              <button
-                                type="button"
-                                disabled={syncingGoogleTasks}
-                                onClick={() => handleSyncCustomerToGoogleTasks(selectedCustomer.id)}
-                                className="w-full py-1.5 px-2.5 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium border border-border rounded-sm flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
-                              >
-                                <CalendarCheck className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                                <span>
-                                  {syncingGoogleTasks
-                                    ? 'Syncing with Google Calendar & Tasks...'
-                                    : (selectedCustomer.google_task_id || selectedCustomer.google_calendar_event_id)
-                                    ? 'Re-sync with Google Calendar & Tasks'
-                                    : 'Sync to Google Calendar & Tasks'}
-                                </span>
-                              </button>
-                            </div>
-
-                            {/* 3. Notes History & Add Note */}
-                            <div className="space-y-2 border-t border-border pt-3">
-                              <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-                                <StickyNote className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                                <span>Staff Notes ({customerNotes.length})</span>
-                              </span>
-
-                              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-                                {loadingCustomerNotes ? (
-                                  <p className="text-[11px] text-text-muted text-center py-2">Loading notes...</p>
-                                ) : customerNotes.length === 0 ? (
-                                  <p className="text-[11px] text-text-muted text-center py-2 bg-surface-subtle/50 rounded-sm border border-border">
-                                    No notes added yet.
-                                  </p>
-                                ) : (
-                                  customerNotes.map((nt) => {
-                                    const noteColor = nt.color || 'slate';
-                                    const colorMap: Record<string, string> = {
-                                      slate: 'border-l-slate-400 bg-slate-50',
-                                      blue: 'border-l-blue-400 bg-blue-50',
-                                      amber: 'border-l-amber-400 bg-amber-50',
-                                      rose: 'border-l-rose-400 bg-rose-50',
-                                      emerald: 'border-l-emerald-400 bg-emerald-50',
-                                      violet: 'border-l-violet-400 bg-violet-50',
-                                    };
-                                    const badgeMap: Record<string, string> = {
-                                      slate: 'bg-slate-200 text-slate-700',
-                                      blue: 'bg-blue-100 text-blue-700',
-                                      amber: 'bg-amber-100 text-amber-700',
-                                      rose: 'bg-rose-100 text-rose-700',
-                                      emerald: 'bg-emerald-100 text-emerald-700',
-                                      violet: 'bg-violet-100 text-violet-700',
-                                    };
-                                    return (
-                                      <div key={nt.id} className={`pl-2.5 pr-2.5 py-2 border border-border border-l-2 rounded-sm space-y-1 ${colorMap[noteColor] || colorMap.slate}`}>
-                                        <div className="flex items-center justify-between text-[10px]">
-                                          <span className={`font-semibold px-1.5 py-0.5 rounded-sm text-[10px] ${badgeMap[noteColor] || badgeMap.slate}`}>{nt.author}</span>
-                                          <div className="flex items-center gap-1.5">
-                                            <span className="text-text-muted font-mono">
-                                              {formatDateTime12(nt.created_at)}
-                                            </span>
-                                            <button
-                                              type="button"
-                                              onClick={() => handleDeleteNote(nt.id)}
-                                              title="Delete note"
-                                              className="p-0.5 text-text-muted hover:text-rose-600 rounded cursor-pointer"
-                                            >
-                                              <Trash2 className="w-3 h-3 stroke-[1.5]" />
-                                            </button>
-                                          </div>
-                                        </div>
-                                        <p className="text-xs text-text-body whitespace-pre-wrap leading-relaxed font-sans">{nt.note_text}</p>
-                                      </div>
-                                    );
-                                  })
-                                )}
-                              </div>
-
-                              <form onSubmit={handleAddCustomerNote} className="space-y-2 pt-1">
-                                <div className="flex gap-1.5">
-                                  <input
-                                    type="text"
-                                    value={newCustomerNoteAuthor}
-                                    onChange={(e) => setNewCustomerNoteAuthor(e.target.value)}
-                                    placeholder="Author"
-                                    className="w-24 px-2 py-1 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                  />
-                                  <input
-                                    type="text"
-                                    value={newCustomerNoteText}
-                                    onChange={(e) => setNewCustomerNoteText(e.target.value)}
-                                    placeholder="Add a staff note..."
-                                    className="flex-1 px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                  />
-                                </div>
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-[10px] text-text-muted">Color:</span>
-                                    {(['slate','blue','amber','rose','emerald','violet'] as const).map(c => {
-                                      const dotClasses: Record<string, string> = {
-                                        slate:'bg-slate-400', blue:'bg-blue-400', amber:'bg-amber-400',
-                                        rose:'bg-rose-400', emerald:'bg-emerald-400', violet:'bg-violet-400'
-                                      };
-                                      return (
-                                        <button
-                                          type="button"
-                                          key={c}
-                                          title={`Note color: ${c}`}
-                                          onClick={() => setNewCustomerNoteColor(c)}
-                                          className={`w-4 h-4 rounded-full ${dotClasses[c]} cursor-pointer transition-transform ${newCustomerNoteColor === c ? 'ring-2 ring-offset-1 ring-text-primary scale-115' : 'opacity-60 hover:opacity-100'}`}
-                                        />
-                                      );
-                                    })}
-                                  </div>
-                                  <button
-                                    type="submit"
-                                    disabled={!newCustomerNoteText.trim() || addingCustomerNote}
-                                    className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
-                                  >
-                                    {addingCustomerNote ? 'Saving...' : '+ Save Note'}
-                                  </button>
-                                </div>
-                              </form>
-                            </div>
-
-                            {/* 4. WhatsApp Chat History & Reply */}
-                            <div className="space-y-2 border-t border-border pt-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-                                  <MessageSquare className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                                  <span>WhatsApp Chat History</span>
-                                </span>
-                                <div className="flex items-center gap-2">
-                                  {customerChat?.unread_count ? (
-                                    <span className="px-1.5 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-bold">
-                                      {customerChat.unread_count} unread
-                                    </span>
-                                  ) : null}
-                                  <button
-                                    type="button"
-                                    onClick={() => openChatForContact(selectedCustomer.phone)}
-                                    className="text-[11px] text-accent hover:underline flex items-center gap-0.5 font-medium cursor-pointer"
-                                    title="Open full conversation in Inbox"
-                                  >
-                                    <span>Open in Inbox</span>
-                                    <ArrowUpRight className="w-3 h-3 stroke-[2]" />
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className="h-44 overflow-y-auto p-2 bg-canvas border border-border rounded-sm space-y-2">
-                                {loadingCustomerChat ? (
-                                  <p className="text-[11px] text-text-muted text-center py-6">Loading chat history...</p>
-                                ) : !customerChat || !customerChat.messages || customerChat.messages.length === 0 ? (
-                                  <p className="text-[11px] text-text-muted text-center py-6">No WhatsApp messages yet.</p>
-                                ) : (
-                                  customerChat.messages.map((msg, idx) => {
-                                    const isInbound = msg.direction === 'inbound';
-                                    const currentDateKey = getMessageDateKey(msg.created_at);
-                                    const prevDateKey = idx > 0 ? getMessageDateKey(customerChat.messages[idx - 1]?.created_at) : null;
-                                    const showDateDivider = idx === 0 || (Boolean(currentDateKey) && currentDateKey !== prevDateKey);
-
-                                    return (
-                                      <Fragment key={msg.id}>
-                                        {showDateDivider && (
-                                          <div className="flex justify-center my-1.5 select-none pointer-events-none">
-                                            <span
-                                              className="px-2.5 py-0.5 rounded-md text-[10px] font-medium tracking-wide uppercase bg-surface/90 dark:bg-zinc-800/90 backdrop-blur-xs text-text-secondary border border-border/70 shadow-2xs pointer-events-auto"
-                                              title={formatFullDateTimeDetailed(msg.created_at)}
-                                            >
-                                              {formatMessageDateDivider(msg.created_at)}
-                                            </span>
-                                          </div>
-                                        )}
-                                        <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
-                                          <div className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${isInbound ? 'bg-surface text-text-body border border-border' : 'bg-accent text-white'}`}>
-                                            {msg.media_url && (
-                                              <div className="mb-1 rounded overflow-hidden max-w-[200px]">
-                                                <img src={msg.media_url} alt="Media" className="w-full h-auto object-cover max-h-40" />
-                                              </div>
-                                            )}
-                                            <p className="leading-relaxed whitespace-pre-wrap">{getDisplayMessageBody(msg)}</p>
-                                            <div
-                                              className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}
-                                              title={formatFullDateTimeDetailed(msg.created_at)}
-                                            >
-                                              <span>{formatTime12(msg.created_at)}</span>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      </Fragment>
-                                    );
-                                  })
-                                )}
-                              </div>
-
-                              <form onSubmit={handleSendCustomerReply} className="flex gap-1.5 pt-1">
-                                <input
-                                  type="text"
-                                  value={customerReplyText}
-                                  onChange={(e) => setCustomerReplyText(e.target.value)}
-                                  placeholder="Type WhatsApp follow-up reply..."
-                                  className="flex-1 px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                />
-                                <button
-                                  type="submit"
-                                  disabled={!customerReplyText.trim() || sendingCustomerReply}
-                                  className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
-                                >
-                                  <Send className="w-3.5 h-3.5 stroke-[1.5]" />
-                                </button>
-                              </form>
-                            </div>
-
-                            {/* 5. Bookings & Revenue */}
-                            <div className="space-y-2 border-t border-border pt-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-                                  <CalendarDays className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                                  <span>Bookings & Revenue</span>
-                                </span>
-                                {customerBookingsData && (
-                                  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm">
-                                    Total: {currentCurrencySymbol}{customerBookingsData.total_revenue ?? 0}
-                                  </span>
-                                )}
-                              </div>
-
-                              {loadingCustomerBookings ? (
-                                <p className="text-[11px] text-text-muted text-center py-2">Loading bookings...</p>
-                              ) : !customerBookingsData || !Array.isArray(customerBookingsData.bookings) || customerBookingsData.bookings.length === 0 ? (
-                                <p className="text-[11px] text-text-muted text-center py-2 bg-surface-subtle/50 rounded-sm border border-border">No appointments booked yet.</p>
-                              ) : (
-                                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                                  {(customerBookingsData?.bookings || []).map((bk) => (
-                                    <div key={bk.id} className="p-2 bg-surface-subtle border border-border rounded-sm flex items-center justify-between gap-2 text-xs">
-                                      <div className="min-w-0">
-                                        <p className="font-medium text-text-primary truncate">{bk.service}</p>
-                                        <p className="text-[10px] text-text-muted font-mono mt-0.5">
-                                          {formatDateTime12(bk.start_time)}
-                                        </p>
-                                      </div>
-                                      <div className="text-right shrink-0">
-                                        <p className="font-mono font-medium text-text-primary">{currentCurrencySymbol}{bk.price || 0}</p>
-                                        <span className={`text-[9px] font-semibold px-1 py-0.2 rounded-sm border ${
-                                          bk.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                                          bk.status === 'no_show' ? 'bg-amber-50 text-amber-800 border-amber-200' :
-                                          'bg-blue-50 text-blue-800 border-blue-200'
-                                        }`}>
-                                          {bk.status}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Customer Data Full History Button */}
-                            <div className="border-t border-border pt-3 mt-2">
-                              <button
-                                type="button"
-                                onClick={() => setShowCustomerHistoryModal(true)}
-                                className="w-full py-1.5 px-3 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 mb-2"
-                              >
-                                <FileText className="w-3 h-3 stroke-[1.5]" />
-                                View Full Customer History
-                              </button>
-                            </div>
-
-                            {/* 6. 2-Step Permanent Deletion */}
-                            <div className="border-t border-border pt-3 mt-2">
-                              {!confirmDeleteStep ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setConfirmDeleteStep(true)}
-                                  className="w-full py-1.5 px-3 bg-surface border border-rose-200 hover:bg-rose-50 text-rose-600 text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                                >
-                                  <Trash2 className="w-3 h-3 stroke-[1.5]" />
-                                  Delete {currentTaxonomy.client_label || 'Customer'}
-                                </button>
-                              ) : (
-                                <div className="bg-rose-50 border border-rose-200 rounded-sm p-2.5 space-y-2">
-                                  <p className="text-[11px] text-rose-800 font-medium flex items-center gap-1.5">
-                                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                                    Permanently delete <strong>{selectedCustomer.name || 'this customer'}</strong> and all their notes, tasks, and history?
-                                  </p>
-                                  <div className="flex gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmDeleteStep(false)}
-                                      className="flex-1 py-1 px-2 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-[11px] rounded-sm transition-colors cursor-pointer"
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteCustomer(selectedCustomer.id)}
-                                      disabled={deletingCustomerId === selectedCustomer.id}
-                                      className="flex-1 py-1 px-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white text-[11px] font-semibold rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1"
-                                    >
-                                      <Trash2 className="w-3 h-3 stroke-[1.5]" />
-                                      {deletingCustomerId === selectedCustomer.id ? 'Deleting...' : 'Yes, Delete'}
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
+                      {/* Customer Detail Drawer */}
+                      {renderCustomerDetailDrawer()}
                       )}
                     </div>
                   </div>
@@ -10759,6 +10972,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           <span>Last: {formatWhatsAppRelativeDate(cust.last_chat_at)}</span>
                                         </div>
                                       )}
+                                      {cust.last_message && (
+                                        <div
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleSelectCustomer(cust);
+                                            setDrawerActiveTab('chat');
+                                          }}
+                                          className="text-[10px] font-sans text-text-secondary hover:text-emerald-700 dark:hover:text-emerald-400 mt-0.5 flex items-center gap-1 cursor-pointer max-w-[200px] truncate"
+                                          title={`Latest WhatsApp: "${cust.last_message}" (Click to view chat)`}
+                                        >
+                                          <MessageSquare className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+                                          <span className="truncate italic font-medium">"{cust.last_message}"</span>
+                                        </div>
+                                      )}
                                     </td>
                                     <td className="p-2.5 text-text-secondary text-[11px] whitespace-nowrap">
                                       {cust.age || cust.location ? (
@@ -10819,14 +11046,26 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     <td className="p-2.5 pr-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                       <div className="flex items-center gap-1.5 justify-end">
                                         <button
-                                          onClick={() => openChatForContact(cust.phone)}
-                                          className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary text-[11px] rounded-sm border border-border transition-colors cursor-pointer flex items-center gap-1"
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleSelectCustomer(cust);
+                                            setDrawerActiveTab('chat');
+                                          }}
+                                          className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold rounded-sm border border-emerald-200 transition-colors cursor-pointer flex items-center gap-1"
+                                          title="Open WhatsApp chat alongside table"
                                         >
-                                          <MessageSquare className="w-3 h-3 stroke-[1.5]" /> Chat
+                                          <MessageSquare className="w-3 h-3 fill-emerald-600 text-emerald-600 stroke-[1.5]" /> Chat
                                         </button>
                                         <button
-                                          onClick={() => handleSelectCustomer(cust)}
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleSelectCustomer(cust);
+                                            setDrawerActiveTab('profile');
+                                          }}
                                           className="px-2 py-1 bg-accent hover:bg-accent-hover text-white text-[11px] rounded-sm transition-colors cursor-pointer flex items-center gap-1"
+                                          title="View customer profile and notes"
                                         >
                                           <User className="w-3 h-3 stroke-[1.5]" /> Details
                                         </button>
@@ -10840,344 +11079,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </table>
                       </div>
 
-                      {/* Customer Profile Drawer in Database View */}
-                      {selectedCustomer && (
-                        <div className={`fixed inset-0 z-50 md:relative md:inset-auto md:z-auto w-full ${isDrawerExpanded ? 'md:w-[740px] md:max-w-[55vw]' : 'md:w-[480px] xl:w-[540px]'} bg-surface border border-border md:rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-2xl md:shadow-sm safe-area-pt safe-area-pb md:pt-0 md:pb-0`}>
-                          <div className="p-3 border-b border-border flex items-center justify-between bg-surface-subtle/50">
-                            <div>
-                              <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
-                                <User className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                                <span>{selectedCustomer.name || 'Customer Profile'}</span>
-                              </h4>
-                              <p className="text-[10px] font-mono text-text-muted mt-0.5">{selectedCustomer.phone}</p>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={() => openChatForContact(selectedCustomer.phone)}
-                                className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary text-[11px] font-medium rounded-sm border border-border flex items-center gap-1 transition-colors cursor-pointer"
-                                title="Open WhatsApp chat"
-                              >
-                                <MessageSquare className="w-3 h-3 text-accent stroke-[1.5]" />
-                                <span>Chat</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setIsDrawerExpanded(!isDrawerExpanded)}
-                                className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
-                                title={isDrawerExpanded ? 'Collapse panel' : 'Expand full width'}
-                              >
-                                {isDrawerExpanded ? <Minimize2 className="w-3.5 h-3.5 stroke-[1.5]" /> : <Maximize2 className="w-3.5 h-3.5 stroke-[1.5]" />}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => { setSelectedCustomer(null); setIsDrawerExpanded(false); }}
-                                className="p-1 text-text-muted hover:text-text-primary rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
-                                title="Close profile"
-                              >
-                                <X className="w-3.5 h-3.5 stroke-[1.5]" />
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
-                            <div className="space-y-2 p-3 bg-surface-subtle border border-border rounded-sm">
-                              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Customer Details</p>
-                              <div>
-                                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.requirement_label || 'Requirement / Concern'}</label>
-                                <textarea
-                                  value={drawerConcern}
-                                  onChange={(e) => setDrawerConcern(e.target.value)}
-                                  rows={2}
-                                  placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
-                                  className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent resize-none"
-                                />
-                                {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                                  ? settingsForm.taxonomy.requirement_presets
-                                  : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
-                                ) && (
-                                  <div className="flex flex-wrap gap-1 mt-1">
-                                    {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                                      ? settingsForm.taxonomy.requirement_presets
-                                      : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
-                                    ).map((chip) => (
-                                      <button
-                                        key={chip}
-                                        type="button"
-                                        onClick={() => setDrawerConcern(chip)}
-                                        className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${
-                                          drawerConcern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'
-                                        }`}
-                                      >
-                                        {chip}
-                                      </button>
-                                    ))}
-                                                                        <button
-                                        type="button"
-                                        onClick={openPresetEditor}
-                                        title="Edit presets (add or remove)"
-                                        className="px-1.5 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-text-muted hover:text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
-                                      >
-                                        <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
-                                        <span>Edit</span>
-                                      </button>
-                                    </div>
-                                )}
-                              </div>
-                              <div className="grid grid-cols-2 gap-2 pt-1">
-                                <div>
-                                  <label className="text-[10px] text-text-muted block mb-1">Age</label>
-                                  <input
-                                    type="number" min="1" max="120"
-                                    value={drawerAge}
-                                    onChange={(e) => setDrawerAge(e.target.value)}
-                                    placeholder="e.g. 35"
-                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-[10px] text-text-muted block mb-1">Location</label>
-                                  <input
-                                    type="text"
-                                    value={drawerLocation}
-                                    onChange={(e) => setDrawerLocation(e.target.value)}
-                                    placeholder="e.g. Mumbai"
-                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                  />
-                                </div>
-                              </div>
-                              <div className="pt-1">
-                                <div className="flex items-center justify-between mb-1">
-                                  <label className="text-[10px] text-text-muted">{currentTaxonomy.staff_label || 'Assigned Staff / Doctor'}</label>
-                                  <button
-                                    type="button"
-                                    onClick={openDoctorEditor}
-                                    className="text-[10px] text-accent hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
-                                  >
-                                    <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
-                                    <span>Manage {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff'}</span>
-                                  </button>
-                                </div>
-                                <div className="space-y-1">
-                                  {renderStaffAssignTrigger({
-                                    value: drawerDoctor,
-                                    onClick: (e) => {
-                                      e.stopPropagation();
-                                      openCustomerAssignPopover('drawer', selectedCustomer?.id, drawerDoctor, e.currentTarget);
-                                    },
-                                    placeholder: `— Select ${currentTaxonomy.staff_label || 'Staff / Doctor'} —`,
-                                    fullWidth: true,
-                                  })}
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={handleSaveDrawerAttributes}
-                                disabled={savingDrawerAttributes}
-                                className="w-full py-1.5 px-3 bg-accent hover:bg-accent-hover disabled:opacity-60 text-white text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 mt-2"
-                              >
-                                <Save className="w-3 h-3 stroke-[1.5]" />
-                                {savingDrawerAttributes ? 'Saving...' : 'Save Attributes'}
-                              </button>
-                            </div>
-
-                            <div className="p-3 bg-surface-subtle border border-border rounded-sm space-y-2.5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-                                  <CalendarClock className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                                  <span>Schedule Follow-up</span>
-                                </span>
-                                <div className="flex items-center gap-1.5">
-                                  {selectedCustomer.google_task_id && (
-                                    <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium">
-                                      Tasks Synced
-                                    </span>
-                                  )}
-                                  {selectedCustomer.google_calendar_event_id && (
-                                    <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-sm font-medium">
-                                      Calendar Synced
-                                    </span>
-                                  )}
-                                  {selectedCustomer.followup_date && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteCustomerFollowup(selectedCustomer.id)}
-                                      className="px-2 py-0.5 text-[10px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-sm font-medium transition-colors cursor-pointer flex items-center gap-1"
-                                      title="Delete scheduled follow-up"
-                                    >
-                                      <Trash2 className="w-2.5 h-2.5 stroke-[1.5]" />
-                                      <span>Delete Follow-up</span>
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Date</label>
-                                  <input
-                                    type="date"
-                                    value={selectedCustomer.followup_date || ''}
-                                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_date: e.target.value })}
-                                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-[10px] text-text-muted block mb-1">Follow-up Time</label>
-                                  <FollowupTimeInput
-                                    value={selectedCustomer.followup_time || '10:00 AM'}
-                                    onChange={(newTime) => handleUpdateCustomer(selectedCustomer.id, { followup_time: newTime })}
-                                    size="sm"
-                                  />
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                disabled={syncingGoogleTasks}
-                                onClick={() => handleSyncCustomerToGoogleTasks(selectedCustomer.id)}
-                                className="w-full py-1.5 px-2.5 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium border border-border rounded-sm flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
-                              >
-                                <CalendarCheck className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                                <span>{syncingGoogleTasks ? 'Syncing...' : 'Sync with Google Tasks'}</span>
-                              </button>
-                            </div>
-
-                            {/* WhatsApp Chat History & Reply */}
-                            <div className="space-y-2 border-t border-border pt-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-                                  <MessageSquare className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                                  <span>WhatsApp Chat History</span>
-                                </span>
-                                <div className="flex items-center gap-2">
-                                  {customerChat?.unread_count ? (
-                                    <span className="px-1.5 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-bold">
-                                      {customerChat.unread_count} unread
-                                    </span>
-                                  ) : null}
-                                  <button
-                                    type="button"
-                                    onClick={() => openChatForContact(selectedCustomer.phone)}
-                                    className="text-[11px] text-accent hover:underline flex items-center gap-0.5 font-medium cursor-pointer"
-                                    title="Open full conversation in Inbox"
-                                  >
-                                    <span>Open in Inbox</span>
-                                    <ArrowUpRight className="w-3 h-3 stroke-[2]" />
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className="h-44 overflow-y-auto p-2 bg-canvas border border-border rounded-sm space-y-2">
-                                {loadingCustomerChat ? (
-                                  <p className="text-[11px] text-text-muted text-center py-6">Loading chat history...</p>
-                                ) : !customerChat || !customerChat.messages || customerChat.messages.length === 0 ? (
-                                  <p className="text-[11px] text-text-muted text-center py-6">No WhatsApp messages yet.</p>
-                                ) : (
-                                  customerChat.messages.map((msg, idx) => {
-                                    const isInbound = msg.direction === 'inbound';
-                                    const currentDateKey = getMessageDateKey(msg.created_at);
-                                    const prevDateKey = idx > 0 ? getMessageDateKey(customerChat.messages[idx - 1]?.created_at) : null;
-                                    const showDateDivider = idx === 0 || (Boolean(currentDateKey) && currentDateKey !== prevDateKey);
-
-                                    return (
-                                      <Fragment key={msg.id}>
-                                        {showDateDivider && (
-                                          <div className="flex justify-center my-1.5 select-none pointer-events-none">
-                                            <span
-                                              className="px-2.5 py-0.5 rounded-md text-[10px] font-medium tracking-wide uppercase bg-surface/90 dark:bg-zinc-800/90 backdrop-blur-xs text-text-secondary border border-border/70 shadow-2xs pointer-events-auto"
-                                              title={formatFullDateTimeDetailed(msg.created_at)}
-                                            >
-                                              {formatMessageDateDivider(msg.created_at)}
-                                            </span>
-                                          </div>
-                                        )}
-                                        <div className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}>
-                                          <div className={`max-w-[85%] rounded-md px-2.5 py-1.5 text-xs ${isInbound ? 'bg-surface text-text-body border border-border' : 'bg-accent text-white'}`}>
-                                            {msg.media_url && (
-                                              <div className="mb-1 rounded overflow-hidden max-w-[200px]">
-                                                <img src={msg.media_url} alt="Media" className="w-full h-auto object-cover max-h-40" />
-                                              </div>
-                                            )}
-                                            <p className="leading-relaxed whitespace-pre-wrap">{getDisplayMessageBody(msg)}</p>
-                                            <div
-                                              className={`text-[9px] mt-0.5 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}
-                                              title={formatFullDateTimeDetailed(msg.created_at)}
-                                            >
-                                              <span>{formatTime12(msg.created_at)}</span>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      </Fragment>
-                                    );
-                                  })
-                                )}
-                              </div>
-
-                              <form onSubmit={handleSendCustomerReply} className="flex gap-1.5 pt-1">
-                                <input
-                                  type="text"
-                                  value={customerReplyText}
-                                  onChange={(e) => setCustomerReplyText(e.target.value)}
-                                  placeholder="Type WhatsApp follow-up reply..."
-                                  className="flex-1 px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                                />
-                                <button
-                                  type="submit"
-                                  disabled={!customerReplyText.trim() || sendingCustomerReply}
-                                  className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
-                                >
-                                  <Send className="w-3.5 h-3.5 stroke-[1.5]" />
-                                </button>
-                              </form>
-                            </div>
-
-                            {/* Customer Data Full History Button */}
-                            <div className="border-t border-border pt-3 mt-2">
-                              <button
-                                type="button"
-                                onClick={() => setShowCustomerHistoryModal(true)}
-                                className="w-full py-1.5 px-3 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 mb-2"
-                              >
-                                <FileText className="w-3 h-3 stroke-[1.5]" />
-                                View Full Customer History
-                              </button>
-                            </div>
-
-                            <div className="border-t border-border pt-3 mt-2">
-                              {!confirmDeleteStep ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setConfirmDeleteStep(true)}
-                                  className="w-full py-1.5 px-3 bg-surface border border-rose-200 hover:bg-rose-50 text-rose-600 text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                                >
-                                  <Trash2 className="w-3 h-3 stroke-[1.5]" />
-                                  Delete {currentTaxonomy.client_label || 'Customer'}
-                                </button>
-                              ) : (
-                                <div className="bg-rose-50 border border-rose-200 rounded-sm p-2.5 space-y-2">
-                                  <p className="text-[11px] text-rose-800 font-medium">
-                                    Delete <strong>{selectedCustomer.name || 'this customer'}</strong> permanently?
-                                  </p>
-                                  <div className="flex gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmDeleteStep(false)}
-                                      className="flex-1 py-1 px-2 bg-surface border border-border text-text-primary text-[11px] rounded-sm"
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteCustomer(selectedCustomer.id)}
-                                      disabled={deletingCustomerId === selectedCustomer.id}
-                                      className="flex-1 py-1 px-2 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-semibold rounded-sm"
-                                    >
-                                      {deletingCustomerId === selectedCustomer.id ? 'Deleting...' : 'Yes, Delete'}
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
+                      {/* Customer Detail Drawer in Database View */}
+                      {renderCustomerDetailDrawer()}
                       )}
                     </div>
                   </div>
