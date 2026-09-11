@@ -9146,7 +9146,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 selectConversation(conv);
                               }
                             }}
-                            className={`group w-full py-2 px-2.5 text-left transition-colors duration-150 cursor-pointer flex gap-2.5 items-start justify-between border-b border-border/40 ${
+                            className={`group relative w-full py-2.5 px-3 text-left transition-colors duration-150 cursor-pointer flex gap-2.5 items-start border-b border-border/40 ${
                               isSelected
                                 ? 'bg-blue-50/70 dark:bg-slate-800/80 border-l-2 border-l-accent'
                                 : 'hover:bg-surface-subtle/70'
@@ -9170,8 +9170,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                             {/* Middle: Clean WhatsApp-style 3-Line Stack */}
                             <div className="flex-1 min-w-0 space-y-0.5">
-                              {/* Line 1: Name + Star + Timestamp */}
-                              <div className="flex items-baseline justify-between gap-1.5 min-w-0">
+                              {/* Line 1: Name + Star + Timestamp / Hover Actions */}
+                              <div className="flex items-center justify-between gap-1.5 min-w-0">
                                 <div className="flex items-center gap-1 min-w-0">
                                   <p className={`text-xs truncate ${unreadCount > 0 ? 'font-bold text-text-primary' : 'font-semibold text-text-primary'}`}>
                                     {conv.contact_name || conv.contact_phone || 'Customer'}
@@ -9180,12 +9180,45 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500 shrink-0" />
                                   )}
                                 </div>
-                                <span
-                                  className="text-[10px] text-text-muted font-mono shrink-0"
-                                  title={formatFullDateTimeDetailed(conv.last_message_at)}
-                                >
-                                  {formatConversationDate(conv.last_message_at)}
-                                </span>
+
+                                {/* Right: Timestamp by default, Star & Delete on Hover (zero empty space reserved) */}
+                                <div className="relative shrink-0 flex items-center justify-end h-4">
+                                  <span
+                                    className="text-[10px] text-text-muted font-mono shrink-0 group-hover:opacity-0 transition-opacity duration-150"
+                                    title={formatFullDateTimeDetailed(conv.last_message_at)}
+                                  >
+                                    {formatConversationDate(conv.last_message_at)}
+                                  </span>
+                                  <div className="absolute right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity duration-150 bg-surface/90 backdrop-blur-xs rounded px-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => toggleImportant(conv.id, e)}
+                                      className={`p-1 rounded-sm transition-colors duration-150 cursor-pointer ${
+                                        isStarred
+                                          ? 'text-amber-500'
+                                          : 'text-text-muted hover:text-amber-500'
+                                      }`}
+                                      title={isStarred ? 'Marked as Important (Click to remove)' : 'Mark as Important'}
+                                    >
+                                      <Star className={`w-3.5 h-3.5 stroke-[1.5] ${isStarred ? 'fill-amber-500 text-amber-500' : ''}`} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setDeleteChatModal({
+                                          isOpen: true,
+                                          convId: conv.id,
+                                          name: conv.contact_name || conv.contact_phone || 'this customer',
+                                        });
+                                      }}
+                                      className="p-1 text-text-muted hover:text-status-error hover:bg-status-error-bg rounded-sm transition-colors duration-150 cursor-pointer"
+                                      title="Delete chat"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                                    </button>
+                                  </div>
+                                </div>
                               </div>
 
                               {/* Line 2: Latest Message Snippet + Unread Bubble */}
@@ -9240,37 +9273,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   </>
                                 )}
                               </div>
-                            </div>
-
-                            {/* Right: Star Toggle & Delete (Visible on hover or if starred) */}
-                            <div className="flex items-center gap-0.5 shrink-0 self-center">
-                              <button
-                                type="button"
-                                onClick={(e) => toggleImportant(conv.id, e)}
-                                className={`p-1 rounded-sm transition-colors duration-150 cursor-pointer ${
-                                  isStarred
-                                    ? 'text-amber-500 opacity-100'
-                                    : 'text-text-muted hover:text-amber-500 opacity-0 group-hover:opacity-100'
-                                }`}
-                                title={isStarred ? 'Marked as Important (Click to remove)' : 'Mark as Important'}
-                              >
-                                <Star className={`w-3.5 h-3.5 stroke-[1.5] ${isStarred ? 'fill-amber-500 text-amber-500' : ''}`} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setDeleteChatModal({
-                                    isOpen: true,
-                                    convId: conv.id,
-                                    name: conv.contact_name || conv.contact_phone || 'this customer',
-                                  });
-                                }}
-                                className="opacity-0 group-hover:opacity-100 p-1 text-text-muted hover:text-status-error hover:bg-status-error-bg rounded-sm transition-colors duration-150 shrink-0 cursor-pointer"
-                                title="Delete chat"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                              </button>
                             </div>
                           </div>
                         );
