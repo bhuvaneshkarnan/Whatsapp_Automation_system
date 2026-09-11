@@ -10586,9 +10586,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           )}
                                         </div>
 
-                                          {/* Bottom Row: Minimal Warmth Box with Dropdown Chevron + WhatsApp & Profile Icons */}
-                                          <div className="flex items-center gap-2 pt-2 border-t border-border/40" onClick={(e) => e.stopPropagation()}>
-                                            {/* Warm / Cold / Hot Dropdown Button */}
+                                          {/* Bottom Row: Compact & Clean Warmth Box + WhatsApp & Profile Actions */}
+                                          <div className="flex items-center gap-1.5 pt-1.5 border-t border-border/40" onClick={(e) => e.stopPropagation()}>
+                                            {/* Compact Lead Warmth Button */}
                                             <div className="relative">
                                               <button
                                                 type="button"
@@ -10596,23 +10596,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                   e.stopPropagation();
                                                   setActiveRatePopover(activeRatePopover?.customerId === cust.id ? null : { customerId: cust.id, currentRate: rate });
                                                 }}
-                                                className={`h-7 px-2 rounded-md border flex items-center gap-1.5 text-xs transition-all hover:scale-102 active:scale-95 shadow-2xs cursor-pointer ${
+                                                className={`h-6 px-1.5 rounded border flex items-center gap-1 text-[10px] font-medium transition-colors shadow-2xs cursor-pointer ${
                                                   rate >= 75
-                                                    ? 'bg-amber-50/90 border-amber-300 text-amber-700 hover:bg-amber-100'
+                                                    ? 'bg-amber-50 border-amber-300/80 text-amber-700 hover:bg-amber-100'
                                                     : rate >= 40
-                                                    ? 'bg-yellow-50/90 border-yellow-300 text-yellow-700 hover:bg-yellow-100'
-                                                    : 'bg-blue-50/90 border-blue-200 text-blue-700 hover:bg-blue-100'
+                                                    ? 'bg-yellow-50 border-yellow-300/80 text-yellow-700 hover:bg-yellow-100'
+                                                    : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
                                                 }`}
                                                 title={`Lead Warmth: ${rate >= 75 ? 'Hot (90%)' : rate >= 40 ? 'Warm (50%)' : 'Cold (20%)'} — Click to change`}
                                               >
                                                 {rate >= 75 ? (
-                                                  <Flame className="w-3.5 h-3.5 text-amber-600 fill-amber-500/20 stroke-[2.2]" />
+                                                  <Flame className="w-3 h-3 text-amber-600 fill-amber-500/20 stroke-[2]" />
                                                 ) : rate >= 40 ? (
-                                                  <Sun className="w-3.5 h-3.5 text-amber-600 stroke-[2.2]" />
+                                                  <Sun className="w-3 h-3 text-amber-600 stroke-[2]" />
                                                 ) : (
-                                                  <Snowflake className="w-3.5 h-3.5 text-sky-500 stroke-[2.2]" />
+                                                  <Snowflake className="w-3 h-3 text-sky-500 stroke-[2]" />
                                                 )}
-                                                <ChevronDown className="w-3 h-3 opacity-60 shrink-0 stroke-[2.2]" />
+                                                <ChevronDown className="w-2.5 h-2.5 opacity-50 shrink-0 stroke-[2]" />
                                               </button>
 
                                               {/* Quick Rate Picker Popover */}
@@ -10645,7 +10645,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                               });
                                                               setActiveRatePopover(null);
                                                             }}
-                                                            className={`px-1 py-1.5 text-[10px] font-bold rounded-md border flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+                                                            className={`px-1 py-1 text-[10px] font-bold rounded border flex flex-col items-center gap-0.5 cursor-pointer transition-colors ${
                                                               isSelected
                                                                 ? 'bg-accent text-white border-accent shadow-xs'
                                                                 : 'bg-surface hover:bg-surface-subtle border-border text-text-primary'
@@ -10660,38 +10660,39 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                   </div>
                                                 )}
                                               </div>
-                                          {/* Action Icons: Small WhatsApp Icon & Small Profile Icon */}
-                                          <div className="flex items-center gap-1.5">
-                                            {/* WhatsApp Chat Trigger (opens side chat drawer directly) */}
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleSelectCustomer(cust);
-                                                setDrawerActiveTab('chat');
-                                              }}
-                                              className="h-7 px-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-md flex items-center gap-1 text-[11px] font-semibold transition-colors hover:shadow-2xs cursor-pointer"
-                                              title="View & reply to WhatsApp chat alongside table"
-                                            >
-                                              <MessageSquare className="w-3.5 h-3.5 fill-emerald-600 text-emerald-600 stroke-[1.8]" />
-                                              <span className="text-[10px]">WhatsApp</span>
-                                            </button>
 
-                                            {/* Profile & Notes Trigger */}
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleSelectCustomer(cust);
-                                                setDrawerActiveTab('profile');
-                                              }}
-                                              className="h-7 w-7 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md flex items-center justify-center transition-colors hover:shadow-2xs cursor-pointer"
-                                              title="Open Customer Profile & Notes"
-                                            >
-                                              <User className="w-3.5 h-3.5 stroke-[2]" />
-                                            </button>
+                                            {/* Action Buttons: Compact WhatsApp & Profile */}
+                                            <div className="flex items-center gap-1">
+                                              {/* Compact WhatsApp Chat Trigger */}
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleSelectCustomer(cust);
+                                                  setDrawerActiveTab('chat');
+                                                }}
+                                                className="h-6 px-2 bg-emerald-50/80 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 rounded flex items-center gap-1 text-[10px] font-semibold transition-colors shadow-2xs cursor-pointer"
+                                                title="View & reply to WhatsApp chat"
+                                              >
+                                                <MessageSquare className="w-3 h-3 fill-emerald-600 text-emerald-600 stroke-[1.8]" />
+                                                <span>WhatsApp</span>
+                                              </button>
+
+                                              {/* Compact Profile & Notes Trigger */}
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleSelectCustomer(cust);
+                                                  setDrawerActiveTab('profile');
+                                                }}
+                                                className="h-6 w-6 bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary border border-border rounded flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                                                title="Open Customer Profile & Notes"
+                                              >
+                                                <User className="w-3 h-3 stroke-[2]" />
+                                              </button>
+                                            </div>
                                           </div>
-                                        </div>
                                       </div>
                                     </td>
 
