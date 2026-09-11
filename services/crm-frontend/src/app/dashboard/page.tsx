@@ -998,32 +998,27 @@ function FollowupTimePickerPopover({
 
   const updateHour = (hVal: string) => {
     setHour(hVal);
-    onSave(formatCleanTime(hVal, minute, period));
   };
 
   const updateMinute = (mVal: string) => {
     const clean = mVal.replace(':', '');
     setMinute(clean);
-    onSave(formatCleanTime(hour, clean, period));
   };
 
   const updatePeriod = (pVal: 'AM' | 'PM') => {
     setPeriod(pVal);
-    onSave(formatCleanTime(hour, minute, pVal));
   };
 
   const stepHour = (delta: number) => {
     const cur = parseInt(hour, 10) || 10;
     const next = ((cur - 1 + delta + 12) % 12) + 1;
-    const nextH = String(next).padStart(2, '0');
-    updateHour(nextH);
+    setHour(String(next).padStart(2, '0'));
   };
 
   const stepMinute = (delta: number) => {
     const cur = parseInt(minute, 10) || 0;
     const next = (cur + delta + 60) % 60;
-    const nextM = String(next).padStart(2, '0');
-    updateMinute(nextM);
+    setMinute(String(next).padStart(2, '0'));
   };
 
   const hoursList = ['09', '10', '11', '12', '01', '02', '03', '04', '05', '06', '07', '08'];
@@ -1078,17 +1073,12 @@ function FollowupTimePickerPopover({
                 const v = e.target.value.replace(/[^0-9]/g, '');
                 if (v.length <= 2) {
                   setHour(v);
-                  const n = parseInt(v, 10);
-                  if (!isNaN(n) && n >= 1 && n <= 12) {
-                    onSave(formatCleanTime(v, minute, period));
-                  }
                 }
               }}
               onBlur={() => {
                 const n = parseInt(hour, 10);
                 const safeH = !isNaN(n) && n >= 1 && n <= 12 ? String(n).padStart(2, '0') : '10';
                 setHour(safeH);
-                onSave(formatCleanTime(safeH, minute, period));
               }}
               className="w-10 text-center text-sm font-bold bg-surface border border-border rounded py-0.5 text-text-primary focus:outline-none focus:ring-1 focus:ring-accent font-mono"
               title="Type any hour (1-12)"
@@ -1124,17 +1114,12 @@ function FollowupTimePickerPopover({
                 const v = e.target.value.replace(/[^0-9]/g, '');
                 if (v.length <= 2) {
                   setMinute(v);
-                  const n = parseInt(v, 10);
-                  if (!isNaN(n) && n >= 0 && n <= 59) {
-                    onSave(formatCleanTime(hour, v, period));
-                  }
                 }
               }}
               onBlur={() => {
                 const n = parseInt(minute, 10);
                 const safeM = !isNaN(n) && n >= 0 && n <= 59 ? String(n).padStart(2, '0') : '00';
                 setMinute(safeM);
-                onSave(formatCleanTime(hour, safeM, period));
               }}
               className="w-10 text-center text-sm font-bold bg-surface border border-border rounded py-0.5 text-text-primary focus:outline-none focus:ring-1 focus:ring-accent font-mono"
               title="Type ANY minute (00-59)"

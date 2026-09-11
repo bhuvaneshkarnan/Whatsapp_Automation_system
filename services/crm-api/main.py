@@ -1667,13 +1667,22 @@ async def update_customer(
         if not row:
             raise HTTPException(404, "Customer not found")
 
-        # When follow-up date or time is reassigned, delete old tasks and create new assigned one
+        # When follow-up date or time is reassigned, strictly maintain ONE task per customer (update or replace, never duplicate)
         if payload.followup_date is not None or payload.followup_time is not None:
+            # 1. Fetch all previous task references for this customer
             old_tasks = await conn.fetch(
                 "SELECT id, google_task_id FROM tasks WHERE customer_id = $1::uuid AND tenant_id = $2::uuid",
                 customer_id, tenant_id
             )
-            # Fetch Google credentials if available
+            cust_gt_id = await conn.fetchval(
+                "SELECT google_task_id FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                customer_id, tenant_id
+            )
+            all_old_gt_ids = {ot["google_task_id"] for ot in old_tasks if ot["google_task_id"]}
+            if cust_gt_id:
+                all_old_gt_ids.add(cust_gt_id)
+
+            # 2. Fetch Google credentials if available
             g_row = await conn.fetchrow(
                 "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
                 tenant_id
@@ -1689,6 +1698,7 @@ async def update_customer(
                 except Exception:
                     pass
 
+            target_gt_id = None
             if r_token and c_id and c_secret:
                 try:
                     from google.oauth2.credentials import Credentials
@@ -1698,24 +1708,99 @@ async def update_customer(
                         client_id=c_id, client_secret=c_secret
                     )
                     t_svc = await asyncio.to_thread(build, "tasks", "v1", credentials=creds)
-                    for ot in old_tasks:
-                        gt_id = ot["google_task_id"]
-                        if gt_id and not gt_id.startswith("gtask_"):
+
+                    # Also find any orphan tasks in Google Tasks that match this customer
+                    cust_name = (row["name"] or "").strip()
+                    expected_title = f"Follow-up: {cust_name}" if cust_name else ""
+                    try:
+                        list_res = await asyncio.to_thread(lambda: t_svc.tasks().list(tasklist="@default", maxResults=100).execute())
+                        for item in list_res.get("items", []):
+                            i_title = (item.get("title") or "").strip()
+                            i_notes = (item.get("notes") or "")
+                            if (expected_title and i_title == expected_title) or (row["phone"] and row["phone"] in i_notes):
+                                all_old_gt_ids.add(item["id"])
+                    except Exception as ex_l:
+                        logger.warning("google_task_list_warn", error=str(ex_l))
+
+                    if not row["followup_date"]:
+                        # User cleared follow-up date: delete ALL Google Tasks for this customer
+                        for gt_id in all_old_gt_ids:
+                            if gt_id and not gt_id.startswith("gtask_"):
+                                try:
+                                    await asyncio.to_thread(lambda gid=gt_id: t_svc.tasks().delete(tasklist="@default", task=gid).execute())
+                                except Exception:
+                                    pass
+                    else:
+                        # Prepare due datetime and notes
+                        f_date = row["followup_date"]
+                        if f_date.year < 2000 or f_date.year > 2099:
+                            f_date = f_date.replace(year=datetime.now().year)
+                        f_time_str = row["followup_time"] or "10:00 AM"
+                        target_time = time(10, 0)
+                        try:
+                            target_time = datetime.strptime(f_time_str.strip(), "%I:%M %p").time()
+                        except Exception:
                             try:
-                                del_req = t_svc.tasks().delete(tasklist="@default", task=gt_id)
-                                await asyncio.to_thread(lambda: del_req.execute())
+                                target_time = datetime.strptime(f_time_str.strip(), "%H:%M").time()
                             except Exception:
                                 pass
-                except Exception as ex:
-                    logger.warning("google_task_delete_error", error=str(ex))
+                        due_dt = datetime.combine(f_date, target_time)
+                        if due_dt.tzinfo is None:
+                            due_dt = due_dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
 
-            # Delete old task rows for this customer
+                        req_label = "Requirement"
+                        t_row = await conn.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                        if t_row:
+                            try:
+                                if isinstance(t_row, str): t_row = json.loads(t_row)
+                                req_label = t_row.get("taxonomy", {}).get("requirement_label") or req_label
+                            except Exception:
+                                pass
+
+                        task_payload = {
+                            "title": f"Follow-up: {row['name'] or 'Customer'}",
+                            "notes": f"Phone: {row['phone']}\n{req_label}: {row['health_concern'] or 'General'}\nLead: {row['lead_probability']}\nFollow-up: {row['followup_date']} at {f_time_str}",
+                            "due": due_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                            "status": "needsAction",
+                        }
+
+                        # Try to patch the existing task
+                        for candidate_id in all_old_gt_ids:
+                            if candidate_id and not candidate_id.startswith("gtask_"):
+                                try:
+                                    p_res = await asyncio.to_thread(lambda cid=candidate_id: t_svc.tasks().patch(tasklist="@default", task=cid, body=task_payload).execute())
+                                    if p_res and p_res.get("id"):
+                                        target_gt_id = candidate_id
+                                        break
+                                except Exception:
+                                    pass
+
+                        # If no existing task could be updated, insert ONE new task
+                        if not target_gt_id:
+                            try:
+                                ins_res = await asyncio.to_thread(lambda: t_svc.tasks().insert(tasklist="@default", body=task_payload).execute())
+                                if ins_res and ins_res.get("id"):
+                                    target_gt_id = ins_res["id"]
+                            except Exception as ex_ins:
+                                logger.warning("google_task_insert_warn", error=str(ex_ins))
+
+                        # Strictly delete all OTHER leftover duplicate tasks for this customer
+                        for candidate_id in all_old_gt_ids:
+                            if candidate_id != target_gt_id and candidate_id and not candidate_id.startswith("gtask_"):
+                                try:
+                                    await asyncio.to_thread(lambda cid=candidate_id: t_svc.tasks().delete(tasklist="@default", task=cid).execute())
+                                except Exception:
+                                    pass
+                except Exception as ex:
+                    logger.warning("google_tasks_sync_error", error=str(ex))
+
+            # 3. Local DB: delete all existing tasks for this customer to avoid any duplicates
             await conn.execute(
                 "DELETE FROM tasks WHERE customer_id = $1::uuid AND tenant_id = $2::uuid",
                 customer_id, tenant_id
             )
 
-            # Create brand new task for the reassigned date
+            # 4. Insert exactly ONE current task if follow-up date is present
             if row["followup_date"]:
                 new_task_id = str(uuid.uuid4())
                 f_date = row["followup_date"]
@@ -1740,42 +1825,26 @@ async def update_customer(
                     try:
                         if isinstance(t_row, str): t_row = json.loads(t_row)
                         req_label = t_row.get("taxonomy", {}).get("requirement_label") or req_label
-                    except Exception: pass
-
-                new_gtask_id = None
-                if r_token and c_id and c_secret:
-                    try:
-                        from google.oauth2.credentials import Credentials
-                        from googleapiclient.discovery import build
-                        creds = Credentials(
-                            token=None, refresh_token=r_token, token_uri="https://oauth2.googleapis.com/token",
-                            client_id=c_id, client_secret=c_secret
-                        )
-                        t_svc = await asyncio.to_thread(build, "tasks", "v1", credentials=creds)
-                        ins_req = t_svc.tasks().insert(
-                            tasklist="@default",
-                            body={
-                                "title": f"Follow-up: {row['name'] or 'Customer'}",
-                                "notes": f"Phone: {row['phone']}\n{req_label}: {row['health_concern'] or 'General'}\nLead: {row['lead_probability']}\nFollow-up: {row['followup_date']} at {f_time_str}",
-                                "due": due_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                            }
-                        )
-                        t_res = await asyncio.to_thread(lambda: ins_req.execute())
-                        if t_res and t_res.get("id"):
-                            new_gtask_id = t_res["id"]
-                    except Exception as ex:
-                        logger.warning("google_task_recreate_error", error=str(ex))
+                    except Exception:
+                        pass
 
                 await conn.execute(
                     """INSERT INTO tasks (id, tenant_id, customer_id, google_task_id, title, description, due_date, completed, notified_due, created_at, updated_at)
                        VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, false, false, now(), now())""",
-                    new_task_id, tenant_id, customer_id, new_gtask_id,
+                    new_task_id, tenant_id, customer_id, target_gt_id,
                     f"Follow-up: {row['name'] or 'Customer'}",
-                    f"{req_label}: {row['health_concern'] or 'General'} | Phone: {row['phone']}",
+                    f"{req_label}: {row['health_concern'] or 'General'} | Phone: {row['phone']} | Follow-up: {row['followup_date']} at {f_time_str}",
                     due_dt
                 )
-                if new_gtask_id:
-                    await conn.execute("UPDATE customers SET google_task_id = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid", new_gtask_id, customer_id, tenant_id)
+                await conn.execute(
+                    "UPDATE customers SET google_task_id = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                    target_gt_id, customer_id, tenant_id
+                )
+            else:
+                await conn.execute(
+                    "UPDATE customers SET google_task_id = NULL WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                    customer_id, tenant_id
+                )
 
         if payload.health_concern and row:
             await auto_route_lead_to_specialty(conn, tenant_id, row["phone"], payload.health_concern)
