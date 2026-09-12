@@ -3379,11 +3379,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         icon: Flame,
         label: 'Hot Lead',
         sub: 'High intent • Ready to close',
-        pillBg: 'bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-950/50 dark:border-rose-800 dark:text-rose-300',
-        iconColor: 'text-rose-500 fill-rose-500/20',
-        activeBg: 'bg-rose-50/90 border-rose-300 dark:bg-rose-950/60 dark:border-rose-800',
+        pillBg: 'bg-rose-100 border-rose-200 text-rose-700 dark:bg-rose-950 dark:border-rose-800 dark:text-rose-300',
+        iconColor: 'text-rose-600',
+        activeBg: 'bg-rose-50 border-rose-300 dark:bg-rose-950/80 dark:border-rose-800',
         checkColor: 'text-rose-600 dark:text-rose-400',
-        hoverBg: 'hover:bg-rose-50/50 dark:hover:bg-rose-950/30',
+        hoverBg: 'hover:bg-rose-50 dark:hover:bg-rose-950/40',
       },
       {
         pct: 50,
@@ -3391,11 +3391,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         icon: Sun,
         label: 'Warm Lead',
         sub: 'Interested • Follow-up active',
-        pillBg: 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/50 dark:border-amber-800 dark:text-amber-300',
-        iconColor: 'text-amber-500',
-        activeBg: 'bg-amber-50/90 border-amber-300 dark:bg-amber-950/60 dark:border-amber-800',
+        pillBg: 'bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300',
+        iconColor: 'text-amber-600',
+        activeBg: 'bg-amber-50 border-amber-300 dark:bg-amber-950/80 dark:border-amber-800',
         checkColor: 'text-amber-600 dark:text-amber-400',
-        hoverBg: 'hover:bg-amber-50/50 dark:hover:bg-amber-950/30',
+        hoverBg: 'hover:bg-amber-50 dark:hover:bg-amber-950/40',
       },
       {
         pct: 20,
@@ -3403,11 +3403,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         icon: Snowflake,
         label: 'Cold Lead',
         sub: 'Low engagement • Nurture',
-        pillBg: 'bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-950/50 dark:border-sky-800 dark:text-sky-300',
-        iconColor: 'text-sky-500',
-        activeBg: 'bg-sky-50/90 border-sky-300 dark:bg-sky-950/60 dark:border-sky-800',
+        pillBg: 'bg-sky-100 border-sky-200 text-sky-700 dark:bg-sky-950 dark:border-sky-800 dark:text-sky-300',
+        iconColor: 'text-sky-600',
+        activeBg: 'bg-sky-50 border-sky-300 dark:bg-sky-950/80 dark:border-sky-800',
         checkColor: 'text-sky-600 dark:text-sky-400',
-        hoverBg: 'hover:bg-sky-50/50 dark:hover:bg-sky-950/30',
+        hoverBg: 'hover:bg-sky-50 dark:hover:bg-sky-950/40',
       },
       {
         pct: 100,
@@ -3415,11 +3415,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         icon: CheckCircle2,
         label: 'Converted',
         sub: 'Successfully closed & won',
-        pillBg: 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/50 dark:border-emerald-800 dark:text-emerald-300',
+        pillBg: 'bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300',
         iconColor: 'text-emerald-600',
-        activeBg: 'bg-emerald-50/90 border-emerald-300 dark:bg-emerald-950/60 dark:border-emerald-800',
+        activeBg: 'bg-emerald-50 border-emerald-300 dark:bg-emerald-950/80 dark:border-emerald-800',
         checkColor: 'text-emerald-600 dark:text-emerald-400',
-        hoverBg: 'hover:bg-emerald-50/50 dark:hover:bg-emerald-950/30',
+        hoverBg: 'hover:bg-emerald-50 dark:hover:bg-emerald-950/40',
       },
     ];
 
@@ -3431,9 +3431,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           onClick={() => setActiveRatePopover(null)}
         />
 
-        {/* Floating Popover Container */}
+        {/* Floating Popover Container - Crisp Solid Card without Glassmorphism */}
         <div
-          className="fixed z-[101] w-64 bg-surface/98 backdrop-blur-md border border-border/80 rounded-xl shadow-2xl p-1.5 animate-in fade-in zoom-in-95 duration-100"
+          className="fixed z-[101] w-64 bg-surface border border-border rounded-xl shadow-xl p-1.5 animate-in fade-in zoom-in-95 duration-100"
           style={{
             top: activeRatePopover.top !== undefined ? `${activeRatePopover.top}px` : undefined,
             bottom: activeRatePopover.bottom !== undefined ? `${activeRatePopover.bottom}px` : undefined,
@@ -3442,7 +3442,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-2 py-1.5 mb-1 border-b border-border/40">
+          <div className="flex items-center justify-between px-2 py-1.5 mb-1 border-b border-border">
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
                 Lead Status
@@ -3491,7 +3491,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   }`}
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-6 h-6 rounded-md bg-surface border border-border/60 flex items-center justify-center shrink-0 shadow-2xs">
+                    <div className="w-6 h-6 rounded-md bg-surface-subtle border border-border flex items-center justify-center shrink-0 shadow-2xs">
                       <IconComp className={`w-3.5 h-3.5 ${opt.iconColor}`} />
                     </div>
                     <div className="min-w-0">
@@ -11492,19 +11492,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             }}
                                             className={`h-6 px-2 rounded-md border flex items-center gap-1 text-[10px] font-bold transition-all shadow-2xs cursor-pointer ${
                                               cust.converted || cust.status === 'converted'
-                                                ? 'bg-emerald-50 hover:bg-emerald-100/90 border-emerald-200 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300'
+                                                ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300'
                                                 : rate >= 75
-                                                ? 'bg-rose-50 hover:bg-rose-100/90 border-rose-200 text-rose-700 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300'
+                                                ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 dark:bg-rose-950 dark:border-rose-800 dark:text-rose-300'
                                                 : rate >= 40
-                                                ? 'bg-amber-50 hover:bg-amber-100/90 border-amber-200 text-amber-700 dark:bg-amber-950/40 dark:border-amber-900 dark:text-amber-300'
-                                                : 'bg-sky-50 hover:bg-sky-100/90 border-sky-200 text-sky-700 dark:bg-sky-950/40 dark:border-sky-900 dark:text-sky-300'
+                                                ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300'
+                                                : 'bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-700 dark:bg-sky-950 dark:border-sky-800 dark:text-sky-300'
                                             }`}
                                             title={`Lead Status: ${cust.converted || cust.status === 'converted' ? 'Converted (100%)' : rate >= 75 ? 'Hot (90%)' : rate >= 40 ? 'Warm (50%)' : 'Cold (20%)'} — Click to change`}
                                           >
                                             {cust.converted || cust.status === 'converted' ? (
                                               <CheckCircle2 className="w-3 h-3 text-emerald-600 stroke-[2.2]" />
                                             ) : rate >= 75 ? (
-                                              <Flame className="w-3 h-3 text-rose-600 fill-rose-500/20 stroke-[2.2]" />
+                                              <Flame className="w-3 h-3 text-rose-600 stroke-[2.2]" />
                                             ) : rate >= 40 ? (
                                               <Sun className="w-3 h-3 text-amber-600 stroke-[2.2]" />
                                             ) : (
