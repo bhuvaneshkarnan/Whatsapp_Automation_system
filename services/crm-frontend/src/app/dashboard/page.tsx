@@ -1875,9 +1875,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       'Booking Requested', 'Confirmed', 'Converted'
     ],
     next_actions: [
-      'Call Again', 'WhatsApp Only', 'Final Call Attempt',
-      'Send Brochure / Info', 'Ask for Booking', 'Send Reminder',
-      'Reschedule', 'No-Show Follow-up'
+      'Call Again', 'WhatsApp Follow-up', 'Send Info / Proposal',
+      'Schedule Meeting / Booking', 'Send Reminder', 'Waiting on Client',
+      'Final Attempt'
     ],
     services_list: [
       'Foot Reflexology', 'Acupuncture', 'Cupping', 'Ayurvedic', 'Consultation', 'Package'
@@ -4545,9 +4545,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         'Booking Requested', 'Confirmed', 'Converted'
       ],
       next_actions: [
-        'Call Again', 'WhatsApp Only', 'Final Call Attempt',
-        'Send Brochure / Info', 'Ask for Booking', 'Send Reminder',
-        'Reschedule', 'No-Show Follow-up'
+        'Call Again', 'WhatsApp Follow-up', 'Send Info / Proposal',
+        'Schedule Meeting / Booking', 'Send Reminder', 'Waiting on Client',
+        'Final Attempt'
       ],
       services_list: [
         'Foot Reflexology', 'Acupuncture', 'Cupping', 'Ayurvedic', 'Consultation', 'Package'

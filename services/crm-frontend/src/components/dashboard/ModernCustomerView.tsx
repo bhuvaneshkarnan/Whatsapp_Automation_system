@@ -1134,12 +1134,12 @@ export function ModernCustomerView({
                                 ) : (
                                   <>
                                     <option value="Call Again">Call Again</option>
-                                    <option value="WhatsApp Only">WhatsApp Only</option>
-                                    <option value="Send Info">Send Info</option>
-                                    <option value="Ask for Booking">Ask for Booking</option>
+                                    <option value="WhatsApp Follow-up">WhatsApp Follow-up</option>
+                                    <option value="Send Info / Proposal">Send Info / Proposal</option>
+                                    <option value="Schedule Meeting / Booking">Schedule Meeting / Booking</option>
                                     <option value="Send Reminder">Send Reminder</option>
-                                    <option value="Reschedule">Reschedule</option>
-                                    <option value="No-Show Follow-up">No-Show Follow-up</option>
+                                    <option value="Waiting on Client">Waiting on Client</option>
+                                    <option value="Final Attempt">Final Attempt</option>
                                   </>
                                 )}
                               </select>
