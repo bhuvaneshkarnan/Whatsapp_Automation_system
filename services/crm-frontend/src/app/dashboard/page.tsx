@@ -2907,42 +2907,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   }, [addedTeams, selectedDepartment]);
 
   // Categorized staff options for Customer directory, Repeat Clients, Followups, Bookings, and Modals
-  // Distinguishes Team Doctors (login), Sales Team (login), Doctor Presets (no login), and Administration
+  // Focuses exclusively on Doctor Presets (configured doctor presets & customer assigned doctors)
   const categorizedStaffOptions = useMemo(() => {
-    const teamDoctors: { value: string; label: string; id?: string }[] = [];
-    const salesMembers: { value: string; label: string; id?: string }[] = [];
-    const otherMembers: { value: string; label: string; id?: string }[] = [];
     const predefinedDoctors: { value: string; label: string }[] = [];
     const seenValues = new Set<string>();
 
-    // 1. From teamList (actual login users)
-    (teamList || []).forEach((m) => {
-      if (!m) return;
-      const val = (m.display_name || m.email || '').trim();
-      if (!val || seenValues.has(val.toLowerCase())) return;
-      seenValues.add(val.toLowerCase());
-
-      const roleLabel = formatRoleName(m.role);
-      const item = { value: val, label: `${val} (${roleLabel})`, id: m.id };
-
-      if (m.role === 'doctor') {
-        teamDoctors.push(item);
-      } else if (m.role === 'sales' || m.role === 'marketing') {
-        salesMembers.push(item);
-      } else {
-        otherMembers.push(item);
-      }
-    });
-
-    // 2. From configured doctor presets (names without login credentials)
+    // 1. From configured doctor presets (names without login credentials)
     (configuredDoctors || []).forEach((doc) => {
       const trimmed = (doc || '').trim();
       if (!trimmed || seenValues.has(trimmed.toLowerCase())) return;
       seenValues.add(trimmed.toLowerCase());
-      predefinedDoctors.push({ value: trimmed, label: `${trimmed} (Doctor Preset)` });
+      predefinedDoctors.push({ value: trimmed, label: trimmed });
     });
 
-    // 3. Custom assigned doctor from existing customers
+    // 2. Custom assigned doctor from existing customers
     (customers || []).forEach((c) => {
       const doc = (c.preferred_doctor || '').trim();
       if (!doc || seenValues.has(doc.toLowerCase())) return;
@@ -2951,41 +2929,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     });
 
     return {
-      teamDoctors,
-      sales: salesMembers,
+      teamDoctors: [] as { value: string; label: string; id?: string }[],
+      sales: [] as { value: string; label: string; id?: string }[],
       predefinedDoctors,
-      other: otherMembers,
+      other: [] as { value: string; label: string; id?: string }[],
     };
-  }, [teamList, configuredDoctors, customers]);
+  }, [configuredDoctors, customers]);
 
   function renderStaffSelectOptions(placeholder = '— Unassigned —') {
     return (
       <>
         <option value="">{placeholder}</option>
-        {categorizedStaffOptions.teamDoctors.length > 0 && (
-          <optgroup label="Doctors (Team Login)">
-            {categorizedStaffOptions.teamDoctors.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </optgroup>
-        )}
-        {categorizedStaffOptions.sales.length > 0 && (
-          <optgroup label="Sales & Support (Team Login)">
-            {categorizedStaffOptions.sales.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </optgroup>
-        )}
         {categorizedStaffOptions.predefinedDoctors.length > 0 && (
-          <optgroup label="Doctors & Consultants (Predefined Presets)">
+          <optgroup label={`${currentTaxonomy.staff_label || 'Doctor'} Presets`}>
             {categorizedStaffOptions.predefinedDoctors.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </optgroup>
-        )}
-        {categorizedStaffOptions.other.length > 0 && (
-          <optgroup label="Staff & Administration">
-            {categorizedStaffOptions.other.map((s) => (
               <option key={s.value} value={s.value}>{s.label}</option>
             ))}
           </optgroup>
@@ -3001,38 +2958,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         label: 'Unassigned',
         badge: '',
         colorClass: 'border-border bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary',
-        icon: Users,
-      };
-    }
-    const clean = nameOrId.trim().toLowerCase();
-
-    // Check teamDoctors
-    const teamDoc = categorizedStaffOptions.teamDoctors.find(
-      (d) => d.value.toLowerCase() === clean || (d.id && d.id === nameOrId)
-    );
-    if (teamDoc) {
-      return {
-        role: 'team_doctor' as const,
-        label: teamDoc.value,
-        badge: 'Doctor',
-        colorClass: 'border-blue-300 dark:border-blue-800/60 bg-blue-50/70 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-950/70',
-        icon: Stethoscope,
-      };
-    }
-
-    // Check sales
-    const sales = categorizedStaffOptions.sales.find(
-      (s) => s.value.toLowerCase() === clean || (s.id && s.id === nameOrId)
-    );
-    if (sales) {
-      return {
-        role: 'sales' as const,
-        label: sales.value,
-        badge: 'Sales',
-        colorClass: 'border-amber-300 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/70',
         icon: User,
       };
     }
+    const clean = nameOrId.trim().toLowerCase();
 
     // Check predefinedDoctors
     const presetDoc = categorizedStaffOptions.predefinedDoctors.find(
@@ -3042,23 +2971,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       return {
         role: 'preset_doctor' as const,
         label: presetDoc.value,
-        badge: 'Preset',
+        badge: currentTaxonomy.staff_label || 'Doctor',
         colorClass: 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70',
         icon: Stethoscope,
-      };
-    }
-
-    // Check other (admin/staff)
-    const other = categorizedStaffOptions.other.find(
-      (o) => o.value.toLowerCase() === clean || (o.id && o.id === nameOrId)
-    );
-    if (other) {
-      return {
-        role: 'admin' as const,
-        label: other.value,
-        badge: 'Admin',
-        colorClass: 'border-purple-300 dark:border-purple-800/60 bg-purple-50/70 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-950/70',
-        icon: ShieldCheck,
       };
     }
 
@@ -3066,7 +2981,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     return {
       role: 'preset_doctor' as const,
       label: nameOrId,
-      badge: 'Doctor',
+      badge: currentTaxonomy.staff_label || 'Doctor',
       colorClass: 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70',
       icon: Stethoscope,
     };
@@ -3187,16 +3102,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     const q = custAssignSearch.trim().toLowerCase();
     const currentVal = (custAssignPopover.currentValue || '').trim().toLowerCase();
 
-    const filteredTeamDoctors = categorizedStaffOptions.teamDoctors.filter((d) => !q || d.value.toLowerCase().includes(q));
-    const filteredSales = categorizedStaffOptions.sales.filter((s) => !q || s.value.toLowerCase().includes(q));
     const filteredPresets = categorizedStaffOptions.predefinedDoctors.filter((p) => !q || p.value.toLowerCase().includes(q));
-    const filteredOther = categorizedStaffOptions.other.filter((o) => !q || o.value.toLowerCase().includes(q));
-
-    const totalCount =
-      categorizedStaffOptions.teamDoctors.length +
-      categorizedStaffOptions.sales.length +
-      categorizedStaffOptions.predefinedDoctors.length +
-      categorizedStaffOptions.other.length;
+    const totalCount = categorizedStaffOptions.predefinedDoctors.length;
 
     return (
       <>
@@ -3219,9 +3126,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           {/* Header */}
           <div className="px-2.5 py-1.5 flex items-center justify-between bg-surface-subtle/40">
             <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
-              Assign Staff / Doctor
+              Assign {currentTaxonomy.staff_label || 'Doctor'}
             </span>
-            {teamLoading && <RefreshCw className="w-2.5 h-2.5 animate-spin text-accent" />}
           </div>
 
           {/* Quick search input */}
@@ -3233,7 +3139,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   type="text"
                   value={custAssignSearch}
                   onChange={(e) => setCustAssignSearch(e.target.value)}
-                  placeholder="Search staff or doctor..."
+                  placeholder={`Search ${currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toLowerCase() : 'doctor'}...`}
                   className="w-full pl-6 pr-2 py-0.5 text-[11px] bg-surface-subtle border border-border rounded text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
                   onClick={(e) => e.stopPropagation()}
                   autoFocus
@@ -3261,73 +3167,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </button>
             )}
 
-            {/* 1. Doctors (Team Login) */}
-            {filteredTeamDoctors.length > 0 && (
-              <div className="py-1">
-                <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
-                  Doctors (Team Login)
-                </div>
-                {filteredTeamDoctors.map((doc) => {
-                  const isActive = currentVal === doc.value.toLowerCase() || (doc.id && custAssignPopover.currentValue === doc.id);
-                  return (
-                    <button
-                      key={doc.value}
-                      type="button"
-                      onClick={() => handleSelectCustAssignStaff(doc.value)}
-                      className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
-                        isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <Stethoscope className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
-                        <span className="truncate text-[11px]">{doc.value}</span>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0 ml-1">
-                        <span className="text-[9px] px-1 py-0.2 rounded bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 font-medium">Doctor</span>
-                        {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* 2. Sales & Support */}
-            {filteredSales.length > 0 && (
-              <div className="py-1">
-                <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
-                  Sales & Support
-                </div>
-                {filteredSales.map((mem) => {
-                  const isActive = currentVal === mem.value.toLowerCase() || (mem.id && custAssignPopover.currentValue === mem.id);
-                  return (
-                    <button
-                      key={mem.value}
-                      type="button"
-                      onClick={() => handleSelectCustAssignStaff(mem.value)}
-                      className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
-                        isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <User className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                        <span className="truncate text-[11px]">{mem.value}</span>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0 ml-1">
-                        <span className="text-[9px] px-1 py-0.2 rounded bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 font-medium">Sales</span>
-                        {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* 3. Doctors (Presets) */}
+            {/* Doctors (Presets) */}
             {filteredPresets.length > 0 && (
               <div className="py-1">
                 <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
-                  Doctors (Presets)
+                  {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toUpperCase() + 'S' : 'DOCTORS'} (PRESETS)
                 </div>
                 {filteredPresets.map((preset) => {
                   const isActive = currentVal === preset.value.toLowerCase();
@@ -3354,41 +3198,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </div>
             )}
 
-            {/* 4. Staff & Administration */}
-            {filteredOther.length > 0 && (
-              <div className="py-1">
-                <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
-                  Staff & Administration
-                </div>
-                {filteredOther.map((mem) => {
-                  const isActive = currentVal === mem.value.toLowerCase() || (mem.id && custAssignPopover.currentValue === mem.id);
-                  return (
-                    <button
-                      key={mem.value}
-                      type="button"
-                      onClick={() => handleSelectCustAssignStaff(mem.value)}
-                      className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
-                        isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
-                        <span className="truncate text-[11px]">{mem.value}</span>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0 ml-1">
-                        <span className="text-[9px] px-1 py-0.2 rounded bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 font-medium">Admin</span>
-                        {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
             {/* Empty search results */}
-            {q && !filteredTeamDoctors.length && !filteredSales.length && !filteredPresets.length && !filteredOther.length && (
+            {q && !filteredPresets.length && (
               <div className="py-4 text-center text-text-muted text-[11px]">
-                No staff or doctors found matching &ldquo;{custAssignSearch}&rdquo;
+                No {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toLowerCase() + 's' : 'doctors'} found matching &ldquo;{custAssignSearch}&rdquo;
               </div>
             )}
           </div>
@@ -3403,7 +3216,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               }}
               className="text-accent hover:underline font-medium flex items-center gap-1 cursor-pointer"
             >
-              <Users className="w-3 h-3" /> Manage Staff & Presets
+              <Stethoscope className="w-3 h-3" /> Manage {currentTaxonomy.staff_label || 'Doctor'} Presets
             </button>
           </div>
         </div>
@@ -10347,42 +10160,30 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               onClick={() => {
                                 setShowAssignDropdown((prev) => {
                                   const next = !prev;
-                                  if (next) {
-                                    loadTeamList();
+                                  if (!prev) {
                                     setAssignSearchQuery('');
                                   }
                                   return next;
                                 });
                               }}
                               className={`px-2 py-1 rounded-sm text-xs font-medium border transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs ${
-                                selectedConv.assigned_staff_name
-                                  ? 'border-accent/30 bg-accent/5 text-text-primary hover:bg-accent/10'
-                                  : (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor)
+                                (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor)
                                   ? 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70'
                                   : 'border-border bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary'
                               }`}
                               title={
-                                selectedConv.assigned_staff_name
-                                  ? `Assigned to: ${selectedConv.assigned_staff_name}`
-                                  : (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor)
-                                  ? `Doctor: ${selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor}`
-                                  : 'Assign staff or doctor to this conversation'
+                                (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor)
+                                  ? `${currentTaxonomy.staff_label || 'Doctor'}: ${selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor}`
+                                  : `Assign ${currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toLowerCase() : 'doctor'}`
                               }
                             >
-                              {selectedConv.assigned_staff_name ? (
-                                <User className="w-3.5 h-3.5 text-accent shrink-0" />
-                              ) : (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor) ? (
+                              {(selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor) ? (
                                 <Stethoscope className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                               ) : (
-                                <Users className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                                <User className="w-3.5 h-3.5 text-text-muted shrink-0" />
                               )}
                               <span className="hidden sm:inline max-w-[100px] truncate text-[11px] font-medium">
-                                {selectedConv.assigned_staff_name ||
-                                  (selectedConv.assigned_to
-                                    ? teamList.find((m) => m.id === selectedConv.assigned_to)?.display_name ||
-                                      teamList.find((m) => m.id === selectedConv.assigned_to)?.email ||
-                                      'Assigned'
-                                    : selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor || 'Unassigned')}
+                                {selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor || 'Unassigned'}
                               </span>
                               <ChevronDown className="w-3 h-3 text-text-muted shrink-0" />
                             </button>
@@ -10396,16 +10197,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   {/* Header */}
                                   <div className="px-2.5 py-1.5 flex items-center justify-between bg-surface-subtle/40">
                                     <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
-                                      Assign Staff / Doctor
+                                      Assign {currentTaxonomy.staff_label || 'Doctor'}
                                     </span>
-                                    {teamLoading && <RefreshCw className="w-2.5 h-2.5 animate-spin text-accent" />}
                                   </div>
 
                                   {/* Quick search input */}
-                                  {(categorizedStaffOptions.teamDoctors.length +
-                                    categorizedStaffOptions.sales.length +
-                                    categorizedStaffOptions.predefinedDoctors.length +
-                                    categorizedStaffOptions.other.length > 4) && (
+                                  {categorizedStaffOptions.predefinedDoctors.length > 4 && (
                                     <div className="p-1.5 bg-surface">
                                       <div className="relative">
                                         <Search className="w-3 h-3 text-text-muted absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -10413,7 +10210,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           type="text"
                                           value={assignSearchQuery}
                                           onChange={(e) => setAssignSearchQuery(e.target.value)}
-                                          placeholder="Search staff or doctor..."
+                                          placeholder={`Search ${currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toLowerCase() : 'doctor'}...`}
                                           className="w-full pl-6 pr-2 py-0.5 text-[11px] bg-surface-subtle border border-border rounded text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
                                           onClick={(e) => e.stopPropagation()}
                                           autoFocus
@@ -10426,7 +10223,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <div className="max-h-64 overflow-y-auto py-1 divide-y divide-border/20">
                                     {/* Unassigned Option */}
                                     {(!assignSearchQuery || 'unassigned'.includes(assignSearchQuery.toLowerCase())) && (() => {
-                                      const isUnassigned = !selectedConv.assigned_to && !selectedConv.assigned_staff_name && !selectedConv.preferred_doctor && !selectedCustomer?.preferred_doctor;
+                                      const isUnassigned = !selectedConv.preferred_doctor && !selectedCustomer?.preferred_doctor;
                                       return (
                                         <button
                                           type="button"
@@ -10444,79 +10241,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       );
                                     })()}
 
-                                    {/* 1. Doctors (Team Login) */}
-                                    {(() => {
-                                      const q = assignSearchQuery.trim().toLowerCase();
-                                      const list = categorizedStaffOptions.teamDoctors.filter((d) => !q || d.value.toLowerCase().includes(q));
-                                      if (list.length === 0) return null;
-                                      return (
-                                        <div className="py-1">
-                                          <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
-                                            Doctors (Team Login)
-                                          </div>
-                                          {list.map((doc) => {
-                                            const isActive = selectedConv.assigned_to === doc.id || (selectedConv.assigned_staff_name && selectedConv.assigned_staff_name.toLowerCase() === doc.value.toLowerCase());
-                                            return (
-                                              <button
-                                                key={doc.value}
-                                                type="button"
-                                                onClick={() => handleAssignChatStaff({ type: 'team', id: doc.id!, name: doc.value })}
-                                                className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
-                                                  isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
-                                                }`}
-                                              >
-                                                <div className="flex items-center gap-1.5 min-w-0">
-                                                  <Stethoscope className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
-                                                  <span className="truncate text-[11px]">{doc.value}</span>
-                                                </div>
-                                                <div className="flex items-center gap-1 shrink-0 ml-1">
-                                                  <span className="text-[9px] px-1 py-0.2 rounded bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 font-medium">Doctor</span>
-                                                  {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
-                                                </div>
-                                              </button>
-                                            );
-                                          })}
-                                        </div>
-                                      );
-                                    })()}
-
-                                    {/* 2. Sales & Support (Team Login) */}
-                                    {(() => {
-                                      const q = assignSearchQuery.trim().toLowerCase();
-                                      const list = categorizedStaffOptions.sales.filter((s) => !q || s.value.toLowerCase().includes(q));
-                                      if (list.length === 0) return null;
-                                      return (
-                                        <div className="py-1">
-                                          <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
-                                            Sales & Support
-                                          </div>
-                                          {list.map((mem) => {
-                                            const isActive = selectedConv.assigned_to === mem.id || (selectedConv.assigned_staff_name && selectedConv.assigned_staff_name.toLowerCase() === mem.value.toLowerCase());
-                                            return (
-                                              <button
-                                                key={mem.value}
-                                                type="button"
-                                                onClick={() => handleAssignChatStaff({ type: 'team', id: mem.id!, name: mem.value })}
-                                                className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
-                                                  isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
-                                                }`}
-                                              >
-                                                <div className="flex items-center gap-1.5 min-w-0">
-                                                  <User className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                                                  <span className="truncate text-[11px]">{mem.value}</span>
-                                                </div>
-                                                <div className="flex items-center gap-1 shrink-0 ml-1">
-                                                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 font-medium">Sales</span>
-                                                  {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
-                                                </div>
-                                              </button>
-                                            );
-                                          })}
-                                        </div>
-                                      );
-                                    })()}
-
-                                    {/* 3. Doctors & Consultants (Predefined Presets) */}
+                                    {/* Doctors (Presets) */}
                                     {(() => {
                                       const q = assignSearchQuery.trim().toLowerCase();
                                       const list = categorizedStaffOptions.predefinedDoctors.filter((p) => !q || p.value.toLowerCase().includes(q));
@@ -10525,10 +10250,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       return (
                                         <div className="py-1">
                                           <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
-                                            Doctors (Presets)
+                                            {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toUpperCase() + 'S' : 'DOCTORS'} (PRESETS)
                                           </div>
                                           {list.map((preset) => {
-                                            const isActive = !selectedConv.assigned_to && currentDoc === preset.value.toLowerCase();
+                                            const isActive = currentDoc === preset.value.toLowerCase();
                                             return (
                                               <button
                                                 key={preset.value}
@@ -10553,47 +10278,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       );
                                     })()}
 
-                                    {/* 4. Staff & Administration */}
-                                    {(() => {
-                                      const q = assignSearchQuery.trim().toLowerCase();
-                                      const list = categorizedStaffOptions.other.filter((o) => !q || o.value.toLowerCase().includes(q));
-                                      if (list.length === 0) return null;
-                                      return (
-                                        <div className="py-1">
-                                          <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
-                                            Staff & Administration
-                                          </div>
-                                          {list.map((mem) => {
-                                            const isActive = selectedConv.assigned_to === mem.id || (selectedConv.assigned_staff_name && selectedConv.assigned_staff_name.toLowerCase() === mem.value.toLowerCase());
-                                            return (
-                                              <button
-                                                key={mem.value}
-                                                type="button"
-                                                onClick={() => handleAssignChatStaff({ type: 'team', id: mem.id!, name: mem.value })}
-                                                className={`w-full text-left px-2.5 py-1 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
-                                                  isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
-                                                }`}
-                                              >
-                                                <div className="flex items-center gap-1.5 min-w-0">
-                                                  <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
-                                                  <span className="truncate text-[11px]">{mem.value}</span>
-                                                </div>
-                                                <div className="flex items-center gap-1 shrink-0 ml-1">
-                                                  <span className="text-[9px] px-1 py-0.2 rounded bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 font-medium">Admin</span>
-                                                  {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
-                                                </div>
-                                              </button>
-                                            );
-                                          })}
-                                        </div>
-                                      );
-                                    })()}
-
-                                    {/* Loading state */}
-                                    {teamLoading && teamList.length === 0 && (
-                                      <div className="px-3 py-3 text-[11px] text-text-muted text-center flex items-center justify-center gap-1.5">
-                                        <RefreshCw className="w-3 h-3 animate-spin text-accent" />
-                                        <span>Loading staff members...</span>
+                                    {/* Empty state */}
+                                    {assignSearchQuery && !categorizedStaffOptions.predefinedDoctors.some((p) => p.value.toLowerCase().includes(assignSearchQuery.trim().toLowerCase())) && (
+                                      <div className="py-4 text-center text-text-muted text-[11px]">
+                                        No {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toLowerCase() + 's' : 'doctors'} found matching &ldquo;{assignSearchQuery}&rdquo;
                                       </div>
                                     )}
                                   </div>
@@ -10608,7 +10296,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       }}
                                       className="text-accent hover:underline font-medium flex items-center gap-1 cursor-pointer"
                                     >
-                                      <Users className="w-3 h-3" /> Manage {currentTaxonomy.staff_label || 'Doctor'} Presets
+                                      <Stethoscope className="w-3 h-3" /> Manage {currentTaxonomy.staff_label || 'Doctor'} Presets
                                     </button>
                                   </div>
                                 </div>
@@ -11219,32 +10907,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             onChange={(e) => setFollowupDoctorFilter(e.target.value)}
                             className="px-2 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[125px] h-[26px]"
                           >
-                            <option value="all">All {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff & Doctors'}</option>
+                            <option value="all">All {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Doctors'}</option>
                             <option value="unassigned">Unassigned</option>
-                            {categorizedStaffOptions.teamDoctors.length > 0 && (
-                              <optgroup label="Doctors (Team Login)">
-                                {categorizedStaffOptions.teamDoctors.map((s) => (
-                                  <option key={s.value} value={s.value}>{s.value}</option>
-                                ))}
-                              </optgroup>
-                            )}
-                            {categorizedStaffOptions.sales.length > 0 && (
-                              <optgroup label="Sales & Support">
-                                {categorizedStaffOptions.sales.map((s) => (
-                                  <option key={s.value} value={s.value}>{s.value}</option>
-                                ))}
-                              </optgroup>
-                            )}
                             {categorizedStaffOptions.predefinedDoctors.length > 0 && (
-                              <optgroup label="Doctors & Consultants (Presets)">
+                              <optgroup label={`${currentTaxonomy.staff_label || 'Doctor'} Presets`}>
                                 {categorizedStaffOptions.predefinedDoctors.map((s) => (
-                                  <option key={s.value} value={s.value}>{s.value}</option>
-                                ))}
-                              </optgroup>
-                            )}
-                            {categorizedStaffOptions.other.length > 0 && (
-                              <optgroup label="Staff & Administration">
-                                {categorizedStaffOptions.other.map((s) => (
                                   <option key={s.value} value={s.value}>{s.value}</option>
                                 ))}
                               </optgroup>
@@ -13062,31 +12729,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       onChange={(e) => setRepeatDoctorFilter(e.target.value)}
                       className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[160px]"
                     >
-                      <option value="all">All Staff / Assigned</option>
-                      {categorizedStaffOptions.teamDoctors.length > 0 && (
-                        <optgroup label="Doctors (Team Login)">
-                          {categorizedStaffOptions.teamDoctors.map((s) => (
-                            <option key={s.value} value={s.value}>{s.value}</option>
-                          ))}
-                        </optgroup>
-                      )}
-                      {categorizedStaffOptions.sales.length > 0 && (
-                        <optgroup label="Sales & Support">
-                          {categorizedStaffOptions.sales.map((s) => (
-                            <option key={s.value} value={s.value}>{s.value}</option>
-                          ))}
-                        </optgroup>
-                      )}
+                      <option value="all">All {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Doctors'}</option>
+                      <option value="unassigned">Unassigned</option>
                       {categorizedStaffOptions.predefinedDoctors.length > 0 && (
-                        <optgroup label="Doctors & Consultants (Presets)">
+                        <optgroup label={`${currentTaxonomy.staff_label || 'Doctor'} Presets`}>
                           {categorizedStaffOptions.predefinedDoctors.map((s) => (
-                            <option key={s.value} value={s.value}>{s.value}</option>
-                          ))}
-                        </optgroup>
-                      )}
-                      {categorizedStaffOptions.other.length > 0 && (
-                        <optgroup label="Staff & Administration">
-                          {categorizedStaffOptions.other.map((s) => (
                             <option key={s.value} value={s.value}>{s.value}</option>
                           ))}
                         </optgroup>
