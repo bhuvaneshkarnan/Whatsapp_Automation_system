@@ -1037,6 +1037,7 @@ export interface TenantSettingsResponse {
   industry?: string;
   taxonomy?: {
     staff_label?: string;
+    preset_role_label?: string;
     client_label?: string;
     client_plural?: string;
     requirement_label?: string;

@@ -2327,8 +2327,26 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // ── Quick Preferred Doctors / Staff Presets Editor Modal ───────────────────
   const [doctorEditModalOpen, setDoctorEditModalOpen] = useState(false);
+  // Preset role name customization (e.g. Doctor, Specialist, Consultant, Staff, Agent)
+  const presetRoleSingular = useMemo(() => {
+    const raw = (
+      settingsForm.taxonomy?.preset_role_label ||
+      settingsForm.taxonomy?.staff_label ||
+      (settingsForm.industry === 'clinic' ? 'Doctor' : 'Staff')
+    ).trim();
+    if (!raw || raw === '.' || raw === '-') return 'Doctor';
+    return raw.split('/')[0].trim() || 'Doctor';
+  }, [settingsForm.taxonomy?.preset_role_label, settingsForm.taxonomy?.staff_label, settingsForm.industry]);
+
+  const presetRolePlural = useMemo(() => {
+    const s = presetRoleSingular;
+    if (s.toLowerCase().endsWith('s') || s.toLowerCase() === 'staff') return s;
+    return `${s}s`;
+  }, [presetRoleSingular]);
+
   const [doctorEditList, setDoctorEditList] = useState<string[]>([]);
   const [newDoctorInput, setNewDoctorInput] = useState('');
+  const [doctorRoleInput, setDoctorRoleInput] = useState('');
   const [savingDoctors, setSavingDoctors] = useState(false);
 
   const defaultDoctorList: string[] = [];
@@ -2341,6 +2359,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   function openDoctorEditor() {
     setDoctorEditList([...configuredDoctors]);
     setNewDoctorInput('');
+    setDoctorRoleInput(presetRoleSingular);
     setDoctorEditModalOpen(true);
   }
 
@@ -2361,11 +2380,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     setDoctorEditList([...defaultDoctorList]);
   }
 
-  async function handleSaveDoctorPresetsList(newList: string[]) {
+  async function handleSaveDoctorPresetsList(newList: string[], newRoleName?: string) {
     setSavingDoctors(true);
     try {
+      const finalRole = (newRoleName !== undefined ? newRoleName : doctorRoleInput).trim() || presetRoleSingular || 'Doctor';
       const updatedTaxonomy = {
         ...(settingsForm.taxonomy || currentTaxonomy),
+        preset_role_label: finalRole,
+        staff_label: finalRole,
         doctor_presets: newList,
         staff_presets: newList,
       };
@@ -2376,10 +2398,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         ...prev,
         taxonomy: updatedTaxonomy,
       }));
-      setActionNotice('Doctor & staff presets updated successfully.');
+      setActionNotice(`${finalRole} presets updated successfully.`);
       setTimeout(() => setActionNotice(null), 2500);
     } catch (err) {
-      console.error('Failed to save doctor presets list:', err);
+      console.error('Failed to save presets list:', err);
       alert('Failed to save presets: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setSavingDoctors(false);
@@ -2387,7 +2409,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   }
 
   async function handleSaveDoctorsModal() {
-    await handleSaveDoctorPresetsList(doctorEditList);
+    await handleSaveDoctorPresetsList(doctorEditList, doctorRoleInput);
     setDoctorEditModalOpen(false);
   }
 
@@ -2941,7 +2963,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       <>
         <option value="">{placeholder}</option>
         {categorizedStaffOptions.predefinedDoctors.length > 0 && (
-          <optgroup label={`${currentTaxonomy.staff_label || 'Doctor'} Presets`}>
+          <optgroup label={`${presetRoleSingular} Presets`}>
             {categorizedStaffOptions.predefinedDoctors.map((s) => (
               <option key={s.value} value={s.value}>{s.label}</option>
             ))}
@@ -2971,9 +2993,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       return {
         role: 'preset_doctor' as const,
         label: presetDoc.value,
-        badge: currentTaxonomy.staff_label || 'Doctor',
+        badge: presetRoleSingular,
         colorClass: 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70',
-        icon: Stethoscope,
+        icon: User,
       };
     }
 
@@ -2981,9 +3003,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     return {
       role: 'preset_doctor' as const,
       label: nameOrId,
-      badge: currentTaxonomy.staff_label || 'Doctor',
+      badge: presetRoleSingular,
       colorClass: 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70',
-      icon: Stethoscope,
+      icon: User,
     };
   }
 
@@ -3126,7 +3148,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           {/* Header */}
           <div className="px-2.5 py-1.5 flex items-center justify-between bg-surface-subtle/40">
             <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
-              Assign {currentTaxonomy.staff_label || 'Doctor'}
+              Assign {presetRoleSingular}
             </span>
           </div>
 
@@ -3139,7 +3161,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   type="text"
                   value={custAssignSearch}
                   onChange={(e) => setCustAssignSearch(e.target.value)}
-                  placeholder={`Search ${currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toLowerCase() : 'doctor'}...`}
+                  placeholder={`Search ${presetRoleSingular.toLowerCase()}...`}
                   className="w-full pl-6 pr-2 py-0.5 text-[11px] bg-surface-subtle border border-border rounded text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
                   onClick={(e) => e.stopPropagation()}
                   autoFocus
@@ -3167,11 +3189,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </button>
             )}
 
-            {/* Doctors (Presets) */}
+            {/* Presets */}
             {filteredPresets.length > 0 && (
               <div className="py-1">
                 <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
-                  {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toUpperCase() + 'S' : 'DOCTORS'} (PRESETS)
+                  {presetRolePlural.toUpperCase()} (PRESETS)
                 </div>
                 {filteredPresets.map((preset) => {
                   const isActive = currentVal === preset.value.toLowerCase();
@@ -3185,7 +3207,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       }`}
                     >
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <Stethoscope className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <User className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <span className="truncate text-[11px]">{preset.value}</span>
                       </div>
                       <div className="flex items-center gap-1 shrink-0 ml-1">
@@ -3201,7 +3223,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {/* Empty search results */}
             {q && !filteredPresets.length && (
               <div className="py-4 text-center text-text-muted text-[11px]">
-                No {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toLowerCase() + 's' : 'doctors'} found matching &ldquo;{custAssignSearch}&rdquo;
+                No {presetRolePlural.toLowerCase()} found matching &ldquo;{custAssignSearch}&rdquo;
               </div>
             )}
           </div>
@@ -3216,7 +3238,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               }}
               className="text-accent hover:underline font-medium flex items-center gap-1 cursor-pointer"
             >
-              <Stethoscope className="w-3 h-3" /> Manage {currentTaxonomy.staff_label || 'Doctor'} Presets
+              <Users className="w-3 h-3" /> Manage {presetRoleSingular} Presets
             </button>
           </div>
         </div>
@@ -6583,7 +6605,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             </span>
                           ) : isDoctor ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
-                              <Stethoscope className="w-2.5 h-2.5" />
+                              <User className="w-2.5 h-2.5" />
                               <span>{staffLabel}</span>
                             </span>
                           ) : isAdmin ? (
@@ -6618,7 +6640,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             </div>
                           ) : p.assigned_doctor ? (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 font-medium whitespace-nowrap">
-                              <Stethoscope className="w-2.5 h-2.5" />
+                              <User className="w-2.5 h-2.5" />
                               <span>{p.assigned_doctor}</span>
                             </span>
                           ) : isDoctor ? (
@@ -6709,9 +6731,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <div className="px-3.5 py-2.5 border-b border-border bg-surface-subtle/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <div className="flex items-center gap-2">
-                <Stethoscope className="w-4 h-4 text-emerald-600 dark:text-emerald-400 stroke-[1.5]" />
+                <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400 stroke-[1.5]" />
                 <h4 className="font-semibold text-xs text-text-primary">
-                  {staffLabel} Presets (Predefined Names &bull; No Login Required)
+                  {presetRoleSingular} Presets (Predefined Names &bull; No Login Required)
                 </h4>
                 <span className="text-[10px] font-mono text-text-muted bg-surface px-1.5 py-0.2 rounded border border-border">
                   {configuredDoctors.length} {configuredDoctors.length === 1 ? 'preset' : 'presets'}
@@ -10173,12 +10195,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               }`}
                               title={
                                 (selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor)
-                                  ? `${currentTaxonomy.staff_label || 'Doctor'}: ${selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor}`
-                                  : `Assign ${currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toLowerCase() : 'doctor'}`
+                                  ? `${presetRoleSingular}: ${selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor}`
+                                  : `Assign ${presetRoleSingular.toLowerCase()}`
                               }
                             >
                               {(selectedConv.preferred_doctor || selectedCustomer?.preferred_doctor) ? (
-                                <Stethoscope className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                <User className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                               ) : (
                                 <User className="w-3.5 h-3.5 text-text-muted shrink-0" />
                               )}
@@ -10197,7 +10219,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   {/* Header */}
                                   <div className="px-2.5 py-1.5 flex items-center justify-between bg-surface-subtle/40">
                                     <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
-                                      Assign {currentTaxonomy.staff_label || 'Doctor'}
+                                      Assign {presetRoleSingular}
                                     </span>
                                   </div>
 
@@ -10210,7 +10232,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           type="text"
                                           value={assignSearchQuery}
                                           onChange={(e) => setAssignSearchQuery(e.target.value)}
-                                          placeholder={`Search ${currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toLowerCase() : 'doctor'}...`}
+                                          placeholder={`Search ${presetRoleSingular.toLowerCase()}...`}
                                           className="w-full pl-6 pr-2 py-0.5 text-[11px] bg-surface-subtle border border-border rounded text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
                                           onClick={(e) => e.stopPropagation()}
                                           autoFocus
@@ -10241,7 +10263,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       );
                                     })()}
 
-                                    {/* Doctors (Presets) */}
+                                    {/* Presets */}
                                     {(() => {
                                       const q = assignSearchQuery.trim().toLowerCase();
                                       const list = categorizedStaffOptions.predefinedDoctors.filter((p) => !q || p.value.toLowerCase().includes(q));
@@ -10250,7 +10272,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       return (
                                         <div className="py-1">
                                           <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
-                                            {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toUpperCase() + 'S' : 'DOCTORS'} (PRESETS)
+                                            {presetRolePlural.toUpperCase()} (PRESETS)
                                           </div>
                                           {list.map((preset) => {
                                             const isActive = currentDoc === preset.value.toLowerCase();
@@ -10264,7 +10286,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                 }`}
                                               >
                                                 <div className="flex items-center gap-1.5 min-w-0">
-                                                  <Stethoscope className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                                  <User className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                                                   <span className="truncate text-[11px]">{preset.value}</span>
                                                 </div>
                                                 <div className="flex items-center gap-1 shrink-0 ml-1">
@@ -10281,7 +10303,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     {/* Empty state */}
                                     {assignSearchQuery && !categorizedStaffOptions.predefinedDoctors.some((p) => p.value.toLowerCase().includes(assignSearchQuery.trim().toLowerCase())) && (
                                       <div className="py-4 text-center text-text-muted text-[11px]">
-                                        No {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toLowerCase() + 's' : 'doctors'} found matching &ldquo;{assignSearchQuery}&rdquo;
+                                        No {presetRolePlural.toLowerCase()} found matching &ldquo;{assignSearchQuery}&rdquo;
                                       </div>
                                     )}
                                   </div>
@@ -10296,7 +10318,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       }}
                                       className="text-accent hover:underline font-medium flex items-center gap-1 cursor-pointer"
                                     >
-                                      <Stethoscope className="w-3 h-3" /> Manage {currentTaxonomy.staff_label || 'Doctor'} Presets
+                                      <Users className="w-3 h-3" /> Manage {presetRoleSingular} Presets
                                     </button>
                                   </div>
                                 </div>
@@ -10907,10 +10929,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             onChange={(e) => setFollowupDoctorFilter(e.target.value)}
                             className="px-2 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[125px] h-[26px]"
                           >
-                            <option value="all">All {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Doctors'}</option>
+                            <option value="all">All {presetRolePlural}</option>
                             <option value="unassigned">Unassigned</option>
                             {categorizedStaffOptions.predefinedDoctors.length > 0 && (
-                              <optgroup label={`${currentTaxonomy.staff_label || 'Doctor'} Presets`}>
+                              <optgroup label={`${presetRoleSingular} Presets`}>
                                 {categorizedStaffOptions.predefinedDoctors.map((s) => (
                                   <option key={s.value} value={s.value}>{s.value}</option>
                                 ))}
@@ -10920,7 +10942,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <button
                             type="button"
                             onClick={openDoctorEditor}
-                            title={`Manage ${currentTaxonomy.staff_label || 'Doctors / Staff'}`}
+                            title={`Manage ${presetRolePlural}`}
                             className="p-1 text-text-muted hover:text-accent hover:bg-surface-subtle border border-border rounded-sm transition-colors cursor-pointer h-[26px] w-[26px] flex items-center justify-center"
                           >
                             <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
@@ -12729,10 +12751,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       onChange={(e) => setRepeatDoctorFilter(e.target.value)}
                       className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[160px]"
                     >
-                      <option value="all">All {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Doctors'}</option>
+                      <option value="all">All {presetRolePlural}</option>
                       <option value="unassigned">Unassigned</option>
                       {categorizedStaffOptions.predefinedDoctors.length > 0 && (
-                        <optgroup label={`${currentTaxonomy.staff_label || 'Doctor'} Presets`}>
+                        <optgroup label={`${presetRoleSingular} Presets`}>
                           {categorizedStaffOptions.predefinedDoctors.map((s) => (
                             <option key={s.value} value={s.value}>{s.value}</option>
                           ))}
@@ -14866,12 +14888,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               />
                             </div>
                             <div>
-                              <label className="block text-[11px] font-medium text-text-muted mb-1">Staff / Specialist Label</label>
+                              <label className="block text-[11px] font-medium text-text-muted mb-1">Preset Role / Staff Label</label>
                               <input
                                 type="text"
-                                value={settingsForm.taxonomy?.staff_label ?? currentTaxonomy.staff_label}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), staff_label: e.target.value } })}
-                                placeholder="e.g. Doctor / Tutor / Specialist"
+                                value={settingsForm.taxonomy?.preset_role_label ?? settingsForm.taxonomy?.staff_label ?? presetRoleSingular}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, taxonomy: { ...(settingsForm.taxonomy || currentTaxonomy), staff_label: e.target.value, preset_role_label: e.target.value } })}
+                                placeholder="e.g. Doctor / Specialist / Consultant / Staff"
                                 className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
                               />
                             </div>
@@ -17148,14 +17170,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               <div className="flex items-center justify-between px-5 py-3.5 border-b border-border bg-surface-subtle/50">
                 <div className="flex items-center gap-2.5">
                   <div className="w-7 h-7 rounded-sm bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
-                    <UserCheck className="w-3.5 h-3.5 stroke-[2]" />
+                    <Users className="w-3.5 h-3.5 stroke-[2]" />
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold text-text-primary">
-                      Manage {currentTaxonomy.staff_label || 'Doctors / Staff'}
+                      Manage {presetRoleSingular} Presets
                     </h3>
                     <p className="text-[11px] text-text-muted">
-                      Add, remove, or customize available {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.toLowerCase() : 'staff'} members.
+                      Customize role title and manage available {presetRolePlural.toLowerCase()} members.
                     </p>
                   </div>
                 </div>
@@ -17169,10 +17191,27 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </div>
 
               <div className="p-5 space-y-4">
-                {/* Input to Add Doctor */}
+                {/* Rename Preset Category / Role Label */}
+                <div className="bg-surface-subtle p-3 rounded-sm border border-border">
+                  <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1">
+                    Preset Category / Role Title
+                  </label>
+                  <input
+                    type="text"
+                    value={doctorRoleInput}
+                    onChange={(e) => setDoctorRoleInput(e.target.value)}
+                    placeholder="e.g. Doctor, Specialist, Consultant, Staff, Agent..."
+                    className="w-full px-3 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:bg-white focus:border-accent focus:outline-none transition-colors"
+                  />
+                  <p className="text-[10px] text-text-muted mt-1">
+                    Rename what this preset category is called across your dashboard, assign dropdowns, and filters (e.g. Doctor, Specialist, Consultant, Staff, Agent).
+                  </p>
+                </div>
+
+                {/* Input to Add Doctor / Staff */}
                 <div>
                   <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1.5">
-                    Add New {currentTaxonomy.staff_label || 'Doctor / Staff'}
+                    Add New {doctorRoleInput.trim() || presetRoleSingular}
                   </label>
                   <div className="flex gap-2">
                     <input
@@ -17185,7 +17224,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           handleAddDoctor();
                         }
                       }}
-                      placeholder={`e.g. Dr. Jane Doe or Staff Name...`}
+                      placeholder={`e.g. Dr. Jane Doe, Ashiq, or ${(doctorRoleInput.trim() || presetRoleSingular)} Name...`}
                       className="flex-1 px-3 py-1.5 text-xs bg-surface-subtle border border-border rounded-sm text-text-primary focus:bg-white focus:border-accent focus:outline-none transition-colors"
                     />
                     <button
@@ -17199,22 +17238,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </button>
                   </div>
                   <p className="text-[10px] text-text-muted mt-1">
-                    Press Enter or click Add to append to your staff selection list.
+                    Press Enter or click Add to append to your preset selection list.
                   </p>
                 </div>
 
-                {/* Active Doctors */}
+                {/* Active Doctors / Staff */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
-                      Current {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff'} ({doctorEditList.length})
+                      Current {presetRolePlural} ({doctorEditList.length})
                     </label>
                     <span className="inline-flex items-center gap-1 text-[10px] text-text-muted">Click <X className="w-2.5 h-2.5 inline stroke-[2]" /> to remove</span>
                   </div>
                   <div className="p-3 bg-surface-subtle border border-border rounded-sm min-h-[90px] max-h-[220px] overflow-y-auto flex flex-wrap gap-1.5 items-start content-start">
                     {doctorEditList.length === 0 ? (
                       <p className="text-xs text-text-muted italic py-4 text-center w-full">
-                        No doctors or staff members in list. Add a member above or restore defaults.
+                        No {presetRolePlural.toLowerCase()} in list. Add a member above or restore defaults.
                       </p>
                     ) : (
                       doctorEditList.map((doc) => (
