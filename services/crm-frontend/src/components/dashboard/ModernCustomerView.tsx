@@ -57,7 +57,72 @@ function WhatsAppIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
   );
 }
 
-// Clean Minimalist Shopify-Style Follow-up Scheduler Popover
+// Flexible date parser allowing user to type YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY, DD-MM, words like today/tomorrow, etc.
+function parseFlexibleDate(str: string): string | null {
+  const trimmed = str.trim().toLowerCase();
+  if (!trimmed) return null;
+
+  if (trimmed === 'today') return getFollowupDateString(0);
+  if (trimmed === 'tomorrow') return getFollowupDateString(1);
+
+  // YYYY-MM-DD or YYYY/MM/DD
+  const isoMatch = trimmed.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (isoMatch) {
+    const y = isoMatch[1];
+    const m = isoMatch[2].padStart(2, '0');
+    const d = isoMatch[3].padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  // DD-MM-YYYY or DD/MM/YYYY
+  const dmyMatch = trimmed.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (dmyMatch) {
+    const d = dmyMatch[1].padStart(2, '0');
+    const m = dmyMatch[2].padStart(2, '0');
+    const y = dmyMatch[3];
+    return `${y}-${m}-${d}`;
+  }
+
+  // DD-MM or DD/MM (assume current year)
+  const dmMatch = trimmed.match(/^(\d{1,2})[-/.](\d{1,2})$/);
+  if (dmMatch) {
+    const d = dmMatch[1].padStart(2, '0');
+    const m = dmMatch[2].padStart(2, '0');
+    const y = String(new Date().getFullYear());
+    return `${y}-${m}-${d}`;
+  }
+
+  // Fallback: standard Date parse
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  return null;
+}
+
+// Formats friendly date preview like "Mon, Sep 14, 2026"
+function formatDateFriendlyPreview(dateStr: string | null): string | null {
+  if (!dateStr) return null;
+  try {
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return null;
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const d = parseInt(parts[2], 10);
+    if (!y || !m || !d) return null;
+    const dt = new Date(y, m - 1, d);
+    if (isNaN(dt.getTime())) return null;
+    return dt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  } catch {
+    return null;
+  }
+}
+
+// Clean Minimalist Shopify-Style Follow-up Scheduler Popover with Direct Typing
 function FollowupSchedulerPopover({
   currentDate,
   currentTime,
@@ -73,6 +138,30 @@ function FollowupSchedulerPopover({
 }) {
   const [dateInput, setDateInput] = useState(currentDate || getFollowupDateString(1));
   const [timeInput, setTimeInput] = useState(currentTime || '10:00 AM');
+  const [error, setError] = useState<string | null>(null);
+  const hiddenDateRef = React.useRef<HTMLInputElement | null>(null);
+
+  const parsedDate = parseFlexibleDate(dateInput);
+  const friendlyPreview = formatDateFriendlyPreview(parsedDate);
+
+  const handleSave = () => {
+    if (!parsedDate) {
+      setError('Please enter a valid date (e.g. 2026-09-15 or 15-09-2026)');
+      return;
+    }
+    setError(null);
+    onSelect(parsedDate, timeInput.trim());
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+    }
+  };
 
   return (
     <>
@@ -84,8 +173,9 @@ function FollowupSchedulerPopover({
         }}
       />
       <div
-        className="absolute left-0 top-full mt-1.5 z-40 w-64 bg-surface border border-border rounded-md shadow-xl p-3 text-xs space-y-2.5 animate-in fade-in zoom-in-95 duration-100 font-sans"
+        className="absolute left-0 top-full mt-1.5 z-40 w-72 bg-surface border border-border rounded-md shadow-xl p-3 text-xs space-y-3 animate-in fade-in zoom-in-95 duration-100 font-sans"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={handleKeyDown}
       >
         <div className="flex items-center justify-between pb-1.5 border-b border-border">
           <div className="flex items-center gap-1.5 font-bold text-text-primary text-[11px]">
@@ -101,80 +191,147 @@ function FollowupSchedulerPopover({
           </button>
         </div>
 
-        {/* Quick Presets */}
-        <div>
-          <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider block mb-1">
-            Quick Presets
-          </span>
-          <div className="grid grid-cols-2 gap-1">
+        {/* 1. Direct Type Date & Time Inputs (Primary) */}
+        <div className="space-y-2.5">
+          {/* Date Input with typing & visual picker trigger */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[10px] font-bold uppercase text-text-muted tracking-wider block">
+                Type Date
+              </label>
+              {friendlyPreview && (
+                <span className="text-[10px] text-emerald-600 font-semibold truncate max-w-[150px]">
+                  ✓ {friendlyPreview}
+                </span>
+              )}
+            </div>
+            <div className="relative flex items-center">
+              <input
+                type="text"
+                autoFocus
+                value={dateInput}
+                onChange={(e) => {
+                  setDateInput(e.target.value);
+                  if (error) setError(null);
+                }}
+                placeholder="YYYY-MM-DD or DD-MM-YYYY"
+                className={`w-full pl-2.5 pr-8 py-1.5 text-xs bg-surface-subtle border rounded text-text-primary focus:outline-none focus:bg-surface font-mono transition-all ${
+                  error
+                    ? 'border-rose-400 ring-1 ring-rose-300'
+                    : 'border-border focus:border-accent focus:ring-1 focus:ring-accent/30'
+                }`}
+              />
+              {/* Native Date Picker trigger button */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (hiddenDateRef.current) {
+                    try {
+                      hiddenDateRef.current.showPicker();
+                    } catch {
+                      hiddenDateRef.current.click();
+                    }
+                  }
+                }}
+                className="absolute right-2 p-1 text-text-muted hover:text-accent cursor-pointer transition-colors"
+                title="Open calendar picker"
+              >
+                <Calendar className="w-3.5 h-3.5 stroke-[1.8]" />
+              </button>
+              {/* Hidden native date input for picker */}
+              <input
+                ref={hiddenDateRef}
+                type="date"
+                value={parsedDate || ''}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setDateInput(e.target.value);
+                    if (error) setError(null);
+                  }
+                }}
+                className="sr-only"
+                tabIndex={-1}
+              />
+            </div>
+            {error && (
+              <p className="text-[10px] text-rose-600 mt-1 font-medium leading-tight">
+                {error}
+              </p>
+            )}
+          </div>
+
+          {/* Time Input - Fully Editable Type */}
+          <div>
+            <label className="text-[10px] font-bold uppercase text-text-muted tracking-wider block mb-1">
+              Type Time
+            </label>
+            <div className="relative flex items-center">
+              <input
+                type="text"
+                value={timeInput}
+                onChange={(e) => setTimeInput(e.target.value)}
+                placeholder="e.g. 10:00 AM, 02:30 PM, 14:00"
+                list="followup-time-suggestions"
+                className="w-full pl-2.5 pr-8 py-1.5 text-xs bg-surface-subtle border border-border rounded text-text-primary focus:outline-none focus:bg-surface focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all font-mono"
+              />
+              <Clock className="w-3.5 h-3.5 text-text-muted absolute right-2.5 pointer-events-none stroke-[1.8]" />
+            </div>
+            <datalist id="followup-time-suggestions">
+              <option value="09:00 AM" />
+              <option value="10:00 AM" />
+              <option value="11:00 AM" />
+              <option value="12:00 PM" />
+              <option value="01:00 PM" />
+              <option value="02:00 PM" />
+              <option value="03:00 PM" />
+              <option value="04:00 PM" />
+              <option value="05:00 PM" />
+              <option value="06:00 PM" />
+              <option value="07:00 PM" />
+              <option value="08:00 PM" />
+            </datalist>
+          </div>
+        </div>
+
+        {/* 2. Optional Quick Fill Chips */}
+        <div className="pt-2 border-t border-border/70">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[9px] uppercase font-bold text-text-muted tracking-wider">
+              Quick Fill (optional)
+            </span>
+          </div>
+          <div className="flex items-center gap-1 flex-wrap">
             {[
               { label: 'Today', offset: 0 },
               { label: 'Tomorrow', offset: 1 },
-              { label: 'In 2 Days', offset: 2 },
-              { label: 'Next Week', offset: 7 },
+              { label: '+2 Days', offset: 2 },
+              { label: '+1 Week', offset: 7 },
             ].map((p) => {
               const dStr = getFollowupDateString(p.offset);
-              const isSelected = dateInput === dStr;
+              const isSelected = parsedDate === dStr;
               return (
                 <button
                   key={p.label}
                   type="button"
                   onClick={() => {
                     setDateInput(dStr);
-                    onSelect(dStr, timeInput);
+                    if (error) setError(null);
                   }}
-                  className={`px-2 py-1 rounded text-[11px] font-medium border text-left transition-colors cursor-pointer flex items-center justify-between ${
+                  className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors cursor-pointer ${
                     isSelected
-                      ? 'bg-accent-subtle/50 text-accent border-accent font-semibold'
-                      : 'bg-surface-subtle hover:bg-surface text-text-secondary border-border hover:border-border-strong'
+                      ? 'bg-accent/10 text-accent border-accent/40 font-semibold'
+                      : 'bg-surface-subtle hover:bg-surface text-text-secondary border-border/80 hover:border-border-strong'
                   }`}
                 >
-                  <span>{p.label}</span>
-                  <span className="text-[9px] text-text-muted font-mono">{dStr.slice(5)}</span>
+                  {p.label}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Custom Date & Time */}
-        <div className="space-y-1.5 pt-1 border-t border-border/80">
-          <div>
-            <label className="text-[10px] font-bold uppercase text-text-muted tracking-wider block mb-0.5">
-              Pick Date
-            </label>
-            <input
-              type="date"
-              value={dateInput}
-              onChange={(e) => setDateInput(e.target.value)}
-              className="w-full px-2 py-1 text-xs bg-surface-subtle border border-border rounded text-text-primary focus:outline-none focus:border-accent font-mono cursor-pointer"
-            />
-          </div>
-
-          <div>
-            <label className="text-[10px] font-bold uppercase text-text-muted tracking-wider block mb-0.5">
-              Time
-            </label>
-            <select
-              value={timeInput}
-              onChange={(e) => setTimeInput(e.target.value)}
-              className="w-full px-2 py-1 text-xs bg-surface-subtle border border-border rounded text-text-primary focus:outline-none focus:border-accent cursor-pointer"
-            >
-              {[
-                '09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
-                '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM',
-                '06:00 PM', '07:00 PM'
-              ].map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Action Footer */}
-        <div className="flex items-center justify-between pt-1 border-t border-border">
+        {/* 3. Action Footer */}
+        <div className="flex items-center justify-between pt-2 border-t border-border">
           {currentDate ? (
             <button
               type="button"
@@ -196,12 +353,8 @@ function FollowupSchedulerPopover({
             </button>
             <button
               type="button"
-              onClick={() => {
-                if (dateInput) {
-                  onSelect(dateInput, timeInput);
-                }
-              }}
-              className="px-2.5 py-1 text-[11px] font-semibold rounded bg-accent hover:bg-accent-hover text-white transition-colors shadow-2xs cursor-pointer"
+              onClick={handleSave}
+              className="px-3 py-1 text-[11px] font-semibold rounded bg-accent hover:bg-accent-hover text-white transition-colors shadow-2xs cursor-pointer"
             >
               Save
             </button>
