@@ -6286,11 +6286,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     const isPast = b.start_time ? new Date(b.start_time).getTime() < Date.now() : false;
 
     if (bookingFilter === 'upcoming') {
-      // Upcoming: Active bookings (confirmed, pending, or rescheduled) whose scheduled time has not passed yet
-      return (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled') && !isPast;
-    }
-    if (bookingFilter === 'rescheduled') {
-      return b.status === 'rescheduled';
+      // Upcoming: Active bookings (confirmed, pending, or rescheduled)
+      return (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled') && (!isPast || b.status === 'rescheduled');
     }
     if (bookingFilter === 'completed') {
       // Completed: explicitly completed/attended OR bookings whose scheduled time has passed and are not cancelled/no-show/rescheduled
@@ -6305,9 +6302,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
     if (bookingFilter === 'cancelled') {
       return b.status === 'cancelled';
-    }
-    if (bookingFilter === 'all') {
-      return true;
     }
     return b.status === bookingFilter;
   });
@@ -8760,16 +8754,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <div className="flex overflow-x-auto no-scrollbar gap-0.5 bg-surface-subtle p-0.5 rounded-md border border-border shrink-0 max-w-full">
                       {[
                         { id: 'upcoming', label: 'Upcoming' },
-                        { id: 'rescheduled', label: 'Rescheduled' },
                         { id: 'completed', label: 'Completed' },
                         { id: 'no_show', label: 'No-Show' },
                         { id: 'cancelled', label: 'Cancelled' },
-                        { id: 'all', label: 'All' },
                       ].map((st) => {
                         const count = (bookings || []).filter((b) => {
                           const isPast = b.start_time ? new Date(b.start_time).getTime() < Date.now() : false;
-                          if (st.id === 'upcoming') return (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled') && !isPast;
-                          if (st.id === 'rescheduled') return b.status === 'rescheduled';
+                          if (st.id === 'upcoming') return (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled') && (!isPast || b.status === 'rescheduled');
                           if (st.id === 'completed') {
                             return (
                               b.status === 'completed' ||
@@ -8779,7 +8770,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           }
                           if (st.id === 'no_show') return b.status === 'no_show';
                           if (st.id === 'cancelled') return b.status === 'cancelled';
-                          if (st.id === 'all') return true;
                           return false;
                         }).length;
 
