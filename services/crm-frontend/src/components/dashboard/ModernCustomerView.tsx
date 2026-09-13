@@ -34,8 +34,19 @@ import {
   Check,
   Edit2,
   MapPin,
+  CalendarPlus,
 } from 'lucide-react';
 import { Customer, FollowupTask, CrmDropdownOptions } from '@/lib/api';
+
+// Date string helper for follow-up scheduling
+function getFollowupDateString(offsetDays: number = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 // WhatsApp SVG Icon
 function WhatsAppIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
@@ -43,6 +54,161 @@ function WhatsAppIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
       <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.669-.699c.96.541 1.78.82 2.79.82 3.18 0 5.767-2.586 5.768-5.766 0-3.18-2.587-5.766-5.767-5.766zm3.393 8.167c-.145.407-.847.773-1.182.809-.327.035-.745.059-2.39-.623-1.979-.82-3.247-2.83-3.344-2.961-.097-.132-.806-1.074-.806-2.043 0-.969.508-1.446.689-1.644.181-.198.396-.247.528-.247.132 0 .265.001.382.007.123.006.287-.046.45.344.163.39.558 1.359.607 1.458.049.099.082.215.016.347-.066.132-.099.214-.197.33-.099.115-.208.257-.297.345-.1.099-.204.207-.088.406.116.199.516.852 1.109 1.38.763.679 1.407.888 1.606.987.199.099.314.082.43-.05.116-.132.496-.578.628-.776.132-.198.265-.165.446-.099.181.066 1.157.545 1.355.644.198.099.33.149.38.231.05.082.05.479-.095.886z" />
     </svg>
+  );
+}
+
+// Clean Minimalist Shopify-Style Follow-up Scheduler Popover
+function FollowupSchedulerPopover({
+  currentDate,
+  currentTime,
+  onSelect,
+  onClear,
+  onClose,
+}: {
+  currentDate?: string | null;
+  currentTime?: string | null;
+  onSelect: (dateStr: string, timeStr?: string) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  const [dateInput, setDateInput] = useState(currentDate || getFollowupDateString(1));
+  const [timeInput, setTimeInput] = useState(currentTime || '10:00 AM');
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-30"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+      />
+      <div
+        className="absolute left-0 top-full mt-1.5 z-40 w-64 bg-surface border border-border rounded-md shadow-xl p-3 text-xs space-y-2.5 animate-in fade-in zoom-in-95 duration-100 font-sans"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between pb-1.5 border-b border-border">
+          <div className="flex items-center gap-1.5 font-bold text-text-primary text-[11px]">
+            <Calendar className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
+            <span>Schedule Follow-up</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-text-muted hover:text-text-primary p-0.5 rounded cursor-pointer transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Quick Presets */}
+        <div>
+          <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider block mb-1">
+            Quick Presets
+          </span>
+          <div className="grid grid-cols-2 gap-1">
+            {[
+              { label: 'Today', offset: 0 },
+              { label: 'Tomorrow', offset: 1 },
+              { label: 'In 2 Days', offset: 2 },
+              { label: 'Next Week', offset: 7 },
+            ].map((p) => {
+              const dStr = getFollowupDateString(p.offset);
+              const isSelected = dateInput === dStr;
+              return (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => {
+                    setDateInput(dStr);
+                    onSelect(dStr, timeInput);
+                  }}
+                  className={`px-2 py-1 rounded text-[11px] font-medium border text-left transition-colors cursor-pointer flex items-center justify-between ${
+                    isSelected
+                      ? 'bg-accent-subtle/50 text-accent border-accent font-semibold'
+                      : 'bg-surface-subtle hover:bg-surface text-text-secondary border-border hover:border-border-strong'
+                  }`}
+                >
+                  <span>{p.label}</span>
+                  <span className="text-[9px] text-text-muted font-mono">{dStr.slice(5)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Custom Date & Time */}
+        <div className="space-y-1.5 pt-1 border-t border-border/80">
+          <div>
+            <label className="text-[10px] font-bold uppercase text-text-muted tracking-wider block mb-0.5">
+              Pick Date
+            </label>
+            <input
+              type="date"
+              value={dateInput}
+              onChange={(e) => setDateInput(e.target.value)}
+              className="w-full px-2 py-1 text-xs bg-surface-subtle border border-border rounded text-text-primary focus:outline-none focus:border-accent font-mono cursor-pointer"
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold uppercase text-text-muted tracking-wider block mb-0.5">
+              Time
+            </label>
+            <select
+              value={timeInput}
+              onChange={(e) => setTimeInput(e.target.value)}
+              className="w-full px-2 py-1 text-xs bg-surface-subtle border border-border rounded text-text-primary focus:outline-none focus:border-accent cursor-pointer"
+            >
+              {[
+                '09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
+                '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM',
+                '06:00 PM', '07:00 PM'
+              ].map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Action Footer */}
+        <div className="flex items-center justify-between pt-1 border-t border-border">
+          {currentDate ? (
+            <button
+              type="button"
+              onClick={onClear}
+              className="text-[11px] text-rose-600 hover:text-rose-700 hover:underline font-medium cursor-pointer"
+            >
+              Remove
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-2 py-1 text-[11px] rounded border border-border text-text-secondary hover:bg-surface-subtle cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (dateInput) {
+                  onSelect(dateInput, timeInput);
+                }
+              }}
+              className="px-2.5 py-1 text-[11px] font-semibold rounded bg-accent hover:bg-accent-hover text-white transition-colors shadow-2xs cursor-pointer"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -118,6 +284,7 @@ export function ModernCustomerView({
   const [warmthFilter, setWarmthFilter] = useState<string>('all');
   const [staffFilter, setStaffFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [schedulingCustomerId, setSchedulingCustomerId] = useState<string | null>(null);
 
   // Safe fallback collections
   const safeTasks = useMemo(() => (Array.isArray(tasks) ? tasks : []), [tasks]);
@@ -532,27 +699,31 @@ export function ModernCustomerView({
 
           <div className="h-4 w-px bg-border/80" />
 
-          {/* Temperature pills */}
+          {/* Temperature pills - Clean Minimalist Shopify-Style (Zero Emojis) */}
           <div className="flex items-center gap-0.5 bg-surface-subtle border border-border/80 rounded-sm p-0.5">
             {[
-              { id: 'all', label: 'All Temp' },
-              { id: 'hot', label: '🔥 Hot' },
-              { id: 'warm', label: '⚡ Warm' },
-              { id: 'cold', label: '❄️ Cold' },
-            ].map((tp) => (
-              <button
-                key={tp.id}
-                type="button"
-                onClick={() => setWarmthFilter(tp.id)}
-                className={`px-2 py-0.5 text-[11px] rounded-xs font-medium cursor-pointer transition-colors ${
-                  warmthFilter === tp.id
-                    ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
-                    : 'text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                {tp.label}
-              </button>
-            ))}
+              { id: 'all', label: 'All', icon: null, iconColor: '' },
+              { id: 'hot', label: 'Hot', icon: Flame, iconColor: 'text-rose-600' },
+              { id: 'warm', label: 'Warm', icon: Sun, iconColor: 'text-amber-600' },
+              { id: 'cold', label: 'Cold', icon: Snowflake, iconColor: 'text-sky-600' },
+            ].map((tp) => {
+              const IconComp = tp.icon;
+              return (
+                <button
+                  key={tp.id}
+                  type="button"
+                  onClick={() => setWarmthFilter(tp.id)}
+                  className={`flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-xs font-medium cursor-pointer transition-colors ${
+                    warmthFilter === tp.id
+                      ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
+                      : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  {IconComp && <IconComp className={`w-3 h-3 stroke-[2] ${tp.iconColor}`} />}
+                  <span>{tp.label}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -642,24 +813,35 @@ export function ModernCustomerView({
                                     </>
                                   )}
                                 </div>
-                                {/* Buying Intent below phone number */}
-                                <div className="mt-1" onClick={(e) => e.stopPropagation()}>
-                                  <select
-                                    value={cust.lead_probability || 'warm'}
-                                    onChange={(e) => handleQuickUpdate(cust.id, { lead_probability: e.target.value as any })}
-                                    disabled={updatingId === cust.id}
-                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-sm border cursor-pointer uppercase tracking-wider shadow-2xs ${
+                                {/* Buying Intent below phone number - Clean Minimalist Icon Badge (Zero Emojis) */}
+                                <div className="mt-1 flex items-center" onClick={(e) => e.stopPropagation()}>
+                                  <div
+                                    className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-sm border shadow-2xs ${
                                       cust.lead_probability === 'hot'
                                         ? 'bg-rose-50 text-rose-700 border-rose-200'
                                         : cust.lead_probability === 'cold'
-                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                        ? 'bg-sky-50 text-sky-700 border-sky-200'
                                         : 'bg-amber-50 text-amber-700 border-amber-200'
                                     }`}
                                   >
-                                    <option value="hot">🔥 Hot</option>
-                                    <option value="warm">⚡ Warm</option>
-                                    <option value="cold">❄️ Cold</option>
-                                  </select>
+                                    {cust.lead_probability === 'hot' ? (
+                                      <Flame className="w-2.5 h-2.5 text-rose-600 stroke-[2] shrink-0" />
+                                    ) : cust.lead_probability === 'cold' ? (
+                                      <Snowflake className="w-2.5 h-2.5 text-sky-600 stroke-[2] shrink-0" />
+                                    ) : (
+                                      <Sun className="w-2.5 h-2.5 text-amber-600 stroke-[2] shrink-0" />
+                                    )}
+                                    <select
+                                      value={cust.lead_probability || 'warm'}
+                                      onChange={(e) => handleQuickUpdate(cust.id, { lead_probability: e.target.value as any })}
+                                      disabled={updatingId === cust.id}
+                                      className="bg-transparent text-[10px] font-bold uppercase tracking-wider cursor-pointer focus:outline-none border-none p-0 pr-0.5 text-inherit leading-none"
+                                    >
+                                      <option value="hot">Hot</option>
+                                      <option value="warm">Warm</option>
+                                      <option value="cold">Cold</option>
+                                    </select>
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -723,14 +905,88 @@ export function ModernCustomerView({
                             </select>
                           </td>
 
-                          {/* 5. Follow-up Date */}
+                          {/* 5. Follow-up Date & Schedule Button */}
                           <td className="p-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex flex-col gap-0.5 items-start">
-                              {getFollowupBadge(cust.followup_date) || <span className="text-text-muted text-[11px]">—</span>}
-                              {cust.next_action && (
-                                <span className="text-[10px] text-text-secondary bg-surface-subtle border border-border/60 px-1.5 py-0.2 rounded-xs font-medium truncate max-w-[110px]" title={cust.next_action}>
-                                  {cust.next_action}
-                                </span>
+                            <div className="flex flex-col gap-1 items-start relative">
+                              {cust.followup_date ? (
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id)}
+                                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                                    title="Click to reschedule follow-up"
+                                  >
+                                    {getFollowupBadge(cust.followup_date)}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleQuickUpdate(cust.id, { followup_date: null as any, followup_time: null as any })}
+                                    className="p-0.5 rounded text-text-muted hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                    title="Clear follow-up"
+                                  >
+                                    <X className="w-3 h-3 stroke-[1.8]" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id)}
+                                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm border border-dashed border-border hover:border-accent bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary text-[11px] font-medium transition-colors shadow-2xs group cursor-pointer"
+                                  title="Click to schedule a follow-up date"
+                                >
+                                  <CalendarPlus className="w-3 h-3 text-accent stroke-[2]" />
+                                  <span>Schedule</span>
+                                </button>
+                              )}
+
+                              {/* Next Action Dropdown */}
+                              <select
+                                value={cust.next_action || 'Call Again'}
+                                onChange={(e) => handleQuickUpdate(cust.id, { next_action: e.target.value })}
+                                disabled={updatingId === cust.id}
+                                className="text-[10px] text-text-secondary bg-surface-subtle hover:bg-surface border border-border/70 px-1.5 py-0.5 rounded-xs font-medium cursor-pointer focus:outline-none focus:border-accent transition-colors max-w-[125px] truncate shadow-2xs"
+                                title="Next Action"
+                              >
+                                {nextActions.length > 0 ? (
+                                  nextActions.map((act) => (
+                                    <option key={act} value={act}>
+                                      {act}
+                                    </option>
+                                  ))
+                                ) : (
+                                  <>
+                                    <option value="Call Again">Call Again</option>
+                                    <option value="WhatsApp Only">WhatsApp Only</option>
+                                    <option value="Send Brochure / Info">Send Info</option>
+                                    <option value="Ask for Booking">Ask for Booking</option>
+                                    <option value="Send Reminder">Send Reminder</option>
+                                    <option value="Reschedule">Reschedule</option>
+                                    <option value="No-Show Follow-up">No-Show Follow-up</option>
+                                  </>
+                                )}
+                              </select>
+
+                              {/* Floating Schedule Popover */}
+                              {schedulingCustomerId === cust.id && (
+                                <FollowupSchedulerPopover
+                                  currentDate={cust.followup_date}
+                                  currentTime={cust.followup_time}
+                                  onSelect={(newDate, newTime) => {
+                                    handleQuickUpdate(cust.id, {
+                                      followup_date: newDate,
+                                      followup_time: newTime || '10:00 AM',
+                                    });
+                                    setSchedulingCustomerId(null);
+                                  }}
+                                  onClear={() => {
+                                    handleQuickUpdate(cust.id, {
+                                      followup_date: null as any,
+                                      followup_time: null as any,
+                                    });
+                                    setSchedulingCustomerId(null);
+                                  }}
+                                  onClose={() => setSchedulingCustomerId(null)}
+                                />
                               )}
                             </div>
                           </td>
@@ -862,15 +1118,22 @@ export function ModernCustomerView({
                                 <p className="text-[11px] text-text-muted font-mono mt-0.5">{cust.phone}</p>
                               </div>
                               <span
-                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded-xs uppercase tracking-wider ${
+                                className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-xs uppercase tracking-wider ${
                                   cust.lead_probability === 'hot'
                                     ? 'bg-rose-50 text-rose-700 border border-rose-200'
                                     : cust.lead_probability === 'cold'
-                                    ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                    ? 'bg-sky-50 text-sky-700 border border-sky-200'
                                     : 'bg-amber-50 text-amber-700 border border-amber-200'
                                 }`}
                               >
-                                {cust.lead_probability || 'warm'}
+                                {cust.lead_probability === 'hot' ? (
+                                  <Flame className="w-2.5 h-2.5 text-rose-600 stroke-[2] shrink-0" />
+                                ) : cust.lead_probability === 'cold' ? (
+                                  <Snowflake className="w-2.5 h-2.5 text-sky-600 stroke-[2] shrink-0" />
+                                ) : (
+                                  <Sun className="w-2.5 h-2.5 text-amber-600 stroke-[2] shrink-0" />
+                                )}
+                                <span>{cust.lead_probability || 'warm'}</span>
                               </span>
                             </div>
 
@@ -889,8 +1152,35 @@ export function ModernCustomerView({
                             )}
 
                             {/* Card Footer: Follow-up & Chat Button */}
-                            <div className="flex items-center justify-between pt-1 border-t border-border/60 text-[10px]">
-                              <div>{getFollowupBadge(cust.followup_date) || <span className="text-text-muted">—</span>}</div>
+                            <div className="flex items-center justify-between pt-1 border-t border-border/60 text-[10px] relative">
+                              <div>
+                                {cust.followup_date ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id);
+                                    }}
+                                    className="cursor-pointer hover:opacity-80"
+                                    title="Click to reschedule"
+                                  >
+                                    {getFollowupBadge(cust.followup_date)}
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id);
+                                    }}
+                                    className="inline-flex items-center gap-1 text-[10px] text-text-muted hover:text-accent font-medium cursor-pointer"
+                                    title="Click to schedule follow-up"
+                                  >
+                                    <CalendarPlus className="w-3 h-3 text-accent stroke-[1.8]" />
+                                    <span>Schedule</span>
+                                  </button>
+                                )}
+                              </div>
                               <div className="flex items-center gap-1">
                                 <button
                                   type="button"
@@ -904,6 +1194,29 @@ export function ModernCustomerView({
                                   <span>Chat</span>
                                 </button>
                               </div>
+
+                              {/* Popover inside Kanban card */}
+                              {schedulingCustomerId === cust.id && (
+                                <FollowupSchedulerPopover
+                                  currentDate={cust.followup_date}
+                                  currentTime={cust.followup_time}
+                                  onSelect={(newDate, newTime) => {
+                                    handleQuickUpdate(cust.id, {
+                                      followup_date: newDate,
+                                      followup_time: newTime || '10:00 AM',
+                                    });
+                                    setSchedulingCustomerId(null);
+                                  }}
+                                  onClear={() => {
+                                    handleQuickUpdate(cust.id, {
+                                      followup_date: null as any,
+                                      followup_time: null as any,
+                                    });
+                                    setSchedulingCustomerId(null);
+                                  }}
+                                  onClose={() => setSchedulingCustomerId(null)}
+                                />
+                              )}
                             </div>
                           </div>
                         );

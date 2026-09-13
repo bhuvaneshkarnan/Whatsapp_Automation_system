@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Building2,
+  ShoppingBag,
   Plus,
   Copy,
   Check,
@@ -3144,7 +3145,9 @@ export default function SuperAdminClients() {
                               >
                                 <div className="flex items-start justify-between w-full">
                                   <div className="flex items-center gap-2">
-                                    <span className="text-xl">🏢</span>
+                                    <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/20 flex items-center justify-center">
+                                      <Building2 className="w-4 h-4 text-accent stroke-[1.8]" />
+                                    </div>
                                     <div>
                                       <h5 className="font-semibold text-xs text-text-primary">Business & Services</h5>
                                       <span className="text-[10px] text-text-muted">Agencies, Consulting, Clinics, Real Estate</span>
@@ -3180,7 +3183,9 @@ export default function SuperAdminClients() {
                               >
                                 <div className="flex items-start justify-between w-full">
                                   <div className="flex items-center gap-2">
-                                    <span className="text-xl">🛍️</span>
+                                    <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/20 flex items-center justify-center">
+                                      <ShoppingBag className="w-4 h-4 text-accent stroke-[1.8]" />
+                                    </div>
                                     <div>
                                       <h5 className="font-semibold text-xs text-text-primary">E-Commerce & Retail</h5>
                                       <span className="text-[10px] text-text-muted">Products, D2C, Orders, Catalog, Restocks</span>

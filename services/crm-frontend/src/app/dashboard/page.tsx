@@ -46,6 +46,7 @@ import {
   RefreshCw,
   Sliders,
   Building2,
+  ShoppingBag,
   CheckCircle2,
   Calendar,
   CalendarClock,
@@ -360,13 +361,13 @@ function getDisplayMessageBody(msg: { body?: string | null; content_type?: strin
     return msg.body;
   }
   const ct = msg.content_type;
-  if (ct === 'image') return '📷 [Photo]';
-  if (ct === 'video') return '🎥 [Video]';
-  if (ct === 'document') return '📄 [Document]';
-  if (ct === 'audio') return '🎵 [Audio]';
-  if (ct === 'sticker') return '🏷️ [Sticker]';
-  if (ct === 'location') return '📍 [Location]';
-  if (msg.template_name) return `📋 [Template: ${msg.template_name}]`;
+  if (ct === 'image') return '[Photo]';
+  if (ct === 'video') return '[Video]';
+  if (ct === 'document') return '[Document]';
+  if (ct === 'audio') return '[Audio]';
+  if (ct === 'sticker') return '[Sticker]';
+  if (ct === 'location') return '[Location]';
+  if (msg.template_name) return `[Template: ${msg.template_name}]`;
   return '[Message]';
 }
 
@@ -9058,7 +9059,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       }`}
                                       title={`Appointment: ${b.contact_name || b.service} (${b.status === 'rescheduled' ? 'Rescheduled' : b.status})`}
                                     >
-                                      {b.status === 'rescheduled' && '🔄 '}
+                                      {b.status === 'rescheduled' && <RotateCcw className="w-2.5 h-2.5 inline mr-1 text-amber-600 stroke-[2]" />}
                                       {formatTime12(b.start_time)} · {b.contact_name || b.service}
                                     </button>
                                   );
@@ -9324,7 +9325,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         }`}
                                       >
                                         <div className="flex items-center justify-between gap-1 font-medium">
-                                          <span className="truncate">{b.status === 'rescheduled' && '🔄 '}{b.contact_name || 'Client'}</span>
+                                          <span className="truncate">{b.status === 'rescheduled' && <RotateCcw className="w-2.5 h-2.5 inline mr-1 text-amber-600 stroke-[2]" />}{b.contact_name || 'Client'}</span>
                                           <span className="font-mono opacity-80">{formatTime12(b.start_time)}</span>
                                         </div>
                                         <div className="flex items-center justify-between gap-1 mt-0.5">
@@ -14801,7 +14802,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           >
                             <div className="flex items-start justify-between w-full">
                               <div className="flex items-center gap-2">
-                                <span className="text-xl">🏢</span>
+                                <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/20 flex items-center justify-center">
+                                  <Building2 className="w-4 h-4 text-accent stroke-[1.8]" />
+                                </div>
                                 <div>
                                   <h5 className="font-semibold text-xs text-text-primary">Business & Services</h5>
                                   <span className="text-[10px] text-text-muted">Agencies, Consulting, Clinics, Real Estate, B2B</span>
@@ -14837,7 +14840,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           >
                             <div className="flex items-start justify-between w-full">
                               <div className="flex items-center gap-2">
-                                <span className="text-xl">🛍️</span>
+                                <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/20 flex items-center justify-center">
+                                  <ShoppingBag className="w-4 h-4 text-accent stroke-[1.8]" />
+                                </div>
                                 <div>
                                   <h5 className="font-semibold text-xs text-text-primary">E-Commerce & Retail</h5>
                                   <span className="text-[10px] text-text-muted">Products, D2C, Orders, Catalog, Restocks</span>
