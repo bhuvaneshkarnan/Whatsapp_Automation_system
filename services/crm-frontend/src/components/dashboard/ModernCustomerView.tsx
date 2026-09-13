@@ -48,10 +48,10 @@ function WhatsAppIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
 
 const STAGES: { id: Customer['status']; label: string; bg: string; text: string; border: string; dot: string }[] = [
   { id: 'new', label: 'New Inquiry', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500' },
-  { id: 'contacted', label: 'In Discussion', bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', dot: 'bg-indigo-500' },
+  { id: 'contacted', label: 'Contacted / In Progress', bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', dot: 'bg-indigo-500' },
   { id: 'follow-up', label: 'Follow-up Due', bg: 'bg-amber-50', text: 'text-amber-800', border: 'border-amber-200', dot: 'bg-amber-500' },
-  { id: 'converted', label: 'Closed / Won', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', dot: 'bg-emerald-500' },
-  { id: 'lost', label: 'Lost / Closed', bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200', dot: 'bg-rose-400' },
+  { id: 'converted', label: 'Booked / Converted', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', dot: 'bg-emerald-500' },
+  { id: 'lost', label: 'Lost / Inactive', bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200', dot: 'bg-rose-400' },
 ];
 
 interface ModernCustomerViewProps {
@@ -306,15 +306,15 @@ export function ModernCustomerView({
     <div className="flex-1 flex flex-col overflow-hidden space-y-2">
       {/* ── 1. EXECUTIVE KPI SUMMARY BAR (COMPACT & SLEEK) ────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 shrink-0">
-        {/* Total Leads */}
+        {/* Total Contacts */}
         <div className="bg-surface border border-border rounded-md px-3 py-1.5 shadow-2xs flex items-center justify-between gap-2 hover:border-border-strong transition-all">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-6 h-6 rounded bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
               <Users className="w-3 h-3 stroke-[2]" />
             </div>
             <div className="min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block leading-tight truncate">Total Pipeline</span>
-              <span className="text-[10px] text-text-secondary font-medium leading-none">active leads</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block leading-tight truncate">Total Contacts</span>
+              <span className="text-[10px] text-text-secondary font-medium leading-none">active directory</span>
             </div>
           </div>
           <span className="text-base font-bold text-text-primary font-headline shrink-0">{kpis.total}</span>
@@ -326,7 +326,7 @@ export function ModernCustomerView({
           className={`bg-surface border rounded-md px-3 py-1.5 shadow-2xs flex items-center justify-between gap-2 transition-all cursor-pointer ${
             warmthFilter === 'hot' ? 'border-rose-400 ring-1 ring-rose-400 bg-rose-50/20' : 'border-border hover:border-rose-300'
           }`}
-          title="Click to toggle Hot Leads filter"
+          title="Click to toggle Hot Priority filter"
         >
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-6 h-6 rounded bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 shrink-0">
@@ -360,15 +360,15 @@ export function ModernCustomerView({
           <span className="text-base font-bold text-amber-700 font-headline shrink-0">{kpis.followupsDue}</span>
         </div>
 
-        {/* Converted / Win Rate */}
+        {/* Converted / Conversion Rate */}
         <div className="bg-surface border border-border rounded-md px-3 py-1.5 shadow-2xs flex items-center justify-between gap-2 hover:border-border-strong transition-all">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-6 h-6 rounded bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
               <TrendingUp className="w-3 h-3 stroke-[2]" />
             </div>
             <div className="min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block leading-tight truncate">Deals Closed</span>
-              <span className="text-[10px] text-emerald-700 font-semibold leading-none">{kpis.winRate}% win rate</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block leading-tight truncate">Converted</span>
+              <span className="text-[10px] text-emerald-700 font-semibold leading-none">{kpis.winRate}% conversion</span>
             </div>
           </div>
           <span className="text-base font-bold text-emerald-700 font-headline shrink-0">{kpis.converted}</span>
@@ -454,7 +454,7 @@ export function ModernCustomerView({
             type="button"
             onClick={onExportCsv}
             className="flex items-center gap-1.5 px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-sm transition-colors cursor-pointer"
-            title="Export leads to CSV"
+            title="Export contacts to CSV"
           >
             <Download className="w-3.5 h-3.5 stroke-[1.8]" />
             <span className="hidden sm:inline">Export</span>
@@ -464,7 +464,7 @@ export function ModernCustomerView({
             type="button"
             onClick={onRefresh}
             className="p-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm transition-colors cursor-pointer"
-            title="Refresh Leads"
+            title="Refresh contacts"
           >
             <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -475,7 +475,7 @@ export function ModernCustomerView({
             className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-all shadow-2xs hover:shadow-xs cursor-pointer"
           >
             <UserPlus className="w-3.5 h-3.5 stroke-[2]" />
-            <span>+ Add Lead</span>
+            <span>+ Add {taxonomy?.client_label || 'Contact'}</span>
           </button>
         </div>
       </div>
@@ -487,7 +487,7 @@ export function ModernCustomerView({
           <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
           <input
             type="text"
-            placeholder="Search leads, phone, notes, requirement, staff..."
+            placeholder="Search name, phone, notes, service, staff..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-8"
@@ -510,9 +510,9 @@ export function ModernCustomerView({
             {[
               { id: 'all', label: 'All' },
               { id: 'new', label: 'New' },
-              { id: 'contacted', label: 'Discussion' },
+              { id: 'contacted', label: 'Contacted' },
               { id: 'follow-up', label: 'Follow-up' },
-              { id: 'converted', label: 'Won' },
+              { id: 'converted', label: 'Converted' },
               { id: 'lost', label: 'Lost' },
             ].map((st) => (
               <button
@@ -566,10 +566,10 @@ export function ModernCustomerView({
               <table className="w-full text-left text-xs">
                 <thead className="bg-surface-subtle/80 border-b border-border text-text-secondary font-semibold text-[11px] uppercase tracking-wider sticky top-0 z-10">
                   <tr>
-                    <th className="p-3 pl-4 min-w-[200px]">Lead & Organization</th>
-                    <th className="p-3 min-w-[130px]">Stage / Status</th>
-                    <th className="p-3 min-w-[130px]">Requirement</th>
-                    <th className="p-3 min-w-[130px]">Account Owner</th>
+                    <th className="p-3 pl-4 min-w-[200px]">Client / Contact</th>
+                    <th className="p-3 min-w-[130px]">Status</th>
+                    <th className="p-3 min-w-[130px]">Service / Inquiry</th>
+                    <th className="p-3 min-w-[130px]">Assigned To</th>
                     <th className="p-3 min-w-[110px]">Follow-up</th>
                     <th className="p-3 min-w-[200px] max-w-[260px]">Latest Note</th>
                     <th className="p-3 text-right pr-4 min-w-[140px]">Actions</th>
@@ -580,14 +580,14 @@ export function ModernCustomerView({
                     <tr>
                       <td colSpan={7} className="p-12 text-center text-text-muted">
                         <RotateCcw className="w-5 h-5 animate-spin mx-auto mb-2 text-accent" />
-                        <span>Loading pipeline data...</span>
+                        <span>Loading directory records...</span>
                       </td>
                     </tr>
                   ) : filteredCustomers.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="p-12 text-center text-text-muted">
                         <Users className="w-8 h-8 mx-auto mb-2 text-text-muted/40 stroke-[1.5]" />
-                        <p className="font-semibold text-text-primary text-sm">No leads found</p>
+                        <p className="font-semibold text-text-primary text-sm">No contacts found</p>
                         <p className="text-xs text-text-secondary mt-1">Try adjusting your search terms or filter chips.</p>
                       </td>
                     </tr>
@@ -595,7 +595,7 @@ export function ModernCustomerView({
                     filteredCustomers.map((cust) => {
                       const isSelected = selectedCustomer?.id === cust.id;
                       const stageObj = STAGES.find((s) => s.id === cust.status) || STAGES[0];
-                      const initials = (cust.name || cust.wa_profile_name || 'L')
+                      const initials = (cust.name || cust.wa_profile_name || 'C')
                         .split(' ')
                         .map((n) => n[0])
                         .slice(0, 2)
@@ -610,7 +610,7 @@ export function ModernCustomerView({
                             isSelected ? 'bg-accent-subtle/40 border-l-2 border-l-accent' : 'hover:bg-surface-subtle/60'
                           }`}
                         >
-                          {/* 1. Lead & Contact (with Buying Intent below phone) */}
+                          {/* 1. Client & Contact (with Buying Intent below phone) */}
                           <td className="p-3 pl-4">
                             <div className="flex items-start gap-2.5">
                               <div className="w-8 h-8 rounded-full bg-slate-100 border border-border flex items-center justify-center text-text-primary font-bold text-xs shrink-0 font-headline group-hover:border-accent/40 transition-colors mt-0.5">
@@ -618,8 +618,8 @@ export function ModernCustomerView({
                               </div>
                               <div className="min-w-0">
                                 <div className="flex items-center gap-1.5">
-                                  <span className="font-bold text-text-primary text-xs truncate max-w-[170px]" title={cust.name || cust.wa_profile_name || 'Lead'}>
-                                    {cust.name || cust.wa_profile_name || 'Lead'}
+                                  <span className="font-bold text-text-primary text-xs truncate max-w-[170px]" title={cust.name || cust.wa_profile_name || 'Contact'}>
+                                    {cust.name || cust.wa_profile_name || 'Contact'}
                                   </span>
                                   {(cust.completed_bookings_count ?? 0) > 0 || cust.client_type === 'repeat' ? (
                                     <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 flex items-center gap-0.5">
@@ -628,7 +628,7 @@ export function ModernCustomerView({
                                     </span>
                                   ) : (
                                     <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
-                                      Lead
+                                      New
                                     </span>
                                   )}
                                 </div>
@@ -665,7 +665,7 @@ export function ModernCustomerView({
                             </div>
                           </td>
 
-                          {/* 2. Stage / Status Dropdown */}
+                          {/* 2. Status Dropdown */}
                           <td className="p-3" onClick={(e) => e.stopPropagation()}>
                             <select
                               value={cust.status || 'new'}
@@ -673,7 +673,7 @@ export function ModernCustomerView({
                               disabled={updatingId === cust.id}
                               className={`text-[11px] font-semibold px-2 py-1 rounded-sm border cursor-pointer transition-all shadow-2xs ${stageObj.bg} ${stageObj.text} ${stageObj.border}`}
                             >
-                              <optgroup label="Standard Stages">
+                              <optgroup label="Standard Statuses">
                                 {STAGES.map((st) => (
                                   <option key={st.id} value={st.id}>
                                     {st.label}
@@ -681,7 +681,7 @@ export function ModernCustomerView({
                                 ))}
                               </optgroup>
                               {outcomeStatuses.length > 0 && (
-                                <optgroup label="Configured Outcomes">
+                                <optgroup label="Custom Outcomes">
                                   {outcomeStatuses.map((st) => (
                                     <option key={st} value={st}>
                                       {st}
@@ -692,7 +692,7 @@ export function ModernCustomerView({
                             </select>
                           </td>
 
-                          {/* 3. Requirement / Service Interest */}
+                          {/* 3. Service / Inquiry */}
                           <td className="p-3">
                             {cust.health_concern || cust.last_visit_service ? (
                               <span
@@ -706,7 +706,7 @@ export function ModernCustomerView({
                             )}
                           </td>
 
-                          {/* 4. Account Owner Dropdown */}
+                          {/* 4. Assigned To Dropdown */}
                           <td className="p-3" onClick={(e) => e.stopPropagation()}>
                             <select
                               value={cust.preferred_doctor || ''}
@@ -814,10 +814,10 @@ export function ModernCustomerView({
           <div className={`flex-1 flex overflow-x-auto gap-3 pb-2 ${selectedCustomer ? 'hidden md:flex min-w-0' : ''}`}>
             {[
               { id: 'new', label: 'New Inquiry', dot: 'bg-blue-500' },
-              { id: 'contacted', label: 'In Discussion', dot: 'bg-indigo-500' },
+              { id: 'contacted', label: 'Contacted / In Progress', dot: 'bg-indigo-500' },
               { id: 'follow-up', label: 'Follow-up Due', dot: 'bg-amber-500' },
-              { id: 'converted', label: 'Closed / Won', dot: 'bg-emerald-500' },
-              { id: 'lost', label: 'Lost / Closed', dot: 'bg-rose-400' },
+              { id: 'converted', label: 'Booked / Converted', dot: 'bg-emerald-500' },
+              { id: 'lost', label: 'Lost / Inactive', dot: 'bg-rose-400' },
             ].map((col) => {
               const colLeads = filteredCustomers.filter((c) => c.status === col.id);
               return (
@@ -840,7 +840,7 @@ export function ModernCustomerView({
                   <div className="p-2 flex-1 overflow-y-auto space-y-2.5">
                     {colLeads.length === 0 ? (
                       <div className="p-6 text-center text-text-muted text-xs border border-dashed border-border rounded-md">
-                        No leads in this stage
+                        No contacts in this status
                       </div>
                     ) : (
                       colLeads.map((cust) => {
@@ -857,7 +857,7 @@ export function ModernCustomerView({
                             <div className="flex items-start justify-between gap-1.5">
                               <div>
                                 <h5 className="font-bold text-xs text-text-primary hover:text-accent transition-colors">
-                                  {cust.name || cust.wa_profile_name || 'Lead'}
+                                  {cust.name || cust.wa_profile_name || 'Contact'}
                                 </h5>
                                 <p className="text-[11px] text-text-muted font-mono mt-0.5">{cust.phone}</p>
                               </div>
@@ -874,7 +874,7 @@ export function ModernCustomerView({
                               </span>
                             </div>
 
-                            {/* Requirement tag */}
+                            {/* Service / Inquiry tag */}
                             {(cust.health_concern || cust.last_visit_service) && (
                               <p className="text-[10px] text-text-secondary bg-surface-subtle p-1.5 rounded-sm border border-border/60">
                                 {cust.health_concern || cust.last_visit_service}
@@ -922,7 +922,7 @@ export function ModernCustomerView({
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
                 <h4 className="font-bold text-sm text-text-primary">Scheduled Follow-up Tasks</h4>
-                <p className="text-xs text-text-muted">Manage scheduled follow-up calls and tasks for leads.</p>
+                <p className="text-xs text-text-muted">Manage scheduled follow-ups, calls, and appointments.</p>
               </div>
               {onAddTask && (
                 <button
