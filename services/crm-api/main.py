@@ -8298,7 +8298,8 @@ async def get_dashboard_analytics(
             """SELECT
                 COUNT(*) as total_bookings,
                 COUNT(*) FILTER (WHERE status IN ('completed', 'attended')) as completed_bookings,
-                COUNT(*) FILTER (WHERE status = 'confirmed') as confirmed_bookings,
+                COUNT(*) FILTER (WHERE status IN ('confirmed', 'rescheduled')) as confirmed_bookings,
+                COUNT(*) FILTER (WHERE status = 'rescheduled') as rescheduled_bookings,
                 COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled_bookings,
                 COUNT(*) FILTER (WHERE status = 'no_show') as noshow_bookings,
                 COUNT(*) FILTER (WHERE status = 'pending') as pending_bookings,
@@ -8312,6 +8313,7 @@ async def get_dashboard_analytics(
         total_bookings = booking_stats["total_bookings"] or 0
         completed_bookings = booking_stats["completed_bookings"] or 0
         confirmed_bookings = booking_stats["confirmed_bookings"] or 0
+        rescheduled_bookings = booking_stats["rescheduled_bookings"] or 0
         cancelled_bookings = booking_stats["cancelled_bookings"] or 0
         noshow_bookings = booking_stats["noshow_bookings"] or 0
         pending_bookings = booking_stats["pending_bookings"] or 0
@@ -8338,6 +8340,7 @@ async def get_dashboard_analytics(
             "total_bookings": total_bookings,
             "completed_bookings": completed_bookings,
             "confirmed_bookings": confirmed_bookings,
+            "rescheduled_bookings": rescheduled_bookings,
             "cancelled_bookings": cancelled_bookings,
             "no_show_bookings": noshow_bookings,
             "pending_bookings": pending_bookings,

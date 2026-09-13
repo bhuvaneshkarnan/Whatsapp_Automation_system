@@ -6286,15 +6286,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     const isPast = b.start_time ? new Date(b.start_time).getTime() < Date.now() : false;
 
     if (bookingFilter === 'upcoming') {
-      // Upcoming: Active bookings (confirmed or pending) whose scheduled time has not passed yet
-      return (b.status === 'confirmed' || b.status === 'pending') && !isPast;
+      // Upcoming: Active bookings (confirmed, pending, or rescheduled) whose scheduled time has not passed yet
+      return (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled') && !isPast;
+    }
+    if (bookingFilter === 'rescheduled') {
+      return b.status === 'rescheduled';
     }
     if (bookingFilter === 'completed') {
-      // Completed: explicitly completed/attended OR bookings whose scheduled time has passed and are not cancelled/no-show
+      // Completed: explicitly completed/attended OR bookings whose scheduled time has passed and are not cancelled/no-show/rescheduled
       return (
         b.status === 'completed' ||
         b.status === 'attended' ||
-        (isPast && b.status !== 'cancelled' && b.status !== 'no_show')
+        (isPast && b.status !== 'cancelled' && b.status !== 'no_show' && b.status !== 'rescheduled')
       );
     }
     if (bookingFilter === 'no_show') {
@@ -6303,7 +6306,45 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (bookingFilter === 'cancelled') {
       return b.status === 'cancelled';
     }
+    if (bookingFilter === 'all') {
+      return true;
+    }
     return b.status === bookingFilter;
+  });
+
+  // Calendar Schedule Bookings: Shows all scheduled appointments (confirmed, pending, rescheduled, attended) without being hidden by table tab filter
+  const calendarFilteredBookings = (bookings || []).filter((b) => {
+    if (!b || !b.start_time) return false;
+    const matchesSearch =
+      (b.contact_name || '').toLowerCase().includes(bookingSearch.toLowerCase()) ||
+      (b.contact_phone || '').toLowerCase().includes(bookingSearch.toLowerCase()) ||
+      (b.service || '').toLowerCase().includes(bookingSearch.toLowerCase());
+    if (!matchesSearch) return false;
+
+    if (selectedDepartment !== 'all') {
+      const selected = addedTeams.find((item) => item.label === selectedDepartment || item.id === selectedDepartment);
+      if (selected) {
+        const bPhone = (b.contact_phone || '').replace(/[^0-9]/g, '').slice(-10);
+        const linkedCust = (customers || []).find((cu) => {
+          const cuPhone = (cu.phone || '').replace(/[^0-9]/g, '').slice(-10);
+          return cuPhone && cuPhone === bPhone;
+        });
+
+        const doc = ((b as any).doctor || (b as any).assigned_doctor || (b as any).staff_member || linkedCust?.preferred_doctor || '').toLowerCase();
+        const concern = ((b as any).health_concern || (b as any).service || linkedCust?.health_concern || '').toLowerCase();
+
+        if (selected.kind === 'staff') {
+          const term = selected.id.replace('staff:', '').toLowerCase();
+          if (!doc.includes(term) && !term.includes(doc)) return false;
+        } else if (selected.kind === 'specialty') {
+          const term = selected.id.replace('specialty:', '').toLowerCase();
+          if (!concern.includes(term) && !term.includes(concern)) return false;
+        }
+      }
+    }
+
+    // On calendar, hide cancelled appointments so slots are free
+    return b.status !== 'cancelled';
   });
 
   const filteredContacts = (contacts || []).filter((ct) => {
@@ -7634,7 +7675,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <p className="font-mono font-medium text-text-primary">{currentCurrencySymbol}{bk.price || 0}</p>
                         <span className={`text-[9px] font-semibold px-1 py-0.2 rounded-sm border ${
                           bk.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                          bk.status === 'rescheduled' ? 'bg-purple-50 text-purple-700 border-purple-200' :
                           bk.status === 'no_show' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                          bk.status === 'cancelled' ? 'bg-rose-50 text-rose-700 border-rose-200' :
                           'bg-blue-50 text-blue-800 border-blue-200'
                         }`}>
                           {bk.status}
@@ -8350,7 +8393,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <CalendarDays className="w-4 h-4 stroke-[1.5] text-indigo-600" />
                       </div>
                       <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
-                        {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_bookings : bookings.filter((b) => b.status === 'confirmed' || b.status === 'pending').length}
+                        {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_bookings : bookings.filter((b) => b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled').length}
                       </p>
                       <p className="text-[11px] text-text-muted truncate">
                         {dashboardAnalyticsData
@@ -8659,13 +8702,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
 
                     <div className="space-y-1.5">
-                      {bookings.filter((b) => b.status === 'confirmed' || b.status === 'pending').length === 0 ? (
+                      {bookings.filter((b) => b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled').length === 0 ? (
                         <div className="text-center py-8 text-xs text-text-muted">
                           No upcoming bookings scheduled.
                         </div>
                       ) : (
                         bookings
-                          .filter((b) => b.status === 'confirmed' || b.status === 'pending')
+                          .filter((b) => b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled')
                           .slice(0, 4)
                           .map((b) => (
                             <div
@@ -8684,6 +8727,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-medium text-text-primary font-mono tabular-nums">{currentCurrencySymbol}{b.price || 0}</span>
                                 <span className={`px-1.5 py-0.5 text-xs font-medium rounded-sm capitalize border ${
+                                  b.status === 'rescheduled' ? 'bg-purple-50 text-purple-700 border-purple-200' :
                                   b.status === 'confirmed' ? 'bg-status-success-bg text-status-success border-status-success-border' : 'bg-status-warning-bg text-status-warning border-status-warning-border'
                                 }`}>
                                   {b.status}
@@ -8712,26 +8756,30 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                    {/* Status Filter Segmented Control (Upcoming, Completed, No-Show, Cancelled) */}
+                    {/* Status Filter Segmented Control (Upcoming, Rescheduled, Completed, No-Show, Cancelled, All) */}
                     <div className="flex overflow-x-auto no-scrollbar gap-0.5 bg-surface-subtle p-0.5 rounded-md border border-border shrink-0 max-w-full">
                       {[
                         { id: 'upcoming', label: 'Upcoming' },
+                        { id: 'rescheduled', label: 'Rescheduled' },
                         { id: 'completed', label: 'Completed' },
                         { id: 'no_show', label: 'No-Show' },
                         { id: 'cancelled', label: 'Cancelled' },
+                        { id: 'all', label: 'All' },
                       ].map((st) => {
                         const count = (bookings || []).filter((b) => {
                           const isPast = b.start_time ? new Date(b.start_time).getTime() < Date.now() : false;
-                          if (st.id === 'upcoming') return (b.status === 'confirmed' || b.status === 'pending') && !isPast;
+                          if (st.id === 'upcoming') return (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled') && !isPast;
+                          if (st.id === 'rescheduled') return b.status === 'rescheduled';
                           if (st.id === 'completed') {
                             return (
                               b.status === 'completed' ||
                               b.status === 'attended' ||
-                              (isPast && b.status !== 'cancelled' && b.status !== 'no_show')
+                              (isPast && b.status !== 'cancelled' && b.status !== 'no_show' && b.status !== 'rescheduled')
                             );
                           }
                           if (st.id === 'no_show') return b.status === 'no_show';
                           if (st.id === 'cancelled') return b.status === 'cancelled';
+                          if (st.id === 'all') return true;
                           return false;
                         }).length;
 
@@ -8843,7 +8891,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               </td>
 
                               <td className="p-3">
-                                {isAttended ? (
+                                {b.status === 'rescheduled' ? (
+                                  <span className="px-2 py-0.5 rounded-sm text-[11px] font-semibold border bg-purple-50 text-purple-700 border-purple-200 inline-flex items-center gap-1">
+                                    <RotateCcw className="w-3 h-3 stroke-[2]" />
+                                    <span>Rescheduled</span>
+                                  </span>
+                                ) : isAttended ? (
                                   <span className="px-2 py-0.5 rounded-sm text-[11px] font-semibold border bg-status-success-bg text-status-success border-status-success-border">
                                     Attended
                                   </span>
@@ -9087,7 +9140,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         const isToday = isSameDay(new Date(), cellDate);
 
                         // 1. Matching Bookings
-                        const cellBookings = (filteredBookings || []).filter((b) => {
+                        const cellBookings = (calendarFilteredBookings || []).filter((b) => {
                           if (!b || !b.start_time) return false;
                           return isSameDay(b.start_time, cellDate);
                         });
@@ -9164,7 +9217,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         setIsBookingDetailModalOpen(true);
                                       }}
                                       className={`w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium transition-colors duration-150 border cursor-pointer ${
-                                        b.status === 'completed'
+                                        b.status === 'rescheduled'
+                                          ? 'bg-purple-50 text-purple-800 border-purple-300 font-semibold'
+                                          : b.status === 'completed'
                                           ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                                           : b.status === 'no_show'
                                           ? 'bg-amber-50 text-amber-800 border-amber-300'
@@ -9172,8 +9227,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           ? 'bg-rose-50 text-rose-800 border-rose-300'
                                           : 'bg-accent text-white border-accent'
                                       }`}
-                                      title={`Appointment: ${b.contact_name || b.service} (${b.status})`}
+                                      title={`Appointment: ${b.contact_name || b.service} (${b.status === 'rescheduled' ? 'Rescheduled' : b.status})`}
                                     >
+                                      {b.status === 'rescheduled' && '🔄 '}
                                       {formatTime12(b.start_time)} · {b.contact_name || b.service}
                                     </button>
                                   );
@@ -9369,7 +9425,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                           {/* 7 Day Slots for this Hour */}
                           {currentWeekDays.map((day, dIdx) => {
-                            const slotBookings = (filteredBookings || []).filter((b) => {
+                            const slotBookings = (calendarFilteredBookings || []).filter((b) => {
                               if (!b || !b.start_time) return false;
                               const bDate = new Date(b.start_time);
                               return isSameDay(bDate, day) && bDate.getHours() === hour;
@@ -9427,7 +9483,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           setIsBookingDetailModalOpen(true);
                                         }}
                                         className={`p-1 rounded-sm border text-left cursor-pointer transition-colors duration-150 text-[10px] ${
-                                          b.status === 'completed'
+                                          b.status === 'rescheduled'
+                                            ? 'bg-purple-50 border-purple-300 text-purple-800 font-semibold'
+                                            : b.status === 'completed'
                                             ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
                                             : b.status === 'no_show'
                                             ? 'bg-amber-50 border-amber-300 text-amber-800'
@@ -9437,7 +9495,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         }`}
                                       >
                                         <div className="flex items-center justify-between gap-1 font-medium">
-                                          <span className="truncate">{b.contact_name || 'Client'}</span>
+                                          <span className="truncate">{b.status === 'rescheduled' && '🔄 '}{b.contact_name || 'Client'}</span>
                                           <span className="font-mono opacity-80">{formatTime12(b.start_time)}</span>
                                         </div>
                                         <div className="flex items-center justify-between gap-1 mt-0.5">
@@ -9537,7 +9595,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <div className="flex-1 overflow-y-auto border border-border rounded-md bg-surface flex flex-col p-4 space-y-4">
                     {/* Day Overview Summary Cards */}
                     {(() => {
-                      const dayBookings = (filteredBookings || []).filter((b) => {
+                      const dayBookings = (calendarFilteredBookings || []).filter((b) => {
                         if (!b || !b.start_time) return false;
                         return isSameDay(b.start_time, currentDate);
                       });
@@ -9715,7 +9773,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {/* Hourly Timeline (6 AM to 11 PM) */}
                     <div className="space-y-2 pt-2 divide-y divide-border">
                       {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23].map((hour) => {
-                        const hourBookings = (filteredBookings || []).filter((b) => {
+                        const hourBookings = (calendarFilteredBookings || []).filter((b) => {
                           if (!b || !b.start_time) return false;
                           return isSameDay(b.start_time, currentDate) && new Date(b.start_time).getHours() === hour;
                         });
@@ -9761,7 +9819,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     }}
                                     className="text-[11px] text-text-muted hover:text-text-primary transition-colors flex items-center gap-1 opacity-0 hover:opacity-100 cursor-pointer"
                                   >
-                                    <Plus className="w-3 h-3 stroke-[1.5]" />
+                                    <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
                                     <span>Add booking at {hour % 12 === 0 ? 12 : hour % 12} {hour >= 12 ? 'PM' : 'AM'}</span>
                                   </button>
                                 </div>
@@ -9779,6 +9837,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     >
                                       <div className="flex items-center gap-3">
                                         <div className={`w-2 h-2 rounded-full ${
+                                          b.status === 'rescheduled' ? 'bg-purple-600' :
                                           b.status === 'completed' ? 'bg-emerald-500' :
                                           b.status === 'no_show' ? 'bg-amber-500' :
                                           b.status === 'cancelled' ? 'bg-rose-500' : 'bg-accent'
@@ -9792,12 +9851,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         <div className="text-right">
                                           <p className="text-xs font-mono font-medium text-text-primary">{currentCurrencySymbol}{b.price || 0}</p>
                                           <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-sm border ${
+                                            b.status === 'rescheduled' ? 'bg-purple-50 text-purple-700 border-purple-200' :
                                             b.status === 'completed' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
                                             b.status === 'no_show' ? 'bg-amber-50 text-amber-800 border-amber-200' :
                                             b.status === 'cancelled' ? 'bg-rose-50 text-rose-800 border-rose-200' :
                                             'bg-blue-50 text-blue-800 border-blue-200'
                                           }`}>
-                                            {b.status}
+                                            {b.status === 'rescheduled' ? 'Rescheduled' : b.status}
                                           </span>
                                         </div>
                                         {b.contact_phone && (
@@ -16203,6 +16263,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     className={`px-2 py-0.5 rounded-sm text-xs font-medium border ${
                       selectedBookingDetail.status === 'completed'
                         ? 'bg-status-success-bg text-status-success border-status-success-border'
+                        : selectedBookingDetail.status === 'rescheduled'
+                        ? 'bg-purple-50 text-purple-700 border-purple-200'
                         : selectedBookingDetail.status === 'no_show'
                         ? 'bg-status-warning-bg text-status-warning border-status-warning-border'
                         : selectedBookingDetail.status === 'cancelled'
@@ -16210,7 +16272,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         : 'bg-surface-subtle text-text-secondary border-border'
                     }`}
                   >
-                    {selectedBookingDetail.status === 'completed' ? 'Attended' : selectedBookingDetail.status === 'no_show' ? 'No-Show' : selectedBookingDetail.status}
+                    {selectedBookingDetail.status === 'completed' ? 'Attended' : selectedBookingDetail.status === 'rescheduled' ? 'Rescheduled' : selectedBookingDetail.status === 'no_show' ? 'No-Show' : selectedBookingDetail.status}
                   </span>
                   <button
                     onClick={() => {
@@ -16746,6 +16808,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <p className="text-xs font-semibold text-text-primary">{currentCurrencySymbol}{bk.price || 0}</p>
                               <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-sm border ${
                                 bk.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                bk.status === 'rescheduled' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                                bk.status === 'no_show' ? 'bg-amber-50 text-amber-700 border-amber-200' :
                                 bk.status === 'cancelled' ? 'bg-rose-50 text-rose-700 border-rose-200' :
                                 'bg-blue-50 text-blue-700 border-blue-200'
                               }`}>{bk.status}</span>
