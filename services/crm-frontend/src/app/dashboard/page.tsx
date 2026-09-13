@@ -2966,6 +2966,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       sales: [] as { value: string; label: string; id?: string }[],
       predefinedDoctors,
       other: [] as { value: string; label: string; id?: string }[],
+      all: predefinedDoctors,
     };
   }, [configuredDoctors, customers]);
 

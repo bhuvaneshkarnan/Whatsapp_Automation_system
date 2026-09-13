@@ -57,16 +57,19 @@ interface ModernCustomerViewProps {
   onExportCsv: () => void;
   onRefresh: () => void;
   loading: boolean;
-  tasks: FollowupTask[];
-  allNotes: any[];
-  taxonomy: any;
+  tasks?: FollowupTask[];
+  allNotes?: any[];
+  taxonomy?: any;
   renderDrawer: () => React.ReactNode;
-  categorizedStaffOptions: {
-    all: { value: string; label: string; isDoctor?: boolean }[];
-    predefinedDoctors: { value: string; label: string }[];
-    regularStaff: { value: string; label: string }[];
+  categorizedStaffOptions?: {
+    all?: { value: string; label: string; isDoctor?: boolean }[];
+    predefinedDoctors?: { value: string; label: string }[];
+    regularStaff?: { value: string; label: string }[];
+    teamDoctors?: { value: string; label: string; id?: string }[];
+    sales?: { value: string; label: string; id?: string }[];
+    other?: { value: string; label: string; id?: string }[];
   };
-  crmDropdowns: CrmDropdownOptions;
+  crmDropdowns?: CrmDropdownOptions;
   openDropdownOptionsModal?: () => void;
   loadingTasks?: boolean;
   loadingNotes?: boolean;
@@ -107,6 +110,26 @@ export function ModernCustomerView({
   const [warmthFilter, setWarmthFilter] = useState<string>('all');
   const [staffFilter, setStaffFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  // Safe fallback collections
+  const safeTasks = useMemo(() => (Array.isArray(tasks) ? tasks : []), [tasks]);
+  const safeAllNotes = useMemo(() => (Array.isArray(allNotes) ? allNotes : []), [allNotes]);
+  const staffList = useMemo(() => {
+    if (!categorizedStaffOptions) return [];
+    if (Array.isArray(categorizedStaffOptions.all) && categorizedStaffOptions.all.length > 0) {
+      return categorizedStaffOptions.all;
+    }
+    if (Array.isArray(categorizedStaffOptions.predefinedDoctors) && categorizedStaffOptions.predefinedDoctors.length > 0) {
+      return categorizedStaffOptions.predefinedDoctors;
+    }
+    return [];
+  }, [categorizedStaffOptions]);
+  const outcomeStatuses = useMemo(() => {
+    return Array.isArray(crmDropdowns?.outcome_statuses) ? crmDropdowns.outcome_statuses : [];
+  }, [crmDropdowns]);
+  const nextActions = useMemo(() => {
+    return Array.isArray(crmDropdowns?.next_actions) ? crmDropdowns.next_actions : [];
+  }, [crmDropdowns]);
 
   // Computed Executive KPI Stats
   const kpis = useMemo(() => {
@@ -388,7 +411,7 @@ export function ModernCustomerView({
               <CalendarCheck className="w-3.5 h-3.5 stroke-[2]" />
               <span>Tasks</span>
               <span className="text-[10px] text-text-muted font-mono ml-0.5">
-                ({tasks.filter((t) => !t.completed).length})
+                ({safeTasks.filter((t) => !t.completed).length})
               </span>
             </button>
             <button
@@ -402,7 +425,7 @@ export function ModernCustomerView({
             >
               <StickyNote className="w-3.5 h-3.5 stroke-[2]" />
               <span>Notes</span>
-              <span className="text-[10px] text-text-muted font-mono ml-0.5">({allNotes.length})</span>
+              <span className="text-[10px] text-text-muted font-mono ml-0.5">({safeAllNotes.length})</span>
             </button>
           </div>
 
@@ -775,7 +798,7 @@ export function ModernCustomerView({
                                   className="w-full text-xs font-semibold px-2.5 py-1.5 rounded-md border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer shadow-2xs"
                                 >
                                   <option value="">Unassigned</option>
-                                  {categorizedStaffOptions.all.map((st) => (
+                                  {staffList.map((st) => (
                                     <option key={st.value} value={st.value}>
                                       {st.label}
                                     </option>
@@ -801,9 +824,9 @@ export function ModernCustomerView({
                                     <option value="converted">Closed / Won</option>
                                     <option value="lost">Lost / Closed</option>
                                   </optgroup>
-                                  {crmDropdowns.outcome_statuses && crmDropdowns.outcome_statuses.length > 0 && (
+                                  {outcomeStatuses.length > 0 && (
                                     <optgroup label="Configured Outcomes">
-                                      {crmDropdowns.outcome_statuses.map((st) => (
+                                      {outcomeStatuses.map((st) => (
                                         <option key={st} value={st}>
                                           {st}
                                         </option>
@@ -847,7 +870,7 @@ export function ModernCustomerView({
                                   className="w-full text-xs font-semibold px-2.5 py-1.5 rounded-md border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer shadow-2xs"
                                 >
                                   <option value="">No Action Set</option>
-                                  {crmDropdowns.next_actions && crmDropdowns.next_actions.map((act) => (
+                                  {nextActions.map((act) => (
                                     <option key={act} value={act}>
                                       {act}
                                     </option>
@@ -995,11 +1018,11 @@ export function ModernCustomerView({
 
             {loadingTasks ? (
               <p className="text-xs text-text-muted text-center py-8">Loading tasks...</p>
-            ) : tasks.length === 0 ? (
+            ) : safeTasks.length === 0 ? (
               <div className="p-8 text-center text-text-muted text-xs">No pending tasks found.</div>
             ) : (
               <div className="space-y-2">
-                {tasks.map((t) => (
+                {safeTasks.map((t) => (
                   <div
                     key={t.id}
                     className="p-3 bg-surface-subtle border border-border rounded-md flex items-center justify-between gap-3"
@@ -1036,11 +1059,11 @@ export function ModernCustomerView({
 
             {loadingNotes ? (
               <p className="text-xs text-text-muted text-center py-8">Loading notes...</p>
-            ) : allNotes.length === 0 ? (
+            ) : safeAllNotes.length === 0 ? (
               <div className="p-8 text-center text-text-muted text-xs">No activity notes recorded yet.</div>
             ) : (
               <div className="space-y-2">
-                {allNotes.map((nt) => (
+                {safeAllNotes.map((nt) => (
                   <div key={nt.id} className="p-3 bg-surface-subtle border border-border rounded-md space-y-1.5">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-bold text-text-primary">{nt.customer_name || 'Customer'}</span>
