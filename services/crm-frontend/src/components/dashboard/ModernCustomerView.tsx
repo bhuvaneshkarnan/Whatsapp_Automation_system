@@ -809,10 +809,10 @@ export function ModernCustomerView({
           >
             <option value="all">All Stages</option>
             <option value="new">New Inquiry</option>
-            <option value="contacted">Contacted</option>
+            <option value="contacted">Contacted / In Progress</option>
             <option value="follow-up">Follow-up Due</option>
-            <option value="converted">Converted</option>
-            <option value="lost">Lost</option>
+            <option value="converted">Booked / Converted</option>
+            <option value="lost">Lost / Inactive</option>
           </select>
 
           <select
@@ -1030,7 +1030,7 @@ export function ModernCustomerView({
                             )}
                           </td>
 
-                          {/* 3. Status Dropdown */}
+                          {/* 3. Status Dropdown - Single Universal Business Stages */}
                           <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                             <select
                               value={cust.status || 'new'}
@@ -1038,21 +1038,16 @@ export function ModernCustomerView({
                               disabled={updatingId === cust.id}
                               className={`text-[10.5px] font-semibold px-1.5 py-1 h-7 rounded-sm border cursor-pointer transition-all shadow-2xs w-full max-w-[115px] truncate ${stageObj.bg} ${stageObj.text} ${stageObj.border}`}
                             >
-                              <optgroup label="Standard Statuses">
-                                {STAGES.map((st) => (
-                                  <option key={st.id} value={st.id}>
-                                    {st.label}
-                                  </option>
-                                ))}
-                              </optgroup>
-                              {outcomeStatuses.length > 0 && (
-                                <optgroup label="Custom Outcomes">
-                                  {outcomeStatuses.map((st) => (
-                                    <option key={st} value={st}>
-                                      {st}
-                                    </option>
-                                  ))}
-                                </optgroup>
+                              {STAGES.map((st) => (
+                                <option key={st.id} value={st.id}>
+                                  {st.label}
+                                </option>
+                              ))}
+                              {/* Support existing legacy custom outcome if present */}
+                              {cust.status && !STAGES.some((s) => s.id === cust.status) && (
+                                <option value={cust.status}>
+                                  {cust.status}
+                                </option>
                               )}
                             </select>
                           </td>

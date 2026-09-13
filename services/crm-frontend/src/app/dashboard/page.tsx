@@ -11624,21 +11624,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           onChange={(e) => setFollowupStatusFilter(e.target.value)}
                           className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
                         >
-                          <option value="all">All Outcomes / Statuses</option>
-                          <optgroup label="Standard Statuses">
-                            <option value="new">New</option>
-                            <option value="contacted">Contacted</option>
-                            <option value="follow-up">Follow-up</option>
-                            <option value="converted">Converted</option>
-                            <option value="lost">Lost</option>
-                          </optgroup>
-                          {crmDropdowns.outcome_statuses.length > 0 && (
-                            <optgroup label="Configured Outcomes">
-                              {crmDropdowns.outcome_statuses.map((st) => (
-                                <option key={st} value={st}>{st}</option>
-                              ))}
-                            </optgroup>
-                          )}
+                          <option value="all">All Stages</option>
+                          <option value="new">New Inquiry</option>
+                          <option value="contacted">Contacted / In Progress</option>
+                          <option value="follow-up">Follow-up Due</option>
+                          <option value="converted">Booked / Converted</option>
+                          <option value="lost">Lost / Inactive</option>
                         </select>
 
                         <select
