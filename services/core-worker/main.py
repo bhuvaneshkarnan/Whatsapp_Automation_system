@@ -1562,8 +1562,8 @@ class CoreWorker:
                 "directive": (
                     "The customer is speaking in Hinglish (Hindi written in English alphabet). "
                     "CRITICAL: Reply naturally in conversational Romanized Hinglish using the English alphabet "
-                    "(e.g. 'Sure bhai! ₹3,499/month hai all-inclusive. Kal morning 10:30 AM demo chalega?'). "
-                    "Do NOT use Devanagari script. Match their friendly, natural Hinglish cadence perfectly." + brevity_note
+                    "(e.g. 'Sure bhai! ₹3,499 per month hai all inclusive. Kal aapke liye kaunsa time theek rahega?'). "
+                    "Do NOT use Devanagari script or any hyphens. Match their friendly, natural Hinglish cadence perfectly." + brevity_note
                 )
             }
 
@@ -1575,8 +1575,8 @@ class CoreWorker:
                 "directive": (
                     "The customer is speaking in Tanglish (Tamil written in English alphabet). "
                     "CRITICAL: Reply naturally in conversational Romanized Tanglish/Tamil-English mix using the English alphabet "
-                    "(e.g. 'Sure bro! ₹3,499/month all-inclusive. Nalaiku morning 10:30 AM demo ok-va?'). "
-                    "Do NOT use Tamil script. Match their friendly Tanglish cadence perfectly." + brevity_note
+                    "(e.g. 'Sure bro! ₹3,499 per month all inclusive. Ungalukku eppo convenient ah irukkum?'). "
+                    "Do NOT use Tamil script and do NOT use any hyphens (write 'business ku' not 'business-ku'). Match their friendly Tanglish cadence perfectly." + brevity_note
                 )
             }
 
@@ -1587,8 +1587,8 @@ class CoreWorker:
                 "label": "Casual / Slang English",
                 "directive": (
                     "The customer texts casually using informal texting slang (e.g. 'bro', 'yo', 'u', 'pls'). "
-                    "CRITICAL: Mirror their relaxed, friendly, modern WhatsApp texting vibe. "
-                    "Talk like an authentic helpful person texting a peer on WhatsApp (e.g. 'Hey! It’s ₹3,499/mo all-inclusive with zero setup fees. Want to do a quick 10-min demo tomorrow?'). "
+                    "CRITICAL: Mirror their relaxed, friendly, modern WhatsApp texting vibe without any hyphens. "
+                    "Talk like an authentic helpful person texting a peer on WhatsApp (e.g. 'Hey! It is ₹3,499 per month all inclusive with zero setup fees. What time works best for a quick chat?'). "
                     "Avoid stiff corporate greetings like 'Dear Sir/Madam' or 'I would be delighted to assist'." + brevity_note
                 )
             }
@@ -1678,15 +1678,28 @@ class CoreWorker:
         # Determine conversation turn depth & ongoing state
         is_ongoing_conversation = len(history) > 1
 
-        # Clean humanized conversational WhatsApp texting format directive (Global Mandatory Rules)
+        # Clean humanized conversational WhatsApp texting format directive (Global Mandatory Rules for All Tenants)
         humanized_format_block = (
-            "### ABSOLUTE GLOBAL CONVERSATION RULES (HIGHEST PRIORITY - APPLIES TO EVERY SINGLE RESPONSE):\n"
-            "1. LENGTH: ALWAYS reply very short in 1 to 2 lines maximum (at most 25 to 35 words). Only write more if the customer explicitly asks for a detailed breakdown or multiple steps.\n"
-            "2. UNDERSTAND & ANSWER FIRST: First understand exactly what the user is asking or saying right now, and address it directly in your very first sentence. Never ignore or bypass their question to give a generic pitch or ask an unrelated question.\n"
-            "3. PURELY HUMAN TEXTING STYLE: Sound 100% like a real person texting naturally on WhatsApp.\n"
-            "   - Strictly NO robotic phrasing, NO corporate jargon, NO support-desk robotic openers (e.g. 'How can I assist you today?', 'Thank you for reaching out', 'Feel free to ask', 'I understand your concern', 'Certainly!', 'I\\'d be happy to assist').\n"
-            "   - Text simply, casually, and warmly, just like an authentic person messaging on WhatsApp.\n"
-            "4. NATURAL PACING: Never send a wall of text. Keep each message crisp, friendly, and effortless to read in 2 seconds on a mobile phone."
+            "### ABSOLUTE GLOBAL CONVERSATION RULES (MANDATORY FOR ALL TENANTS & REPLIES):\n"
+            "1. ONLY 1 LINE REPLY (MAX 2 SHORT LINES IF NEEDED - NEVER AN ESSAY):\n"
+            "   - Reply in ONLY 1 crisp line (around 10 to 20 words).\n"
+            "   - Only write a 2nd short line if strictly necessary to answer a two-part inquiry or confirm an appointment.\n"
+            "   - Absolutely FORBIDDEN: Long paragraphs, essays, explanations, and walls of text. Keep it effortless to read in 2 seconds.\n"
+            "2. ZERO HYPHENS, ZERO BULLETS & PURE HUMAN TEXTING FLOW:\n"
+            "   - Strictly FORBIDDEN from using ANY hyphens (-), dashes (--), asterisks (*), bullet points (•), or numbered lists (1. 2. 3.).\n"
+            "   - In Tanglish or vernacular, do NOT use hyphens for word suffixes (write 'business ku' not 'business-ku', write 'pesalama' or 'pesalam a' not 'pesalam-a').\n"
+            "   - Real humans texting on WhatsApp never write hyphenated listicles. Write in natural, flowing conversational sentences.\n"
+            "   - If mentioning multiple items, weave them into a smooth sentence with commas (e.g. 'We offer dental cleaning for ₹800 and root canal for ₹3,500').\n"
+            "3. UNDERSTAND & ANSWER FIRST (ZERO FIXED TEMPLATES):\n"
+            "   - First, clearly understand what the customer specifically asked or said, and answer THAT question directly in line 1.\n"
+            "   - Absolutely FORBIDDEN from using rigid fixed templates, repetitive welcome pitches, or canned corporate slogans.\n"
+            "   - Strictly NO robotic phrasing, NO corporate jargon, NO support-desk openers (e.g. 'How can I assist you today?', 'Thank you for reaching out', 'Feel free to ask', 'I understand your concern', 'Certainly!').\n"
+            "4. AUTOMATIC LANGUAGE & DIALECT MIRRORING:\n"
+            "   - Organically detect and reply in the customer's exact language and dialect (Tanglish in Tanglish, Hinglish in Hinglish, casual English in casual English, native script in native script).\n"
+            "   - Never force formal English on someone texting in vernacular.\n"
+            "5. BUSINESS KNOWLEDGE AS FACTS ONLY:\n"
+            "   - The tenant knowledge base below provides factual business information only (services, pricing, address, hours).\n"
+            "   - Deliver only the specific fact the customer requested in 1 natural line, adhering strictly to these Global Conversation Rules."
         )
 
         # 2. Retrieve customer profile & bookings memory with strict tenant scoping
@@ -2289,10 +2302,19 @@ class CoreWorker:
 
         # 100% Tenant Autonomous Instructions & Configuration:
         if custom_instructions.strip():
-            prompt_blocks.append(f"### BUSINESS KNOWLEDGE BASE & INSTRUCTIONS:\n{custom_instructions.strip()}")
+            prompt_blocks.append(
+                f"### BUSINESS KNOWLEDGE BASE & DETAILS (FACTUAL REFERENCE ONLY):\n"
+                f"{custom_instructions.strip()}\n"
+                "- MANDATORY DIRECTIVE: Use the above business info strictly as a factual reference (services, pricing, FAQs). "
+                "Do NOT adopt any essay format, bullet points, or hyphens. Deliver answers in 1 line following the Global Conversation Rules."
+            )
 
         if services_text.strip():
-            prompt_blocks.append(f"### SERVICES & PRICING:\n{services_text.strip()}")
+            prompt_blocks.append(
+                f"### SERVICES & PRICING (FACTUAL REFERENCE ONLY):\n"
+                f"{services_text.strip()}\n"
+                "- MANDATORY DIRECTIVE: Quote prices and service details conversationally in 1 flowing line without hyphens or bullet points."
+            )
 
         if bot_goal.strip():
             prompt_blocks.append(f"### GOALS & OBJECTIVES:\n{bot_goal.strip()}")
@@ -2322,18 +2344,19 @@ class CoreWorker:
             prompt_blocks.append(f"### BUSINESS ADDRESS & LOCATION:\n{full_location}\n- Provide this exact address and directions whenever the customer asks where the business or clinic is located.")
 
         reinforcement_rule = (
-            "### FINAL MANDATORY OVERRIDE (HIGHEST PRECEDENCE DIRECTIVE):\n"
-            "- Reply in ONLY 1 to 2 short lines maximum (around 15 to 35 words).\n"
-            "- First directly answer what the customer actually asked or said.\n"
-            f"- STYLE & DIALECT MIRRORING: Strictly match the detected customer vibe ({style_profile['label']}). "
-            + ("If Hinglish/Tanglish, reply in Romanized text; if casual slang, stay relaxed and friendly; if ultra-brief, keep answer under 15-20 words.\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like an authentic, helpful human texting on WhatsApp.\n")
-            + "- QUESTION SUPPRESSION: NEVER ask for any detail (name, business, concern, location, email) that is already listed in Known Facts or stated in chat history.\n"
-            "- FUNNEL PROGRESSION: Always advance the conversation according to the current Funnel Stage objective. Never loop or stay stuck.\n"
+            "### FINAL MANDATORY OVERRIDE (HIGHEST PRECEDENCE DIRECTIVE - STRICT ENFORCEMENT):\n"
+            "- STRICT 1-LINE BREVITY: Reply in ONLY 1 crisp line (around 10 to 20 words). Only use a 2nd short line if strictly necessary. NEVER write an essay, paragraph, or long explanation.\n"
+            "- ZERO HYPHENS & ZERO BULLETS: Never use ANY hyphens (-), dashes (--), asterisks (*), or bullet lists. Write 'business ku' instead of 'business-ku'. Text in smooth human sentences without hyphens.\n"
+            "- UNDERSTAND & ANSWER FIRST: First clearly understand and directly answer what the customer just asked. No fixed templates, no robotic greetings, no repetitive slogans.\n"
+            f"- LANGUAGE & DIALECT MIRRORING: Strictly match customer's language and vibe ({style_profile['label']}). "
+            + ("If Hinglish/Tanglish, reply in natural Romanized text without hyphens; if casual slang, stay relaxed and friendly; keep answer brief and human.\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like an authentic, helpful human texting on WhatsApp.\n")
+            + "- CUSTOMER-DRIVEN APPOINTMENT BOOKING: When scheduling, ask what date and time works best for them. When they provide a time, check availability and confirm. Never force rigid canned slot suggestions.\n"
+            "- QUESTION SUPPRESSION: NEVER ask for any detail (name, business, concern, location, email) that is already listed in Known Facts or stated in chat history.\n"
+            "- FUNNEL PROGRESSION: Always advance the conversation smoothly. Never loop or stay stuck.\n"
             "- When handling objections or hesitation: validate empathetically in sentence 1, then follow up with a short low-friction question.\n"
-            "- PROACTIVE BOOKING: If scheduling or booking is discussed without a specific time, propose 2 specific open times instead of asking an open-ended question.\n"
             "- ZERO PHONE LEAK: NEVER give the customer's phone number (" + str(contact_phone) + ") as our contact number! If asked, give " + str(admin_phone or 'our team directly') + ".\n"
             "- ZERO NAME CONFUSION: Customer is " + str(confirmed_name or customer_name_display) + ". NEVER call them '" + str(admin_name or 'Bhuvan') + "'.\n"
-            "- Sound like an authentic, helpful human texting on WhatsApp (no AI or support-ticket clichés)."
+            "- Sound 100% like an authentic, helpful human texting on WhatsApp (no AI or robotic clichés)."
         )
         prompt_blocks.append(reinforcement_rule)
 

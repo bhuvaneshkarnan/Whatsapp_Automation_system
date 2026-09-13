@@ -23,8 +23,8 @@ class LLMError(Exception):
 def clean_llm_response(text: str) -> str:
     """
     Strips internal thinking process (<think>...</think>), reasoning blocks,
-    and markdown wrappers so WhatsApp messages are clean, crisp, and direct.
-    Also normalizes unnatural artificial line gaps into natural WhatsApp flow.
+    markdown wrappers, bullet hyphens, and limits message to 1-2 crisp lines.
+    Preserves action tags [ACTION:...] at the end.
     """
     if not text:
         return ""
@@ -43,6 +43,27 @@ def clean_llm_response(text: str) -> str:
         if len(lines) >= 2:
             cleaned = "\n".join(lines[1:-1])
 
+    # Extract action tags to protect them from line-stripping
+    action_tags = re.findall(r'\[ACTION:[^\]]+\]', cleaned)
+    for tag in action_tags:
+        cleaned = cleaned.replace(tag, "").strip()
+
+    # Strip markdown headers (e.g. "### ...")
+    cleaned = re.sub(r'^#{1,6}\s+.*$', '', cleaned, flags=re.MULTILINE)
+
+    # Strip bullet hyphens, asterisks, bullet points at beginning of lines
+    cleaned = re.sub(r'^\s*[-*•–—]\s+', '', cleaned, flags=re.MULTILINE)
+
+    # Replace em-dashes, en-dashes, and double hyphens with a comma
+    cleaned = re.sub(r'\s*--\s*', ', ', cleaned)
+    cleaned = re.sub(r'\s*[—–]\s*', ', ', cleaned)
+    # Replace spaced hyphens with a comma
+    cleaned = re.sub(r'\s+-\s+', ', ', cleaned)
+    # Replace hyphens between words/suffixes with a space (e.g. 'business-ku' -> 'business ku', 'pesalam-a' -> 'pesalam a', 'all-inclusive' -> 'all inclusive')
+    cleaned = re.sub(r'(\w)-(\w)', r'\1 \2', cleaned)
+    # Remove any remaining stray hyphens
+    cleaned = re.sub(r'-', ' ', cleaned)
+
     # Connect short conversational openers that have artificial double newlines (e.g. "Awesome\n\nI have..." -> "Awesome, I have...")
     cleaned = re.sub(
         r'^(Awesome|Got it|Sure thing|Sure|Thanks|Thanks for sharing that|Great|Hey there|Hey|Hello|Hi)\s*\n+([A-Z0-9])',
@@ -50,8 +71,19 @@ def clean_llm_response(text: str) -> str:
         cleaned,
         flags=re.IGNORECASE
     )
-    # Collapse 3+ newlines into 1
-    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+
+    # Split lines and filter out empty ones
+    lines = [l.strip() for l in cleaned.split("\n") if l.strip()]
+
+    # Limit to maximum 2 lines (ensure 1-2 lines, never an essay)
+    if len(lines) > 2:
+        lines = lines[:2]
+
+    cleaned = "\n".join(lines).strip()
+
+    # Re-attach action tags on their own line at the very end
+    if action_tags:
+        cleaned = cleaned + "\n" + "\n".join(action_tags)
 
     return cleaned.strip()
 
