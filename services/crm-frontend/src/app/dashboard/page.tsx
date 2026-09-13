@@ -3780,10 +3780,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       loadContacts();
       loadCustomers();
       crm.getCrmDropdownOptions().then((res) => { if (res && res.outcome_statuses) setCrmDropdowns(res); }).catch(() => {});
+      crm.getAllNotes().then((n) => { setAllNotes(Array.isArray(n) ? n : []); }).catch(() => {});
     } else if (activeNav === 'followup') {
       loadCustomers();
       loadTasks();
       crm.getCrmDropdownOptions().then((res) => { if (res && res.outcome_statuses) setCrmDropdowns(res); }).catch(() => {});
+      crm.getAllNotes().then((n) => { setAllNotes(Array.isArray(n) ? n : []); }).catch(() => {});
     } else if (activeNav === 'settings') {
       loadSettings();
       if (settingsTab === 'team') {
@@ -12115,6 +12117,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   loadingNotes={loadingAllNotes}
                   onDeleteNote={handleDeleteNote}
                   onAddTask={() => setShowAddTaskModal(true)}
+                  onOpenQuickNote={(cust) => {
+                    setQuickNoteCustomer({
+                      customerId: cust.id,
+                      name: cust.name || 'Customer',
+                      noteId: cust.latest_note_id,
+                    });
+                    setQuickNoteText(cust.latest_note || '');
+                    setQuickNoteColor((cust.latest_note_color || 'slate').toLowerCase());
+                  }}
+                  onDeleteLatestNote={handleDeleteCustomerLatestNote}
                 />
               )
             )}
