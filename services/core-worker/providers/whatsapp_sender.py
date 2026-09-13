@@ -171,7 +171,7 @@ async def send_typing_indicator(
         return
     try:
         client = get_shared_client()
-        await client.post(
+        resp = await client.post(
             f"{GRAPH_BASE}/{phone_number_id}/messages",
             headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
             json={
@@ -184,7 +184,11 @@ async def send_typing_indicator(
             },
             timeout=5.0,
         )
-        logger.info("typing_indicator_sent", wa_message_id=wa_message_id)
+        if resp.status_code >= 400:
+            logger.warning("typing_indicator_http_error", status_code=resp.status_code, body=resp.text[:200])
+            await mark_as_read(phone_number_id, access_token, wa_message_id)
+        else:
+            logger.info("typing_indicator_sent", wa_message_id=wa_message_id)
     except Exception as e:
         logger.warning("typing_indicator_failed", message_id=wa_message_id, error=str(e))
         # Fallback to standard mark_as_read

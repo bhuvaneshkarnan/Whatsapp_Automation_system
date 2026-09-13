@@ -974,10 +974,12 @@ class CoreWorker:
 
             # Only auto-mark as read (blue ticks) and show native "typing..." indicator if AI is handling this chat.
             # If in Human Mode or delinquent/paused, keep as delivered (2 grey ticks) until staff opens chat in CRM.
-            if not sub_delinquent and is_active is not False and conv_status != "human" and creds and creds.get("phone_number_id") and creds.get("access_token"):
-                asyncio.create_task(
-                    send_typing_indicator(creds["phone_number_id"], creds["access_token"], wa_message_id)
-                )
+            typing_started_at = time.monotonic()
+            if not sub_delinquent and is_active is not False and conv_status != "human" and creds and creds.get("phone_number_id") and creds.get("access_token") and wa_message_id:
+                try:
+                    await send_typing_indicator(creds["phone_number_id"], creds["access_token"], wa_message_id)
+                except Exception as e:
+                    logger.warning("typing_indicator_dispatch_failed", error=str(e))
 
             # ── 4. Process Voice Notes / Audio Messages ───────────────────────
             msg_type = fields.get("type", "text")
@@ -1144,6 +1146,7 @@ class CoreWorker:
                     message_text=body_text,
                     creds=creds,
                     inbound_wa_message_id=wa_message_id,
+                    typing_started_at=typing_started_at,
                 )
 
             # ── 7. Update conversation timestamp ──────────────────────────────
@@ -1517,23 +1520,38 @@ class CoreWorker:
                 )
             }
 
-        # 2. Vernacular Code-Mixing Detection (Hinglish, Tanglish)
+        # 2. Vernacular Code-Mixing Detection (Hinglish, Tanglish) across current query and chat history
+        inbound_history_text = " ".join(
+            (m.get("content") or "") for m in (history or []) if m.get("role") == "user"
+        ).lower()
+        combined_text_lower = f"{text_lower} {inbound_history_text}".strip()
+        tokens_current = set(re.findall(r'\b[a-z]+\b', text_lower))
+        tokens_all = set(re.findall(r'\b[a-z]+\b', combined_text_lower))
+
         hinglish_words = {
             "bhai", "bhiya", "kya", "hai", "hain", "kitna", "kitne", "chahiye", "karo", "karna", "kar",
             "accha", "achha", "theek", "thik", "kal", "subah", "shaam", "batao", "bataiye", "dedo",
             "de do", "hoga", "hogi", "kab", "kaha", "kahan", "kaise", "sirf", "aur", "pe", "mein",
             "nahi", "nahin", "aaj", "paisa", "paise", "daam", "milega", "samjha", "bhi",
-            "bolo", "mujhe", "mera", "meri", "hum", "aap", "tum", "kardo"
+            "bolo", "mujhe", "mera", "meri", "hum", "aap", "tum", "kardo", "suno", "sunao",
+            "chal", "raha", "rahi", "badhiya", "mast", "sab", "kuch", "shukriya", "dhanyawad"
         }
-        tokens_current = set(re.findall(r'\b[a-z]+\b', text_lower))
-        hinglish_matches = tokens_current.intersection(hinglish_words)
+        hinglish_matches = tokens_all.intersection(hinglish_words)
 
         tanglish_words = {
             "evalo", "evlo", "irukku", "irukka", "sollunga", "pannanum", "vandhuten", "nalaiku",
             "kaalaila", "theriyala", "vanakkam", "eppadi", "venum", "kudunga", "seri", "illa",
-            "enna", "yaar", "enga", "solren", "mudiyuma", "machan"
+            "enna", "yaar", "enga", "solren", "mudiyuma", "machan", "nalla", "nallaa", "poguthu",
+            "pogudhu", "varum", "aachu", "aayiduchu", "panreenga", "panrenga", "panreengala",
+            "theriyum", "theriyathu", "kedaikkuma", "kedaikum", "irundha", "irundhuchu", "paravala",
+            "romba", "konjam", "ippo", "appo", "eppo", "apdi", "ipdi", "epdi", "engalukku",
+            "ungalukku", "enakku", "unakku", "edhuvum", "ethuvum", "avlo", "ivlo", "podhum",
+            "mudiyum", "mudiyadhu", "paakkalam", "pesalam", "pesunga", "solreenga", "solla",
+            "kelunga", "keten", "pannalam", "pannunga", "solren", "illai", "vendaam", "kudu",
+            "machi", "thala", "paaru", "paathuten", "sandhosham", "puriyala", "purinjidhu", "kooda",
+            "annachi", "thambi", "anna", "akka", "apram", "appuram"
         }
-        tanglish_matches = tokens_current.intersection(tanglish_words)
+        tanglish_matches = tokens_all.intersection(tanglish_words)
 
         # 3. Formality & Texting Slang Tokens
         casual_slang_words = {
@@ -1554,29 +1572,31 @@ class CoreWorker:
         words = text.split()
         is_ultra_short = (len(words) <= 4) and not (len(words) == 1 and any(w in text_lower for w in ["hi", "hello", "hey"]))
 
-        if len(hinglish_matches) >= 2 or (len(hinglish_matches) >= 1 and any(w in text_lower for w in ["bhai", "kya hai", "kitna", "subah", "kal", "dedo", "milega"])):
+        if len(tanglish_matches) >= 1:
+            brevity_note = " Keep it ultra-punchy in 1 sentence." if is_ultra_short else ""
+            return {
+                "dialect": "tanglish",
+                "label": "Tanglish (Romanized Tamil + English)",
+                "directive": (
+                    "The customer is communicating in Tanglish (Tamil written in Romanized English alphabet, e.g. 'nalla poguthu', 'evlo cost'). "
+                    "CRITICAL: You MUST reply 100% in natural Romanized Tanglish/Tamil-English mix using the English alphabet "
+                    "(e.g. 'Super bro! Namma plan ₹3,499 per month all inclusive. Ungalukku eppo convenient ah irukkum?'). "
+                    "NEVER reply in pure English to a Tanglish message! "
+                    "Do NOT use Tamil script and do NOT use any hyphens (write 'business ku' not 'business-ku'). Match their friendly Tanglish cadence perfectly." + brevity_note
+                )
+            }
+
+        if len(hinglish_matches) >= 1:
             brevity_note = " Keep it ultra-punchy in 1 sentence." if is_ultra_short else ""
             return {
                 "dialect": "hinglish",
                 "label": "Hinglish (Romanized Hindi + English)",
                 "directive": (
                     "The customer is speaking in Hinglish (Hindi written in English alphabet). "
-                    "CRITICAL: Reply naturally in conversational Romanized Hinglish using the English alphabet "
+                    "CRITICAL: You MUST reply 100% in natural Romanized Hinglish using the English alphabet "
                     "(e.g. 'Sure bhai! ₹3,499 per month hai all inclusive. Kal aapke liye kaunsa time theek rahega?'). "
+                    "NEVER reply in pure English to a Hinglish message! "
                     "Do NOT use Devanagari script or any hyphens. Match their friendly, natural Hinglish cadence perfectly." + brevity_note
-                )
-            }
-
-        if len(tanglish_matches) >= 2 or (len(tanglish_matches) >= 1 and any(w in text_lower for w in ["evlo", "evalo", "irukku", "sollunga", "nalaiku"])):
-            brevity_note = " Keep it ultra-punchy in 1 sentence." if is_ultra_short else ""
-            return {
-                "dialect": "tanglish",
-                "label": "Tanglish (Romanized Tamil + English)",
-                "directive": (
-                    "The customer is speaking in Tanglish (Tamil written in English alphabet). "
-                    "CRITICAL: Reply naturally in conversational Romanized Tanglish/Tamil-English mix using the English alphabet "
-                    "(e.g. 'Sure bro! ₹3,499 per month all inclusive. Ungalukku eppo convenient ah irukkum?'). "
-                    "Do NOT use Tamil script and do NOT use any hyphens (write 'business ku' not 'business-ku'). Match their friendly Tanglish cadence perfectly." + brevity_note
                 )
             }
 
@@ -1651,6 +1671,7 @@ class CoreWorker:
         message_text: str,
         creds: Optional[dict],
         inbound_wa_message_id: Optional[str] = None,
+        typing_started_at: Optional[float] = None,
     ):
         """Call Gemini / Groq / OpenCode Cascade → fallback to rule engine → send via WhatsApp."""
 
@@ -1682,21 +1703,23 @@ class CoreWorker:
         humanized_format_block = (
             "### ABSOLUTE GLOBAL CONVERSATION RULES (MANDATORY FOR ALL TENANTS & REPLIES):\n"
             "1. ONLY 1 LINE REPLY (MAX 2 SHORT LINES IF NEEDED - NEVER AN ESSAY):\n"
-            "   - Reply in ONLY 1 crisp line (around 10 to 20 words).\n"
+            "   - Reply in ONLY 1 crisp line (around 10 to 18 words total).\n"
             "   - Only write a 2nd short line if strictly necessary to answer a two-part inquiry or confirm an appointment.\n"
             "   - Absolutely FORBIDDEN: Long paragraphs, essays, explanations, and walls of text. Keep it effortless to read in 2 seconds.\n"
+            "   - HARD CEILING: Under 20 words total. Any response over 20 words is rejected.\n"
             "2. ZERO HYPHENS, ZERO BULLETS & PURE HUMAN TEXTING FLOW:\n"
             "   - Strictly FORBIDDEN from using ANY hyphens (-), dashes (--), asterisks (*), bullet points (•), or numbered lists (1. 2. 3.).\n"
             "   - In Tanglish or vernacular, do NOT use hyphens for word suffixes (write 'business ku' not 'business-ku', write 'pesalama' or 'pesalam a' not 'pesalam-a').\n"
             "   - Real humans texting on WhatsApp never write hyphenated listicles. Write in natural, flowing conversational sentences.\n"
             "   - If mentioning multiple items, weave them into a smooth sentence with commas (e.g. 'We offer dental cleaning for ₹800 and root canal for ₹3,500').\n"
-            "3. UNDERSTAND & ANSWER FIRST (ZERO FIXED TEMPLATES):\n"
+            "3. UNDERSTAND & ANSWER FIRST (ZERO FIXED TEMPLATES & ZERO REPETITION):\n"
             "   - First, clearly understand what the customer specifically asked or said, and answer THAT question directly in line 1.\n"
             "   - Absolutely FORBIDDEN from using rigid fixed templates, repetitive welcome pitches, or canned corporate slogans.\n"
+            "   - ZERO REPETITION: NEVER ask the same question repeatedly (e.g. 'how are you currently handling customer messages?'). If the customer made a casual remark ('nalla poguthu', 'going fine', 'ok'), acknowledge it naturally in sentence 1 and do NOT repeat old questions!\n"
             "   - Strictly NO robotic phrasing, NO corporate jargon, NO support-desk openers (e.g. 'How can I assist you today?', 'Thank you for reaching out', 'Feel free to ask', 'I understand your concern', 'Certainly!').\n"
-            "4. AUTOMATIC LANGUAGE & DIALECT MIRRORING:\n"
+            "4. AUTOMATIC LANGUAGE & DIALECT MIRRORING (MANDATORY):\n"
             "   - Organically detect and reply in the customer's exact language and dialect (Tanglish in Tanglish, Hinglish in Hinglish, casual English in casual English, native script in native script).\n"
-            "   - Never force formal English on someone texting in vernacular.\n"
+            "   - If the customer writes in Tanglish (e.g. 'nalla poguthu', 'cost evlo', 'eppadi irukku'), your ENTIRE reply MUST be in natural Romanized Tanglish! NEVER reply in English to Tanglish!\n"
             "5. BUSINESS KNOWLEDGE AS FACTS ONLY:\n"
             "   - The tenant knowledge base below provides factual business information only (services, pricing, address, hours).\n"
             "   - Deliver only the specific fact the customer requested in 1 natural line, adhering strictly to these Global Conversation Rules."
@@ -2345,11 +2368,12 @@ class CoreWorker:
 
         reinforcement_rule = (
             "### FINAL MANDATORY OVERRIDE (HIGHEST PRECEDENCE DIRECTIVE - STRICT ENFORCEMENT):\n"
-            "- STRICT 1-LINE BREVITY: Reply in ONLY 1 crisp line (around 10 to 20 words). Only use a 2nd short line if strictly necessary. NEVER write an essay, paragraph, or long explanation.\n"
+            "- STRICT 1-LINE BREVITY: Reply in ONLY 1 crisp line (around 10 to 18 words total, hard limit under 20 words). Only use a 2nd short line if strictly necessary. NEVER write an essay, paragraph, or long explanation.\n"
             "- ZERO HYPHENS & ZERO BULLETS: Never use ANY hyphens (-), dashes (--), asterisks (*), or bullet lists. Write 'business ku' instead of 'business-ku'. Text in smooth human sentences without hyphens.\n"
             "- UNDERSTAND & ANSWER FIRST: First clearly understand and directly answer what the customer just asked. No fixed templates, no robotic greetings, no repetitive slogans.\n"
+            "- ZERO REPETITION: NEVER repeat a question that was already asked in the chat history (e.g. 'how do you handle enquiries?'). Progress naturally.\n"
             f"- LANGUAGE & DIALECT MIRRORING: Strictly match customer's language and vibe ({style_profile['label']}). "
-            + ("If Hinglish/Tanglish, reply in natural Romanized text without hyphens; if casual slang, stay relaxed and friendly; keep answer brief and human.\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like an authentic, helpful human texting on WhatsApp.\n")
+            + ("If Hinglish/Tanglish, reply 100% in natural Romanized text without hyphens; if casual slang, stay relaxed and friendly; keep answer brief and human.\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like an authentic, helpful human texting on WhatsApp.\n")
             + "- CUSTOMER-DRIVEN APPOINTMENT BOOKING: When scheduling, ask what date and time works best for them. When they provide a time, check availability and confirm. Never force rigid canned slot suggestions.\n"
             "- QUESTION SUPPRESSION: NEVER ask for any detail (name, business, concern, location, email) that is already listed in Known Facts or stated in chat history.\n"
             "- FUNNEL PROGRESSION: Always advance the conversation smoothly. Never loop or stay stuck.\n"
@@ -2374,7 +2398,7 @@ class CoreWorker:
             opencode_base_url=opencode_base,
             primary_provider=primary_provider,
             gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
-            max_tokens=220,
+            max_tokens=65,
             temperature=0.3,
             timeout_seconds=10.0,
             tenant_id=tenant_id,
@@ -2627,9 +2651,13 @@ class CoreWorker:
             if creds and creds.get("phone_number_id") and creds.get("access_token"):
                 try:
                     if b_idx == 0:
-                        # The AI thinking & generation already took 1.0s - 2.5s, during which WhatsApp was displaying "typing...".
-                        # Therefore Bubble 1 is dispatched immediately with only a micro-pause (0.1s)
-                        typing_delay = 0.1
+                        # Ensure the native "typing..." animation is visible on WhatsApp for at least 2.2s to 3.2s!
+                        now = time.monotonic()
+                        elapsed = (now - typing_started_at) if typing_started_at else 0.0
+                        char_count = len(bubble or "")
+                        target_delay = max(2.2, min(char_count * 0.03, 3.5))
+                        needed = target_delay - elapsed
+                        typing_delay = max(0.05, needed)
                     else:
                         # Inter-bubble pause for 2nd message:
                         # Await typing indicator so Meta accepts it, ensuring user sees "typing..." between Bubble 1 and Bubble 2!
