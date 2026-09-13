@@ -30,6 +30,7 @@ import {
   getCachedTenantId,
   CrmDropdownOptions,
 } from '@/lib/api';
+import { ModernCustomerView } from '@/components/dashboard/ModernCustomerView';
 import {
   MessageSquare,
   Megaphone,
@@ -2862,6 +2863,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     subtab_tasks_label: settingsForm.taxonomy?.subtab_tasks_label || 'Tasks',
     subtab_notes_label: settingsForm.taxonomy?.subtab_notes_label || 'Notes',
   };
+
+  const isClinicTenant = (
+    (settingsForm?.slug || '').toLowerCase() === 'mindbodyrecovery' ||
+    (typeof window !== 'undefined' && (localStorage.getItem('tenant_slug') || '').toLowerCase() === 'mindbodyrecovery') ||
+    (settingsForm?.industry || '').toLowerCase() === 'clinic' ||
+    settingsForm?.dashboard_variant === 'clinic'
+  );
 
   // ── Teams & Staff that were ACTUALLY added by the user / clinic ─────────────────
   const addedTeams = useMemo(() => {
@@ -10687,6 +10695,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             )}
             {/* ── UNIFIED VIEW: CUSTOMERS & FOLLOW-UP ───────────────────── */}
             {(activeNav === 'customers' || activeNav === 'followup') && (
+              isClinicTenant ? (
               <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
                 {/* Compact Header with Title, Dynamic Taxonomy, + Add Customer, and Sub-Tabs */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-1.5 pt-0.5">
@@ -12066,6 +12075,45 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                 )}
               </div>
+              ) : (
+                <ModernCustomerView
+                  customers={customers}
+                  selectedCustomer={selectedCustomer}
+                  onSelectCustomer={handleSelectCustomer}
+                  onUpdateCustomer={handleUpdateCustomer}
+                  onOpenChat={(cust) => {
+                    handleSelectCustomer(cust);
+                    setDrawerActiveTab('chat');
+                  }}
+                  onOpenDetails={(cust) => {
+                    handleSelectCustomer(cust);
+                    setDrawerActiveTab('profile');
+                  }}
+                  onAddCustomer={() => setShowAddCustomerModal(true)}
+                  onExportCsv={exportCustomersToCsv}
+                  onRefresh={() => {
+                    loadCustomers();
+                    loadTasks();
+                    setLoadingAllNotes(true);
+                    crm.getAllNotes().then((n) => {
+                      setAllNotes(Array.isArray(n) ? n : []);
+                      setLoadingAllNotes(false);
+                    }).catch(() => setLoadingAllNotes(false));
+                  }}
+                  loading={loadingCustomers}
+                  tasks={tasks}
+                  allNotes={allNotes}
+                  taxonomy={currentTaxonomy}
+                  renderDrawer={renderCustomerDetailDrawer}
+                  categorizedStaffOptions={categorizedStaffOptions}
+                  crmDropdowns={crmDropdowns}
+                  openDropdownOptionsModal={openDropdownOptionsModal}
+                  loadingTasks={loadingTasks}
+                  loadingNotes={loadingAllNotes}
+                  onDeleteNote={handleDeleteNote}
+                  onAddTask={() => setShowAddTaskModal(true)}
+                />
+              )
             )}
 {/* ── MANAGE CRM DROPDOWN OPTIONS MODAL ───────────────────────── */}
             {dropdownOptionsModalOpen && (
