@@ -1202,38 +1202,103 @@ export function ModernCustomerView({
           </div>
         )}
 
-        {/* KANBAN FUNNEL VIEW - COMPLETE WITH NOTES & ACTION BUTTONS */}
+        {/* KANBAN FUNNEL VIEW - COMPLETE WITH PHASE COLORS & SINGLE-VIEW RESPONSIVENESS */}
         {viewMode === 'kanban' && (
-          <div className="flex-1 flex overflow-x-auto gap-3 pb-2">
+          <div className="flex-1 min-h-0 flex md:grid md:grid-cols-5 gap-2 pb-1 w-full overflow-x-auto md:overflow-x-hidden">
             {[
-              { id: 'new', label: 'New Inquiry', dot: 'bg-blue-500' },
-              { id: 'contacted', label: 'Contacted / In Progress', dot: 'bg-indigo-500' },
-              { id: 'follow-up', label: 'Follow-up Due', dot: 'bg-amber-500' },
-              { id: 'converted', label: 'Booked / Converted', dot: 'bg-emerald-500' },
-              { id: 'lost', label: 'Lost / Inactive', dot: 'bg-rose-400' },
+              {
+                id: 'new',
+                label: 'New Inquiry',
+                dot: 'bg-blue-500 shadow-xs shadow-blue-500/40',
+                topBar: 'bg-blue-500',
+                colBg: 'bg-blue-50/40 dark:bg-blue-950/20',
+                headerBg: 'bg-blue-50/90 dark:bg-blue-900/40',
+                headerBorder: 'border-blue-200/70 dark:border-blue-800/40',
+                headerText: 'text-blue-950 dark:text-blue-100',
+                border: 'border-blue-200/60 dark:border-blue-800/30',
+                badge: 'bg-blue-100/90 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200 border border-blue-200/60',
+                cardHover: 'hover:border-blue-400/50',
+              },
+              {
+                id: 'contacted',
+                label: 'Contacted / In Progress',
+                dot: 'bg-indigo-500 shadow-xs shadow-indigo-500/40',
+                topBar: 'bg-indigo-500',
+                colBg: 'bg-indigo-50/40 dark:bg-indigo-950/20',
+                headerBg: 'bg-indigo-50/90 dark:bg-indigo-900/40',
+                headerBorder: 'border-indigo-200/70 dark:border-indigo-800/40',
+                headerText: 'text-indigo-950 dark:text-indigo-100',
+                border: 'border-indigo-200/60 dark:border-indigo-800/30',
+                badge: 'bg-indigo-100/90 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200 border border-indigo-200/60',
+                cardHover: 'hover:border-indigo-400/50',
+              },
+              {
+                id: 'follow-up',
+                label: 'Follow-up Due',
+                dot: 'bg-amber-500 shadow-xs shadow-amber-500/40',
+                topBar: 'bg-amber-500',
+                colBg: 'bg-amber-50/40 dark:bg-amber-950/20',
+                headerBg: 'bg-amber-50/90 dark:bg-amber-900/40',
+                headerBorder: 'border-amber-200/70 dark:border-amber-800/40',
+                headerText: 'text-amber-950 dark:text-amber-100',
+                border: 'border-amber-200/60 dark:border-amber-800/30',
+                badge: 'bg-amber-100/90 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-200/60',
+                cardHover: 'hover:border-amber-400/50',
+              },
+              {
+                id: 'converted',
+                label: 'Booked / Converted',
+                dot: 'bg-emerald-500 shadow-xs shadow-emerald-500/40',
+                topBar: 'bg-emerald-500',
+                colBg: 'bg-emerald-50/40 dark:bg-emerald-950/20',
+                headerBg: 'bg-emerald-50/90 dark:bg-emerald-900/40',
+                headerBorder: 'border-emerald-200/70 dark:border-emerald-800/40',
+                headerText: 'text-emerald-950 dark:text-emerald-100',
+                border: 'border-emerald-200/60 dark:border-emerald-800/30',
+                badge: 'bg-emerald-100/90 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-200/60',
+                cardHover: 'hover:border-emerald-400/50',
+              },
+              {
+                id: 'lost',
+                label: 'Lost / Inactive',
+                dot: 'bg-slate-400 shadow-xs shadow-slate-400/40',
+                topBar: 'bg-slate-400',
+                colBg: 'bg-slate-50/50 dark:bg-slate-900/30',
+                headerBg: 'bg-slate-100/80 dark:bg-slate-900/50',
+                headerBorder: 'border-slate-200/70 dark:border-slate-800/40',
+                headerText: 'text-slate-800 dark:text-slate-200',
+                border: 'border-slate-200/70 dark:border-slate-800/30',
+                badge: 'bg-slate-200/80 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300/60',
+                cardHover: 'hover:border-slate-400/50',
+              },
             ].map((col) => {
               const colLeads = filteredCustomers.filter((c) => c.status === col.id);
               return (
                 <div
                   key={col.id}
-                  className="w-80 shrink-0 bg-surface-subtle/60 border border-border rounded-md flex flex-col max-h-full overflow-hidden"
+                  className={`w-[260px] shrink-0 md:w-auto md:shrink md:flex-1 ${col.colBg} border ${col.border} rounded-md flex flex-col h-full overflow-hidden shadow-2xs`}
                 >
+                  {/* Phase Top Accent Bar */}
+                  <div className={`h-1 w-full ${col.topBar}`} />
+
                   {/* Column Header */}
-                  <div className="p-2.5 border-b border-border bg-surface flex items-center justify-between shrink-0">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2.5 h-2.5 rounded-full ${col.dot}`} />
-                      <h4 className="font-bold text-xs text-text-primary font-headline">{col.label}</h4>
+                  <div className={`p-2 border-b ${col.headerBorder} ${col.headerBg} flex items-center justify-between shrink-0`}>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${col.dot}`} />
+                      <h4 className={`font-bold text-[11px] ${col.headerText} truncate font-headline`} title={col.label}>
+                        {col.label}
+                      </h4>
                     </div>
-                    <span className="text-xs font-bold text-text-muted bg-surface-subtle border border-border px-2 py-0.2 rounded-full font-mono">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full font-mono shrink-0 ml-1 ${col.badge}`}>
                       {colLeads.length}
                     </span>
                   </div>
 
                   {/* Column Card List */}
-                  <div className="p-2 flex-1 overflow-y-auto space-y-2.5">
+                  <div className="p-1.5 flex-1 overflow-y-auto space-y-1.5 min-h-0 scrollbar-thin">
                     {colLeads.length === 0 ? (
-                      <div className="p-6 text-center text-text-muted text-xs border border-dashed border-border rounded-md">
-                        No contacts in this status
+                      <div className="p-4 text-center text-text-muted text-[11px] border border-dashed border-border/70 rounded-sm bg-surface/40">
+                        No contacts
                       </div>
                     ) : (
                       colLeads.map((cust) => {
@@ -1242,25 +1307,25 @@ export function ModernCustomerView({
                           <div
                             key={cust.id}
                             onClick={() => onSelectCustomer(cust)}
-                            className={`p-3 bg-surface border rounded-md shadow-2xs hover:shadow-xs hover:border-accent/40 transition-all cursor-pointer space-y-2 ${
-                              isSelected ? 'border-accent ring-1 ring-accent' : 'border-border'
+                            className={`p-2 bg-surface dark:bg-surface border rounded-sm shadow-2xs hover:shadow-xs ${col.cardHover} transition-all cursor-pointer space-y-1.5 ${
+                              isSelected ? 'border-accent ring-1 ring-accent' : 'border-border/80'
                             }`}
                           >
                             {/* Card Header: Name & Temperature */}
-                            <div className="flex items-start justify-between gap-1.5">
-                              <div>
-                                <h5 className="font-bold text-xs text-text-primary hover:text-accent transition-colors">
+                            <div className="flex items-start justify-between gap-1">
+                              <div className="min-w-0 flex-1">
+                                <h5 className="font-bold text-[11px] text-text-primary hover:text-accent transition-colors truncate leading-tight">
                                   {cust.name || cust.wa_profile_name || 'Contact'}
                                 </h5>
-                                <p className="text-[11px] text-text-muted font-mono mt-0.5">{cust.phone}</p>
+                                <p className="text-[9.5px] text-text-muted font-mono leading-none mt-0.5 truncate">{cust.phone}</p>
                               </div>
                               <span
-                                className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-xs uppercase tracking-wider ${
+                                className={`inline-flex items-center gap-0.5 text-[8.5px] font-bold px-1 py-0.2 rounded-xs uppercase tracking-wider shrink-0 ${
                                   cust.lead_probability === 'hot'
-                                    ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                    ? 'bg-rose-50 text-rose-700 border border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
                                     : cust.lead_probability === 'cold'
-                                    ? 'bg-sky-50 text-sky-700 border border-sky-200'
-                                    : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                    ? 'bg-sky-50 text-sky-700 border border-sky-200/80 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800'
+                                    : 'bg-amber-50 text-amber-700 border border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
                                 }`}
                               >
                                 {cust.lead_probability === 'hot' ? (
@@ -1276,21 +1341,21 @@ export function ModernCustomerView({
 
                             {/* Service / Inquiry tag */}
                             {(cust.health_concern || cust.last_visit_service) && (
-                              <p className="text-[10px] text-text-secondary bg-surface-subtle p-1.5 rounded-sm border border-border/60">
+                              <p className="text-[9px] text-text-secondary bg-surface-subtle px-1.5 py-0.5 rounded-xs border border-border/50 truncate font-medium block">
                                 {cust.health_concern || cust.last_visit_service}
                               </p>
                             )}
 
                             {/* Inline Note Snippet */}
                             {cust.latest_note && (
-                              <div className="p-2 rounded bg-amber-50/80 border border-amber-200 text-amber-950 text-[11px] leading-snug italic">
+                              <div className="px-1.5 py-1 rounded-xs bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 text-amber-950 dark:text-amber-200 text-[9.5px] leading-snug line-clamp-2 italic">
                                 "{cust.latest_note}"
                               </div>
                             )}
 
                             {/* Card Footer: Follow-up & Chat Button */}
-                            <div className="flex items-center justify-between pt-1 border-t border-border/60 text-[10px] relative">
-                              <div>
+                            <div className="flex items-center justify-between pt-1 border-t border-border/50 text-[9.5px] relative">
+                              <div className="min-w-0">
                                 {cust.followup_date ? (
                                   <button
                                     type="button"
@@ -1298,7 +1363,7 @@ export function ModernCustomerView({
                                       e.stopPropagation();
                                       setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id);
                                     }}
-                                    className="cursor-pointer hover:opacity-80"
+                                    className="cursor-pointer hover:opacity-80 truncate block text-[9.5px]"
                                     title="Click to reschedule"
                                   >
                                     {getFollowupBadge(cust.followup_date)}
@@ -1310,7 +1375,7 @@ export function ModernCustomerView({
                                       e.stopPropagation();
                                       setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id);
                                     }}
-                                    className="inline-flex items-center gap-1 text-[10px] text-text-muted hover:text-accent font-medium cursor-pointer"
+                                    className="inline-flex items-center gap-1 text-[9.5px] text-text-muted hover:text-accent font-medium cursor-pointer"
                                     title="Click to schedule follow-up"
                                   >
                                     <CalendarPlus className="w-3 h-3 text-accent stroke-[1.8]" />
@@ -1318,17 +1383,17 @@ export function ModernCustomerView({
                                   </button>
                                 )}
                               </div>
-                              <div className="flex items-center gap-1">
+                              <div className="flex items-center gap-1 shrink-0">
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     onOpenChat(cust);
                                   }}
-                                  className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-xs border border-emerald-200 transition-colors flex items-center gap-1 shadow-2xs"
+                                  className="px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 font-semibold rounded-xs border border-emerald-200 dark:border-emerald-800 transition-colors flex items-center gap-1 shadow-2xs text-[9.5px] cursor-pointer"
                                   title="Open live WhatsApp chat in popup"
                                 >
-                                  <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
+                                  <WhatsAppIcon className="w-2.5 h-2.5 text-[#25D366]" />
                                   <span>Chat</span>
                                 </button>
                               </div>
