@@ -175,17 +175,8 @@ async def lifespan(app: FastAPI):
                 DO $do$
                 BEGIN
                     ALTER TABLE bookings DROP CONSTRAINT IF EXISTS no_overlapping_confirmed_bookings;
-                    ALTER TABLE bookings
-                    ADD CONSTRAINT no_overlapping_confirmed_bookings
-                    EXCLUDE USING gist (
-                        tenant_id WITH =,
-                        (COALESCE(staff_member, 'general')) WITH =,
-                        tstzrange(start_time, end_time) WITH &&
-                    )
-                    WHERE (status = 'confirmed');
                 EXCEPTION
-                    WHEN others THEN
-                        RAISE NOTICE 'Could not re-create no_overlapping_confirmed_bookings constraint: %', SQLERRM;
+                    WHEN others THEN NULL;
                 END $do$;
 
                 DO $do$
@@ -3265,34 +3256,45 @@ async def create_booking(
                 conv_id, tenant_id, contact_id
             )
 
-        # Double Booking Conflict Check & Insert in a single transaction (Bug 2 Fix)
+        # Double Booking Conflict Check & Insert in a single transaction
         booking_id = str(uuid.uuid4())
         staff = (payload.doctor_name or payload.staff_member or "").strip() or None
+        slot_booking_mode = s_data.get("slot_booking_mode", "single") if isinstance(s_data, dict) else "single"
+        max_concurrent = int(s_data.get("max_concurrent_bookings", 1)) if isinstance(s_data, dict) else 1
+
         async with conn.transaction():
-            conflict = await conn.fetchrow(
-                """SELECT id, service, start_time, end_time FROM bookings
-                   WHERE tenant_id = $1::uuid AND status = 'confirmed'
-                     AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
-                     AND start_time < $3 AND end_time > $2
-                   FOR UPDATE""",
-                tenant_id, st_dt, et_dt, staff
-            )
-            if conflict:
-                c_start = conflict["start_time"]
-                if hasattr(c_start, "astimezone"):
-                    c_start = c_start.astimezone(tenant_tz)
-                c_time = c_start.strftime("%I:%M %p")
-                raise HTTPException(409, f"Timeslot conflict: An appointment for '{conflict['service']}' is already scheduled at {c_time}.")
+            if slot_booking_mode != "multiple":
+                conflict = await conn.fetchrow(
+                    """SELECT id, service, start_time, end_time FROM bookings
+                       WHERE tenant_id = $1::uuid AND status = 'confirmed'
+                         AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
+                         AND start_time < $3 AND end_time > $2
+                       FOR UPDATE""",
+                    tenant_id, st_dt, et_dt, staff
+                )
+                if conflict:
+                    c_start = conflict["start_time"]
+                    if hasattr(c_start, "astimezone"):
+                        c_start = c_start.astimezone(tenant_tz)
+                    c_time = c_start.strftime("%I:%M %p")
+                    raise HTTPException(409, f"Timeslot conflict: An appointment for '{conflict['service']}' is already scheduled at {c_time}. Change booking mode to 'Multiple' in Calendar Settings to allow concurrent bookings.")
+            elif max_concurrent > 1:
+                existing_count = await conn.fetchval(
+                    """SELECT COUNT(*) FROM bookings
+                       WHERE tenant_id = $1::uuid AND status = 'confirmed'
+                         AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
+                         AND start_time < $3 AND end_time > $2""",
+                    tenant_id, st_dt, et_dt, staff
+                ) or 0
+                if existing_count >= max_concurrent:
+                    raise HTTPException(409, f"Timeslot capacity reached: This slot has reached the maximum of {max_concurrent} concurrent bookings.")
 
             # 2. Insert booking
-            try:
-                await conn.execute(
-                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member)
-                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, $9, 'INR', $10)""",
-                    booking_id, tenant_id, contact_id, conv_id, payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0), staff
-                )
-            except asyncpg.exceptions.ExclusionViolationError:
-                raise HTTPException(409, "Timeslot conflict: Another appointment was just booked for this time range.")
+            await conn.execute(
+                """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member)
+                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, $9, 'INR', $10)""",
+                booking_id, tenant_id, contact_id, conv_id, payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0), staff
+            )
 
         # 2b. Auto-link/upsert customer in CRM by phone so booking history is visible on customer profile
         try:
@@ -5171,6 +5173,8 @@ class TenantSettingsUpdate(BaseModel):
     taxonomy: Optional[Dict[str, Any]] = None
     opening_time: Optional[str] = None
     closing_time: Optional[str] = None
+    slot_booking_mode: Optional[str] = None
+    max_concurrent_bookings: Optional[int] = None
     target_tenant_id: Optional[str] = None
     tenant_id: Optional[str] = None
 
@@ -5368,6 +5372,8 @@ async def get_tenant_settings(
         }),
         "opening_time": tenant_settings.get("opening_time", "09:00"),
         "closing_time": tenant_settings.get("closing_time", "20:00"),
+        "slot_booking_mode": tenant_settings.get("slot_booking_mode", "single"),
+        "max_concurrent_bookings": tenant_settings.get("max_concurrent_bookings", 1),
 
         # Razorpay Subscription & Organization Lifecycle
         "org_lifecycle_stage": tenant.get("org_lifecycle_stage") or "setup",
@@ -5430,6 +5436,8 @@ async def update_tenant_settings(
         if payload.taxonomy is not None: cur_settings["taxonomy"] = payload.taxonomy
         if payload.opening_time is not None: cur_settings["opening_time"] = payload.opening_time.strip()
         if payload.closing_time is not None: cur_settings["closing_time"] = payload.closing_time.strip()
+        if payload.slot_booking_mode is not None: cur_settings["slot_booking_mode"] = payload.slot_booking_mode.strip().lower()
+        if payload.max_concurrent_bookings is not None: cur_settings["max_concurrent_bookings"] = int(payload.max_concurrent_bookings)
 
         # Dual-sync all 12 configurable template names into tenants.settings
         if payload.template_booking_confirmation is not None: cur_settings["template_booking_confirmation"] = payload.template_booking_confirmation.strip()
@@ -9991,30 +9999,41 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
         if payload.notes:
             combined_notes += f"\nPatient Note: {payload.notes.strip()}"
 
-        async with conn.transaction():
-            conflict = await conn.fetchrow(
-                """SELECT id, service, start_time, end_time FROM bookings
-                   WHERE tenant_id = $1::uuid AND status = 'confirmed'
-                     AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
-                     AND start_time < $3 AND end_time > $2
-                   FOR UPDATE""",
-                tenant_id, st_dt, et_dt, staff
-            )
-            if conflict:
-                c_start = conflict["start_time"]
-                if hasattr(c_start, "astimezone"):
-                    c_start = c_start.astimezone(tenant_tz)
-                c_time = c_start.strftime("%I:%M %p")
-                raise HTTPException(409, f"Timeslot conflict: An appointment for '{conflict['service']}' is already scheduled at {c_time}.")
+        slot_booking_mode = tenant_settings.get("slot_booking_mode", "single") if isinstance(tenant_settings, dict) else "single"
+        max_concurrent = int(tenant_settings.get("max_concurrent_bookings", 1)) if isinstance(tenant_settings, dict) else 1
 
-            try:
-                await conn.execute(
-                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member)
-                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR', $9)""",
-                    booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, combined_notes, staff
+        async with conn.transaction():
+            if slot_booking_mode != "multiple":
+                conflict = await conn.fetchrow(
+                    """SELECT id, service, start_time, end_time FROM bookings
+                       WHERE tenant_id = $1::uuid AND status = 'confirmed'
+                         AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
+                         AND start_time < $3 AND end_time > $2
+                       FOR UPDATE""",
+                    tenant_id, st_dt, et_dt, staff
                 )
-            except asyncpg.exceptions.ExclusionViolationError:
-                raise HTTPException(409, "Timeslot conflict: Another appointment was just booked for this time range.")
+                if conflict:
+                    c_start = conflict["start_time"]
+                    if hasattr(c_start, "astimezone"):
+                        c_start = c_start.astimezone(tenant_tz)
+                    c_time = c_start.strftime("%I:%M %p")
+                    raise HTTPException(409, f"Timeslot conflict: An appointment for '{conflict['service']}' is already scheduled at {c_time}.")
+            elif max_concurrent > 1:
+                existing_count = await conn.fetchval(
+                    """SELECT COUNT(*) FROM bookings
+                       WHERE tenant_id = $1::uuid AND status = 'confirmed'
+                         AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
+                         AND start_time < $3 AND end_time > $2""",
+                    tenant_id, st_dt, et_dt, staff
+                ) or 0
+                if existing_count >= max_concurrent:
+                    raise HTTPException(409, f"Timeslot capacity reached: This slot has reached the maximum of {max_concurrent} concurrent bookings.")
+
+            await conn.execute(
+                """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member)
+                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR', $9)""",
+                booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, combined_notes, staff
+            )
 
         # 3b. Queue automated 24h & 2h reminders and post-session review request in scheduled_jobs
         try:

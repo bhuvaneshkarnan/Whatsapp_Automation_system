@@ -1188,32 +1188,63 @@ class CoreWorker:
         min_dt = now_dt - datetime.timedelta(hours=2)
         max_dt = now_dt + datetime.timedelta(days=7)
 
-        # 1. Query CRM bookings
+        # 1. Check tenant slot booking mode (single vs multiple)
+        slot_booking_mode = "single"
+        max_concurrent = 1
+        try:
+            t_row = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+            if t_row:
+                if isinstance(t_row, str): t_row = json.loads(t_row)
+                if isinstance(t_row, dict):
+                    slot_booking_mode = t_row.get("slot_booking_mode", "single")
+                    max_concurrent = int(t_row.get("max_concurrent_bookings", 1))
+        except Exception:
+            pass
+
+        # 2. Query CRM bookings
         busy_slots = []
         try:
             db_rows = await self.db_pool.fetch(
                 """SELECT service, start_time, end_time
                    FROM bookings
                    WHERE tenant_id = $1::uuid
-                     AND status = 'confirmed'
+                     AND status IN ('confirmed', 'rescheduled')
                      AND start_time >= $2
                      AND start_time <= $3
-                   ORDER BY start_time ASC LIMIT 50""",
+                   ORDER BY start_time ASC LIMIT 100""",
                 tenant_id, min_dt, max_dt
             )
-            for r in db_rows:
-                st = r['start_time'].astimezone(tenant_tz) if hasattr(r['start_time'], 'astimezone') else r['start_time']
-                et = r['end_time'].astimezone(tenant_tz) if hasattr(r['end_time'], 'astimezone') else r['end_time']
-                busy_slots.append({
-                    "start": st,
-                    "end": et,
-                    "source": "CRM Booking",
-                    "desc": r.get('service', 'Booked Appointment')
-                })
+            if slot_booking_mode != "multiple":
+                for r in db_rows:
+                    st = r['start_time'].astimezone(tenant_tz) if hasattr(r['start_time'], 'astimezone') else r['start_time']
+                    et = r['end_time'].astimezone(tenant_tz) if hasattr(r['end_time'], 'astimezone') else r['end_time']
+                    busy_slots.append({
+                        "start": st,
+                        "end": et,
+                        "source": "CRM Booking",
+                        "desc": r.get('service', 'Booked Appointment')
+                    })
+            elif max_concurrent > 1:
+                # In multiple mode, only mark slot as busy if count of overlapping bookings reaches max_concurrent
+                from collections import defaultdict
+                slot_counts = defaultdict(int)
+                for r in db_rows:
+                    st = r['start_time'].astimezone(tenant_tz) if hasattr(r['start_time'], 'astimezone') else r['start_time']
+                    slot_counts[st.isoformat()] += 1
+                for r in db_rows:
+                    st = r['start_time'].astimezone(tenant_tz) if hasattr(r['start_time'], 'astimezone') else r['start_time']
+                    et = r['end_time'].astimezone(tenant_tz) if hasattr(r['end_time'], 'astimezone') else r['end_time']
+                    if slot_counts[st.isoformat()] >= max_concurrent:
+                        busy_slots.append({
+                            "start": st,
+                            "end": et,
+                            "source": f"CRM Booking (Capacity {max_concurrent})",
+                            "desc": r.get('service', 'Fully Booked Slot')
+                        })
         except Exception as e:
             logger.warning("db_busy_slots_query_error", error=str(e), tenant_id=tenant_id)
 
-        # 2. Query Google Calendar Free/Busy in real time (non-blocking with strict timeout)
+        # 3. Query Google Calendar Free/Busy in real time with resilient 6.0s timeout
         gcal_connected = False
         try:
             gcal_row = await self.db_pool.fetchrow(
@@ -1247,7 +1278,7 @@ class CoreWorker:
                         }).execute()
                         return fb_res.get("calendars", {}).get(cal_id, {}).get("busy", [])
 
-                    gcal_busy = await asyncio.wait_for(asyncio.to_thread(fetch_gcal_freebusy), timeout=2.5)
+                    gcal_busy = await asyncio.wait_for(asyncio.to_thread(fetch_gcal_freebusy), timeout=6.0)
                     gcal_connected = True
                     for b in gcal_busy:
                         try:
@@ -1968,13 +1999,15 @@ class CoreWorker:
                 f"OCCUPIED / BUSY SLOTS ON CALENDAR (CANNOT BE BOOKED):\n" + "\n".join(busy_lines) + "\n\n"
                 if busy_lines else "OCCUPIED / BUSY SLOTS: None. The calendar is completely clear.\n\n"
             )
-            + "### STRICT DIRECTIVES FOR LIVE CALENDAR BOOKING & RESCHEDULING:\n"
-            "- LIVE EMPTY SLOTS ONLY: When offering, proposing, confirming, or rescheduling an appointment, you MUST choose and propose 2 to 3 times EXCLUSIVELY from the VERIFIED EMPTY SLOTS list above.\n"
-            "- ZERO FALSE 'FULLY BOOKED' CLAIMS: NEVER state, claim, or imply that today or any day is 'fully booked' or 'full' if it has open slots in the verified empty list above! If today has empty slots, today is OPEN.\n"
-            "- WHEN CUSTOMER ASKS 'CAN I COME TODAY?' OR 'WHAT SLOTS ARE AVAILABLE?': Immediately check today's verified empty slots above. Quote 2 to 3 available options from the list (e.g., 'Yes! Today we have slots open at [Time 1], [Time 2], or [Time 3]. Which time works best for you?').\n"
-            "- RESCHEDULE FLOW: When a customer asks or confirms they want to reschedule (e.g. 'Reschedule it', 'reschedule to today', or 'move to tomorrow') without a time, confirm that day is open and offer 2-3 verified empty slots.\n"
-            f"- OPERATING HOURS: Propose times strictly within business hours ({op_hours_display}).\n"
-            "- PROACTIVE 2-SLOT SUGGESTION RULE: Whenever moving towards booking an appointment, call, or demo, NEVER ask open-ended questions like 'When are you free?' or 'What time works for you?'. Instead, proactively pick and propose exactly 2 specific times from the verified empty slots (e.g., 'I have an opening tomorrow at 11:30 AM or 4:00 PM. Would either of those work for you?'). Giving 2 clear options makes it effortless for the customer to confirm."
+            + "### STRICT DIRECTIVES FOR APPOINTMENT SCHEDULING & TIME SELECTION:\n"
+            "- CUSTOMER-DRIVEN APPOINTMENT TIME SELECTION (DO NOT FORCE CANNED SUGGESTIONS): When a customer expresses interest in booking an appointment, call, consultation, or visit, let the customer tell their preferred day and time! Ask warmly: 'What date and time works best for you?' or 'When would you like to schedule your appointment?'. Do NOT force arbitrary suggestions on them unless they explicitly ask for available slots.\n"
+            "- WHEN CUSTOMER STATES THEIR PREFERRED TIME: When the customer mentions their preferred day or time (e.g., 'Tomorrow at 2 PM', 'Can I come today at 4:30?', 'Monday 11:00 AM'):\n"
+            f"  1. Verify the time falls within operating hours ({op_hours_display}) and is available in the verified calendar above.\n"
+            "  2. If the slot is available (or concurrent bookings are allowed): Immediately confirm that exact requested time, provide a clear and reassuring confirmation message, and output the booking action tag: [ACTION:CREATE_BOOKING: {\"service\": \"...\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"...\"}].\n"
+            "  3. If the requested slot is busy / occupied: Politely let them know that exact slot is already taken, and ask what other time suits them, or mention 1 or 2 nearby available openings.\n"
+            "- WHEN CUSTOMER EXPLICITLY ASKS FOR OPTIONS (e.g., 'What slots are available?', 'Can I come today?'): Check the verified empty slots list above for that day, confirm operating hours, and share 2 to 3 available open times from the list.\n"
+            "- ZERO FALSE 'FULLY BOOKED' CLAIMS: NEVER state, claim, or imply that today or any day is 'fully booked' if it has open slots in the verified empty list above.\n"
+            "- RESCHEDULE FLOW: When a customer wants to reschedule, ask them what new day and time works best for them, check availability, and confirm it with [ACTION:RESCHEDULE_BOOKING: ...].\n"
         )
 
         if is_returning_customer:
@@ -2981,20 +3014,38 @@ class CoreWorker:
                     logger.info("ai_booking_already_exists_for_contact", booking_id=str(existing_for_contact["id"]))
                     return
 
-            # 2. Check if another client has an active booking at this time
-            conflict_row = await self.db_pool.fetchrow(
-                """SELECT id, service, start_time, end_time
-                   FROM bookings
-                   WHERE tenant_id = $1::uuid
-                     AND status = 'confirmed'
-                     AND (contact_id IS NULL OR contact_id != $4::uuid)
-                     AND start_time < $3 AND end_time > $2""",
-                tenant_id, st_dt, et_dt, contact_id
-            )
-            if conflict_row:
-                logger.warning("ai_booking_conflict_with_another_client", tenant_id=tenant_id, requested_start=str(st_dt), conflict_id=str(conflict_row["id"]))
-                # Do NOT send an out-of-band conflicting message to WhatsApp to prevent confusing double-replies
-                return
+            # 2. Check if another client has an active booking at this time (respecting slot_booking_mode)
+            slot_booking_mode = "single"
+            max_concurrent = 1
+            if tenant_st_row and isinstance(tenant_st_row, dict):
+                slot_booking_mode = tenant_st_row.get("slot_booking_mode", "single")
+                max_concurrent = int(tenant_st_row.get("max_concurrent_bookings", 1))
+
+            if slot_booking_mode != "multiple":
+                conflict_row = await self.db_pool.fetchrow(
+                    """SELECT id, service, start_time, end_time
+                       FROM bookings
+                       WHERE tenant_id = $1::uuid
+                         AND status IN ('confirmed', 'rescheduled')
+                         AND (contact_id IS NULL OR contact_id != $4::uuid)
+                         AND start_time < $3 AND end_time > $2""",
+                    tenant_id, st_dt, et_dt, contact_id
+                )
+                if conflict_row:
+                    logger.warning("ai_booking_conflict_with_another_client", tenant_id=tenant_id, requested_start=str(st_dt), conflict_id=str(conflict_row["id"]))
+                    # Do NOT send an out-of-band conflicting message to WhatsApp to prevent confusing double-replies
+                    return
+            elif max_concurrent > 1:
+                existing_count = await self.db_pool.fetchval(
+                    """SELECT COUNT(*) FROM bookings
+                       WHERE tenant_id = $1::uuid
+                         AND status IN ('confirmed', 'rescheduled')
+                         AND start_time < $3 AND end_time > $2""",
+                    tenant_id, st_dt, et_dt
+                ) or 0
+                if existing_count >= max_concurrent:
+                    logger.warning("ai_booking_capacity_reached", tenant_id=tenant_id, requested_start=str(st_dt), max_concurrent=max_concurrent)
+                    return
 
             # Insert booking record in DB
             booking_id = str(uuid.uuid4())

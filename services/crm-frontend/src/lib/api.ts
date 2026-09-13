@@ -1031,6 +1031,8 @@ export interface TenantSettingsResponse {
   google_calendar_configured?: boolean;
   opening_time?: string;
   closing_time?: string;
+  slot_booking_mode?: 'single' | 'multiple';
+  max_concurrent_bookings?: number;
 
   industry?: string;
   taxonomy?: {
