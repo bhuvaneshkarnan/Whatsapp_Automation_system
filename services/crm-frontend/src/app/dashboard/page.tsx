@@ -7651,37 +7651,41 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
         {/* Right Action Profile */}
         <div className="flex items-center gap-2.5">
-          {/* Search Input */}
-          <div className="relative hidden md:block">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted stroke-[1.5]" />
-            <input
-              type="text"
-              placeholder="Search..."
-              value={bookingSearch || searchQuery}
-              onChange={(e) => {
-                setBookingSearch(e.target.value);
-                setSearchQuery(e.target.value);
-              }}
-              className="w-48 pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent transition-colors duration-150"
-            />
-          </div>
+          {/* Search Input (Hidden on Customers view to prevent duplicate disconnected search) */}
+          {activeNav !== 'customers' && (
+            <div className="relative hidden md:block">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted stroke-[1.5]" />
+              <input
+                type="text"
+                placeholder="Search..."
+                value={bookingSearch || searchQuery}
+                onChange={(e) => {
+                  setBookingSearch(e.target.value);
+                  setSearchQuery(e.target.value);
+                }}
+                className="w-48 pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent transition-colors duration-150"
+              />
+            </div>
+          )}
 
-          {/* Toggle Sticky Notes button in header */}
-          <button
-            onClick={() => setShowRightDrawer(!showRightDrawer)}
-            className={`px-2.5 py-1 rounded-sm transition-colors duration-150 flex items-center gap-1.5 text-xs font-medium border ${
-              showRightDrawer ? 'bg-surface-subtle text-text-primary border-border-strong' : 'bg-surface text-text-secondary hover:text-text-primary hover:bg-surface-subtle border-border'
-            }`}
-            title="Toggle notes"
-          >
-            <StickyNote className="w-3.5 h-3.5 stroke-[1.5]" />
-            <span className="hidden sm:inline text-xs">Notes</span>
-            {stickyNotes.length > 0 && (
-              <span className="w-4 h-4 rounded-sm text-xs flex items-center justify-center font-mono font-medium bg-surface-subtle text-text-secondary border border-border">
-                {stickyNotes.length}
-              </span>
-            )}
-          </button>
+          {/* Toggle Sticky Notes button in header (Hidden on Customers view to avoid duplicate notes clutter) */}
+          {activeNav !== 'customers' && (
+            <button
+              onClick={() => setShowRightDrawer(!showRightDrawer)}
+              className={`px-2.5 py-1 rounded-sm transition-colors duration-150 flex items-center gap-1.5 text-xs font-medium border ${
+                showRightDrawer ? 'bg-surface-subtle text-text-primary border-border-strong' : 'bg-surface text-text-secondary hover:text-text-primary hover:bg-surface-subtle border-border'
+              }`}
+              title="Toggle notes"
+            >
+              <StickyNote className="w-3.5 h-3.5 stroke-[1.5]" />
+              <span className="hidden sm:inline text-xs">Notes</span>
+              {stickyNotes.length > 0 && (
+                <span className="w-4 h-4 rounded-sm text-xs flex items-center justify-center font-mono font-medium bg-surface-subtle text-text-secondary border border-border">
+                  {stickyNotes.length}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Notification Bell with Dropdown Popover */}
           <div className="relative">

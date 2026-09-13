@@ -477,35 +477,53 @@ export function ModernCustomerView({
     return { total, hotLeads, warmLeads, converted, followupsDue, winRate };
   }, [customers]);
 
-  // Filtered customers
+  // Filtered customers with instant live search across all fields
   const filteredCustomers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const cleanQ = q.replace(/\D/g, ''); // phone digit matching
+
     return customers.filter((c) => {
-      // Search
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchesName = (c.name || '').toLowerCase().includes(q);
-        const matchesPhone = (c.phone || '').toLowerCase().includes(q);
-        const matchesLocation = (c.location || '').toLowerCase().includes(q);
-        const matchesConcern = (c.health_concern || '').toLowerCase().includes(q);
-        const matchesService = (c.last_visit_service || '').toLowerCase().includes(q);
-        const matchesStaff = (c.preferred_doctor || '').toLowerCase().includes(q);
-        const matchesNote = (c.latest_note || '').toLowerCase().includes(q);
-        const matchesNextAction = (c.next_action || '').toLowerCase().includes(q);
-        if (
-          !matchesName &&
-          !matchesPhone &&
-          !matchesLocation &&
-          !matchesConcern &&
-          !matchesService &&
-          !matchesStaff &&
-          !matchesNote &&
-          !matchesNextAction
-        ) {
-          return false;
-        }
+      // 1. Live Search Filter
+      if (q) {
+        const name = (c.name || '').toLowerCase();
+        const waName = (c.wa_profile_name || '').toLowerCase();
+        const phone = (c.phone || '').toLowerCase();
+        const cleanPhone = phone.replace(/\D/g, '');
+        const location = (c.location || '').toLowerCase();
+        const concern = (c.health_concern || '').toLowerCase();
+        const service = (c.last_visit_service || '').toLowerCase();
+        const doctor = (c.preferred_doctor || '').toLowerCase();
+        const note = (c.latest_note || '').toLowerCase();
+        const nextAction = (c.next_action || '').toLowerCase();
+        const status = (c.status || '').toLowerCase();
+        const leadProb = (c.lead_probability || '').toLowerCase();
+
+        // Check across all customer notes
+        const hasMatchingNote = (safeAllNotes || []).some(
+          (n) =>
+            (n.customer_id === c.id || (c.phone && n.customer_phone === c.phone)) &&
+            (n.note_text || '').toLowerCase().includes(q)
+        );
+
+        const matches =
+          name.includes(q) ||
+          waName.includes(q) ||
+          phone.includes(q) ||
+          (cleanQ.length >= 3 && cleanPhone.includes(cleanQ)) ||
+          location.includes(q) ||
+          concern.includes(q) ||
+          service.includes(q) ||
+          doctor.includes(q) ||
+          note.includes(q) ||
+          nextAction.includes(q) ||
+          status.includes(q) ||
+          leadProb.includes(q) ||
+          hasMatchingNote;
+
+        if (!matches) return false;
       }
 
-      // Stage
+      // 2. Stage Filter
       if (stageFilter === 'action_due') {
         const todayStr = new Date().toISOString().split('T')[0];
         if (!c.followup_date || c.followup_date > todayStr || c.status === 'converted' || c.status === 'lost') {
@@ -515,12 +533,12 @@ export function ModernCustomerView({
         if (c.status !== stageFilter) return false;
       }
 
-      // Warmth
+      // 3. Warmth Filter
       if (warmthFilter !== 'all') {
         if (c.lead_probability !== warmthFilter) return false;
       }
 
-      // Staff
+      // 4. Staff Filter
       if (staffFilter !== 'all') {
         if (staffFilter === 'unassigned') {
           if (c.preferred_doctor) return false;
@@ -531,7 +549,7 @@ export function ModernCustomerView({
 
       return true;
     });
-  }, [customers, searchQuery, stageFilter, warmthFilter, staffFilter]);
+  }, [customers, searchQuery, stageFilter, warmthFilter, staffFilter, safeAllNotes]);
 
   // Quick field updates
   const handleQuickUpdate = async (customerId: string, patch: Partial<Customer>) => {
@@ -624,86 +642,93 @@ export function ModernCustomerView({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden space-y-2">
-      {/* ── 1. EXECUTIVE KPI SUMMARY BAR (COMPACT & SLEEK) ────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 shrink-0">
-        {/* Total Contacts */}
-        <div className="bg-surface border border-border rounded-md px-3 py-1.5 shadow-2xs flex items-center justify-between gap-2 hover:border-border-strong transition-all">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 rounded bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
-              <Users className="w-3 h-3 stroke-[2]" />
-            </div>
-            <div className="min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block leading-tight truncate">Total Contacts</span>
-              <span className="text-[10px] text-text-secondary font-medium leading-none">active directory</span>
-            </div>
+      {/* ── 1. ULTRA-SLIM KPI STATS STRIP ───────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-2 flex-wrap bg-surface border border-border rounded-md px-3 py-1.5 shadow-2xs shrink-0 text-xs">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 text-text-secondary font-medium">
+            <Users className="w-3.5 h-3.5 text-text-muted stroke-[1.8]" />
+            <span className="font-bold text-text-primary">{kpis.total}</span>
+            <span className="text-text-muted">Total</span>
           </div>
-          <span className="text-base font-bold text-text-primary font-headline shrink-0">{kpis.total}</span>
+
+          <div className="h-3 w-px bg-border/80" />
+
+          <button
+            type="button"
+            onClick={() => setWarmthFilter(warmthFilter === 'hot' ? 'all' : 'hot')}
+            className={`flex items-center gap-1.5 px-2 py-0.5 rounded transition-all cursor-pointer ${
+              warmthFilter === 'hot'
+                ? 'bg-rose-50 text-rose-700 font-semibold border border-rose-200'
+                : 'text-text-secondary hover:text-rose-600 hover:bg-rose-50/50'
+            }`}
+            title="Click to toggle Hot Intent filter"
+          >
+            <Flame className="w-3.5 h-3.5 text-rose-500 stroke-[1.8]" />
+            <span className="font-bold text-rose-600">{kpis.hotLeads}</span>
+            <span>Hot</span>
+          </button>
+
+          <div className="h-3 w-px bg-border/80" />
+
+          <button
+            type="button"
+            onClick={() => setStageFilter(stageFilter === 'action_due' ? 'all' : 'action_due')}
+            className={`flex items-center gap-1.5 px-2 py-0.5 rounded transition-all cursor-pointer ${
+              stageFilter === 'action_due'
+                ? 'bg-amber-50 text-amber-800 font-semibold border border-amber-300'
+                : 'text-text-secondary hover:text-amber-700 hover:bg-amber-50/50'
+            }`}
+            title="Click to toggle Follow-ups Due filter"
+          >
+            <CalendarClock className="w-3.5 h-3.5 text-amber-600 stroke-[1.8]" />
+            <span className="font-bold text-amber-700">{kpis.followupsDue}</span>
+            <span>Follow-ups Due</span>
+          </button>
+
+          <div className="h-3 w-px bg-border/80" />
+
+          <button
+            type="button"
+            onClick={() => setStageFilter(stageFilter === 'converted' ? 'all' : 'converted')}
+            className={`flex items-center gap-1.5 px-2 py-0.5 rounded transition-all cursor-pointer ${
+              stageFilter === 'converted'
+                ? 'bg-emerald-50 text-emerald-800 font-semibold border border-emerald-300'
+                : 'text-text-secondary hover:text-emerald-700 hover:bg-emerald-50/50'
+            }`}
+            title="Click to toggle Converted filter"
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-600 stroke-[1.8]" />
+            <span className="font-bold text-emerald-700">{kpis.converted}</span>
+            <span>Converted ({kpis.winRate}%)</span>
+          </button>
         </div>
 
-        {/* Hot Opportunities */}
-        <div
-          onClick={() => setWarmthFilter(warmthFilter === 'hot' ? 'all' : 'hot')}
-          className={`bg-surface border rounded-md px-3 py-1.5 shadow-2xs flex items-center justify-between gap-2 transition-all cursor-pointer ${
-            warmthFilter === 'hot' ? 'border-rose-400 ring-1 ring-rose-400 bg-rose-50/20' : 'border-border hover:border-rose-300'
-          }`}
-          title="Click to toggle Hot Priority filter"
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 rounded bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 shrink-0">
-              <Flame className="w-3 h-3 fill-rose-500/20 stroke-[2]" />
-            </div>
-            <div className="min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block leading-tight truncate">Hot Intent</span>
-              <span className="text-[10px] text-text-secondary font-medium leading-none">ready to convert</span>
-            </div>
-          </div>
-          <span className="text-base font-bold text-rose-600 font-headline shrink-0">{kpis.hotLeads}</span>
-        </div>
-
-        {/* Action Due */}
-        <div
-          onClick={() => setStageFilter(stageFilter === 'action_due' ? 'all' : 'action_due')}
-          className={`bg-surface border rounded-md px-3 py-1.5 shadow-2xs flex items-center justify-between gap-2 transition-all cursor-pointer ${
-            stageFilter === 'action_due' ? 'border-amber-400 ring-1 ring-amber-400 bg-amber-50/20' : 'border-border hover:border-amber-300'
-          }`}
-          title="Click to toggle Follow-ups Due filter"
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 rounded bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
-              <CalendarClock className="w-3 h-3 stroke-[2]" />
-            </div>
-            <div className="min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block leading-tight truncate">Follow-ups Due</span>
-              <span className="text-[10px] text-text-secondary font-medium leading-none">today / overdue</span>
-            </div>
-          </div>
-          <span className="text-base font-bold text-amber-700 font-headline shrink-0">{kpis.followupsDue}</span>
-        </div>
-
-        {/* Converted / Conversion Rate */}
-        <div className="bg-surface border border-border rounded-md px-3 py-1.5 shadow-2xs flex items-center justify-between gap-2 hover:border-border-strong transition-all">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 rounded bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
-              <TrendingUp className="w-3 h-3 stroke-[2]" />
-            </div>
-            <div className="min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block leading-tight truncate">Converted</span>
-              <span className="text-[10px] text-emerald-700 font-semibold leading-none">{kpis.winRate}% conversion</span>
-            </div>
-          </div>
-          <span className="text-base font-bold text-emerald-700 font-headline shrink-0">{kpis.converted}</span>
-        </div>
+        {(warmthFilter !== 'all' || stageFilter !== 'all' || staffFilter !== 'all' || searchQuery.trim()) && (
+          <button
+            type="button"
+            onClick={() => {
+              setWarmthFilter('all');
+              setStageFilter('all');
+              setStaffFilter('all');
+              setSearchQuery('');
+            }}
+            className="text-[11px] text-rose-600 hover:text-rose-700 hover:underline font-medium flex items-center gap-1 cursor-pointer transition-colors ml-auto"
+          >
+            <X className="w-3 h-3" />
+            <span>Reset Filters</span>
+          </button>
+        )}
       </div>
 
-      {/* ── 2. VIEW SWITCHER & TOOLBAR ────────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 bg-surface border border-border rounded-md p-2 shadow-2xs shrink-0">
-        {/* Left: View Mode Pills & Total Count */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-md p-0.5 shrink-0">
+      {/* ── 2. UNIFIED COMPACT TOOLBAR (Live Search, View Switcher & Actions) ── */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 bg-surface border border-border rounded-md p-1.5 shadow-2xs shrink-0">
+        {/* Left: View Modes & LIVE SEARCH BAR */}
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="flex items-center gap-0.5 bg-surface-subtle border border-border rounded-md p-0.5 shrink-0">
             <button
               type="button"
               onClick={() => setViewMode('table')}
-              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
                 viewMode === 'table'
                   ? 'bg-surface text-text-primary border border-border shadow-2xs'
                   : 'text-text-secondary hover:text-text-primary'
@@ -716,64 +741,109 @@ export function ModernCustomerView({
             <button
               type="button"
               onClick={() => setViewMode('kanban')}
-              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
                 viewMode === 'kanban'
                   ? 'bg-surface text-text-primary border border-border shadow-2xs'
                   : 'text-text-secondary hover:text-text-primary'
               }`}
             >
               <LayoutGrid className="w-3.5 h-3.5 stroke-[2]" />
-              <span>Pipeline Funnel</span>
+              <span>Pipeline</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('tasks')}
-              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
-                viewMode === 'tasks'
-                  ? 'bg-surface text-text-primary border border-border shadow-2xs'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              <CalendarCheck className="w-3.5 h-3.5 stroke-[2]" />
-              <span>Tasks</span>
-              <span className="text-[10px] text-text-muted font-mono ml-0.5">
-                ({safeTasks.filter((t) => !t.completed).length})
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('notes')}
-              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
-                viewMode === 'notes'
-                  ? 'bg-surface text-text-primary border border-border shadow-2xs'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              <StickyNote className="w-3.5 h-3.5 stroke-[2]" />
-              <span>Notes</span>
-              <span className="text-[10px] text-text-muted font-mono ml-0.5">({safeAllNotes.length})</span>
-            </button>
+            {safeTasks.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setViewMode('tasks')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+                  viewMode === 'tasks'
+                    ? 'bg-surface text-text-primary border border-border shadow-2xs'
+                    : 'text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                <CalendarCheck className="w-3.5 h-3.5 stroke-[2]" />
+                <span>Tasks</span>
+                <span className="text-[10px] text-text-muted font-mono ml-0.5">
+                  ({safeTasks.filter((t) => !t.completed).length})
+                </span>
+              </button>
+            )}
           </div>
+
+          {/* Live Search Input */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none stroke-[1.8]" />
+            <input
+              type="text"
+              autoComplete="off"
+              placeholder="Search by name, phone, notes, service, staff..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-8 transition-colors"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {searchQuery && (
+            <span className="text-[11px] text-text-muted font-medium shrink-0 hidden lg:inline">
+              {filteredCustomers.length} of {customers.length} contacts
+            </span>
+          )}
+        </div>
+
+        {/* Right: Filters & Action Buttons */}
+        <div className="flex items-center gap-1.5 flex-wrap justify-end shrink-0">
+          <select
+            value={stageFilter}
+            onChange={(e) => setStageFilter(e.target.value)}
+            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8"
+            title="Filter by stage"
+          >
+            <option value="all">All Stages</option>
+            <option value="new">New Inquiry</option>
+            <option value="contacted">Contacted</option>
+            <option value="follow-up">Follow-up Due</option>
+            <option value="converted">Converted</option>
+            <option value="lost">Lost</option>
+          </select>
+
+          <select
+            value={warmthFilter}
+            onChange={(e) => setWarmthFilter(e.target.value)}
+            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8"
+            title="Filter by buying intent"
+          >
+            <option value="all">All Intent</option>
+            <option value="hot">Hot Intent</option>
+            <option value="warm">Warm Intent</option>
+            <option value="cold">Cold Intent</option>
+          </select>
 
           {openDropdownOptionsModal && (
             <button
               type="button"
               onClick={openDropdownOptionsModal}
-              className="flex items-center gap-1.5 px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-sm transition-colors cursor-pointer"
+              className="p-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm transition-colors cursor-pointer h-8 w-8 flex items-center justify-center"
               title="Customize CRM stages and options"
             >
               <Sliders className="w-3.5 h-3.5 stroke-[1.8]" />
-              <span className="hidden sm:inline">Options</span>
             </button>
           )}
-        </div>
 
-        {/* Right: Actions */}
-        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <div className="h-4 w-px bg-border/80 mx-0.5" />
+
           <button
             type="button"
             onClick={onExportCsv}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-sm transition-colors cursor-pointer"
+            className="flex items-center gap-1 px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-sm transition-colors cursor-pointer h-8"
             title="Export contacts to CSV"
           >
             <Download className="w-3.5 h-3.5 stroke-[1.8]" />
@@ -783,101 +853,20 @@ export function ModernCustomerView({
           <button
             type="button"
             onClick={onRefresh}
-            className="p-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm transition-colors cursor-pointer"
+            className="p-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm transition-colors cursor-pointer h-8 w-8 flex items-center justify-center"
             title="Refresh contacts"
           >
-            <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loading ? 'animate-spin' : ''}`} />
           </button>
 
           <button
             type="button"
             onClick={onAddCustomer}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-all shadow-2xs hover:shadow-xs cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-all shadow-2xs hover:shadow-xs cursor-pointer h-8"
           >
             <UserPlus className="w-3.5 h-3.5 stroke-[2]" />
             <span>+ Add {taxonomy?.client_label || 'Contact'}</span>
           </button>
-        </div>
-      </div>
-
-      {/* ── 3. SEARCH & QUICK FILTER BAR ────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-surface border border-border rounded-md p-2 shrink-0">
-        {/* Search input */}
-        <div className="relative flex-1 max-w-md">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Search name, phone, notes, service, staff..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-8"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-
-        {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
-          {/* Stage pills */}
-          <div className="flex items-center gap-0.5 bg-surface-subtle border border-border/80 rounded-sm p-0.5">
-            {[
-              { id: 'all', label: 'All' },
-              { id: 'new', label: 'New' },
-              { id: 'contacted', label: 'Contacted' },
-              { id: 'follow-up', label: 'Follow-up' },
-              { id: 'converted', label: 'Converted' },
-              { id: 'lost', label: 'Lost' },
-            ].map((st) => (
-              <button
-                key={st.id}
-                type="button"
-                onClick={() => setStageFilter(st.id)}
-                className={`px-2 py-0.5 text-[11px] rounded-xs font-medium cursor-pointer transition-colors ${
-                  stageFilter === st.id
-                    ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
-                    : 'text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                {st.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="h-4 w-px bg-border/80" />
-
-          {/* Temperature pills - Clean Minimalist Shopify-Style (Zero Emojis) */}
-          <div className="flex items-center gap-0.5 bg-surface-subtle border border-border/80 rounded-sm p-0.5">
-            {[
-              { id: 'all', label: 'All', icon: null, iconColor: '' },
-              { id: 'hot', label: 'Hot', icon: Flame, iconColor: 'text-rose-600' },
-              { id: 'warm', label: 'Warm', icon: Sun, iconColor: 'text-amber-600' },
-              { id: 'cold', label: 'Cold', icon: Snowflake, iconColor: 'text-sky-600' },
-            ].map((tp) => {
-              const IconComp = tp.icon;
-              return (
-                <button
-                  key={tp.id}
-                  type="button"
-                  onClick={() => setWarmthFilter(tp.id)}
-                  className={`flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-xs font-medium cursor-pointer transition-colors ${
-                    warmthFilter === tp.id
-                      ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
-                      : 'text-text-secondary hover:text-text-primary'
-                  }`}
-                >
-                  {IconComp && <IconComp className={`w-3 h-3 stroke-[2] ${tp.iconColor}`} />}
-                  <span>{tp.label}</span>
-                </button>
-              );
-            })}
-          </div>
         </div>
       </div>
 
