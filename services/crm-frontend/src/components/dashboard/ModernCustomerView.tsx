@@ -877,28 +877,28 @@ export function ModernCustomerView({
           <div className="flex-1 flex flex-col border border-border rounded-md bg-surface overflow-hidden">
             <div className="flex-1 overflow-y-auto overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-surface-subtle/80 border-b border-border text-text-secondary font-semibold text-[11px] uppercase tracking-wider sticky top-0 z-10">
+                <thead className="bg-surface-subtle/80 border-b border-border text-text-secondary font-semibold text-[10.5px] uppercase tracking-wider sticky top-0 z-10 select-none">
                   <tr>
-                    <th className="p-3 pl-4 min-w-[200px]">Client / Contact</th>
-                    <th className="p-3 min-w-[190px] max-w-[250px]">Notes</th>
-                    <th className="p-3 min-w-[130px]">Status</th>
-                    <th className="p-3 min-w-[130px]">Service / Inquiry</th>
-                    <th className="p-3 min-w-[130px]">Assigned To</th>
-                    <th className="p-3 min-w-[110px]">Follow-up</th>
-                    <th className="p-3 text-right pr-4 min-w-[140px]">Actions</th>
+                    <th className="py-2.5 pl-3 pr-2 min-w-[155px]">Client / Contact</th>
+                    <th className="py-2.5 px-2 min-w-[130px] max-w-[190px]">Notes</th>
+                    <th className="py-2.5 px-2 min-w-[95px]">Status</th>
+                    <th className="py-2.5 px-2 min-w-[90px]">Service / Inquiry</th>
+                    <th className="py-2.5 px-2 min-w-[90px]">Assigned To</th>
+                    <th className="py-2.5 px-2 min-w-[95px]">Follow-up</th>
+                    <th className="py-2.5 pl-2 pr-3 text-right min-w-[110px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="p-12 text-center text-text-muted">
+                      <td colSpan={7} className="p-10 text-center text-text-muted">
                         <RotateCcw className="w-5 h-5 animate-spin mx-auto mb-2 text-accent" />
                         <span>Loading directory records...</span>
                       </td>
                     </tr>
                   ) : filteredCustomers.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-12 text-center text-text-muted">
+                      <td colSpan={7} className="p-10 text-center text-text-muted">
                         <Users className="w-8 h-8 mx-auto mb-2 text-text-muted/40 stroke-[1.5]" />
                         <p className="font-semibold text-text-primary text-sm">No contacts found</p>
                         <p className="text-xs text-text-secondary mt-1">Try adjusting your search terms or filter chips.</p>
@@ -924,14 +924,14 @@ export function ModernCustomerView({
                           }`}
                         >
                           {/* 1. Client & Contact (with Buying Intent below phone) */}
-                          <td className="p-3 pl-4">
-                            <div className="flex items-start gap-2.5">
-                              <div className="w-8 h-8 rounded-full bg-slate-100 border border-border flex items-center justify-center text-text-primary font-bold text-xs shrink-0 font-headline group-hover:border-accent/40 transition-colors mt-0.5">
+                          <td className="py-2 pl-3 pr-2">
+                            <div className="flex items-start gap-2">
+                              <div className="w-7 h-7 rounded-full bg-slate-100 border border-border flex items-center justify-center text-text-primary font-bold text-[10px] shrink-0 font-headline group-hover:border-accent/40 transition-colors mt-0.5">
                                 {initials}
                               </div>
                               <div className="min-w-0">
                                 <div className="flex items-center gap-1.5">
-                                  <span className="font-bold text-text-primary text-xs truncate max-w-[170px]" title={cust.name || cust.wa_profile_name || 'Contact'}>
+                                  <span className="font-bold text-text-primary text-xs truncate max-w-[125px] sm:max-w-[140px]" title={cust.name || cust.wa_profile_name || 'Contact'}>
                                     {cust.name || cust.wa_profile_name || 'Contact'}
                                   </span>
                                   {(cust.completed_bookings_count ?? 0) > 0 || cust.client_type === 'repeat' ? (
@@ -945,20 +945,20 @@ export function ModernCustomerView({
                                     </span>
                                   )}
                                 </div>
-                                <div className="text-[11px] text-text-muted font-mono flex items-center gap-1 mt-0.5">
-                                  <Phone className="w-2.5 h-2.5 text-text-muted" />
-                                  <span>{cust.phone}</span>
+                                <div className="text-[10px] text-text-muted font-mono flex items-center gap-1 mt-0.5">
+                                  <Phone className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                                  <span className="truncate">{cust.phone}</span>
                                   {cust.location && (
                                     <>
-                                      <span>•</span>
-                                      <span className="font-sans text-text-secondary truncate max-w-[100px]">{cust.location}</span>
+                                      <span className="opacity-40">•</span>
+                                      <span className="font-sans text-text-secondary truncate max-w-[80px]">{cust.location}</span>
                                     </>
                                   )}
                                 </div>
                                 {/* Buying Intent below phone number - Clean Minimalist Icon Badge (Zero Emojis) */}
                                 <div className="mt-1 flex items-center" onClick={(e) => e.stopPropagation()}>
                                   <div
-                                    className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-sm border shadow-2xs ${
+                                    className={`inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.2 rounded-xs border shadow-2xs ${
                                       cust.lead_probability === 'hot'
                                         ? 'bg-rose-50 text-rose-700 border-rose-200'
                                         : cust.lead_probability === 'cold'
@@ -977,7 +977,7 @@ export function ModernCustomerView({
                                       value={cust.lead_probability || 'warm'}
                                       onChange={(e) => handleQuickUpdate(cust.id, { lead_probability: e.target.value as any })}
                                       disabled={updatingId === cust.id}
-                                      className="bg-transparent text-[10px] font-bold uppercase tracking-wider cursor-pointer focus:outline-none border-none p-0 pr-0.5 text-inherit leading-none"
+                                      className="bg-transparent text-[9px] font-bold uppercase tracking-wider cursor-pointer focus:outline-none border-none p-0 pr-0.5 text-inherit leading-none"
                                     >
                                       <option value="hot">Hot</option>
                                       <option value="warm">Warm</option>
@@ -990,14 +990,14 @@ export function ModernCustomerView({
                           </td>
 
                           {/* 2. Notes (Visible right next to Client / Contact!) */}
-                          <td className="p-3 max-w-[250px]" onClick={(e) => e.stopPropagation()}>
+                          <td className="py-2 px-2 max-w-[190px]" onClick={(e) => e.stopPropagation()}>
                             {cust.latest_note ? (
                               <div
                                 onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
-                                className="group/note flex items-start gap-1.5 p-1.5 rounded-md bg-amber-50/90 hover:bg-amber-100/90 border border-amber-200/90 cursor-pointer transition-all text-[11px] text-amber-950 shadow-2xs"
+                                className="group/note flex items-start gap-1 p-1 px-1.5 rounded bg-amber-50/90 hover:bg-amber-100/90 border border-amber-200/90 cursor-pointer transition-all text-[10.5px] text-amber-950 shadow-2xs"
                                 title="Click to view or edit this note"
                               >
-                                <StickyNote className="w-3 h-3 text-amber-600 mt-0.5 shrink-0 stroke-[1.8]" />
+                                <StickyNote className="w-2.5 h-2.5 text-amber-600 mt-0.5 shrink-0 stroke-[1.8]" />
                                 <div className="min-w-0 flex-1">
                                   <p className="line-clamp-2 italic font-normal leading-snug break-words">
                                     "{cust.latest_note}"
@@ -1031,12 +1031,12 @@ export function ModernCustomerView({
                           </td>
 
                           {/* 3. Status Dropdown */}
-                          <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                          <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                             <select
                               value={cust.status || 'new'}
                               onChange={(e) => handleQuickUpdate(cust.id, { status: e.target.value as any })}
                               disabled={updatingId === cust.id}
-                              className={`text-[11px] font-semibold px-2 py-1 rounded-sm border cursor-pointer transition-all shadow-2xs ${stageObj.bg} ${stageObj.text} ${stageObj.border}`}
+                              className={`text-[10.5px] font-semibold px-1.5 py-1 h-7 rounded-sm border cursor-pointer transition-all shadow-2xs w-full max-w-[115px] truncate ${stageObj.bg} ${stageObj.text} ${stageObj.border}`}
                             >
                               <optgroup label="Standard Statuses">
                                 {STAGES.map((st) => (
@@ -1058,26 +1058,26 @@ export function ModernCustomerView({
                           </td>
 
                           {/* 4. Service / Inquiry */}
-                          <td className="p-3">
+                          <td className="py-2 px-2">
                             {cust.health_concern || cust.last_visit_service ? (
                               <span
-                                className="text-[11px] font-medium text-text-secondary bg-surface-subtle border border-border/80 px-2 py-0.5 rounded-sm inline-block max-w-[160px] truncate"
+                                className="text-[10.5px] font-medium text-text-secondary bg-surface-subtle border border-border/80 px-1.5 py-0.5 rounded-sm inline-block max-w-[115px] truncate"
                                 title={cust.health_concern || cust.last_visit_service || ''}
                               >
                                 {cust.health_concern || cust.last_visit_service}
                               </span>
                             ) : (
-                              <span className="text-text-muted text-xs">—</span>
+                              <span className="text-text-muted text-[11px]">—</span>
                             )}
                           </td>
 
                           {/* 5. Assigned To Dropdown */}
-                          <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                          <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                             <select
                               value={cust.preferred_doctor || ''}
                               onChange={(e) => handleQuickUpdate(cust.id, { preferred_doctor: e.target.value })}
                               disabled={updatingId === cust.id}
-                              className="text-xs font-medium px-2 py-1 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[130px] truncate shadow-2xs"
+                              className="text-[10.5px] font-medium px-1.5 py-1 h-7 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer w-full max-w-[105px] truncate shadow-2xs"
                             >
                               <option value="">Unassigned</option>
                               {staffList.map((st) => (
@@ -1089,14 +1089,14 @@ export function ModernCustomerView({
                           </td>
 
                           {/* 6. Follow-up Date & Schedule Button */}
-                          <td className="p-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <td className="py-2 px-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                             <div className="flex flex-col gap-1 items-start relative">
                               {cust.followup_date ? (
                                 <div className="inline-flex items-center gap-1">
                                   <button
                                     type="button"
                                     onClick={() => setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id)}
-                                    className="cursor-pointer hover:opacity-80 transition-opacity"
+                                    className="cursor-pointer hover:opacity-80 transition-opacity text-[10px]"
                                     title="Click to reschedule follow-up"
                                   >
                                     {getFollowupBadge(cust.followup_date)}
@@ -1107,17 +1107,17 @@ export function ModernCustomerView({
                                     className="p-0.5 rounded text-text-muted hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                                     title="Clear follow-up"
                                   >
-                                    <X className="w-3 h-3 stroke-[1.8]" />
+                                    <X className="w-2.5 h-2.5 stroke-[1.8]" />
                                   </button>
                                 </div>
                               ) : (
                                 <button
                                   type="button"
                                   onClick={() => setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id)}
-                                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm border border-dashed border-border hover:border-accent bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary text-[11px] font-medium transition-colors shadow-2xs group cursor-pointer"
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border border-dashed border-border hover:border-accent bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary text-[10px] font-medium transition-colors shadow-2xs group cursor-pointer h-6"
                                   title="Click to schedule a follow-up date"
                                 >
-                                  <CalendarPlus className="w-3 h-3 text-accent stroke-[2]" />
+                                  <CalendarPlus className="w-2.5 h-2.5 text-accent stroke-[2]" />
                                   <span>Schedule</span>
                                 </button>
                               )}
@@ -1127,7 +1127,7 @@ export function ModernCustomerView({
                                 value={cust.next_action || 'Call Again'}
                                 onChange={(e) => handleQuickUpdate(cust.id, { next_action: e.target.value })}
                                 disabled={updatingId === cust.id}
-                                className="text-[10px] text-text-secondary bg-surface-subtle hover:bg-surface border border-border/70 px-1.5 py-0.5 rounded-xs font-medium cursor-pointer focus:outline-none focus:border-accent transition-colors max-w-[125px] truncate shadow-2xs"
+                                className="text-[9.5px] text-text-secondary bg-surface-subtle hover:bg-surface border border-border/70 px-1 py-0.5 h-6 rounded-xs font-medium cursor-pointer focus:outline-none focus:border-accent transition-colors w-full max-w-[105px] truncate shadow-2xs"
                                 title="Next Action"
                               >
                                 {nextActions.length > 0 ? (
@@ -1140,7 +1140,7 @@ export function ModernCustomerView({
                                   <>
                                     <option value="Call Again">Call Again</option>
                                     <option value="WhatsApp Only">WhatsApp Only</option>
-                                    <option value="Send Brochure / Info">Send Info</option>
+                                    <option value="Send Info">Send Info</option>
                                     <option value="Ask for Booking">Ask for Booking</option>
                                     <option value="Send Reminder">Send Reminder</option>
                                     <option value="Reschedule">Reschedule</option>
@@ -1175,12 +1175,12 @@ export function ModernCustomerView({
                           </td>
 
                           {/* 7. Actions */}
-                          <td className="p-3 pr-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center gap-1.5 justify-end">
+                          <td className="py-2 pl-2 pr-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center gap-1 justify-end">
                               <button
                                 type="button"
                                 onClick={() => onOpenChat(cust)}
-                                className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-sm border border-emerald-200 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold rounded-sm border border-emerald-200 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
                                 title="Open live WhatsApp chat in popup"
                               >
                                 <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
@@ -1189,7 +1189,7 @@ export function ModernCustomerView({
                               <button
                                 type="button"
                                 onClick={() => onOpenDetails(cust)}
-                                className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary text-xs font-medium rounded-sm border border-border transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary text-[11px] font-medium rounded-sm border border-border transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
                                 title="View customer details in popup"
                               >
                                 <User className="w-3 h-3 stroke-[1.5]" />

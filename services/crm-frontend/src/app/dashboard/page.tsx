@@ -8111,7 +8111,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         </aside>
 
           {/* ── 2. CENTER / MAIN VIEW AREA ───────────────────────────────────── */}
-          <main className="flex-1 flex flex-col overflow-hidden bg-canvas p-2 sm:p-6 space-y-2.5 sm:space-y-6 pb-24 md:pb-6">
+          <main className="flex-1 flex flex-col overflow-hidden bg-canvas p-2 sm:p-4 md:p-5 space-y-2 sm:space-y-4 pb-20 md:pb-4">
             
             {/* ── VIEW 0: DEDICATED OVERVIEW DASHBOARD ─────────────────────────── */}
             {activeNav === 'overview' && (
