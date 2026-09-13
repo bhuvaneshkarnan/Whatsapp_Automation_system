@@ -2864,12 +2864,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     subtab_notes_label: settingsForm.taxonomy?.subtab_notes_label || 'Notes',
   };
 
-  const isClinicTenant = (
-    (settingsForm?.slug || '').toLowerCase() === 'mindbodyrecovery' ||
-    (typeof window !== 'undefined' && (localStorage.getItem('tenant_slug') || '').toLowerCase() === 'mindbodyrecovery') ||
-    (settingsForm?.industry || '').toLowerCase() === 'clinic' ||
-    settingsForm?.dashboard_variant === 'clinic'
-  );
+  const currentEffectiveSlug = (
+    routeSlug ||
+    (typeof window !== 'undefined' && window.location.pathname.split('/')[1] && !['dashboard', 'login', 'admin', 'bhuvanesh'].includes(window.location.pathname.split('/')[1]) ? window.location.pathname.split('/')[1] : '') ||
+    settingsForm?.slug ||
+    (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') ||
+    ''
+  ).toLowerCase().trim();
+
+  const isClinicTenant = currentEffectiveSlug === 'mindbodyrecovery' || settingsForm?.dashboard_variant === 'clinic';
 
   // ── Teams & Staff that were ACTUALLY added by the user / clinic ─────────────────
   const addedTeams = useMemo(() => {
