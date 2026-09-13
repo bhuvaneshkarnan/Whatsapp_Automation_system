@@ -303,77 +303,75 @@ export function ModernCustomerView({
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden space-y-2.5">
-      {/* ── 1. EXECUTIVE KPI SUMMARY BAR ────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 shrink-0">
+    <div className="flex-1 flex flex-col overflow-hidden space-y-2">
+      {/* ── 1. EXECUTIVE KPI SUMMARY BAR (COMPACT & SLEEK) ────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 shrink-0">
         {/* Total Leads */}
-        <div className="bg-surface border border-border rounded-md p-3 shadow-2xs hover:border-border-strong transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">Total Pipeline</span>
-            <div className="w-7 h-7 rounded-md bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
-              <Users className="w-3.5 h-3.5 stroke-[2]" />
+        <div className="bg-surface border border-border rounded-md px-3 py-1.5 shadow-2xs flex items-center justify-between gap-2 hover:border-border-strong transition-all">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-6 h-6 rounded bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+              <Users className="w-3 h-3 stroke-[2]" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block leading-tight truncate">Total Pipeline</span>
+              <span className="text-[10px] text-text-secondary font-medium leading-none">active leads</span>
             </div>
           </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-xl font-bold text-text-primary tracking-tight font-headline">{kpis.total}</span>
-            <span className="text-[11px] text-text-secondary font-medium">active leads</span>
-          </div>
+          <span className="text-base font-bold text-text-primary font-headline shrink-0">{kpis.total}</span>
         </div>
 
         {/* Hot Opportunities */}
         <div
           onClick={() => setWarmthFilter(warmthFilter === 'hot' ? 'all' : 'hot')}
-          className={`bg-surface border rounded-md p-3 shadow-2xs transition-all cursor-pointer ${
+          className={`bg-surface border rounded-md px-3 py-1.5 shadow-2xs flex items-center justify-between gap-2 transition-all cursor-pointer ${
             warmthFilter === 'hot' ? 'border-rose-400 ring-1 ring-rose-400 bg-rose-50/20' : 'border-border hover:border-rose-300'
           }`}
           title="Click to toggle Hot Leads filter"
         >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">Hot Intent</span>
-            <div className="w-7 h-7 rounded-md bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600">
-              <Flame className="w-3.5 h-3.5 fill-rose-500/20 stroke-[2]" />
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-6 h-6 rounded bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+              <Flame className="w-3 h-3 fill-rose-500/20 stroke-[2]" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block leading-tight truncate">Hot Intent</span>
+              <span className="text-[10px] text-text-secondary font-medium leading-none">ready to convert</span>
             </div>
           </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-xl font-bold text-rose-600 tracking-tight font-headline">{kpis.hotLeads}</span>
-            <span className="text-[11px] text-text-secondary font-medium">ready to convert</span>
-          </div>
+          <span className="text-base font-bold text-rose-600 font-headline shrink-0">{kpis.hotLeads}</span>
         </div>
 
         {/* Action Due */}
         <div
           onClick={() => setStageFilter(stageFilter === 'action_due' ? 'all' : 'action_due')}
-          className={`bg-surface border rounded-md p-3 shadow-2xs transition-all cursor-pointer ${
+          className={`bg-surface border rounded-md px-3 py-1.5 shadow-2xs flex items-center justify-between gap-2 transition-all cursor-pointer ${
             stageFilter === 'action_due' ? 'border-amber-400 ring-1 ring-amber-400 bg-amber-50/20' : 'border-border hover:border-amber-300'
           }`}
           title="Click to toggle Follow-ups Due filter"
         >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">Follow-ups Due</span>
-            <div className="w-7 h-7 rounded-md bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600">
-              <CalendarClock className="w-3.5 h-3.5 stroke-[2]" />
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-6 h-6 rounded bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+              <CalendarClock className="w-3 h-3 stroke-[2]" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block leading-tight truncate">Follow-ups Due</span>
+              <span className="text-[10px] text-text-secondary font-medium leading-none">today / overdue</span>
             </div>
           </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-xl font-bold text-amber-700 tracking-tight font-headline">{kpis.followupsDue}</span>
-            <span className="text-[11px] text-text-secondary font-medium">today or overdue</span>
-          </div>
+          <span className="text-base font-bold text-amber-700 font-headline shrink-0">{kpis.followupsDue}</span>
         </div>
 
         {/* Converted / Win Rate */}
-        <div className="bg-surface border border-border rounded-md p-3 shadow-2xs hover:border-border-strong transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">Deals Closed</span>
-            <div className="w-7 h-7 rounded-md bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
-              <TrendingUp className="w-3.5 h-3.5 stroke-[2]" />
+        <div className="bg-surface border border-border rounded-md px-3 py-1.5 shadow-2xs flex items-center justify-between gap-2 hover:border-border-strong transition-all">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-6 h-6 rounded bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+              <TrendingUp className="w-3 h-3 stroke-[2]" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block leading-tight truncate">Deals Closed</span>
+              <span className="text-[10px] text-emerald-700 font-semibold leading-none">{kpis.winRate}% win rate</span>
             </div>
           </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-xl font-bold text-emerald-700 tracking-tight font-headline">{kpis.converted}</span>
-            <span className="text-[11px] text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded-xs">
-              {kpis.winRate}% win rate
-            </span>
-          </div>
+          <span className="text-base font-bold text-emerald-700 font-headline shrink-0">{kpis.converted}</span>
         </div>
       </div>
 
@@ -565,31 +563,29 @@ export function ModernCustomerView({
         {viewMode === 'table' && (
           <div className={`flex-1 flex flex-col border border-border rounded-md bg-surface overflow-hidden ${selectedCustomer ? 'hidden md:flex min-w-0' : ''}`}>
             <div className="flex-1 overflow-y-auto overflow-x-auto">
-              <table className="w-full text-left text-xs min-w-[1050px]">
+              <table className="w-full text-left text-xs">
                 <thead className="bg-surface-subtle/80 border-b border-border text-text-secondary font-semibold text-[11px] uppercase tracking-wider sticky top-0 z-10">
                   <tr>
                     <th className="p-3 pl-4 min-w-[200px]">Lead & Organization</th>
                     <th className="p-3 min-w-[130px]">Stage / Status</th>
-                    <th className="p-3 min-w-[110px]">Buying Intent</th>
                     <th className="p-3 min-w-[130px]">Requirement</th>
                     <th className="p-3 min-w-[130px]">Account Owner</th>
                     <th className="p-3 min-w-[110px]">Follow-up</th>
                     <th className="p-3 min-w-[200px] max-w-[260px]">Latest Note</th>
-                    <th className="p-3 min-w-[160px]">Last WhatsApp</th>
                     <th className="p-3 text-right pr-4 min-w-[140px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="p-12 text-center text-text-muted">
+                      <td colSpan={7} className="p-12 text-center text-text-muted">
                         <RotateCcw className="w-5 h-5 animate-spin mx-auto mb-2 text-accent" />
                         <span>Loading pipeline data...</span>
                       </td>
                     </tr>
                   ) : filteredCustomers.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-12 text-center text-text-muted">
+                      <td colSpan={7} className="p-12 text-center text-text-muted">
                         <Users className="w-8 h-8 mx-auto mb-2 text-text-muted/40 stroke-[1.5]" />
                         <p className="font-semibold text-text-primary text-sm">No leads found</p>
                         <p className="text-xs text-text-secondary mt-1">Try adjusting your search terms or filter chips.</p>
@@ -614,10 +610,10 @@ export function ModernCustomerView({
                             isSelected ? 'bg-accent-subtle/40 border-l-2 border-l-accent' : 'hover:bg-surface-subtle/60'
                           }`}
                         >
-                          {/* 1. Lead & Contact */}
+                          {/* 1. Lead & Contact (with Buying Intent below phone) */}
                           <td className="p-3 pl-4">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-full bg-slate-100 border border-border flex items-center justify-center text-text-primary font-bold text-xs shrink-0 font-headline group-hover:border-accent/40 transition-colors">
+                            <div className="flex items-start gap-2.5">
+                              <div className="w-8 h-8 rounded-full bg-slate-100 border border-border flex items-center justify-center text-text-primary font-bold text-xs shrink-0 font-headline group-hover:border-accent/40 transition-colors mt-0.5">
                                 {initials}
                               </div>
                               <div className="min-w-0">
@@ -645,6 +641,25 @@ export function ModernCustomerView({
                                       <span className="font-sans text-text-secondary truncate max-w-[100px]">{cust.location}</span>
                                     </>
                                   )}
+                                </div>
+                                {/* Buying Intent below phone number */}
+                                <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                                  <select
+                                    value={cust.lead_probability || 'warm'}
+                                    onChange={(e) => handleQuickUpdate(cust.id, { lead_probability: e.target.value as any })}
+                                    disabled={updatingId === cust.id}
+                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-sm border cursor-pointer uppercase tracking-wider shadow-2xs ${
+                                      cust.lead_probability === 'hot'
+                                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                        : cust.lead_probability === 'cold'
+                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                                    }`}
+                                  >
+                                    <option value="hot">🔥 Hot</option>
+                                    <option value="warm">⚡ Warm</option>
+                                    <option value="cold">❄️ Cold</option>
+                                  </select>
                                 </div>
                               </div>
                             </div>
@@ -677,27 +692,7 @@ export function ModernCustomerView({
                             </select>
                           </td>
 
-                          {/* 3. Buying Intent / Temperature */}
-                          <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                            <select
-                              value={cust.lead_probability || 'warm'}
-                              onChange={(e) => handleQuickUpdate(cust.id, { lead_probability: e.target.value as any })}
-                              disabled={updatingId === cust.id}
-                              className={`text-[11px] font-bold px-2 py-1 rounded-sm border cursor-pointer uppercase tracking-wider shadow-2xs ${
-                                cust.lead_probability === 'hot'
-                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                  : cust.lead_probability === 'cold'
-                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200'
-                              }`}
-                            >
-                              <option value="hot">🔥 Hot</option>
-                              <option value="warm">⚡ Warm</option>
-                              <option value="cold">❄️ Cold</option>
-                            </select>
-                          </td>
-
-                          {/* 4. Requirement / Service Interest */}
+                          {/* 3. Requirement / Service Interest */}
                           <td className="p-3">
                             {cust.health_concern || cust.last_visit_service ? (
                               <span
@@ -711,7 +706,7 @@ export function ModernCustomerView({
                             )}
                           </td>
 
-                          {/* 5. Account Owner Dropdown */}
+                          {/* 4. Account Owner Dropdown */}
                           <td className="p-3" onClick={(e) => e.stopPropagation()}>
                             <select
                               value={cust.preferred_doctor || ''}
@@ -728,7 +723,7 @@ export function ModernCustomerView({
                             </select>
                           </td>
 
-                          {/* 6. Follow-up Date */}
+                          {/* 5. Follow-up Date */}
                           <td className="p-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                             <div className="flex flex-col gap-0.5 items-start">
                               {getFollowupBadge(cust.followup_date) || <span className="text-text-muted text-[11px]">—</span>}
@@ -740,8 +735,8 @@ export function ModernCustomerView({
                             </div>
                           </td>
 
-                          {/* 7. Latest Note (Visible right in the table!) */}
-                          <td className="p-3 max-w-[240px]" onClick={(e) => e.stopPropagation()}>
+                          {/* 6. Latest Note (Visible right in the table!) */}
+                          <td className="p-3 max-w-[260px]" onClick={(e) => e.stopPropagation()}>
                             {cust.latest_note ? (
                               <div
                                 onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
@@ -778,30 +773,6 @@ export function ModernCustomerView({
                                 <Plus className="w-2.5 h-2.5" />
                                 <span>+ Note</span>
                               </button>
-                            )}
-                          </td>
-
-                          {/* 8. Last WhatsApp */}
-                          <td className="p-3 whitespace-nowrap max-w-[170px]">
-                            {cust.last_chat_at ? (
-                              <div
-                                onClick={() => onOpenChat(cust)}
-                                className="flex flex-col cursor-pointer group hover:text-emerald-700 transition-colors"
-                                title={cust.last_message ? `"${cust.last_message}" (Click to chat)` : 'Click to chat'}
-                              >
-                                <span className="text-[11px] text-text-primary font-medium flex items-center gap-1 font-mono group-hover:text-emerald-700">
-                                  <Clock className="w-2.5 h-2.5 text-text-muted group-hover:text-emerald-600" />
-                                  {formatTimeAgo(cust.last_chat_at)}
-                                </span>
-                                {cust.last_message && (
-                                  <div className="flex items-center gap-1 text-[10px] text-text-muted group-hover:text-emerald-700 mt-0.5 truncate">
-                                    <WhatsAppIcon className="w-2.5 h-2.5 text-[#25D366] shrink-0" />
-                                    <span className="truncate italic font-medium">"{cust.last_message}"</span>
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-text-muted text-[11px]">—</span>
                             )}
                           </td>
 
