@@ -5659,17 +5659,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
-  // Allow closing the active chat with the Escape key
+  // Allow closing the active chat or customer popup with the Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && selectedConv) {
-        setSelectedConv(null);
-        activeConvIdRef.current = null;
+      if (e.key === 'Escape') {
+        if (selectedCustomer) {
+          setSelectedCustomer(null);
+          setIsDrawerExpanded(false);
+        } else if (selectedConv) {
+          setSelectedConv(null);
+          activeConvIdRef.current = null;
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedConv]);
+  }, [selectedConv, selectedCustomer]);
 
   // Auto-select all contacts when contacts array is loaded
   useEffect(() => {
@@ -6895,10 +6900,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
     return (
       <div
-        className={`fixed inset-0 z-50 md:relative md:inset-auto md:z-auto w-full ${
-          isDrawerExpanded ? 'md:w-[760px] md:max-w-[60vw]' : 'md:w-[500px] xl:w-[560px]'
-        } bg-surface border border-border md:rounded-sm flex flex-col shrink-0 overflow-hidden transition-all duration-200 shadow-2xl md:shadow-sm safe-area-pt safe-area-pb md:pt-0 md:pb-0`}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-2 sm:p-4 md:p-6 animate-in fade-in duration-150"
+        onClick={() => {
+          setSelectedCustomer(null);
+          setIsDrawerExpanded(false);
+        }}
       >
+        <div
+          className={`w-full ${
+            isDrawerExpanded ? 'max-w-5xl h-[92vh] max-h-[920px]' : 'max-w-2xl lg:max-w-3xl h-[88vh] max-h-[840px]'
+          } bg-surface border border-border rounded-lg shadow-2xl flex flex-col overflow-hidden transition-all duration-200 animate-in zoom-in-95`}
+          onClick={(e) => e.stopPropagation()}
+        >
         {/* Top Header: Customer info, Stepper navigation & controls */}
         <div className="p-3 border-b border-border flex items-center justify-between bg-surface-subtle/70 shrink-0 gap-2">
           {/* Left: Customer Name & Phone */}
@@ -6970,7 +6983,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               type="button"
               onClick={() => setIsDrawerExpanded(!isDrawerExpanded)}
               className="p-1.5 text-text-muted hover:text-text-primary rounded-md hover:bg-surface-subtle transition-colors cursor-pointer"
-              title={isDrawerExpanded ? 'Standard width' : 'Expand panel width'}
+              title={isDrawerExpanded ? 'Standard popup size' : 'Expand popup size'}
             >
               {isDrawerExpanded ? <Minimize2 className="w-3.5 h-3.5 stroke-[1.8]" /> : <Maximize2 className="w-3.5 h-3.5 stroke-[1.8]" />}
             </button>
@@ -6983,7 +6996,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 setIsDrawerExpanded(false);
               }}
               className="p-1.5 text-text-muted hover:text-text-primary rounded-md hover:bg-surface-subtle transition-colors cursor-pointer"
-              title="Close panel"
+              title="Close popup (Esc)"
             >
               <X className="w-3.5 h-3.5 stroke-[1.8]" />
             </button>
@@ -7589,6 +7602,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             </div>
           </div>
         )}
+        </div>
       </div>
     );
   }
@@ -11080,7 +11094,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {/* Main Table + Customer Detail Drawer */}
                     <div className="flex-1 flex overflow-hidden gap-3">
                       {/* Customers Table */}
-                      <div className={`flex-1 overflow-y-auto overflow-x-auto border border-border rounded-sm bg-surface ${selectedCustomer ? 'hidden md:block min-w-0' : ''}`}>
+                      <div className="flex-1 overflow-y-auto overflow-x-auto border border-border rounded-sm bg-surface">
                         <table className="w-full text-left text-xs table-fixed">
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-semibold text-[11px] sticky top-0 z-10">
                             <tr>
@@ -11668,7 +11682,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                     {/* Database Table & Profile Drawer */}
                     <div className="flex-1 flex overflow-hidden gap-3">
-                      <div className={`flex-1 overflow-y-auto overflow-x-auto border border-border rounded-sm bg-surface ${selectedCustomer ? 'hidden md:block min-w-0' : ''}`}>
+                      <div className="flex-1 overflow-y-auto overflow-x-auto border border-border rounded-sm bg-surface">
                         <table className="w-full text-left text-xs min-w-[860px]">
                           <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                             <tr>

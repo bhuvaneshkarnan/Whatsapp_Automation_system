@@ -874,7 +874,7 @@ export function ModernCustomerView({
       <div className="flex-1 flex overflow-hidden gap-3">
         {/* TABLE VIEW - CLEAN, HORIZONTAL, COMPACT & MODERN */}
         {viewMode === 'table' && (
-          <div className={`flex-1 flex flex-col border border-border rounded-md bg-surface overflow-hidden ${selectedCustomer ? 'hidden md:flex min-w-0' : ''}`}>
+          <div className="flex-1 flex flex-col border border-border rounded-md bg-surface overflow-hidden">
             <div className="flex-1 overflow-y-auto overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-surface-subtle/80 border-b border-border text-text-secondary font-semibold text-[11px] uppercase tracking-wider sticky top-0 z-10">
@@ -1181,7 +1181,7 @@ export function ModernCustomerView({
                                 type="button"
                                 onClick={() => onOpenChat(cust)}
                                 className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-sm border border-emerald-200 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                                title="Open live WhatsApp chat in drawer"
+                                title="Open live WhatsApp chat in popup"
                               >
                                 <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
                                 <span>Chat</span>
@@ -1190,7 +1190,7 @@ export function ModernCustomerView({
                                 type="button"
                                 onClick={() => onOpenDetails(cust)}
                                 className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary text-xs font-medium rounded-sm border border-border transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                                title="View details and notes"
+                                title="View customer details in popup"
                               >
                                 <User className="w-3 h-3 stroke-[1.5]" />
                                 <span>Details</span>
@@ -1209,7 +1209,7 @@ export function ModernCustomerView({
 
         {/* KANBAN FUNNEL VIEW - COMPLETE WITH NOTES & ACTION BUTTONS */}
         {viewMode === 'kanban' && (
-          <div className={`flex-1 flex overflow-x-auto gap-3 pb-2 ${selectedCustomer ? 'hidden md:flex min-w-0' : ''}`}>
+          <div className="flex-1 flex overflow-x-auto gap-3 pb-2">
             {[
               { id: 'new', label: 'New Inquiry', dot: 'bg-blue-500' },
               { id: 'contacted', label: 'Contacted / In Progress', dot: 'bg-indigo-500' },
@@ -1331,6 +1331,7 @@ export function ModernCustomerView({
                                     onOpenChat(cust);
                                   }}
                                   className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-xs border border-emerald-200 transition-colors flex items-center gap-1 shadow-2xs"
+                                  title="Open live WhatsApp chat in popup"
                                 >
                                   <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
                                   <span>Chat</span>
