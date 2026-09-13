@@ -891,11 +891,11 @@ export function ModernCustomerView({
                 <thead className="bg-surface-subtle/80 border-b border-border text-text-secondary font-semibold text-[11px] uppercase tracking-wider sticky top-0 z-10">
                   <tr>
                     <th className="p-3 pl-4 min-w-[200px]">Client / Contact</th>
+                    <th className="p-3 min-w-[190px] max-w-[250px]">Notes</th>
                     <th className="p-3 min-w-[130px]">Status</th>
                     <th className="p-3 min-w-[130px]">Service / Inquiry</th>
                     <th className="p-3 min-w-[130px]">Assigned To</th>
                     <th className="p-3 min-w-[110px]">Follow-up</th>
-                    <th className="p-3 min-w-[200px] max-w-[260px]">Latest Note</th>
                     <th className="p-3 text-right pr-4 min-w-[140px]">Actions</th>
                   </tr>
                 </thead>
@@ -1000,7 +1000,48 @@ export function ModernCustomerView({
                             </div>
                           </td>
 
-                          {/* 2. Status Dropdown */}
+                          {/* 2. Notes (Visible right next to Client / Contact!) */}
+                          <td className="p-3 max-w-[250px]" onClick={(e) => e.stopPropagation()}>
+                            {cust.latest_note ? (
+                              <div
+                                onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
+                                className="group/note flex items-start gap-1.5 p-1.5 rounded-md bg-amber-50/90 hover:bg-amber-100/90 border border-amber-200/90 cursor-pointer transition-all text-[11px] text-amber-950 shadow-2xs"
+                                title="Click to view or edit this note"
+                              >
+                                <StickyNote className="w-3 h-3 text-amber-600 mt-0.5 shrink-0 stroke-[1.8]" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="line-clamp-2 italic font-normal leading-snug break-words">
+                                    "{cust.latest_note}"
+                                  </p>
+                                </div>
+                                {onDeleteLatestNote && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onDeleteLatestNote(cust);
+                                    }}
+                                    className="opacity-0 group-hover/note:opacity-100 text-text-muted hover:text-rose-600 p-0.5 transition-opacity shrink-0 cursor-pointer"
+                                    title="Delete note"
+                                  >
+                                    <Trash2 className="w-2.5 h-2.5" />
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
+                                className="text-[10px] text-text-muted hover:text-accent font-medium flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-border hover:border-accent transition-colors cursor-pointer"
+                                title="Add note"
+                              >
+                                <Plus className="w-2.5 h-2.5" />
+                                <span>+ Note</span>
+                              </button>
+                            )}
+                          </td>
+
+                          {/* 3. Status Dropdown */}
                           <td className="p-3" onClick={(e) => e.stopPropagation()}>
                             <select
                               value={cust.status || 'new'}
@@ -1027,7 +1068,7 @@ export function ModernCustomerView({
                             </select>
                           </td>
 
-                          {/* 3. Service / Inquiry */}
+                          {/* 4. Service / Inquiry */}
                           <td className="p-3">
                             {cust.health_concern || cust.last_visit_service ? (
                               <span
@@ -1041,7 +1082,7 @@ export function ModernCustomerView({
                             )}
                           </td>
 
-                          {/* 4. Assigned To Dropdown */}
+                          {/* 5. Assigned To Dropdown */}
                           <td className="p-3" onClick={(e) => e.stopPropagation()}>
                             <select
                               value={cust.preferred_doctor || ''}
@@ -1058,7 +1099,7 @@ export function ModernCustomerView({
                             </select>
                           </td>
 
-                          {/* 5. Follow-up Date & Schedule Button */}
+                          {/* 6. Follow-up Date & Schedule Button */}
                           <td className="p-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                             <div className="flex flex-col gap-1 items-start relative">
                               {cust.followup_date ? (
@@ -1144,48 +1185,7 @@ export function ModernCustomerView({
                             </div>
                           </td>
 
-                          {/* 6. Latest Note (Visible right in the table!) */}
-                          <td className="p-3 max-w-[260px]" onClick={(e) => e.stopPropagation()}>
-                            {cust.latest_note ? (
-                              <div
-                                onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
-                                className="group/note flex items-start gap-1.5 p-1.5 rounded-md bg-amber-50/90 hover:bg-amber-100/90 border border-amber-200/90 cursor-pointer transition-all text-[11px] text-amber-950 shadow-2xs"
-                                title="Click to view or edit this note"
-                              >
-                                <StickyNote className="w-3 h-3 text-amber-600 mt-0.5 shrink-0" />
-                                <div className="min-w-0 flex-1">
-                                  <p className="line-clamp-2 italic font-normal leading-snug break-words">
-                                    "{cust.latest_note}"
-                                  </p>
-                                </div>
-                                {onDeleteLatestNote && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onDeleteLatestNote(cust);
-                                    }}
-                                    className="opacity-0 group-hover/note:opacity-100 text-text-muted hover:text-rose-600 p-0.5 transition-opacity shrink-0 cursor-pointer"
-                                    title="Delete note"
-                                  >
-                                    <Trash2 className="w-2.5 h-2.5" />
-                                  </button>
-                                )}
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
-                                className="text-[10px] text-text-muted hover:text-accent font-medium flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-border hover:border-accent transition-colors cursor-pointer"
-                                title="Add note"
-                              >
-                                <Plus className="w-2.5 h-2.5" />
-                                <span>+ Note</span>
-                              </button>
-                            )}
-                          </td>
-
-                          {/* 9. Actions */}
+                          {/* 7. Actions */}
                           <td className="p-3 pr-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center gap-1.5 justify-end">
                               <button
