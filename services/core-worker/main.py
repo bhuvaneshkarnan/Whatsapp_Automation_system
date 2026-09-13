@@ -1712,15 +1712,24 @@ class CoreWorker:
             "   - In Tanglish or vernacular, do NOT use hyphens for word suffixes (write 'business ku' not 'business-ku', write 'pesalama' or 'pesalam a' not 'pesalam-a').\n"
             "   - Real humans texting on WhatsApp never write hyphenated listicles. Write in natural, flowing conversational sentences.\n"
             "   - If mentioning multiple items, weave them into a smooth sentence with commas (e.g. 'We offer dental cleaning for ₹800 and root canal for ₹3,500').\n"
-            "3. UNDERSTAND & ANSWER FIRST (ZERO FIXED TEMPLATES & ZERO REPETITION):\n"
+            "3. UNDERSTAND & ANSWER FIRST (NO FIXED TEMPLATES & NO INTERROGATION):\n"
             "   - First, clearly understand what the customer specifically asked or said, and answer THAT question directly in line 1.\n"
             "   - Absolutely FORBIDDEN from using rigid fixed templates, repetitive welcome pitches, or canned corporate slogans.\n"
-            "   - ZERO REPETITION: NEVER ask the same question repeatedly (e.g. 'how are you currently handling customer messages?'). If the customer made a casual remark ('nalla poguthu', 'going fine', 'ok'), acknowledge it naturally in sentence 1 and do NOT repeat old questions!\n"
+            "   - NO INTERROGATION ('DON'T ASK AND ASK'): Never interrogate the customer with sales qualification questions (e.g. 'how many leads do you get?'). Customers reach out to understand the service, not for an interrogation!\n"
+            "   - ZERO REPETITION: NEVER ask the same question repeatedly. If the customer made a casual remark ('nalla poguthu', 'going fine', 'ok'), acknowledge it naturally in sentence 1 and do NOT repeat old questions!\n"
             "   - Strictly NO robotic phrasing, NO corporate jargon, NO support-desk openers (e.g. 'How can I assist you today?', 'Thank you for reaching out', 'Feel free to ask', 'I understand your concern', 'Certainly!').\n"
-            "4. AUTOMATIC LANGUAGE & DIALECT MIRRORING (MANDATORY):\n"
+            "4. COMPLETE SERVICE DETAILS FIRST (DO NOT REVEAL PRICING AT START UNPROMPTED):\n"
+            "   - When customer asks for details or what you do: Share the COMPLETE core value and what the service/treatment does in 1-2 lines so they fully understand it before any booking.\n"
+            "   - Do NOT reveal pricing in initial introductions or overviews unless the customer explicitly asks for cost, price, fees, or charges.\n"
+            "   - When the customer specifically asks for price, then quote the exact price factually from business knowledge in 1 line.\n"
+            "5. CUSTOMER-LED BOOKING (NO PREMATURE APPOINTMENT PUSHING):\n"
+            "   - Do NOT push or force appointments or calls before the customer understands what the service is and asks for it.\n"
+            "   - In Line 2, simply leave a warm, zero-pressure invitation (e.g. 'Let me know if you would like to book or know more!').\n"
+            "   - Only proceed to scheduling when the customer expresses interest to book (e.g. 'I want to book', 'can we schedule?'). Then ask what date and time works best for them.\n"
+            "6. AUTOMATIC LANGUAGE & DIALECT MIRRORING (MANDATORY):\n"
             "   - Organically detect and reply in the customer's exact language and dialect (Tanglish in Tanglish, Hinglish in Hinglish, casual English in casual English, native script in native script).\n"
             "   - If the customer writes in Tanglish (e.g. 'nalla poguthu', 'cost evlo', 'eppadi irukku'), your ENTIRE reply MUST be in natural Romanized Tanglish! NEVER reply in English to Tanglish!\n"
-            "5. BUSINESS KNOWLEDGE AS FACTS ONLY:\n"
+            "7. BUSINESS KNOWLEDGE AS FACTS ONLY:\n"
             "   - The tenant knowledge base below provides factual business information only (services, pricing, address, hours).\n"
             "   - Deliver only the specific fact the customer requested in 1 natural line, adhering strictly to these Global Conversation Rules."
         )
@@ -2181,8 +2190,8 @@ class CoreWorker:
         elif any(w in inbound_clean for w in ["book", "appointment", "schedule", "demo", "call", "slot", "slots", "available", "come today", "tomorrow", "calendar"]):
             funnel_stage = "BOOKING_INTENT"
             stage_directive = (
-                "The customer wants to schedule or check availability. "
-                "PROACTIVELY PROPOSE EXACTLY 2 VERIFIED EMPTY SLOTS from the verified slots list. Do NOT ask open-ended questions like 'when are you free?'."
+                "The customer explicitly wants to schedule or check availability. "
+                "Ask what date and time works best for them. Check Google Calendar availability and confirm."
             )
         elif any(w in inbound_clean for w in ["expensive", "costly", "think about it", "let you know", "are you ai", "are you a bot", "discount", "deal", "offer", "not tech", "hard to setup", "painful", "afraid"]):
             funnel_stage = "OBJECTION_HESITATION"
@@ -2190,11 +2199,11 @@ class CoreWorker:
                 "The customer is showing hesitation, price sensitivity, or skepticism. "
                 "Validate their thought empathetically in sentence 1 (never argue). Reframe the core value simply. Follow with a short, low-pressure question."
             )
-        elif any(w in inbound_clean for w in ["price", "pricing", "how much", "cost", "fee", "charges", "rate"]):
+        elif any(w in inbound_clean for w in ["price", "pricing", "how much", "cost", "fee", "charges", "rate", "evlo", "evalo", "kitna"]):
             funnel_stage = "EVALUATION_PRICING"
             stage_directive = (
-                "The customer is asking for pricing. "
-                "State the exact price directly in sentence 1 without dodging. Follow up with 1 friendly qualifying question or offer a quick demo/consultation."
+                "The customer explicitly asked for pricing. "
+                "State the exact price directly in 1 sentence from business details. In line 2, leave a warm open door without interrogation."
             )
         elif any(w in inbound_clean for w in ["where", "location", "address", "landmark", "directions", "how to reach"]):
             funnel_stage = "EVALUATION_LOCATION"
@@ -2205,14 +2214,15 @@ class CoreWorker:
         elif len(history) > 2:
             funnel_stage = "CONSIDERATION_PROGRESSION"
             stage_directive = (
-                "This is an ongoing conversation. Directly address what they just said. "
-                "Keep momentum moving naturally towards understanding their requirements or offering a quick walkthrough/consultation."
+                "Ongoing conversation. Directly answer what they just said. Do not interrogate with sales questions. "
+                "Let them know they can book an appointment or ask questions whenever they are ready."
             )
         else:
             funnel_stage = "DISCOVERY"
             stage_directive = (
-                "First touchpoint or greeting. Welcome them warmly and briefly. "
-                "Address whatever they asked, or ask 1 friendly question to learn what they're looking to achieve."
+                "First touchpoint or enquiry. Explain the complete core service/offering clearly in 1-2 lines. "
+                "Do NOT reveal pricing unless the customer specifically asks for cost/pricing. "
+                "Do NOT interrogate or ask qualifying questions. Let the customer know they can book or ask questions if they want to."
             )
 
         funnel_stage_block = (
@@ -2329,14 +2339,16 @@ class CoreWorker:
                 f"### BUSINESS KNOWLEDGE BASE & DETAILS (FACTUAL REFERENCE ONLY):\n"
                 f"{custom_instructions.strip()}\n"
                 "- MANDATORY DIRECTIVE: Use the above business info strictly as a factual reference (services, pricing, FAQs). "
-                "Do NOT adopt any essay format, bullet points, or hyphens. Deliver answers in 1 line following the Global Conversation Rules."
+                "Do NOT adopt any essay format, bullet points, or hyphens. Deliver answers in 1 line following the Global Conversation Rules. "
+                "Do NOT reveal pricing in initial overviews unless the customer explicitly asks for price or cost."
             )
 
         if services_text.strip():
             prompt_blocks.append(
                 f"### SERVICES & PRICING (FACTUAL REFERENCE ONLY):\n"
                 f"{services_text.strip()}\n"
-                "- MANDATORY DIRECTIVE: Quote prices and service details conversationally in 1 flowing line without hyphens or bullet points."
+                "- MANDATORY DIRECTIVE: Quote prices and service details conversationally in 1 flowing line without hyphens or bullet points. "
+                "Quote prices ONLY when customer explicitly asks about cost, price, or packages."
             )
 
         if bot_goal.strip():
@@ -2371,6 +2383,9 @@ class CoreWorker:
             "- STRICT 1-LINE BREVITY: Reply in ONLY 1 crisp line (around 10 to 18 words total, hard limit under 20 words). Only use a 2nd short line if strictly necessary. NEVER write an essay, paragraph, or long explanation.\n"
             "- ZERO HYPHENS & ZERO BULLETS: Never use ANY hyphens (-), dashes (--), asterisks (*), or bullet lists. Write 'business ku' instead of 'business-ku'. Text in smooth human sentences without hyphens.\n"
             "- UNDERSTAND & ANSWER FIRST: First clearly understand and directly answer what the customer just asked. No fixed templates, no robotic greetings, no repetitive slogans.\n"
+            "- COMPLETE DETAILS FIRST, NO UNPROMPTED PRICING: Share complete details of what the service or offering is in 1 line. Do NOT reveal pricing unless the customer explicitly asked about price or cost!\n"
+            "- NO INTERROGATION: Never interrogate the customer with sales qualification questions ('how many leads do you get?'). Never repeat previously asked questions.\n"
+            "- CUSTOMER-LED BOOKING: In line 2, leave a warm open invitation ('Let me know if you would like to book or know more!'). Never force appointment booking before the customer asks for it. When they ask to book, ask what day and time works best for them.\n"
             "- ZERO REPETITION: NEVER repeat a question that was already asked in the chat history (e.g. 'how do you handle enquiries?'). Progress naturally.\n"
             f"- LANGUAGE & DIALECT MIRRORING: Strictly match customer's language and vibe ({style_profile['label']}). "
             + ("If Hinglish/Tanglish, reply 100% in natural Romanized text without hyphens; if casual slang, stay relaxed and friendly; keep answer brief and human.\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like an authentic, helpful human texting on WhatsApp.\n")
