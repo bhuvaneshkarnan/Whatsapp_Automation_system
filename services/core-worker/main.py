@@ -1157,7 +1157,11 @@ class CoreWorker:
                         conv_id,
                     )
                     await conn.execute(
-                        "UPDATE conversations SET last_message_at = now(), unread_count = unread_count + 1 WHERE id = $1::uuid",
+                        """UPDATE conversations 
+                           SET last_message_at = now(), 
+                               unread_count = unread_count + 1,
+                               wa_context = jsonb_set(coalesce(wa_context, '{}'::jsonb), '{last_user_msg_at}', to_jsonb(now()::text))
+                           WHERE id = $1::uuid""",
                         conv_id,
                     )
 
@@ -4420,6 +4424,7 @@ class CoreWorker:
                 await self._process_scheduled_jobs()
                 await self._process_subscription_reminders()
                 await self._process_scheduled_campaigns()
+                await self._process_incomplete_conversation_followups()
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -5111,8 +5116,227 @@ class CoreWorker:
             )
         return f"Hi {name}, this is a message from us regarding your {service} booking."
 
+    async def _process_incomplete_conversation_followups(self):
+        """
+        Incomplete Conversation Recovery Worker:
+        Detects dropped conversations (inactive for 2h to 22h) where:
+        1. Status is 'bot' or 'active' (not human staff).
+        2. Last message was outbound (customer went quiet after bot's reply).
+        3. Within Meta's free 24-hour service window (2h <= inactivity <= 22h).
+        4. Customer has NO upcoming confirmed/pending booking.
+        5. Strict 1-nudge limit: no follow-up sent yet for this user message session.
+        6. Allowed daytime hours (09:30 AM to 08:30 PM in tenant's timezone).
+        7. The AI generates a natural continuation based directly on the customer's LAST message!
+        """
+        try:
+            candidates = await self.db_pool.fetch(
+                """
+                SELECT c.id as conv_id, c.tenant_id, c.contact_id, c.wa_context, c.last_message_at,
+                       ct.phone as contact_phone, ct.name as contact_name, ct.wa_profile_name,
+                       t.name as tenant_name, t.slug as tenant_slug, t.settings as tenant_settings,
+                       tc.credential_data as wa_creds
+                FROM conversations c
+                JOIN contacts ct ON ct.id = c.contact_id AND ct.tenant_id = c.tenant_id
+                JOIN tenants t ON t.id = c.tenant_id AND t.is_active = true
+                JOIN tenant_credentials tc ON tc.tenant_id = c.tenant_id AND tc.provider = 'whatsapp' AND tc.is_active = true
+                WHERE c.status IN ('bot', 'active')
+                  AND c.last_message_at <= (NOW() - INTERVAL '2 hours')
+                  AND c.last_message_at >= (NOW() - INTERVAL '22 hours')
+                  -- Last message in thread must be outbound (customer dropped off after bot's reply)
+                  AND (
+                      SELECT direction FROM messages m 
+                      WHERE m.conversation_id = c.id AND m.body IS NOT NULL
+                      ORDER BY m.created_at DESC LIMIT 1
+                  ) = 'outbound'
+                  -- Customer must NOT have any upcoming active booking
+                  AND NOT EXISTS (
+                      SELECT 1 FROM bookings b 
+                      WHERE b.tenant_id = c.tenant_id 
+                        AND b.contact_id = c.contact_id 
+                        AND b.status IN ('confirmed', 'pending') 
+                        AND b.start_time >= NOW()
+                  )
+                  -- Strict 1-nudge limit: no follow-up sent yet for this user message session
+                  AND (
+                      c.wa_context IS NULL
+                      OR c.wa_context->>'incomplete_followup_sent_at' IS NULL
+                      OR (c.wa_context->>'incomplete_followup_sent_at')::timestamp with time zone < (
+                          SELECT COALESCE(MAX(created_at), '1970-01-01'::timestamp with time zone)
+                          FROM messages 
+                          WHERE conversation_id = c.id AND direction = 'inbound'
+                      )
+                  )
+                ORDER BY c.last_message_at ASC
+                LIMIT 10
+                """
+            )
 
-# ── Shared worker instance ────────────────────────────────────────────────────
+            if not candidates:
+                return
+
+            for row in candidates:
+                try:
+                    conv_id = str(row["conv_id"])
+                    tenant_id = str(row["tenant_id"])
+                    contact_phone = (row["contact_phone"] or "").strip()
+                    tenant_name = row["tenant_name"] or "our team"
+                    tenant_slug = row["tenant_slug"] or "business"
+                    contact_name = row["contact_name"] or row["wa_profile_name"] or "there"
+                    tenant_st = row["tenant_settings"] or {}
+                    if isinstance(tenant_st, str):
+                        try: tenant_st = json.loads(tenant_st)
+                        except: tenant_st = {}
+
+                    wa_creds = row["wa_creds"] or {}
+                    if isinstance(wa_creds, str):
+                        try: wa_creds = json.loads(wa_creds)
+                        except: wa_creds = {}
+
+                    phone_number_id = wa_creds.get("phone_number_id")
+                    access_token = wa_creds.get("access_token")
+                    if not phone_number_id or not access_token or not contact_phone:
+                        continue
+
+                    # 1. Quiet Hours Check based on tenant's timezone (09:30 AM to 08:30 PM local time)
+                    tenant_tz_str = tenant_st.get("timezone") or "Asia/Kolkata"
+                    import zoneinfo
+                    try:
+                        tenant_tz = zoneinfo.ZoneInfo(tenant_tz_str)
+                    except Exception:
+                        tenant_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
+
+                    now_local = datetime.datetime.now(tenant_tz)
+                    is_quiet_hours = (
+                        now_local.hour < 9 or 
+                        (now_local.hour == 9 and now_local.minute < 30) or 
+                        now_local.hour > 20 or 
+                        (now_local.hour == 20 and now_local.minute > 30)
+                    )
+                    if is_quiet_hours:
+                        logger.debug("incomplete_followup_quiet_hours", tenant_id=tenant_id, conv_id=conv_id, local_time=now_local.strftime("%H:%M"))
+                        continue
+
+                    # 2. Retrieve conversation history to identify customer's last query
+                    msg_rows = await self.db_pool.fetch(
+                        """SELECT direction, body, created_at FROM messages
+                           WHERE conversation_id = $1::uuid AND body IS NOT NULL
+                           ORDER BY created_at ASC LIMIT 20""",
+                        conv_id,
+                    )
+                    if not msg_rows:
+                        continue
+
+                    last_user_msg = None
+                    for m in reversed(msg_rows):
+                        if m["direction"] == "inbound":
+                            last_user_msg = m["body"]
+                            break
+
+                    if not last_user_msg:
+                        continue
+
+                    history = [
+                        {"role": "user" if m["direction"] == "inbound" else "assistant", "content": m["body"]}
+                        for m in msg_rows
+                    ]
+                    style_profile = self._detect_dialect_and_texting_style(last_user_msg, history)
+
+                    ai_cfg = await self._get_ai_config(tenant_id)
+                    gemini_key = await self._get_gemini_key(tenant_id)
+                    groq_key = await self._get_groq_key(tenant_id)
+                    opencode_key, opencode_base = await self._get_opencode_creds(tenant_id)
+                    assistant_name = ai_cfg.get("assistant_name") or "Assistant"
+
+                    # 3. Continuation prompt: directly based on customer's last message
+                    continuation_prompt = (
+                        f"You are {assistant_name}, representing {tenant_name} directly on WhatsApp chat.\n\n"
+                        "### MISSION: INCOMPLETE CONVERSATION RECOVERY (CONTEXTUAL CONTINUATION):\n"
+                        "The customer reached out earlier and our assistant replied, but the customer went quiet and has not replied for over 2 hours.\n"
+                        "Your task is to re-open the conversation with a gentle, authentic, contextual follow-up message based directly on what they specifically asked or discussed in their last message!\n\n"
+                        "### STRICT CONTINUATION RULES:\n"
+                        "1. NOT A GENERIC FOLLOW-UP: Absolutely FORBIDDEN from using generic, robotic check-ins like 'Are you still there?', 'Just checking in', 'Hey there', 'Following up on our chat'.\n"
+                        "2. DIRECTLY REFERENCE THEIR LAST QUERY OR NEED:\n"
+                        "   - Look at the customer's last message and conversation history.\n"
+                        "   - What specific service, health symptom, software feature, price, or booking slot were they discussing?\n"
+                        "   - Craft a natural, thoughtful 1-line continuation that specifically follows up on THAT exact topic!\n"
+                        "3. STRICT 1-LINE BREVITY: Reply in ONLY 1 crisp line (around 10 to 18 words, hard maximum under 20 words).\n"
+                        "4. ZERO HYPHENS & ZERO BULLETS: Strictly FORBIDDEN from using ANY hyphens (-), dashes (--), asterisks (*), or bullet points (•).\n"
+                        "5. STRICT TENANT BUSINESS GROUNDING: Ground your reply 100% in this business's verified knowledge and services below. Never hallucinate.\n"
+                        f"6. LANGUAGE & DIALECT MIRRORING: Strictly match the customer's texting style and language ({style_profile['label']}). "
+                        + ("If they texted in Tanglish, reply 100% in natural Romanized Tanglish without hyphens!\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like a polite, caring human texting on WhatsApp.\n")
+                        + "7. ZERO PRESSURE / ZERO INTERROGATION: Never interrogate or push aggressively. Leave a warm, helpful open door.\n\n"
+                        f"### BUSINESS KNOWLEDGE BASE & SERVICES (FACTUAL REFERENCE ONLY FOR THIS BUSINESS):\n{ai_cfg.get('system_prompt', '')}\n\n"
+                        f"- Customer Name: {contact_name}\n"
+                        f"- Customer's Last Stated Query: \"{last_user_msg}\"\n"
+                    )
+
+                    followup_messages = history + [
+                        {"role": "user", "content": f"[SYSTEM DIRECTIVE: The conversation paused here for over 2 hours. Send a 1-line contextual follow-up directly following up on my last query: '{last_user_msg}']"}
+                    ]
+
+                    raw_reply, prov = await call_llm_cascade(
+                        messages=followup_messages,
+                        system_prompt=continuation_prompt,
+                        gemini_key=gemini_key,
+                        groq_key=groq_key,
+                        opencode_key=opencode_key,
+                        opencode_base_url=opencode_base,
+                        primary_provider="gemini" if gemini_key else "groq",
+                        gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
+                        max_tokens=65,
+                        temperature=0.3,
+                        timeout_seconds=10.0,
+                        tenant_id=tenant_id,
+                    )
+
+                    followup_text = clean_llm_response(raw_reply)
+                    if not followup_text:
+                        continue
+
+                    followup_text = re.sub(r'\[ACTION:[^\]]+\]', '', followup_text).strip()
+
+                    logger.info(
+                        "sending_incomplete_conversation_followup",
+                        tenant_id=tenant_id,
+                        conv_id=conv_id,
+                        to=contact_phone,
+                        reply=followup_text,
+                        prov=prov,
+                    )
+
+                    wa_id = await send_text(
+                        phone_number_id=phone_number_id,
+                        access_token=access_token,
+                        to=contact_phone,
+                        body=followup_text,
+                    )
+
+                    out_msg_id = str(uuid.uuid4())
+                    await self.db_pool.execute(
+                        """INSERT INTO messages 
+                           (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_model_used)
+                           VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, $6)""",
+                        out_msg_id, conv_id, tenant_id, followup_text, wa_id, prov,
+                    )
+
+                    await self.db_pool.execute(
+                        """UPDATE conversations
+                           SET last_message_at = NOW(),
+                               wa_context = jsonb_set(
+                                   coalesce(wa_context, '{}'::jsonb),
+                                   '{incomplete_followup_sent_at}',
+                                   to_jsonb(NOW()::text)
+                               ),
+                               updated_at = NOW()
+                           WHERE id = $1::uuid""",
+                        conv_id,
+                    )
+                    logger.info("incomplete_conversation_followup_sent", tenant_id=tenant_id, conv_id=conv_id)
+                except Exception as row_err:
+                    logger.warning("incomplete_followup_candidate_error", conv_id=str(row.get("conv_id")), error=str(row_err))
+
+        except Exception as e:
+            logger.error("incomplete_conversation_followup_loop_error", error=str(e))
 worker = CoreWorker()
 
 
