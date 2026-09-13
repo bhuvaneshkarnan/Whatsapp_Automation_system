@@ -46,6 +46,14 @@ function WhatsAppIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
   );
 }
 
+const STAGES: { id: Customer['status']; label: string; bg: string; text: string; border: string; dot: string }[] = [
+  { id: 'new', label: 'New Inquiry', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500' },
+  { id: 'contacted', label: 'In Discussion', bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200', dot: 'bg-indigo-500' },
+  { id: 'follow-up', label: 'Follow-up Due', bg: 'bg-amber-50', text: 'text-amber-800', border: 'border-amber-200', dot: 'bg-amber-500' },
+  { id: 'converted', label: 'Closed / Won', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', dot: 'bg-emerald-500' },
+  { id: 'lost', label: 'Lost / Closed', bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200', dot: 'bg-rose-400' },
+];
+
 interface ModernCustomerViewProps {
   customers: Customer[];
   selectedCustomer: Customer | null;
@@ -553,29 +561,35 @@ export function ModernCustomerView({
 
       {/* ── 4. VIEW CONTENT AREA ────────────────────────────────────────────── */}
       <div className="flex-1 flex overflow-hidden gap-3">
-        {/* TABLE VIEW - CLEAN, COMPREHENSIVE WITH INLINE NOTES */}
+        {/* TABLE VIEW - CLEAN, HORIZONTAL, COMPACT & MODERN */}
         {viewMode === 'table' && (
           <div className={`flex-1 flex flex-col border border-border rounded-md bg-surface overflow-hidden ${selectedCustomer ? 'hidden md:flex min-w-0' : ''}`}>
             <div className="flex-1 overflow-y-auto overflow-x-auto">
-              <table className="w-full text-left text-xs min-w-[1000px]">
+              <table className="w-full text-left text-xs min-w-[1050px]">
                 <thead className="bg-surface-subtle/80 border-b border-border text-text-secondary font-semibold text-[11px] uppercase tracking-wider sticky top-0 z-10">
                   <tr>
-                    <th className="p-3 pl-4 w-[42%]">Lead, Requirements & Activity Notes</th>
-                    <th className="p-3 w-[26%]">Status & Account Owner</th>
-                    <th className="p-3 w-[32%] pr-4">Follow-up Schedule & Next Action</th>
+                    <th className="p-3 pl-4 min-w-[200px]">Lead & Organization</th>
+                    <th className="p-3 min-w-[130px]">Stage / Status</th>
+                    <th className="p-3 min-w-[110px]">Buying Intent</th>
+                    <th className="p-3 min-w-[130px]">Requirement</th>
+                    <th className="p-3 min-w-[130px]">Account Owner</th>
+                    <th className="p-3 min-w-[110px]">Follow-up</th>
+                    <th className="p-3 min-w-[200px] max-w-[260px]">Latest Note</th>
+                    <th className="p-3 min-w-[160px]">Last WhatsApp</th>
+                    <th className="p-3 text-right pr-4 min-w-[140px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {loading ? (
                     <tr>
-                      <td colSpan={3} className="p-12 text-center text-text-muted">
+                      <td colSpan={9} className="p-12 text-center text-text-muted">
                         <RotateCcw className="w-5 h-5 animate-spin mx-auto mb-2 text-accent" />
                         <span>Loading pipeline data...</span>
                       </td>
                     </tr>
                   ) : filteredCustomers.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="p-12 text-center text-text-muted">
+                      <td colSpan={9} className="p-12 text-center text-text-muted">
                         <Users className="w-8 h-8 mx-auto mb-2 text-text-muted/40 stroke-[1.5]" />
                         <p className="font-semibold text-text-primary text-sm">No leads found</p>
                         <p className="text-xs text-text-secondary mt-1">Try adjusting your search terms or filter chips.</p>
@@ -584,6 +598,7 @@ export function ModernCustomerView({
                   ) : (
                     filteredCustomers.map((cust) => {
                       const isSelected = selectedCustomer?.id === cust.id;
+                      const stageObj = STAGES.find((s) => s.id === cust.status) || STAGES[0];
                       const initials = (cust.name || cust.wa_profile_name || 'L')
                         .split(' ')
                         .map((n) => n[0])
@@ -595,288 +610,222 @@ export function ModernCustomerView({
                         <tr
                           key={cust.id}
                           onClick={() => onSelectCustomer(cust)}
-                          className={`cursor-pointer transition-colors duration-150 ${
-                            isSelected ? 'bg-accent-subtle/40 border-l-4 border-l-accent' : 'hover:bg-surface-subtle/60'
+                          className={`cursor-pointer transition-colors duration-150 group ${
+                            isSelected ? 'bg-accent-subtle/40 border-l-2 border-l-accent' : 'hover:bg-surface-subtle/60'
                           }`}
                         >
-                          {/* ── COL 1: LEAD IDENTITY, REQUIREMENT & NOTES ── */}
-                          <td className="pt-3 pb-3.5 pl-4 pr-3 align-top">
-                            <div className="space-y-2 min-w-0">
-                              {/* Row 1: Avatar, Name & Lead Badges */}
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <div className="w-7 h-7 rounded-full bg-slate-100 border border-border flex items-center justify-center text-text-primary font-bold text-xs shrink-0 font-headline">
-                                    {initials}
-                                  </div>
-                                  <span className="font-bold text-text-primary text-[13px] tracking-tight truncate">
+                          {/* 1. Lead & Contact */}
+                          <td className="p-3 pl-4">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-full bg-slate-100 border border-border flex items-center justify-center text-text-primary font-bold text-xs shrink-0 font-headline group-hover:border-accent/40 transition-colors">
+                                {initials}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold text-text-primary text-xs truncate max-w-[170px]" title={cust.name || cust.wa_profile_name || 'Lead'}>
                                     {cust.name || cust.wa_profile_name || 'Lead'}
                                   </span>
                                   {(cust.completed_bookings_count ?? 0) > 0 || cust.client_type === 'repeat' ? (
-                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center gap-0.5 shrink-0">
+                                    <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 flex items-center gap-0.5">
                                       <UserCheck className="w-2.5 h-2.5" />
                                       <span>Repeat</span>
                                     </span>
                                   ) : (
-                                    <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-0.5 shrink-0">
-                                      <UserPlus className="w-2.5 h-2.5" />
-                                      <span>Lead</span>
+                                    <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                                      Lead
                                     </span>
                                   )}
                                 </div>
-                              </div>
-
-                              {/* Row 2: Phone, Location & Last WhatsApp relative time */}
-                              <div className="flex items-center gap-2 font-mono text-[11px] text-text-muted flex-wrap">
-                                <span className="font-medium text-text-secondary">{cust.phone}</span>
-                                {cust.location && (
-                                  <>
-                                    <span className="opacity-40">•</span>
-                                    <span className="font-sans text-[11px] text-text-secondary flex items-center gap-1">
-                                      <MapPin className="w-2.5 h-2.5 text-text-muted" />
-                                      {cust.location}
-                                    </span>
-                                  </>
-                                )}
-                                {cust.last_chat_at && (
-                                  <>
-                                    <span className="opacity-40">•</span>
-                                    <span className="text-[10px] text-text-secondary flex items-center gap-1 font-sans">
-                                      <Clock className="w-2.5 h-2.5 text-text-muted" />
-                                      <span>Last: {formatTimeAgo(cust.last_chat_at)}</span>
-                                    </span>
-                                  </>
-                                )}
-                              </div>
-
-                              {/* Row 3: Latest WhatsApp Message Snippet */}
-                              {cust.last_message && (
-                                <div
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenChat(cust);
-                                  }}
-                                  className="flex items-center gap-1.5 text-[11px] text-text-secondary hover:text-emerald-700 group cursor-pointer max-w-full truncate pt-0.5"
-                                  title={`Latest WhatsApp: "${cust.last_message}" (Click to view chat)`}
-                                >
-                                  <WhatsAppIcon className="w-3.5 h-3.5 text-[#25D366] shrink-0 group-hover:scale-110 transition-transform" />
-                                  <span className="truncate italic font-medium">"{cust.last_message}"</span>
+                                <div className="text-[11px] text-text-muted font-mono flex items-center gap-1 mt-0.5">
+                                  <Phone className="w-2.5 h-2.5 text-text-muted" />
+                                  <span>{cust.phone}</span>
+                                  {cust.location && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="font-sans text-text-secondary truncate max-w-[100px]">{cust.location}</span>
+                                    </>
+                                  )}
                                 </div>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 2. Stage / Status Dropdown */}
+                          <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                            <select
+                              value={cust.status || 'new'}
+                              onChange={(e) => handleQuickUpdate(cust.id, { status: e.target.value as any })}
+                              disabled={updatingId === cust.id}
+                              className={`text-[11px] font-semibold px-2 py-1 rounded-sm border cursor-pointer transition-all shadow-2xs ${stageObj.bg} ${stageObj.text} ${stageObj.border}`}
+                            >
+                              <optgroup label="Standard Stages">
+                                {STAGES.map((st) => (
+                                  <option key={st.id} value={st.id}>
+                                    {st.label}
+                                  </option>
+                                ))}
+                              </optgroup>
+                              {outcomeStatuses.length > 0 && (
+                                <optgroup label="Configured Outcomes">
+                                  {outcomeStatuses.map((st) => (
+                                    <option key={st} value={st}>
+                                      {st}
+                                    </option>
+                                  ))}
+                                </optgroup>
                               )}
+                            </select>
+                          </td>
 
-                              {/* Row 4: Requirement Tag & Add Note Button */}
-                              <div className="flex items-center gap-1.5 flex-wrap pt-0.5" onClick={(e) => e.stopPropagation()}>
-                                {(cust.health_concern || cust.last_visit_service) && (
-                                  <span className="text-[10px] px-2 py-0.5 rounded-sm font-semibold border bg-blue-50 text-blue-700 border-blue-200">
-                                    {cust.health_concern || cust.last_visit_service}
-                                  </span>
-                                )}
+                          {/* 3. Buying Intent / Temperature */}
+                          <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                            <select
+                              value={cust.lead_probability || 'warm'}
+                              onChange={(e) => handleQuickUpdate(cust.id, { lead_probability: e.target.value as any })}
+                              disabled={updatingId === cust.id}
+                              className={`text-[11px] font-bold px-2 py-1 rounded-sm border cursor-pointer uppercase tracking-wider shadow-2xs ${
+                                cust.lead_probability === 'hot'
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                  : cust.lead_probability === 'cold'
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                              }`}
+                            >
+                              <option value="hot">🔥 Hot</option>
+                              <option value="warm">⚡ Warm</option>
+                              <option value="cold">❄️ Cold</option>
+                            </select>
+                          </td>
 
-                                {!cust.latest_note && (
+                          {/* 4. Requirement / Service Interest */}
+                          <td className="p-3">
+                            {cust.health_concern || cust.last_visit_service ? (
+                              <span
+                                className="text-[11px] font-medium text-text-secondary bg-surface-subtle border border-border/80 px-2 py-0.5 rounded-sm inline-block max-w-[160px] truncate"
+                                title={cust.health_concern || cust.last_visit_service || ''}
+                              >
+                                {cust.health_concern || cust.last_visit_service}
+                              </span>
+                            ) : (
+                              <span className="text-text-muted text-xs">—</span>
+                            )}
+                          </td>
+
+                          {/* 5. Account Owner Dropdown */}
+                          <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                            <select
+                              value={cust.preferred_doctor || ''}
+                              onChange={(e) => handleQuickUpdate(cust.id, { preferred_doctor: e.target.value })}
+                              disabled={updatingId === cust.id}
+                              className="text-xs font-medium px-2 py-1 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[130px] truncate shadow-2xs"
+                            >
+                              <option value="">Unassigned</option>
+                              {staffList.map((st) => (
+                                <option key={st.value} value={st.value}>
+                                  {st.label}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+
+                          {/* 6. Follow-up Date */}
+                          <td className="p-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex flex-col gap-0.5 items-start">
+                              {getFollowupBadge(cust.followup_date) || <span className="text-text-muted text-[11px]">—</span>}
+                              {cust.next_action && (
+                                <span className="text-[10px] text-text-secondary bg-surface-subtle border border-border/60 px-1.5 py-0.2 rounded-xs font-medium truncate max-w-[110px]" title={cust.next_action}>
+                                  {cust.next_action}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 7. Latest Note (Visible right in the table!) */}
+                          <td className="p-3 max-w-[240px]" onClick={(e) => e.stopPropagation()}>
+                            {cust.latest_note ? (
+                              <div
+                                onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
+                                className="group/note flex items-start gap-1.5 p-1.5 rounded-md bg-amber-50/90 hover:bg-amber-100/90 border border-amber-200/90 cursor-pointer transition-all text-[11px] text-amber-950 shadow-2xs"
+                                title="Click to view or edit this note"
+                              >
+                                <StickyNote className="w-3 h-3 text-amber-600 mt-0.5 shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="line-clamp-2 italic font-normal leading-snug break-words">
+                                    "{cust.latest_note}"
+                                  </p>
+                                </div>
+                                {onDeleteLatestNote && (
                                   <button
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      if (onOpenQuickNote) {
-                                        onOpenQuickNote(cust);
-                                      } else {
-                                        onOpenDetails(cust);
-                                      }
+                                      onDeleteLatestNote(cust);
                                     }}
-                                    className="text-[10px] font-semibold text-accent hover:underline flex items-center gap-1 px-2 py-0.5 rounded border border-dashed border-accent/50 hover:bg-surface-subtle transition-colors cursor-pointer"
+                                    className="opacity-0 group-hover/note:opacity-100 text-text-muted hover:text-rose-600 p-0.5 transition-opacity shrink-0 cursor-pointer"
+                                    title="Delete note"
                                   >
-                                    <Plus className="w-2.5 h-2.5" />
-                                    <span>+ Add Note</span>
+                                    <Trash2 className="w-2.5 h-2.5" />
                                   </button>
                                 )}
                               </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
+                                className="text-[10px] text-text-muted hover:text-accent font-medium flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-border hover:border-accent transition-colors cursor-pointer"
+                                title="Add note"
+                              >
+                                <Plus className="w-2.5 h-2.5" />
+                                <span>+ Note</span>
+                              </button>
+                            )}
+                          </td>
 
-                              {/* Row 5: INLINE NOTE CARD (Full, clean, and visible) */}
-                              {cust.latest_note && (
-                                <div className="pt-0.5" onClick={(e) => e.stopPropagation()}>
-                                  <div
-                                    className={`group/note inline-flex items-start gap-2 py-1.5 px-2.5 rounded-md border text-[11px] leading-relaxed transition-all shadow-2xs w-full max-w-full ${getNoteCardStyle(
-                                      cust.latest_note_color
-                                    )}`}
-                                  >
-                                    <StickyNote className="w-3.5 h-3.5 mt-0.5 shrink-0 text-accent opacity-80" />
-                                    <div
-                                      className="cursor-pointer select-text flex-1 min-w-0"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (onOpenQuickNote) {
-                                          onOpenQuickNote(cust);
-                                        } else {
-                                          onOpenDetails(cust);
-                                        }
-                                      }}
-                                      title="Click to edit this note"
-                                    >
-                                      <p className="font-normal whitespace-pre-wrap break-words italic">
-                                        "{cust.latest_note}"
-                                      </p>
-                                    </div>
-                                    {onDeleteLatestNote && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onDeleteLatestNote(cust);
-                                        }}
-                                        className="p-1 rounded text-text-muted hover:text-rose-600 hover:bg-rose-100/70 transition-colors opacity-70 group-hover/note:opacity-100 cursor-pointer shrink-0"
-                                        title="Delete this note"
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </button>
-                                    )}
+                          {/* 8. Last WhatsApp */}
+                          <td className="p-3 whitespace-nowrap max-w-[170px]">
+                            {cust.last_chat_at ? (
+                              <div
+                                onClick={() => onOpenChat(cust)}
+                                className="flex flex-col cursor-pointer group hover:text-emerald-700 transition-colors"
+                                title={cust.last_message ? `"${cust.last_message}" (Click to chat)` : 'Click to chat'}
+                              >
+                                <span className="text-[11px] text-text-primary font-medium flex items-center gap-1 font-mono group-hover:text-emerald-700">
+                                  <Clock className="w-2.5 h-2.5 text-text-muted group-hover:text-emerald-600" />
+                                  {formatTimeAgo(cust.last_chat_at)}
+                                </span>
+                                {cust.last_message && (
+                                  <div className="flex items-center gap-1 text-[10px] text-text-muted group-hover:text-emerald-700 mt-0.5 truncate">
+                                    <WhatsAppIcon className="w-2.5 h-2.5 text-[#25D366] shrink-0" />
+                                    <span className="truncate italic font-medium">"{cust.last_message}"</span>
                                   </div>
-                                </div>
-                              )}
-
-                              {/* Row 6: Bottom Quick Actions Bar */}
-                              <div className="flex items-center gap-2 pt-1 border-t border-border/40" onClick={(e) => e.stopPropagation()}>
-                                {/* Warmth Selector */}
-                                <select
-                                  value={cust.lead_probability || 'warm'}
-                                  onChange={(e) => handleQuickUpdate(cust.id, { lead_probability: e.target.value as any })}
-                                  disabled={updatingId === cust.id}
-                                  className={`h-6 text-[10px] font-bold px-2 py-0.5 rounded-md border cursor-pointer uppercase tracking-wider ${
-                                    cust.lead_probability === 'hot'
-                                      ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                      : cust.lead_probability === 'cold'
-                                      ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                      : 'bg-amber-50 text-amber-700 border-amber-200'
-                                  }`}
-                                >
-                                  <option value="hot">🔥 Hot (90%)</option>
-                                  <option value="warm">⚡ Warm (50%)</option>
-                                  <option value="cold">❄️ Cold (20%)</option>
-                                </select>
-
-                                {/* WhatsApp Button */}
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenChat(cust);
-                                  }}
-                                  className="h-6 px-2.5 bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#128C7E] border border-[#25D366]/30 rounded-md flex items-center gap-1 text-[10px] font-bold transition-all shadow-2xs cursor-pointer"
-                                  title="Open live WhatsApp chat in drawer"
-                                >
-                                  <WhatsAppIcon className="w-3.5 h-3.5 text-[#25D366]" />
-                                  <span>WhatsApp</span>
-                                </button>
-
-                                {/* Details Button */}
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenDetails(cust);
-                                  }}
-                                  className="h-6 px-2 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md flex items-center gap-1 text-[10px] font-medium transition-colors shadow-2xs cursor-pointer"
-                                  title="View customer profile & history"
-                                >
-                                  <User className="w-3 h-3 stroke-[1.8]" />
-                                  <span>Details</span>
-                                </button>
+                                )}
                               </div>
-                            </div>
+                            ) : (
+                              <span className="text-text-muted text-[11px]">—</span>
+                            )}
                           </td>
 
-                          {/* ── COL 2: STATUS & ACCOUNT OWNER ── */}
-                          <td className="pt-3 pb-3 px-3 align-top" onClick={(e) => e.stopPropagation()}>
-                            <div className="space-y-2 max-w-[220px]">
-                              {/* Account Owner Dropdown */}
-                              <div>
-                                <label className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1">
-                                  Account Owner
-                                </label>
-                                <select
-                                  value={cust.preferred_doctor || ''}
-                                  onChange={(e) => handleQuickUpdate(cust.id, { preferred_doctor: e.target.value })}
-                                  disabled={updatingId === cust.id}
-                                  className="w-full text-xs font-semibold px-2.5 py-1.5 rounded-md border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer shadow-2xs"
-                                >
-                                  <option value="">Unassigned</option>
-                                  {staffList.map((st) => (
-                                    <option key={st.value} value={st.value}>
-                                      {st.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-
-                              {/* Status / Outcome Dropdown */}
-                              <div>
-                                <label className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1">
-                                  Outcome / Status
-                                </label>
-                                <select
-                                  value={cust.status || 'new'}
-                                  onChange={(e) => handleQuickUpdate(cust.id, { status: e.target.value as any })}
-                                  disabled={updatingId === cust.id}
-                                  className="w-full text-xs font-semibold px-2.5 py-1.5 rounded-md border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer shadow-2xs"
-                                >
-                                  <optgroup label="Standard Stages">
-                                    <option value="new">New Inquiry</option>
-                                    <option value="contacted">In Discussion</option>
-                                    <option value="follow-up">Follow-up Due</option>
-                                    <option value="converted">Closed / Won</option>
-                                    <option value="lost">Lost / Closed</option>
-                                  </optgroup>
-                                  {outcomeStatuses.length > 0 && (
-                                    <optgroup label="Configured Outcomes">
-                                      {outcomeStatuses.map((st) => (
-                                        <option key={st} value={st}>
-                                          {st}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  )}
-                                </select>
-                              </div>
-                            </div>
-                          </td>
-
-                          {/* ── COL 3: FOLLOW-UP SCHEDULE & NEXT ACTION ── */}
-                          <td className="pt-3 pb-3 pr-4 pl-3 align-top" onClick={(e) => e.stopPropagation()}>
-                            <div className="space-y-2 max-w-[240px]">
-                              {/* Follow-up Date Picker & Relative Badge */}
-                              <div>
-                                <div className="flex items-center justify-between mb-1">
-                                  <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
-                                    Follow-up Schedule
-                                  </label>
-                                  {getFollowupBadge(cust.followup_date)}
-                                </div>
-                                <input
-                                  type="date"
-                                  value={cust.followup_date || ''}
-                                  onChange={(e) => handleQuickUpdate(cust.id, { followup_date: e.target.value || null })}
-                                  disabled={updatingId === cust.id}
-                                  className="w-full text-xs font-mono px-2.5 py-1.5 rounded-md border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer shadow-2xs"
-                                />
-                              </div>
-
-                              {/* Next Action Dropdown */}
-                              <div>
-                                <label className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1">
-                                  Next Action
-                                </label>
-                                <select
-                                  value={cust.next_action || ''}
-                                  onChange={(e) => handleQuickUpdate(cust.id, { next_action: e.target.value || null })}
-                                  disabled={updatingId === cust.id}
-                                  className="w-full text-xs font-semibold px-2.5 py-1.5 rounded-md border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer shadow-2xs"
-                                >
-                                  <option value="">No Action Set</option>
-                                  {nextActions.map((act) => (
-                                    <option key={act} value={act}>
-                                      {act}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
+                          {/* 9. Actions */}
+                          <td className="p-3 pr-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center gap-1.5 justify-end">
+                              <button
+                                type="button"
+                                onClick={() => onOpenChat(cust)}
+                                className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-sm border border-emerald-200 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                title="Open live WhatsApp chat in drawer"
+                              >
+                                <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
+                                <span>Chat</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onOpenDetails(cust)}
+                                className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary text-xs font-medium rounded-sm border border-border transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                title="View details and notes"
+                              >
+                                <User className="w-3 h-3 stroke-[1.5]" />
+                                <span>Details</span>
+                              </button>
                             </div>
                           </td>
                         </tr>
