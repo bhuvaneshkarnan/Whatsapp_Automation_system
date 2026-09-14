@@ -1474,6 +1474,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [sidebarFilter, setSidebarFilter] = useState<'all' | 'recent' | 'favorites' | 'active'>('all');
   const [settingsTab, setSettingsTab] = useState<'branding' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team'>('branding');
   const [drawerPhoneCopied, setDrawerPhoneCopied] = useState(false);
+  const [chatHeaderPhoneCopied, setChatHeaderPhoneCopied] = useState(false);
 
   // Live Google Calendar Slot Availability Tester in Dashboard Settings
   const [dashCalendarLoading, setDashCalendarLoading] = useState(false);
@@ -10182,9 +10183,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 )}
                               </div>
 
-                              {/* Line 3: Ultra-Clean Minimal Context (Only when staff or concern exists) */}
-                              {(staffName || concern) && (
+                              {/* Line 3: Ultra-Clean Minimal Context (Phone Number + Staff + Concern) */}
+                              {Boolean((conv.contact_name && conv.contact_phone) || staffName || concern) && (
                                 <div className="flex items-center gap-1.5 pt-0.5 text-[10px] text-text-muted leading-none truncate">
+                                  {conv.contact_name && conv.contact_phone && (
+                                    <span className="font-mono text-text-muted/80 shrink-0">
+                                      {conv.contact_phone}
+                                    </span>
+                                  )}
+                                  {conv.contact_name && conv.contact_phone && (staffName || concern) && (
+                                    <span className="opacity-30">•</span>
+                                  )}
                                   {staffName && (
                                     <span className="text-text-secondary font-medium truncate max-w-[85px]" title={`Assigned: ${staffName}`}>
                                       {staffName.split(' ')[0]}
@@ -10192,7 +10201,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   )}
                                   {staffName && concern && <span className="opacity-30">•</span>}
                                   {concern && (
-                                    <span className="truncate max-w-[125px] opacity-75" title={concern}>
+                                    <span className="truncate max-w-[110px] opacity-75" title={concern}>
                                       {concern}
                                     </span>
                                   )}
@@ -10244,7 +10253,64 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               })()}
                             </div>
                             <div className="flex items-center gap-1.5 text-[10px] text-text-muted font-mono truncate">
-                              <span>{selectedConv.contact_phone || selectedConv.phone}</span>
+                              {(() => {
+                                const phoneNum = selectedConv.contact_phone || selectedConv.phone;
+                                if (!phoneNum) return <span>No phone</span>;
+                                return (
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <Phone className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                                    <a
+                                      href={`tel:${phoneNum}`}
+                                      className="text-text-primary hover:text-accent font-semibold hover:underline cursor-pointer"
+                                      title={`Click to call ${phoneNum}`}
+                                    >
+                                      {phoneNum}
+                                    </a>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const clean = phoneNum.trim();
+                                        if (typeof window !== 'undefined' && navigator.clipboard && window.isSecureContext) {
+                                          navigator.clipboard.writeText(clean);
+                                        } else {
+                                          try {
+                                            const textArea = document.createElement('textarea');
+                                            textArea.value = clean;
+                                            textArea.style.position = 'fixed';
+                                            textArea.style.left = '-999999px';
+                                            document.body.appendChild(textArea);
+                                            textArea.focus();
+                                            textArea.select();
+                                            document.execCommand('copy');
+                                            textArea.remove();
+                                          } catch {}
+                                        }
+                                        setChatHeaderPhoneCopied(true);
+                                        setTimeout(() => setChatHeaderPhoneCopied(false), 1800);
+                                      }}
+                                      className="p-0.5 text-text-muted hover:text-text-primary rounded hover:bg-surface-subtle transition-colors cursor-pointer shrink-0"
+                                      title={chatHeaderPhoneCopied ? 'Copied to clipboard!' : 'Copy phone number'}
+                                    >
+                                      {chatHeaderPhoneCopied ? (
+                                        <span className="inline-flex items-center gap-0.5 text-[8.5px] font-sans font-bold text-emerald-600 dark:text-emerald-400">
+                                          <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                                          <span>Copied</span>
+                                        </span>
+                                      ) : (
+                                        <Copy className="w-2.5 h-2.5 hover:text-accent transition-colors" />
+                                      )}
+                                    </button>
+                                    <a
+                                      href={`tel:${phoneNum}`}
+                                      className="ml-0.5 px-1.5 py-0.2 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[9px] font-semibold rounded border border-sky-200 dark:border-sky-800 transition-colors inline-flex items-center gap-0.5 cursor-pointer shadow-2xs font-sans"
+                                      title={`Click to call ${phoneNum}`}
+                                    >
+                                      <PhoneCall className="w-2.5 h-2.5 text-sky-600 dark:text-sky-400 stroke-[2]" />
+                                      <span>Call</span>
+                                    </a>
+                                  </div>
+                                );
+                              })()}
                               {(() => {
                                 const lastActive = selectedConv.last_message_at || (messages && messages.length > 0 ? messages[messages.length - 1]?.created_at : null);
                                 if (!lastActive) return null;
