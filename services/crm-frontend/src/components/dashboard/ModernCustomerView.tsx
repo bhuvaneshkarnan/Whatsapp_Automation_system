@@ -610,6 +610,67 @@ export function ModernCustomerView({
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
+  // Last Activity / Contacted Timestamp Helper
+  const getLastActivityInfo = (cust: Customer) => {
+    const candidates: { date: Date; type: 'chat' | 'visit' | 'created' }[] = [];
+
+    if (cust.last_chat_at) {
+      const d = new Date(cust.last_chat_at);
+      if (!isNaN(d.getTime())) candidates.push({ date: d, type: 'chat' });
+    }
+    if (cust.last_messaged_at) {
+      const d = new Date(cust.last_messaged_at);
+      if (!isNaN(d.getTime())) candidates.push({ date: d, type: 'chat' });
+    }
+    if (cust.last_visit_date) {
+      const d = new Date(cust.last_visit_date);
+      if (!isNaN(d.getTime())) candidates.push({ date: d, type: 'visit' });
+    }
+    if (cust.created_at) {
+      const d = new Date(cust.created_at);
+      if (!isNaN(d.getTime())) candidates.push({ date: d, type: 'created' });
+    }
+
+    if (candidates.length === 0) {
+      return {
+        label: 'No activity',
+        shortTime: '',
+        isRecent: false,
+        formattedExact: 'No activity recorded',
+      };
+    }
+
+    candidates.sort((a, b) => b.date.getTime() - a.date.getTime());
+    const latest = candidates[0];
+    const now = new Date();
+    const diffMs = now.getTime() - latest.date.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMin / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    const isRecent = diffHours < 24;
+
+    let timeAgo = '';
+    if (diffMin < 2) timeAgo = 'just now';
+    else if (diffMin < 60) timeAgo = `${diffMin}m ago`;
+    else if (diffHours < 24) timeAgo = `${diffHours}h ago`;
+    else if (diffDays === 1) timeAgo = 'Yesterday';
+    else if (diffDays < 7) timeAgo = `${diffDays}d ago`;
+    else timeAgo = latest.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+    let prefix = 'Active';
+    if (latest.type === 'chat') prefix = 'Chat';
+    else if (latest.type === 'visit') prefix = 'Visit';
+    else if (latest.type === 'created' && diffDays >= 7) prefix = 'Added';
+
+    return {
+      label: `${prefix} ${timeAgo}`,
+      shortTime: timeAgo,
+      isRecent,
+      formattedExact: latest.date.toLocaleString(),
+    };
+  };
+
   // Follow-up relative tag helper
   const getFollowupBadge = (dateStr?: string | null) => {
     if (!dateStr) return null;
@@ -1209,13 +1270,13 @@ export function ModernCustomerView({
               <table className="w-full text-left text-xs">
                 <thead className="bg-surface-subtle/80 border-b border-border text-text-secondary font-semibold text-[10.5px] uppercase tracking-wider sticky top-0 z-10 select-none">
                   <tr>
-                    <th className="py-2.5 pl-3 pr-2 min-w-[155px]">Client / Contact</th>
+                    <th className="py-2.5 pl-3 pr-2 min-w-[170px]">Client / Contact</th>
                     <th className="py-2.5 px-2 min-w-[130px] max-w-[190px]">Notes</th>
-                    <th className="py-2.5 px-2 min-w-[95px]">Status</th>
-                    <th className="py-2.5 px-2 min-w-[90px]">Service / Inquiry</th>
-                    <th className="py-2.5 px-2 min-w-[90px]">Assigned To</th>
-                    <th className="py-2.5 px-2 min-w-[95px]">Follow-up</th>
-                    <th className="py-2.5 pl-2 pr-3 text-right min-w-[110px]">Actions</th>
+                    <th className="py-2.5 px-2 min-w-[130px]">Status</th>
+                    <th className="py-2.5 px-2 min-w-[110px]">Service / Inquiry</th>
+                    <th className="py-2.5 px-2 min-w-[100px]">Assigned To</th>
+                    <th className="py-2.5 px-2 min-w-[100px]">Follow-up</th>
+                    <th className="py-2.5 pl-2 pr-3 text-right min-w-[115px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -1238,6 +1299,7 @@ export function ModernCustomerView({
                     filteredCustomers.map((cust) => {
                       const isSelected = selectedCustomer?.id === cust.id;
                       const stageObj = STAGES.find((s) => s.id === cust.status) || STAGES[0];
+                      const lastAct = getLastActivityInfo(cust);
                       const initials = (cust.name || cust.wa_profile_name || 'C')
                         .split(' ')
                         .map((n) => n[0])
@@ -1253,7 +1315,7 @@ export function ModernCustomerView({
                             isSelected ? 'bg-accent-subtle/40 border-l-2 border-l-accent' : 'hover:bg-surface-subtle/60'
                           }`}
                         >
-                          {/* 1. Client & Contact (with Buying Intent below phone) */}
+                          {/* 1. Client & Contact (with Buying Intent & Last Activity) */}
                           <td className="py-2 pl-3 pr-2">
                             <div className="flex items-start gap-2">
                               <div className="w-7 h-7 rounded-full bg-slate-100 border border-border flex items-center justify-center text-text-primary font-bold text-[10px] shrink-0 font-headline group-hover:border-accent/40 transition-colors mt-0.5">
@@ -1277,7 +1339,14 @@ export function ModernCustomerView({
                                 </div>
                                 <div className="text-[10px] text-text-muted font-mono flex items-center gap-1 mt-0.5">
                                   <Phone className="w-2.5 h-2.5 text-text-muted shrink-0" />
-                                  <span className="truncate">{cust.phone}</span>
+                                  <a
+                                    href={`tel:${cust.phone}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="truncate hover:text-accent hover:underline cursor-pointer"
+                                    title="Click to call"
+                                  >
+                                    {cust.phone}
+                                  </a>
                                   {cust.location && (
                                     <>
                                       <span className="opacity-40">•</span>
@@ -1285,8 +1354,8 @@ export function ModernCustomerView({
                                     </>
                                   )}
                                 </div>
-                                {/* Buying Intent below phone number - Clean Minimalist Icon Badge (Zero Emojis) */}
-                                <div className="mt-1 flex items-center" onClick={(e) => e.stopPropagation()}>
+                                {/* Buying Intent and Last Activity Timestamp */}
+                                <div className="mt-1 flex items-center gap-1.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
                                   <div
                                     className={`inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.2 rounded-xs border shadow-2xs ${
                                       cust.lead_probability === 'hot'
@@ -1314,6 +1383,19 @@ export function ModernCustomerView({
                                       <option value="cold">Cold</option>
                                     </select>
                                   </div>
+
+                                  {/* Last Activity / Contacted Timestamp Badge */}
+                                  <span
+                                    className={`inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.2 rounded-xs border shadow-2xs ${
+                                      lastAct.isRecent
+                                        ? 'bg-emerald-50/90 text-emerald-800 border-emerald-200/90 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 font-medium'
+                                        : 'bg-surface-subtle text-text-muted border-border/70'
+                                    }`}
+                                    title={`Last activity: ${lastAct.formattedExact}`}
+                                  >
+                                    <Clock className={`w-2.5 h-2.5 shrink-0 ${lastAct.isRecent ? 'text-emerald-600 dark:text-emerald-400' : 'text-text-muted'}`} />
+                                    <span>{lastAct.label}</span>
+                                  </span>
                                 </div>
                               </div>
                             </div>
@@ -1355,7 +1437,7 @@ export function ModernCustomerView({
                                 title="Add note"
                               >
                                 <Plus className="w-2.5 h-2.5" />
-                                <span>+ Note</span>
+                                <span>Note</span>
                               </button>
                             )}
                           </td>
@@ -1366,7 +1448,7 @@ export function ModernCustomerView({
                               value={cust.status || 'new'}
                               onChange={(e) => handleQuickUpdate(cust.id, { status: e.target.value as any })}
                               disabled={updatingId === cust.id}
-                              className={`text-[10.5px] font-semibold px-1.5 py-1 h-7 rounded-sm border cursor-pointer transition-all shadow-2xs w-full max-w-[115px] truncate ${stageObj.bg} ${stageObj.text} ${stageObj.border}`}
+                              className={`text-[10.5px] font-semibold px-1.5 py-1 h-7 rounded-sm border cursor-pointer transition-all shadow-2xs w-full min-w-[130px] max-w-[145px] truncate ${stageObj.bg} ${stageObj.text} ${stageObj.border}`}
                             >
                               {STAGES.map((st) => (
                                 <option key={st.id} value={st.id}>
@@ -1386,7 +1468,7 @@ export function ModernCustomerView({
                           <td className="py-2 px-2">
                             {cust.health_concern || cust.last_visit_service ? (
                               <span
-                                className="text-[10.5px] font-medium text-text-secondary bg-surface-subtle border border-border/80 px-1.5 py-0.5 rounded-sm inline-block max-w-[115px] truncate"
+                                className="text-[10.5px] font-medium text-text-secondary bg-surface-subtle border border-border/80 px-1.5 py-0.5 rounded-sm inline-block max-w-[135px] truncate"
                                 title={cust.health_concern || cust.last_visit_service || ''}
                               >
                                 {cust.health_concern || cust.last_visit_service}
@@ -1501,25 +1583,34 @@ export function ModernCustomerView({
 
                           {/* 7. Actions */}
                           <td className="py-2 pl-2 pr-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center gap-1 justify-end">
-                              <button
-                                type="button"
-                                onClick={() => onOpenChat(cust)}
-                                className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold rounded-sm border border-emerald-200 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                                title="Open live WhatsApp chat in popup"
+                            <div className="flex flex-col items-end gap-1">
+                              <div className="flex items-center gap-1 justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenChat(cust)}
+                                  className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold rounded-sm border border-emerald-200 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                  title="Open live WhatsApp chat in popup"
+                                >
+                                  <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
+                                  <span>Chat</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenDetails(cust)}
+                                  className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary text-[11px] font-medium rounded-sm border border-border transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                  title="View customer details in popup"
+                                >
+                                  <User className="w-3 h-3 stroke-[1.5]" />
+                                  <span>Details</span>
+                                </button>
+                              </div>
+                              <div
+                                className="text-[9px] text-text-muted font-mono flex items-center justify-end gap-1"
+                                title={`Last contact: ${lastAct.formattedExact}`}
                               >
-                                <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
-                                <span>Chat</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onOpenDetails(cust)}
-                                className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary text-[11px] font-medium rounded-sm border border-border transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                                title="View customer details in popup"
-                              >
-                                <User className="w-3 h-3 stroke-[1.5]" />
-                                <span>Details</span>
-                              </button>
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${lastAct.isRecent ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300 dark:bg-slate-600'}`} />
+                                <span>{lastAct.label}</span>
+                              </div>
                             </div>
                           </td>
                         </tr>
