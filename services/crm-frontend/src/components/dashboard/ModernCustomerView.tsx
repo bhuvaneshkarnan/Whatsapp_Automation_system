@@ -35,6 +35,7 @@ import {
   Edit2,
   MapPin,
   CalendarPlus,
+  GripVertical,
 } from 'lucide-react';
 import { Customer, FollowupTask, CrmDropdownOptions } from '@/lib/api';
 
@@ -438,6 +439,8 @@ export function ModernCustomerView({
   const [staffFilter, setStaffFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [schedulingCustomerId, setSchedulingCustomerId] = useState<string | null>(null);
+  const [draggedCustomerId, setDraggedCustomerId] = useState<string | null>(null);
+  const [dragOverStage, setDragOverStage] = useState<string | null>(null);
 
   // Safe fallback collections
   const safeTasks = useMemo(() => (Array.isArray(tasks) ? tasks : []), [tasks]);
@@ -559,6 +562,27 @@ export function ModernCustomerView({
     } finally {
       setUpdatingId(null);
     }
+  };
+
+  // Drag and Drop lead handler
+  const handleDropLead = async (targetStage: string, customerIdToMove?: string) => {
+    const custId = customerIdToMove || draggedCustomerId;
+    if (!custId) return;
+    const targetCustomer = customers.find((c) => c.id === custId);
+    if (!targetCustomer) return;
+
+    if (targetCustomer.status !== targetStage) {
+      await handleQuickUpdate(custId, {
+        status: targetStage as any,
+        ...(targetStage === 'converted'
+          ? { converted: true }
+          : targetCustomer.converted && targetStage !== 'converted'
+          ? { converted: false }
+          : {}),
+      });
+    }
+    setDraggedCustomerId(null);
+    setDragOverStage(null);
   };
 
   // Relative WhatsApp time helper
@@ -1273,10 +1297,36 @@ export function ModernCustomerView({
               },
             ].map((col) => {
               const colLeads = filteredCustomers.filter((c) => c.status === col.id);
+              const isDropTarget = dragOverStage === col.id;
               return (
                 <div
                   key={col.id}
-                  className={`w-[260px] shrink-0 md:w-auto md:shrink md:flex-1 ${col.colBg} border ${col.border} rounded-md flex flex-col h-full overflow-hidden shadow-2xs`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverStage !== col.id) {
+                      setDragOverStage(col.id);
+                    }
+                  }}
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    setDragOverStage(col.id);
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setDragOverStage((current) => (current === col.id ? null : current));
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const droppedId = e.dataTransfer.getData('text/plain') || draggedCustomerId;
+                    if (droppedId) {
+                      handleDropLead(col.id, droppedId);
+                    }
+                  }}
+                  className={`w-[260px] shrink-0 md:w-auto md:shrink md:flex-1 ${col.colBg} border ${
+                    isDropTarget ? 'border-accent ring-2 ring-accent/40 bg-accent/5' : col.border
+                  } rounded-md flex flex-col h-full overflow-hidden shadow-2xs transition-colors`}
                 >
                   {/* Phase Top Accent Bar */}
                   <div className={`h-1 w-full ${col.topBar}`} />
@@ -1296,28 +1346,48 @@ export function ModernCustomerView({
 
                   {/* Column Card List */}
                   <div className="p-1.5 flex-1 overflow-y-auto space-y-1.5 min-h-0 scrollbar-thin">
-                    {colLeads.length === 0 ? (
+                    {/* Active Drop Guide */}
+                    {isDropTarget && draggedCustomerId && !colLeads.some((c) => c.id === draggedCustomerId) && (
+                      <div className="p-2 border-2 border-dashed border-accent/70 bg-accent/10 rounded-sm text-center text-[10px] font-semibold text-accent animate-pulse">
+                        Drop to move here
+                      </div>
+                    )}
+                    {colLeads.length === 0 && (!isDropTarget || !draggedCustomerId) ? (
                       <div className="p-4 text-center text-text-muted text-[11px] border border-dashed border-border/70 rounded-sm bg-surface/40">
                         No contacts
                       </div>
                     ) : (
                       colLeads.map((cust) => {
                         const isSelected = selectedCustomer?.id === cust.id;
+                        const isDragging = draggedCustomerId === cust.id;
                         return (
                           <div
                             key={cust.id}
+                            draggable
+                            onDragStart={(e) => {
+                              setDraggedCustomerId(cust.id);
+                              e.dataTransfer.setData('text/plain', cust.id);
+                              e.dataTransfer.effectAllowed = 'move';
+                            }}
+                            onDragEnd={() => {
+                              setDraggedCustomerId(null);
+                              setDragOverStage(null);
+                            }}
                             onClick={() => onSelectCustomer(cust)}
-                            className={`p-2 bg-surface dark:bg-surface border rounded-sm shadow-2xs hover:shadow-xs ${col.cardHover} transition-all cursor-pointer space-y-1.5 ${
+                            className={`p-2 bg-surface dark:bg-surface border rounded-sm shadow-2xs hover:shadow-xs ${col.cardHover} transition-all cursor-grab active:cursor-grabbing select-none space-y-1.5 ${
                               isSelected ? 'border-accent ring-1 ring-accent' : 'border-border/80'
-                            }`}
+                            } ${isDragging ? 'opacity-40 border-dashed border-accent' : ''}`}
                           >
-                            {/* Card Header: Name & Temperature */}
+                            {/* Card Header: Drag Handle, Name & Temperature */}
                             <div className="flex items-start justify-between gap-1">
-                              <div className="min-w-0 flex-1">
-                                <h5 className="font-bold text-[11px] text-text-primary hover:text-accent transition-colors truncate leading-tight">
-                                  {cust.name || cust.wa_profile_name || 'Contact'}
-                                </h5>
-                                <p className="text-[9.5px] text-text-muted font-mono leading-none mt-0.5 truncate">{cust.phone}</p>
+                              <div className="flex items-center gap-1 min-w-0 flex-1">
+                                <GripVertical className="w-3 h-3 text-text-muted/50 hover:text-text-muted shrink-0 -ml-0.5 cursor-grab" />
+                                <div className="min-w-0 flex-1">
+                                  <h5 className="font-bold text-[11px] text-text-primary hover:text-accent transition-colors truncate leading-tight">
+                                    {cust.name || cust.wa_profile_name || 'Contact'}
+                                  </h5>
+                                  <p className="text-[9.5px] text-text-muted font-mono leading-none mt-0.5 truncate">{cust.phone}</p>
+                                </div>
                               </div>
                               <span
                                 className={`inline-flex items-center gap-0.5 text-[8.5px] font-bold px-1 py-0.2 rounded-xs uppercase tracking-wider shrink-0 ${
@@ -1354,11 +1424,17 @@ export function ModernCustomerView({
                             )}
 
                             {/* Card Footer: Follow-up & Chat Button */}
-                            <div className="flex items-center justify-between pt-1 border-t border-border/50 text-[9.5px] relative">
+                            <div
+                              draggable={false}
+                              onDragStart={(e) => e.stopPropagation()}
+                              className="flex items-center justify-between pt-1 border-t border-border/50 text-[9.5px] relative"
+                            >
                               <div className="min-w-0">
                                 {cust.followup_date ? (
                                   <button
                                     type="button"
+                                    draggable={false}
+                                    onDragStart={(e) => e.stopPropagation()}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id);
@@ -1371,6 +1447,8 @@ export function ModernCustomerView({
                                 ) : (
                                   <button
                                     type="button"
+                                    draggable={false}
+                                    onDragStart={(e) => e.stopPropagation()}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setSchedulingCustomerId(schedulingCustomerId === cust.id ? null : cust.id);
@@ -1386,6 +1464,8 @@ export function ModernCustomerView({
                               <div className="flex items-center gap-1 shrink-0">
                                 <button
                                   type="button"
+                                  draggable={false}
+                                  onDragStart={(e) => e.stopPropagation()}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     onOpenChat(cust);
