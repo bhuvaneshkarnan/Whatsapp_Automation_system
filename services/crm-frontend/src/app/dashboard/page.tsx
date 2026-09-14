@@ -41,6 +41,7 @@ import {
   Send,
   Sparkles,
   Phone,
+  PhoneCall,
   Search,
   LogOut,
   RefreshCw,
@@ -1455,6 +1456,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   });
   const [sidebarFilter, setSidebarFilter] = useState<'all' | 'recent' | 'favorites' | 'active'>('all');
   const [settingsTab, setSettingsTab] = useState<'branding' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team'>('branding');
+  const [drawerPhoneCopied, setDrawerPhoneCopied] = useState(false);
 
   // Live Google Calendar Slot Availability Tester in Dashboard Settings
   const [dashCalendarLoading, setDashCalendarLoading] = useState(false);
@@ -6936,7 +6938,63 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               )}
             </div>
             <div className="flex items-center gap-2 font-mono text-[10px] text-text-muted mt-0.5 flex-wrap">
-              <span>{selectedCustomer.phone}</span>
+              <div className="flex items-center gap-1">
+                <Phone className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                <a
+                  href={`tel:${selectedCustomer.phone}`}
+                  className="hover:text-accent hover:underline cursor-pointer font-semibold text-text-primary text-[10.5px]"
+                  title={`Click to call ${selectedCustomer.phone}`}
+                >
+                  {selectedCustomer.phone}
+                </a>
+                {selectedCustomer.phone && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!selectedCustomer.phone) return;
+                      const clean = selectedCustomer.phone.trim();
+                      if (typeof window !== 'undefined' && navigator.clipboard && window.isSecureContext) {
+                        navigator.clipboard.writeText(clean);
+                      } else {
+                        try {
+                          const textArea = document.createElement('textarea');
+                          textArea.value = clean;
+                          textArea.style.position = 'fixed';
+                          textArea.style.left = '-999999px';
+                          document.body.appendChild(textArea);
+                          textArea.focus();
+                          textArea.select();
+                          document.execCommand('copy');
+                          textArea.remove();
+                        } catch {}
+                      }
+                      setDrawerPhoneCopied(true);
+                      setTimeout(() => setDrawerPhoneCopied(false), 1800);
+                    }}
+                    className="p-0.5 text-text-muted hover:text-text-primary rounded hover:bg-surface-subtle transition-colors cursor-pointer shrink-0"
+                    title={drawerPhoneCopied ? 'Copied to clipboard!' : 'Copy phone number'}
+                  >
+                    {drawerPhoneCopied ? (
+                      <span className="inline-flex items-center gap-0.5 text-[8.5px] font-sans font-bold text-emerald-600 dark:text-emerald-400">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                        <span>Copied</span>
+                      </span>
+                    ) : (
+                      <Copy className="w-2.5 h-2.5 hover:text-accent transition-colors" />
+                    )}
+                  </button>
+                )}
+                {selectedCustomer.phone && (
+                  <a
+                    href={`tel:${selectedCustomer.phone}`}
+                    className="ml-1 px-2 py-0.5 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[10px] font-semibold rounded border border-sky-200 dark:border-sky-800 transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
+                    title={`Click to call ${selectedCustomer.phone}`}
+                  >
+                    <PhoneCall className="w-2.5 h-2.5 text-sky-600 dark:text-sky-400 stroke-[2]" />
+                    <span>Call</span>
+                  </a>
+                )}
+              </div>
               {(selectedCustomer.age || selectedCustomer.location) && (
                 <>
                   <span className="opacity-40">•</span>
