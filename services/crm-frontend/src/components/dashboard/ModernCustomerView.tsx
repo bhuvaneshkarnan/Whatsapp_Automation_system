@@ -37,7 +37,7 @@ import {
   CalendarPlus,
   GripVertical,
 } from 'lucide-react';
-import { Customer, FollowupTask, CrmDropdownOptions } from '@/lib/api';
+import { Customer, FollowupTask, CrmDropdownOptions, crm as api } from '@/lib/api';
 
 // Date string helper for follow-up scheduling
 function getFollowupDateString(offsetDays: number = 0): string {
@@ -403,6 +403,8 @@ interface ModernCustomerViewProps {
   loadingNotes?: boolean;
   onDeleteNote?: (noteId: string) => void;
   onAddTask?: () => void;
+  onToggleTask?: (taskId: string) => void;
+  onDeleteTask?: (taskId: string) => void;
   onOpenQuickNote?: (cust: { id: string; name?: string | null; latest_note?: string | null; latest_note_id?: string | null; latest_note_color?: string | null }) => void;
   onDeleteLatestNote?: (cust: { id: string; name?: string | null; latest_note_id?: string | null }) => void;
 }
@@ -429,6 +431,8 @@ export function ModernCustomerView({
   loadingNotes,
   onDeleteNote,
   onAddTask,
+  onToggleTask,
+  onDeleteTask,
   onOpenQuickNote,
   onDeleteLatestNote,
 }: ModernCustomerViewProps) {
@@ -441,6 +445,11 @@ export function ModernCustomerView({
   const [schedulingCustomerId, setSchedulingCustomerId] = useState<string | null>(null);
   const [draggedCustomerId, setDraggedCustomerId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+
+  // Tasks Filter & State
+  const [taskFilter, setTaskFilter] = useState<'all' | 'pending' | 'overdue' | 'today' | 'upcoming' | 'completed'>('all');
+  const [taskSearch, setTaskSearch] = useState('');
+  const [togglingTaskId, setTogglingTaskId] = useState<string | null>(null);
 
   // Safe fallback collections
   const safeTasks = useMemo(() => (Array.isArray(tasks) ? tasks : []), [tasks]);
@@ -642,6 +651,303 @@ export function ModernCustomerView({
       </span>
     );
   };
+
+  // Human-readable task due date helper
+  const formatTaskDueDate = (dueStr?: string | null) => {
+    if (!dueStr) {
+      return {
+        label: 'No due date set',
+        shortLabel: 'No date',
+        timeStr: '',
+        dateStr: '',
+        urgency: 'none' as const,
+        isOverdue: false,
+        isToday: false,
+      };
+    }
+
+    try {
+      const dueDate = new Date(dueStr);
+      if (isNaN(dueDate.getTime())) {
+        return {
+          label: dueStr,
+          shortLabel: dueStr,
+          timeStr: '',
+          dateStr: '',
+          urgency: 'none' as const,
+          isOverdue: false,
+          isToday: false,
+        };
+      }
+
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const targetDay = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+      const diffTime = targetDay.getTime() - today.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+      const timeStr = dueDate.toLocaleTimeString([], {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+
+      const dateStr = dueDate.toLocaleDateString([], {
+        month: 'short',
+        day: 'numeric',
+        year: dueDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+      });
+
+      if (diffDays < 0) {
+        const overdueDays = Math.abs(diffDays);
+        return {
+          label: `Overdue: ${dateStr} at ${timeStr} (${overdueDays}d overdue)`,
+          shortLabel: `${overdueDays}d overdue`,
+          timeStr,
+          dateStr,
+          urgency: 'overdue' as const,
+          isOverdue: true,
+          isToday: false,
+        };
+      }
+
+      if (diffDays === 0) {
+        return {
+          label: `Due Today at ${timeStr}`,
+          shortLabel: `Today, ${timeStr}`,
+          timeStr,
+          dateStr,
+          urgency: 'today' as const,
+          isOverdue: false,
+          isToday: true,
+        };
+      }
+
+      if (diffDays === 1) {
+        return {
+          label: `Tomorrow at ${timeStr}`,
+          shortLabel: `Tomorrow, ${timeStr}`,
+          timeStr,
+          dateStr,
+          urgency: 'upcoming' as const,
+          isOverdue: false,
+          isToday: false,
+        };
+      }
+
+      return {
+        label: `${dateStr} at ${timeStr}`,
+        shortLabel: `${dateStr}`,
+        timeStr,
+        dateStr,
+        urgency: 'upcoming' as const,
+        isOverdue: false,
+        isToday: false,
+      };
+    } catch {
+      return {
+        label: dueStr,
+        shortLabel: dueStr,
+        timeStr: '',
+        dateStr: '',
+        urgency: 'none' as const,
+        isOverdue: false,
+        isToday: false,
+      };
+    }
+  };
+
+  // Parse task title and description into structured fields
+  const parseTaskDetails = (task: FollowupTask) => {
+    let rawTitle = (task.title || '').trim();
+    let customerName = (task.customer_name || '').trim();
+
+    if (!customerName) {
+      if (rawTitle.toLowerCase().startsWith('follow-up:')) {
+        customerName = rawTitle.replace(/^follow-up:\s*/i, '').trim();
+      } else {
+        customerName = rawTitle;
+      }
+    }
+
+    let service = (task.health_concern || '').trim();
+    let phone = (task.customer_phone || '').trim();
+    let extraNotes = '';
+
+    const desc = (task.description || '').trim();
+    if (desc) {
+      const parts = desc.split('|').map((p) => p.trim());
+      const unparsedParts: string[] = [];
+
+      for (const part of parts) {
+        const serviceMatch = part.match(/^(?:Health Concern|Service)\s*:\s*(.+)$/i);
+        const phoneMatch = part.match(/^(?:Phone|Mobile)\s*:\s*(.+)$/i);
+
+        if (serviceMatch) {
+          if (!service) service = serviceMatch[1].trim();
+        } else if (phoneMatch) {
+          if (!phone) phone = phoneMatch[1].trim();
+        } else {
+          unparsedParts.push(part);
+        }
+      }
+      extraNotes = unparsedParts.join(' | ').trim();
+    }
+
+    // Match with customer from list
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const matchedCust = customers.find((c) => {
+      if (task.customer_id && c.id === task.customer_id) return true;
+      if (cleanPhone && c.phone) {
+        const cClean = c.phone.replace(/[^0-9]/g, '');
+        if (cClean === cleanPhone || (cClean.length >= 10 && cleanPhone.length >= 10 && cClean.slice(-10) === cleanPhone.slice(-10))) {
+          return true;
+        }
+      }
+      if (customerName && c.name && c.name.toLowerCase().trim() === customerName.toLowerCase().trim()) {
+        return true;
+      }
+      return false;
+    });
+
+    if (matchedCust) {
+      if (!customerName || customerName === 'Contact') {
+        customerName = matchedCust.name || matchedCust.wa_profile_name || 'Contact';
+      }
+      if (!phone) phone = matchedCust.phone;
+      if (!service) service = matchedCust.health_concern || matchedCust.last_visit_service || '';
+    }
+
+    return {
+      customerName: customerName || 'Contact',
+      service,
+      phone,
+      extraNotes,
+      matchedCust,
+    };
+  };
+
+  // Toggle task completion
+  const handleToggleTaskInternal = async (taskId: string) => {
+    if (onToggleTask) {
+      onToggleTask(taskId);
+      return;
+    }
+    try {
+      setTogglingTaskId(taskId);
+      await api.toggleTask(taskId);
+      onRefresh();
+    } catch (err) {
+      console.error('Failed to toggle task:', err);
+    } finally {
+      setTogglingTaskId(null);
+    }
+  };
+
+  // Delete task
+  const handleDeleteTaskInternal = async (taskId: string) => {
+    if (!confirm('Are you sure you want to delete this task?')) return;
+    if (onDeleteTask) {
+      onDeleteTask(taskId);
+      return;
+    }
+    try {
+      await api.deleteTask(taskId);
+      onRefresh();
+    } catch (err) {
+      console.error('Failed to delete task:', err);
+    }
+  };
+
+  // Processed and filtered tasks
+  const processedTasks = useMemo(() => {
+    return safeTasks.map((t) => {
+      const details = parseTaskDetails(t);
+      const dueInfo = formatTaskDueDate(t.due_date);
+      return {
+        ...t,
+        parsed: details,
+        dueInfo,
+      };
+    });
+  }, [safeTasks, customers]);
+
+  const taskCounts = useMemo(() => {
+    let overdue = 0;
+    let today = 0;
+    let upcoming = 0;
+    let completed = 0;
+
+    for (const t of processedTasks) {
+      if (t.completed) {
+        completed++;
+      } else if (t.dueInfo.isOverdue) {
+        overdue++;
+      } else if (t.dueInfo.isToday) {
+        today++;
+      } else {
+        upcoming++;
+      }
+    }
+
+    return {
+      all: processedTasks.length,
+      pending: processedTasks.length - completed,
+      overdue,
+      today,
+      upcoming,
+      completed,
+    };
+  }, [processedTasks]);
+
+  const filteredTasks = useMemo(() => {
+    let list = processedTasks;
+
+    if (taskFilter === 'overdue') {
+      list = list.filter((t) => !t.completed && t.dueInfo.isOverdue);
+    } else if (taskFilter === 'today') {
+      list = list.filter((t) => !t.completed && t.dueInfo.isToday);
+    } else if (taskFilter === 'upcoming') {
+      list = list.filter((t) => !t.completed && !t.dueInfo.isOverdue && !t.dueInfo.isToday);
+    } else if (taskFilter === 'pending') {
+      list = list.filter((t) => !t.completed);
+    } else if (taskFilter === 'completed') {
+      list = list.filter((t) => t.completed);
+    }
+
+    if (taskSearch.trim()) {
+      const q = taskSearch.toLowerCase().trim();
+      list = list.filter((t) => {
+        return (
+          t.title.toLowerCase().includes(q) ||
+          t.parsed.customerName.toLowerCase().includes(q) ||
+          t.parsed.phone.includes(q) ||
+          t.parsed.service.toLowerCase().includes(q) ||
+          (t.description && t.description.toLowerCase().includes(q))
+        );
+      });
+    }
+
+    return [...list].sort((a, b) => {
+      if (a.completed !== b.completed) {
+        return a.completed ? 1 : -1;
+      }
+      if (!a.completed && !b.completed) {
+        if (a.dueInfo.isOverdue && !b.dueInfo.isOverdue) return -1;
+        if (!a.dueInfo.isOverdue && b.dueInfo.isOverdue) return 1;
+
+        if (a.dueInfo.isToday && !b.dueInfo.isToday) return -1;
+        if (!a.dueInfo.isToday && b.dueInfo.isToday) return 1;
+
+        if (a.due_date && b.due_date) {
+          return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+        }
+        if (a.due_date && !b.due_date) return -1;
+        if (!a.due_date && b.due_date) return 1;
+      }
+      return 0;
+    });
+  }, [processedTasks, taskFilter, taskSearch]);
 
   // Dynamic color for note cards
   const getNoteCardStyle = (color?: string | null) => {
@@ -1514,52 +1820,367 @@ export function ModernCustomerView({
 
         {/* TASKS VIEW */}
         {viewMode === 'tasks' && (
-          <div className="flex-1 flex flex-col border border-border rounded-md bg-surface p-4 overflow-y-auto space-y-3">
-            <div className="flex items-center justify-between border-b border-border pb-3">
+          <div className="flex-1 flex flex-col border border-border rounded-md bg-surface p-4 overflow-y-auto space-y-4">
+            {/* Header & Quick Controls */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-3">
               <div>
                 <h4 className="font-bold text-sm text-text-primary">Scheduled Follow-up Tasks</h4>
-                <p className="text-xs text-text-muted">Manage scheduled follow-ups, calls, and appointments.</p>
+                <p className="text-xs text-text-muted">Manage scheduled client calls, consultations, and WhatsApp follow-ups.</p>
               </div>
-              {onAddTask && (
-                <button
-                  type="button"
-                  onClick={onAddTask}
-                  className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Task</span>
-                </button>
-              )}
+
+              <div className="flex items-center gap-2">
+                {/* Search tasks */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                  <input
+                    type="text"
+                    value={taskSearch}
+                    onChange={(e) => setTaskSearch(e.target.value)}
+                    placeholder="Search tasks or client..."
+                    className="pl-8 pr-3 py-1 text-xs bg-surface-subtle border border-border rounded-xs focus:outline-hidden focus:border-accent w-48 text-text-primary"
+                  />
+                  {taskSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setTaskSearch('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {onAddTask && (
+                  <button
+                    type="button"
+                    onClick={onAddTask}
+                    className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 shadow-2xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Task</span>
+                  </button>
+                )}
+              </div>
             </div>
 
+            {/* Task Filter Tabs */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin">
+              <button
+                type="button"
+                onClick={() => setTaskFilter('all')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  taskFilter === 'all'
+                    ? 'bg-accent text-white shadow-2xs'
+                    : 'bg-surface-subtle hover:bg-surface border border-border text-text-secondary'
+                }`}
+              >
+                <span>All</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  taskFilter === 'all' ? 'bg-white/20 text-white' : 'bg-surface text-text-muted'
+                }`}>
+                  {taskCounts.all}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTaskFilter('overdue')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  taskFilter === 'overdue'
+                    ? 'bg-rose-600 text-white shadow-2xs'
+                    : 'bg-rose-50/60 hover:bg-rose-100/70 border border-rose-200 text-rose-800 dark:bg-rose-950/30 dark:border-rose-900 dark:text-rose-300'
+                }`}
+              >
+                <AlertTriangle className="w-3 h-3 shrink-0" />
+                <span>Overdue</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  taskFilter === 'overdue' ? 'bg-white/20 text-white' : 'bg-rose-200/70 text-rose-900 dark:bg-rose-900 dark:text-rose-200'
+                }`}>
+                  {taskCounts.overdue}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTaskFilter('today')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  taskFilter === 'today'
+                    ? 'bg-amber-600 text-white shadow-2xs'
+                    : 'bg-amber-50/60 hover:bg-amber-100/70 border border-amber-200 text-amber-800 dark:bg-amber-950/30 dark:border-amber-900 dark:text-amber-300'
+                }`}
+              >
+                <Clock className="w-3 h-3 shrink-0" />
+                <span>Today</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  taskFilter === 'today' ? 'bg-white/20 text-white' : 'bg-amber-200/70 text-amber-900 dark:bg-amber-900 dark:text-amber-200'
+                }`}>
+                  {taskCounts.today}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTaskFilter('upcoming')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  taskFilter === 'upcoming'
+                    ? 'bg-sky-600 text-white shadow-2xs'
+                    : 'bg-sky-50/60 hover:bg-sky-100/70 border border-sky-200 text-sky-800 dark:bg-sky-950/30 dark:border-sky-900 dark:text-sky-300'
+                }`}
+              >
+                <Calendar className="w-3 h-3 shrink-0" />
+                <span>Upcoming</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  taskFilter === 'upcoming' ? 'bg-white/20 text-white' : 'bg-sky-200/70 text-sky-900 dark:bg-sky-900 dark:text-sky-200'
+                }`}>
+                  {taskCounts.upcoming}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTaskFilter('completed')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  taskFilter === 'completed'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'bg-emerald-50/60 hover:bg-emerald-100/70 border border-emerald-200 text-emerald-800 dark:bg-emerald-950/30 dark:border-emerald-900 dark:text-emerald-300'
+                }`}
+              >
+                <Check className="w-3 h-3 shrink-0" />
+                <span>Completed</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  taskFilter === 'completed' ? 'bg-white/20 text-white' : 'bg-emerald-200/70 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-200'
+                }`}>
+                  {taskCounts.completed}
+                </span>
+              </button>
+            </div>
+
+            {/* Tasks List */}
             {loadingTasks ? (
-              <p className="text-xs text-text-muted text-center py-8">Loading tasks...</p>
-            ) : safeTasks.length === 0 ? (
-              <div className="p-8 text-center text-text-muted text-xs">No pending tasks found.</div>
+              <div className="py-12 text-center text-text-muted text-xs flex flex-col items-center gap-2">
+                <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                <span>Loading scheduled tasks...</span>
+              </div>
+            ) : filteredTasks.length === 0 ? (
+              <div className="p-12 text-center text-text-muted text-xs border border-dashed border-border rounded-md bg-surface-subtle/30">
+                {taskSearch ? 'No tasks matching your search.' : 'No tasks in this view.'}
+              </div>
             ) : (
-              <div className="space-y-2">
-                {safeTasks.map((t) => (
-                  <div
-                    key={t.id}
-                    className="p-3 bg-surface-subtle border border-border rounded-md flex items-center justify-between gap-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="font-semibold text-xs text-text-primary">{t.title}</p>
-                      {t.description && <p className="text-[11px] text-text-secondary mt-0.5">{t.description}</p>}
-                      <div className="flex items-center gap-2 text-[10px] text-text-muted font-mono mt-1">
-                        {t.due_date && <span>Due: {t.due_date}</span>}
-                        {t.assigned_to && <span>• Assigned: {t.assigned_to}</span>}
-                      </div>
-                    </div>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-xs uppercase ${
-                        t.completed ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+              <div className="space-y-2.5">
+                {filteredTasks.map((t) => {
+                  const isOverdue = !t.completed && t.dueInfo.isOverdue;
+                  const isToday = !t.completed && t.dueInfo.isToday;
+                  const cust = t.parsed.matchedCust;
+                  const leadProb = t.lead_probability || cust?.lead_probability;
+
+                  return (
+                    <div
+                      key={t.id}
+                      className={`p-3 bg-surface border rounded-md transition-all shadow-2xs hover:shadow-xs space-y-2 ${
+                        t.completed
+                          ? 'border-border/60 bg-surface-subtle/40 opacity-75'
+                          : isOverdue
+                          ? 'border-rose-200 dark:border-rose-900/50 border-l-4 border-l-rose-500 bg-rose-50/15 dark:bg-rose-950/10'
+                          : isToday
+                          ? 'border-amber-200 dark:border-amber-900/50 border-l-4 border-l-amber-500 bg-amber-50/15 dark:bg-amber-950/10'
+                          : 'border-border/80 border-l-4 border-l-sky-500'
                       }`}
                     >
-                      {t.completed ? 'Completed' : 'Pending'}
-                    </span>
-                  </div>
-                ))}
+                      <div className="flex items-start justify-between gap-3">
+                        {/* Checkbox and Main Info */}
+                        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTaskInternal(t.id)}
+                            disabled={togglingTaskId === t.id}
+                            className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer ${
+                              t.completed
+                                ? 'bg-emerald-500 text-white shadow-2xs'
+                                : 'border-2 border-border hover:border-emerald-500 hover:bg-emerald-50 text-transparent hover:text-emerald-600'
+                            }`}
+                            title={t.completed ? 'Mark task pending' : 'Mark task completed'}
+                          >
+                            <Check className="w-3 h-3 stroke-[3]" />
+                          </button>
+
+                          <div className="min-w-0 flex-1">
+                            {/* Client Name & Urgency Header */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4
+                                onClick={() => {
+                                  if (cust) onSelectCustomer(cust);
+                                }}
+                                className={`font-bold text-sm text-text-primary ${
+                                  cust ? 'hover:text-accent cursor-pointer' : ''
+                                } truncate ${t.completed ? 'line-through text-text-muted' : ''}`}
+                                title={cust ? 'Click to open customer profile' : undefined}
+                              >
+                                {t.parsed.customerName}
+                              </h4>
+
+                              {/* Action Tag */}
+                              <span className="text-[10px] font-semibold px-2 py-0.2 rounded-full bg-accent/10 text-accent border border-accent/20 shrink-0">
+                                Follow-up
+                              </span>
+
+                              {/* Temperature Tag */}
+                              {leadProb && (
+                                <span
+                                  className={`inline-flex items-center gap-0.5 text-[8.5px] font-bold px-1.5 py-0.2 rounded-xs uppercase tracking-wider shrink-0 ${
+                                    leadProb === 'hot'
+                                      ? 'bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300'
+                                      : leadProb === 'cold'
+                                      ? 'bg-sky-50 text-sky-700 border border-sky-200 dark:bg-sky-950/40 dark:text-sky-300'
+                                      : 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300'
+                                  }`}
+                                >
+                                  {leadProb === 'hot' ? (
+                                    <Flame className="w-2.5 h-2.5 text-rose-600 stroke-[2] shrink-0" />
+                                  ) : leadProb === 'cold' ? (
+                                    <Snowflake className="w-2.5 h-2.5 text-sky-600 stroke-[2] shrink-0" />
+                                  ) : (
+                                    <Sun className="w-2.5 h-2.5 text-amber-600 stroke-[2] shrink-0" />
+                                  )}
+                                  <span>{leadProb}</span>
+                                </span>
+                              )}
+
+                              {/* Funnel Stage */}
+                              {cust?.status && (
+                                <span className="text-[9.5px] font-medium px-2 py-0.2 rounded-full bg-surface-subtle text-text-secondary border border-border/70 shrink-0">
+                                  {cust.status === 'new'
+                                    ? 'New Inquiry'
+                                    : cust.status === 'contacted'
+                                    ? 'Contacted'
+                                    : cust.status === 'follow-up'
+                                    ? 'Follow-up Due'
+                                    : cust.status === 'converted'
+                                    ? 'Converted'
+                                    : cust.status === 'lost'
+                                    ? 'Lost'
+                                    : cust.status}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Metadata Pills: Due Date, Service, Phone, Assignee */}
+                            <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                              {/* Due Date Badge */}
+                              <span
+                                className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-xs border shrink-0 ${
+                                  t.completed
+                                    ? 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300'
+                                    : isOverdue
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+                                    : isToday
+                                    ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                                    : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
+                                }`}
+                              >
+                                {isOverdue && !t.completed ? (
+                                  <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                                ) : isToday && !t.completed ? (
+                                  <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                                ) : (
+                                  <Calendar className="w-3 h-3 text-sky-600 shrink-0" />
+                                )}
+                                <span>{t.dueInfo.label}</span>
+                              </span>
+
+                              {/* Service Badge */}
+                              {t.parsed.service && (
+                                <span className="inline-flex items-center gap-1 text-[11px] text-text-secondary bg-surface-subtle border border-border/60 px-2 py-0.5 rounded-xs shrink-0 font-medium">
+                                  <Tag className="w-3 h-3 text-text-muted" />
+                                  <span>{t.parsed.service}</span>
+                                </span>
+                              )}
+
+                              {/* Phone Badge */}
+                              {t.parsed.phone && (
+                                <span className="inline-flex items-center gap-1 text-[11px] text-text-muted font-mono bg-surface-subtle border border-border/60 px-2 py-0.5 rounded-xs shrink-0">
+                                  <Phone className="w-3 h-3 text-text-muted" />
+                                  <span>{t.parsed.phone}</span>
+                                </span>
+                              )}
+
+                              {/* Assignee Badge */}
+                              {t.assigned_to && (
+                                <span className="inline-flex items-center gap-1 text-[11px] text-text-muted shrink-0">
+                                  <User className="w-3 h-3 text-text-muted" />
+                                  <span>{t.assigned_to}</span>
+                                </span>
+                              )}
+
+                              {/* Google Tasks Sync Indicator */}
+                              {t.google_task_id && (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400 font-medium shrink-0">
+                                  <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                                  <span>Google Tasks Synced</span>
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Extra Notes if any */}
+                            {t.parsed.extraNotes && (
+                              <p className="text-[11px] text-text-secondary bg-surface-subtle/80 border border-border/40 rounded-xs px-2 py-1 mt-1.5 max-w-xl italic">
+                                "{t.parsed.extraNotes}"
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Right Quick Action Buttons */}
+                        <div className="flex items-center gap-1.5 shrink-0 self-start mt-0.5">
+                          {/* WhatsApp Chat Button */}
+                          {cust ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenChat(cust)}
+                              className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 font-semibold rounded-xs border border-emerald-200 dark:border-emerald-800 transition-colors flex items-center gap-1.5 text-xs shadow-2xs cursor-pointer"
+                              title="Open live WhatsApp chat in popup"
+                            >
+                              <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
+                              <span>Chat</span>
+                            </button>
+                          ) : t.parsed.phone ? (
+                            <a
+                              href={`https://wa.me/${t.parsed.phone.replace(/[^0-9]/g, '')}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 font-semibold rounded-xs border border-emerald-200 dark:border-emerald-800 transition-colors flex items-center gap-1.5 text-xs shadow-2xs cursor-pointer"
+                              title="Open WhatsApp in new tab"
+                            >
+                              <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
+                              <span>Chat</span>
+                            </a>
+                          ) : null}
+
+                          {/* View Customer Details Button */}
+                          {cust && (
+                            <button
+                              type="button"
+                              onClick={() => onSelectCustomer(cust)}
+                              className="px-2 py-1 bg-surface-subtle hover:bg-surface text-text-primary text-xs font-medium rounded-xs border border-border transition-colors cursor-pointer"
+                              title="Open customer profile"
+                            >
+                              Details
+                            </button>
+                          )}
+
+                          {/* Delete Task Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTaskInternal(t.id)}
+                            className="p-1 text-text-muted hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xs transition-colors cursor-pointer"
+                            title="Delete task"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

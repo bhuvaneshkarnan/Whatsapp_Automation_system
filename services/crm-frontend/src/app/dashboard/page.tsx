@@ -12128,6 +12128,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   loadingNotes={loadingAllNotes}
                   onDeleteNote={handleDeleteNote}
                   onAddTask={() => setShowAddTaskModal(true)}
+                  onToggleTask={handleToggleTask}
+                  onDeleteTask={handleDeleteTask}
                   onOpenQuickNote={(cust) => {
                     setQuickNoteCustomer({
                       customerId: cust.id,
