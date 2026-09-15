@@ -780,6 +780,37 @@ export const crm = {
       body: JSON.stringify(data),
     }),
 
+  getPublicReviewInfo: async (slug: string) => {
+    try {
+      return await publicRequest<{
+        status: string;
+        name: string;
+        slug: string;
+        plan: string;
+        industry: string;
+        logo_url?: string;
+        gmb_review_url?: string;
+        review_experience_tags?: string[];
+        requirement_presets?: string[];
+        services?: string[];
+      }>(`/api/v1/crm/public/${slug}/review-info`);
+    } catch {
+      const bInfo = await publicBooking.getInfo(slug);
+      return {
+        status: 'ok',
+        name: bInfo.name,
+        slug: bInfo.slug,
+        plan: bInfo.plan,
+        industry: bInfo.industry,
+        logo_url: bInfo.logo_url,
+        gmb_review_url: '',
+        review_experience_tags: [],
+        requirement_presets: bInfo.health_concerns || [],
+        services: bInfo.health_concerns || []
+      };
+    }
+  },
+
   getCustomerReviews: (filters?: { rating?: number; destination?: string; status?: string }) => {
     const params = new URLSearchParams();
     if (filters?.rating) params.set('rating', String(filters.rating));

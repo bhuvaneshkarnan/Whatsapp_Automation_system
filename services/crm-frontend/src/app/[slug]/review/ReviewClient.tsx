@@ -62,9 +62,9 @@ export default function ReviewClient() {
     async function loadSettings() {
       setLoading(true);
       try {
-        const data = await crm.getTenantSettings(slugParam);
-        setSettings(data);
-        const presets = data.taxonomy?.requirement_presets || data.requirement_presets || [];
+        const data = await crm.getPublicReviewInfo(slugParam);
+        setSettings(data as any);
+        const presets = (data as any).services || (data as any).requirement_presets || (data as any).taxonomy?.requirement_presets || [];
         if (presets.length > 0) {
           setServiceName(presets[0]);
         }

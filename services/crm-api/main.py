@@ -10669,7 +10669,69 @@ class PublicReviewSubmitRequest(BaseModel):
     experience_notes: Optional[str] = ""
 
 
+@app.get("/public/{slug}/review-info")
+@app.get("/api/v1/crm/public/{slug}/review-info")
+async def get_public_review_info(slug: str):
+    """Public endpoint for /{slug}/review page. Returns public business name, logo, custom experience tags, and service presets without authentication."""
+    slug_clean = (slug or "").strip().lower()
+    async with db_pool.acquire() as conn:
+        tenant = await conn.fetchrow(
+            "SELECT id, name, slug, plan, settings FROM tenants WHERE LOWER(slug) = $1 OR id::text = $1 LIMIT 1",
+            slug_clean
+        )
+        if not tenant:
+            raise HTTPException(404, "Organization not found")
+        
+        cfg = tenant["settings"] or {}
+        if isinstance(cfg, str):
+            try: cfg = json.loads(cfg)
+            except: cfg = {}
+            
+        tax = cfg.get("taxonomy") or {}
+        if isinstance(tax, str):
+            try: tax = json.loads(tax)
+            except: tax = {}
+
+        industry = cfg.get("industry") or "clinic"
+        default_concerns = {
+            "clinic": ["General Consultation", "Dental Checkup & Cleaning", "Skin Health & Dermatology", "Back Pain & Physio", "Diabetes & Wellness"],
+            "education": ["Class 10 Board Exam", "Class 12 IIT-JEE (Physics/Math)", "NEET Medical Entrance", "Spoken English & Fluency"],
+            "real_estate": ["2 BHK Apartment (Mid-Budget)", "3 BHK Luxury Villa", "Commercial Office Space", "Residential Plot / Land"],
+            "salon_spa": ["Haircut & Styling", "Keratin / Hair Spa", "Facial & Skin Rejuvenation", "Bridal Makeup Package"],
+            "automobile": ["Periodic General Service", "Brake & Suspension Check", "Engine Diagnostics & Oil Change"],
+        }.get(industry, ["General Consultation", "Follow-up Visit", "Specialist Consultation"])
+
+        services = tax.get("requirement_presets") or cfg.get("requirement_presets") or default_concerns
+        
+        default_tags = [
+            'Friendly & Caring Staff',
+            'Clean & Hygienic Space',
+            'Quick & Prompt Service',
+            'Detailed Explanation',
+            'Great Results & Treatment',
+            'Value for Money',
+            'Comfortable & Relaxing',
+            'Easy Booking & Response',
+        ]
+        tags = cfg.get("review_experience_tags") or default_tags
+        gmb_url = cfg.get("gmb_review_url") or cfg.get("google_review_link") or ""
+
+        return {
+            "status": "ok",
+            "name": tenant["name"],
+            "slug": tenant["slug"],
+            "plan": tenant["plan"],
+            "industry": industry,
+            "logo_url": cfg.get("logo_url", ""),
+            "gmb_review_url": gmb_url,
+            "review_experience_tags": tags,
+            "requirement_presets": services,
+            "services": services
+        }
+
+
 @app.post("/reviews/submit")
+@app.post("/api/v1/crm/reviews/submit")
 async def submit_public_review(payload: PublicReviewSubmitRequest):
     """Public endpoint for customer smart reviews & GMB feedback collection."""
     slug = (payload.tenant_slug or "").strip().lower()
@@ -10681,7 +10743,7 @@ async def submit_public_review(payload: PublicReviewSubmitRequest):
         t_id = tenant["id"]
         t_name = tenant["name"]
         settings = tenant["settings"] if isinstance(tenant["settings"], dict) else json.loads(tenant["settings"] or "{}")
-        gmb_url = settings.get("gmb_review_url") or ""
+        gmb_url = settings.get("gmb_review_url") or settings.get("google_review_link") or ""
 
         srv = (payload.service_name or "service").strip()
         notes = (payload.experience_notes or "").strip()
@@ -10722,6 +10784,7 @@ async def submit_public_review(payload: PublicReviewSubmitRequest):
 
 
 @app.get("/reviews")
+@app.get("/api/v1/crm/reviews")
 async def list_customer_reviews(
     tenant_id: str = Depends(get_tenant_id),
     rating: Optional[int] = None,
@@ -10766,6 +10829,7 @@ class ReviewStatusUpdateRequest(BaseModel):
     status: str
 
 @app.patch("/reviews/{review_id}")
+@app.patch("/api/v1/crm/reviews/{review_id}")
 async def update_customer_review_status(
     review_id: str,
     payload: ReviewStatusUpdateRequest,
