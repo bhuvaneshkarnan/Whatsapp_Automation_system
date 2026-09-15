@@ -6927,6 +6927,10 @@ class TenantBillingUpdate(BaseModel):
     billing_cycle_day: Optional[int] = None
     razorpay_subscription_id: Optional[str] = None
     next_renewal_date: Optional[str] = None
+    sales_channel: Optional[str] = None
+    partner_name: Optional[str] = None
+    partner_share_pct: Optional[float] = None
+    owner_share_pct: Optional[float] = None
 
 
 @app.put("/admin/tenants/{tenant_id}/billing")
@@ -6950,6 +6954,16 @@ async def update_tenant_billing_config(tenant_id: str, payload: TenantBillingUpd
             cur_settings["razorpay_subscription_id"] = payload.razorpay_subscription_id.strip()
         if payload.next_renewal_date is not None:
             cur_settings["next_renewal_date"] = payload.next_renewal_date.strip()
+        if payload.sales_channel is not None:
+            cur_settings["sales_channel"] = payload.sales_channel.strip()
+        if payload.partner_name is not None:
+            cur_settings["partner_name"] = payload.partner_name.strip()
+        if payload.partner_share_pct is not None:
+            cur_settings["partner_share_pct"] = float(payload.partner_share_pct)
+        if payload.owner_share_pct is not None:
+            cur_settings["owner_share_pct"] = float(payload.owner_share_pct)
+        if payload.plan is not None:
+            cur_settings["plan"] = payload.plan.strip()
             
         new_plan = payload.plan or t_row["plan"]
         await conn.execute(

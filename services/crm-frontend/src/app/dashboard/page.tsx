@@ -8608,7 +8608,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </button>
               )}
 
-              {canViewInbox && (
+              {/* Plan Scoping Helpers */}
+              {(() => {
+                const plan = settingsForm.plan || 'full_suite';
+                const isAutomationPlan = plan !== 'review_only';
+                const isReviewPlan = plan !== 'automation_only';
+                
+                return null;
+              })()}
+              {canViewInbox && (settingsForm.plan !== 'review_only') && (
                 <button
                   onClick={() => {
                     if (activeNav === 'inbox') {
@@ -8633,7 +8641,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </button>
               )}
 
-              {canManageCustomers && (
+              {canManageCustomers && (settingsForm.plan !== 'review_only') && (
                 <button
                   onClick={() => navigateTo('customers')}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
@@ -8647,7 +8655,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </button>
               )}
 
-              {canManageCustomers && (
+              {canManageCustomers && (settingsForm.plan !== 'review_only') && (
                 <button
                   onClick={() => navigateTo('repeat_clients')}
                   className={`w-full flex items-center justify-between px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
@@ -8663,7 +8671,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </button>
               )}
 
-              {canManageBookings && (
+              {canManageBookings && (settingsForm.plan !== 'review_only') && (
                 <button
                   onClick={() => navigateTo('bookings')}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
@@ -8677,7 +8685,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </button>
               )}
 
-              {canViewCalendar && (
+              {canViewCalendar && (settingsForm.plan !== 'review_only') && (
                 <button
                   onClick={() => navigateTo('calendar')}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
@@ -8691,7 +8699,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </button>
               )}
 
-              {canManageMarketing && (
+              {canManageMarketing && (settingsForm.plan !== 'review_only') && (
                 <button
                   onClick={() => navigateTo('marketing')}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
@@ -8705,19 +8713,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </button>
               )}
 
-              <button
-                onClick={() => navigateTo('reviews' as any)}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
-                  activeNav === 'reviews'
-                    ? 'bg-surface-subtle text-text-primary font-semibold'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <Star className={`w-4 h-4 stroke-[1.5] shrink-0 ${activeNav === 'reviews' ? 'text-amber-500 fill-amber-400' : 'text-text-muted'}`} />
-                  <span>Reviews & GMB</span>
-                </div>
-              </button>
+              {(settingsForm.plan !== 'automation_only') && (
+                <button
+                  onClick={() => navigateTo('reviews' as any)}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                    activeNav === 'reviews'
+                      ? 'bg-surface-subtle text-text-primary font-semibold'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Star className={`w-4 h-4 stroke-[1.5] shrink-0 ${activeNav === 'reviews' ? 'text-amber-500 fill-amber-400' : 'text-text-muted'}`} />
+                    <span>Reviews & GMB</span>
+                  </div>
+                </button>
+              )}
             </nav>
           </div>
 
@@ -13869,7 +13879,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             )}
 
 {/* ── VIEW 6: MARKETING HUB ─────────────────────────────────────── */}
-            {activeNav === 'marketing' && canManageMarketing && (
+            {activeNav === 'marketing' && canManageMarketing && (settingsForm.plan !== 'review_only') && (
               <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-6xl pb-8">
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
@@ -14965,13 +14975,76 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
                   </div>
 
-                  {/* Quick URL preview bar */}
-                  <div className="flex items-center gap-2 p-2.5 bg-surface-subtle rounded-md border border-border/80 font-mono text-xs text-text-secondary overflow-x-auto">
-                    <Globe className="w-3.5 h-3.5 text-accent shrink-0" />
-                    <span className="text-[11px] text-text-muted shrink-0">Public Collector URL:</span>
-                    <span className="font-semibold text-text-primary select-all truncate">
-                      {typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `/${settingsForm.slug || 'tenant'}/review`}
-                    </span>
+                  {/* Quick URL preview & QR Code Section */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-surface-subtle/80 rounded-lg border border-border">
+                    <div className="md:col-span-2 space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-text-primary">
+                        <Globe className="w-4 h-4 text-accent shrink-0" />
+                        <span>Public Review Collector URL & WhatsApp Nudge</span>
+                      </div>
+                      <p className="text-[11px] text-text-muted">
+                        Share this link on WhatsApp or insert into your post-service review request template. Customers rate service, pick highlights, and 4–5★ reviews redirect straight to GMB.
+                      </p>
+                      <div className="p-2 bg-surface rounded border border-border font-mono text-[11px] text-text-primary select-all truncate">
+                        {typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `/${settingsForm.slug || 'tenant'}/review`}
+                      </div>
+                    </div>
+
+                    {/* QR Code Printable Card */}
+                    {(() => {
+                      const pubUrl = typeof window !== 'undefined'
+                        ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review`
+                        : `https://crm.goboldlabs.com/${settingsForm.slug || 'tenant'}/review`;
+                      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(pubUrl)}`;
+
+                      return (
+                        <div className="p-3 bg-surface rounded-md border border-border flex flex-col items-center text-center space-y-2">
+                          <img
+                            src={qrApiUrl}
+                            alt="Shop QR Code"
+                            className="w-24 h-24 rounded border border-border p-1 bg-white"
+                          />
+                          <span className="text-[10px] font-bold text-text-primary uppercase tracking-wider">
+                            Printable Counter QR
+                          </span>
+                          <div className="flex gap-1.5 w-full">
+                            <a
+                              href={qrApiUrl}
+                              download={`QR-${settingsForm.slug || 'shop'}.png`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex-1 py-1 bg-surface-subtle hover:bg-border/60 text-text-primary border border-border rounded text-[10px] font-semibold transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                              <span>Download QR</span>
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const printWin = window.open('', '_blank');
+                                if (printWin) {
+                                  printWin.document.write(`
+                                    <html>
+                                      <head><title>Print QR Poster - ${settingsForm.name || 'Shop'}</title></head>
+                                      <body style="text-align:center;font-family:sans-serif;padding:40px;">
+                                        <h2>${settingsForm.name || 'Leave Us A Review'}</h2>
+                                        <p>Scan QR Code below with your mobile camera to share your review!</p>
+                                        <img src="${qrApiUrl}" style="width:250px;height:250px;margin:20px 0;" />
+                                        <p style="font-size:12px;color:#666;">Thank you for visiting us!</p>
+                                      </body>
+                                    </html>
+                                  `);
+                                  printWin.document.close();
+                                  printWin.print();
+                                }
+                              }}
+                              className="flex-1 py-1 bg-accent text-accent-contrast rounded text-[10px] font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                              <span>Print Poster</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -19916,7 +19989,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           </button>
         )}
 
-        {canManageCustomers && (
+        {canManageCustomers && (settingsForm.plan !== 'review_only') && (
           <button
             type="button"
             onClick={() => navigateTo('customers')}
@@ -19931,7 +20004,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           </button>
         )}
 
-        {canManageBookings && (
+        {canManageBookings && (settingsForm.plan !== 'review_only') && (
           <button
             type="button"
             onClick={() => navigateTo('bookings')}
@@ -19946,7 +20019,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           </button>
         )}
 
-        {canViewCalendar && (
+        {canViewCalendar && (settingsForm.plan !== 'review_only') && (
           <button
             type="button"
             onClick={() => navigateTo('calendar')}

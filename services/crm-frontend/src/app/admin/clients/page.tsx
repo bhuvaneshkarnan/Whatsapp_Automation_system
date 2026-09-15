@@ -782,9 +782,13 @@ export default function SuperAdminClients() {
     admin_name: '',
     admin_email: '',
     admin_password: '',
-    plan: 'pro',
+    plan: 'full_suite',
     monthly_price: 3499,
     billing_cycle_day: 1,
+    sales_channel: 'direct',
+    partner_name: '',
+    partner_share_pct: 50,
+    owner_share_pct: 50,
     razorpay_subscription_id: '',
     meta_phone_id: '',
     meta_access_token: '',
@@ -923,6 +927,10 @@ export default function SuperAdminClients() {
         billing_cycle_day: Number(formData.billing_cycle_day),
         razorpay_subscription_id: formData.razorpay_subscription_id,
         next_renewal_date: `Day ${formData.billing_cycle_day} of every month`,
+        sales_channel: formData.sales_channel,
+        partner_name: formData.partner_name,
+        partner_share_pct: Number(formData.partner_share_pct),
+        owner_share_pct: Number(formData.owner_share_pct),
       });
 
       setCreatedClient({ ...res, password: formData.admin_password });
@@ -4698,54 +4706,104 @@ export default function SuperAdminClients() {
                 </div>
               </div>
 
-              {/* Plan & Custom Pricing */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-text-primary mb-1">Subscription Plan</label>
-                  <select
-                    value={formData.plan}
-                    onChange={(e) => {
-                      const p = e.target.value;
-                      let price = formData.monthly_price;
-                      if (p === 'starter') price = 999;
-                      else if (p === 'pro') price = 3499;
-                      else if (p === 'enterprise') price = 9999;
-                      setFormData({ ...formData, plan: p, monthly_price: price });
-                    }}
-                    className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-sans text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
-                  >
-                    <option value="pro">Standard Automation Plan (₹3,499/mo)</option>
-                    <option value="starter">Starter (₹999/mo)</option>
-                    <option value="enterprise">Enterprise (₹9,999/mo)</option>
-                    <option value="custom">Custom plan</option>
-                  </select>
+              {/* Plan, Custom Pricing & Sales Channel */}
+              <div className="space-y-3 p-3.5 bg-surface-subtle/70 rounded-md border border-border">
+                <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-accent" />
+                  <span>Feature Plan, Custom Pricing & Sales Channel</span>
+                </h4>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary mb-1">Feature Suite Plan</label>
+                    <select
+                      value={formData.plan}
+                      onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
+                      className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-sans text-text-primary focus:border-accent transition-colors duration-150 cursor-pointer"
+                    >
+                      <option value="full_suite">Full Suite (Automation + Reviews)</option>
+                      <option value="automation_only">WhatsApp Automation Only</option>
+                      <option value="review_only">AI Review System Only</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary mb-1">Custom Monthly Amount (₹) *</label>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      placeholder="3499"
+                      value={formData.monthly_price}
+                      onChange={(e) => setFormData({ ...formData, monthly_price: Number(e.target.value) })}
+                      className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-mono tabular-nums text-text-primary focus:border-accent transition-colors duration-150"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary mb-1">Sales Channel</label>
+                    <select
+                      value={formData.sales_channel}
+                      onChange={(e) => setFormData({ ...formData, sales_channel: e.target.value })}
+                      className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-sans text-text-primary focus:border-accent transition-colors duration-150 cursor-pointer"
+                    >
+                      <option value="direct">Direct Sales ("I myself sell")</option>
+                      <option value="partner">Partner Agency Sales ("Company Partner")</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-text-primary mb-1">Monthly Amount (₹) *</label>
-                  <input
-                    type="number"
-                    required
-                    min={0}
-                    placeholder="3499"
-                    value={formData.monthly_price}
-                    onChange={(e) => setFormData({ ...formData, monthly_price: Number(e.target.value) })}
-                    className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono tabular-nums text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-text-primary mb-1">Billing Day of Month</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={31}
-                    value={formData.billing_cycle_day}
-                    onChange={(e) => setFormData({ ...formData, billing_cycle_day: Number(e.target.value) })}
-                    className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono tabular-nums text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                  />
-                </div>
+                {formData.sales_channel === 'partner' && (
+                  <div className="p-3 bg-white rounded border border-border space-y-3 animate-in fade-in duration-150">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-text-secondary mb-1">Partner Agency Name</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Acme Media Partner"
+                          value={formData.partner_name}
+                          onChange={(e) => setFormData({ ...formData, partner_name: e.target.value })}
+                          className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-text-secondary mb-1">Partner Share %</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={formData.partner_share_pct}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setFormData({ ...formData, partner_share_pct: val, owner_share_pct: 100 - val });
+                          }}
+                          className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-text-secondary mb-1">Your (Owner) Share %</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={formData.owner_share_pct}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setFormData({ ...formData, owner_share_pct: val, partner_share_pct: 100 - val });
+                          }}
+                          className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent"
+                        />
+                      </div>
+                    </div>
+                    <div className="p-2 bg-emerald-500/10 rounded text-[11px] font-mono text-emerald-800 dark:text-emerald-300 flex justify-between">
+                      <span>Monthly Split on ₹{(formData.monthly_price || 0).toLocaleString()}:</span>
+                      <span>Partner: ₹{((formData.monthly_price || 0) * (formData.partner_share_pct / 100)).toLocaleString()} | Owner Net: ₹{((formData.monthly_price || 0) * (formData.owner_share_pct / 100)).toLocaleString()}</span>
+                    </div>
+                  </div>
+                )}
               </div>
+
+
 
               <div>
                 <label className="block text-xs font-medium text-text-primary mb-1">Razorpay Subscription ID (Optional)</label>

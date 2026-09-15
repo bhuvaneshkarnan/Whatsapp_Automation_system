@@ -1069,6 +1069,13 @@ export interface TenantSettingsResponse {
   template_admin_daily_digest?: string;
   template_client_followup?: string;
   google_review_link?: string;
+  gmb_review_url?: string;
+  plan?: 'full_suite' | 'automation_only' | 'review_only' | string;
+  sales_channel?: 'direct' | 'partner' | string;
+  partner_name?: string;
+  partner_share_pct?: number;
+  owner_share_pct?: number;
+  monthly_price?: number;
   enable_auto_review?: boolean;
   allow_text_fallback?: boolean;
   
