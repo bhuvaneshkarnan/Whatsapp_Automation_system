@@ -8695,11 +8695,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <UserCheck className={`w-4 h-4 stroke-[1.5] shrink-0 ${activeNav === 'repeat_clients' ? 'text-amber-500' : 'text-text-muted'}`} />
                     <span>{currentTaxonomy.tab_repeat_label || 'Repeat Clients'}</span>
                   </div>
-                  {customers.filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat').length > 0 && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/10 text-amber-600 font-semibold border border-amber-500/20 font-mono">
-                      {customers.filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat').length}
-                    </span>
-                  )}
                 </button>
               )}
 
