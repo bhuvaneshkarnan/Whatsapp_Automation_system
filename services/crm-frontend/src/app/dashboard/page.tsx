@@ -15349,7 +15349,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             )}
 
             {activeNav === 'settings' && (
-              <div className="flex-1 overflow-y-auto space-y-6 max-w-4xl">
+              <div className="flex-1 overflow-y-auto space-y-6 w-full">
                 
                 {/* System Payment Alert Card - ONLY shown if payment is overdue/failed */}
                 {(settingsForm.subscription_status === 'payment_failed' || settingsForm.last_payment_status === 'failed') && (
