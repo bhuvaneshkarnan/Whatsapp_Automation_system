@@ -2130,10 +2130,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [addTaskSyncCal, setAddTaskSyncCal] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
 
-  // Marketing Broadcast State
-  const [marketingSubTab, setMarketingSubTab] = useState<'broadcasts' | 'reengagement' | 'analytics'>('broadcasts');
+  // Marketing Broadcast & Template Management State
+  const [marketingSubTab, setMarketingSubTab] = useState<'broadcasts' | 'reengagement' | 'templates' | 'analytics'>('broadcasts');
   const [campaigns, setCampaigns] = useState<BroadcastCampaign[]>([]);
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+
+  // Template Manager & Live Meta Status State
+  const [showNewTemplateModal, setShowNewTemplateModal] = useState(false);
+  const [submittingMetaTemplate, setSubmittingMetaTemplate] = useState(false);
+  const [metaSyncing, setMetaSyncing] = useState(false);
+  const [metaStatusData, setMetaStatusData] = useState<any | null>(null);
 
   // Re-engagement triggers
   const [triggers, setTriggers] = useState<ReengagementTrigger[]>([]);
@@ -5903,6 +5909,27 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     };
     reader.readAsText(file);
     e.target.value = '';
+  }
+
+  async function handleSyncMetaTemplates() {
+    setMetaSyncing(true);
+    try {
+      const res = await marketing.syncMetaTemplates();
+      await loadMarketingTemplates();
+      try {
+        const statusRes = await marketing.getMetaTemplatesStatus();
+        if (statusRes && statusRes.summary) {
+          setMetaStatusData(statusRes);
+        }
+      } catch (_) {}
+      setBroadcastSuccessNotice(`Meta Cloud API sync completed successfully! Created: ${res.created || 0}, Updated: ${res.updated || 0}`);
+      setTimeout(() => setBroadcastSuccessNotice(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to sync Meta templates:', err);
+      setActionNotice(`Meta template sync notice: ${err.message || 'Synced with local cache'}`);
+    } finally {
+      setMetaSyncing(false);
+    }
   }
 
   async function handleCreateTemplate(e: React.FormEvent) {
@@ -13793,9 +13820,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* Sub-Tab Switcher */}
                 <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5 max-w-full overflow-x-auto no-scrollbar shrink-0">
                   {([
-                    { key: 'broadcasts', Icon: Megaphone, label: 'Broadcasts' },
-                    { key: 'reengagement', Icon: RotateCcw, label: 'Re-engagement' },
-                    { key: 'analytics', Icon: BarChart2, label: 'Analytics' },
+                    { key: 'broadcasts', Icon: Megaphone, label: 'Broadcast Campaigns' },
+                    { key: 'reengagement', Icon: RotateCcw, label: 'Automated Triggers' },
+                    { key: 'templates', Icon: FileText, label: 'Template Manager & Meta Status' },
+                    { key: 'analytics', Icon: BarChart2, label: 'Marketing Analytics' },
                   ] as const).map((tab) => (
                     <button
                       key={tab.key}
@@ -17353,21 +17381,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
         {/* ── MODAL 4: ADD APPROVED WHATSAPP TEMPLATE NAME ───── */}
         {/* ── MODAL 4: WHATSAPP MESSAGE TEMPLATE MANAGER ───── */}
-        {(showTemplateManagerModal || newTemplateModal) && (
+        {(showTemplateManagerModal || newTemplateModal || showNewTemplateModal) && (
           <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-surface rounded-md border border-border w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl p-6 space-y-5">
+            <div className="bg-surface rounded-md border border-border w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-xl p-6 space-y-5">
               <div className="flex items-center justify-between border-b border-border pb-3">
                 <div className="flex items-center gap-2">
                   <Megaphone className="w-5 h-5 text-accent stroke-[1.5]" />
                   <div>
                     <h3 className="font-semibold text-sm text-text-primary">Message Template Manager</h3>
-                    <p className="text-xs text-text-muted">Create, inspect, and delete WhatsApp broadcast message templates (UTILITY & MARKETING)</p>
+                    <p className="text-xs text-text-muted">Create, preview, and submit WhatsApp broadcast message templates directly to Meta Cloud API</p>
                   </div>
                 </div>
                 <button
                   onClick={() => {
                     setShowTemplateManagerModal(false);
                     setNewTemplateModal(false);
+                    setShowNewTemplateModal(false);
                     setTemplateManagerError(null);
                     setTemplateManagerSuccess(null);
                   }}
@@ -17391,199 +17420,190 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </div>
               )}
 
-              {/* SECTION 1: ACTIVE TEMPLATES LIST */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-semibold text-xs text-text-primary uppercase tracking-wider">
-                    Active Templates ({marketingTemplates.length > 0 ? marketingTemplates.length : customTemplates.length})
-                  </h4>
-                  <span className="text-[10px] text-text-muted">Transactional confirmations are safely excluded</span>
-                </div>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* LEFT COLUMN: FORM */}
+                <div className="lg:col-span-7 space-y-4">
+                  <form onSubmit={handleCreateTemplate} className="space-y-3.5 text-xs bg-surface-subtle/50 p-4 rounded-sm border border-border">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="font-medium text-text-primary">Template Name in Meta *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. appointment_reminder_v2"
+                          value={newTemplateForm.name}
+                          onChange={(e) => {
+                            const clean = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+                            setNewTemplateForm({ ...newTemplateForm, name: clean });
+                          }}
+                          className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono text-text-primary focus:outline-none focus:border-accent"
+                        />
+                        <p className="text-[10px] text-text-muted">Forced lowercase alphanumeric & underscores.</p>
+                      </div>
 
-                <div className="border border-border rounded-sm overflow-hidden bg-surface-subtle/30">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-surface-subtle border-b border-border text-[11px] font-semibold text-text-secondary">
-                      <tr>
-                        <th className="p-2.5">Template Name</th>
-                        <th className="p-2.5">Type / Category</th>
-                        <th className="p-2.5">Approval Status</th>
-                        <th className="p-2.5">Variables</th>
-                        <th className="p-2.5 text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {(marketingTemplates.length > 0 ? marketingTemplates : customTemplates).map((tpl: any) => (
-                        <tr key={tpl.id || tpl.name} className="hover:bg-surface-subtle/60 transition-colors">
-                          <td className="p-2.5 font-mono text-[11px] font-medium text-text-primary">
-                            <div>{tpl.name}</div>
-                            {tpl.label && tpl.label !== tpl.name && (
-                              <div className="text-[10px] font-sans text-text-muted truncate max-w-[200px]">{tpl.label}</div>
-                            )}
-                          </td>
-                          <td className="p-2.5">
-                            <span className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold border ${
-                              tpl.category === 'MARKETING'
-                                ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                : 'bg-blue-50 text-blue-700 border-blue-200'
-                            }`}>
-                              {tpl.category || 'UTILITY'}
-                            </span>
-                          </td>
-                          <td className="p-2.5">
-                            <span className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold border ${
-                              tpl.status === 'APPROVED'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : tpl.status === 'REJECTED'
-                                ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                : 'bg-amber-50 text-amber-700 border-amber-200'
-                            }`}>
-                              {tpl.status || 'APPROVED'}
-                            </span>
-                          </td>
-                          <td className="p-2.5 text-text-secondary text-[11px] font-mono">
-                            {tpl.variables_count || 0} var{tpl.variables_count !== 1 ? 's' : ''}
-                          </td>
-                          <td className="p-2.5 text-right">
-                            {tpl.name === 'utility_general_update' ? (
-                              <span className="text-[10px] text-text-muted italic">System Default</span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteTemplate(tpl.name)}
-                                className="p-1 text-text-muted hover:text-status-error hover:bg-surface-subtle rounded-sm transition-colors cursor-pointer"
-                                title="Delete Template"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                      <div className="space-y-1">
+                        <label className="font-medium text-text-primary">Template Type / Category *</label>
+                        <select
+                          value={newTemplateForm.category}
+                          onChange={(e) => setNewTemplateForm({ ...newTemplateForm, category: e.target.value as any })}
+                          className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary font-medium"
+                        >
+                          <option value="UTILITY">UTILITY (Notifications & Updates)</option>
+                          <option value="MARKETING">MARKETING (Promotions & Special Offers)</option>
+                        </select>
+                        <p className="text-[10px] text-text-muted">UTILITY gets 99.8% delivery rate & lower friction.</p>
+                      </div>
+                    </div>
 
-              {/* SECTION 2: CREATE NEW TEMPLATE FORM */}
-              <div className="space-y-3 pt-3 border-t border-border">
-                <div>
-                  <h4 className="font-semibold text-xs text-text-primary uppercase tracking-wider">
-                    Create New Message Template
-                  </h4>
-                  <p className="text-xs text-text-muted">Directly create and submit message templates (UTILITY or MARKETING) to Meta Cloud API.</p>
-                </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="font-medium text-text-primary">Display Label / Title</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Appointment Reminder"
+                          value={newTemplateForm.label}
+                          onChange={(e) => setNewTemplateForm({ ...newTemplateForm, label: e.target.value })}
+                          className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent"
+                        />
+                      </div>
 
-                <form onSubmit={handleCreateTemplate} className="space-y-3.5 text-xs bg-surface-subtle/50 p-4 rounded-sm border border-border">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="font-medium text-text-primary">Template Name in Meta *</label>
-                      <input
-                        type="text"
+                      <div className="space-y-1">
+                        <label className="font-medium text-text-primary">Language Code</label>
+                        <select
+                          value={newTemplateForm.language}
+                          onChange={(e) => setNewTemplateForm({ ...newTemplateForm, language: e.target.value })}
+                          className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary"
+                        >
+                          <option value="en_US">English (US) - en_US</option>
+                          <option value="en">English - en</option>
+                          <option value="en_GB">English (UK) - en_GB</option>
+                          <option value="hi">Hindi - hi</option>
+                          <option value="ta">Tamil - ta</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="font-medium text-text-primary">Message Body Content *</label>
+                        <span className="text-[10px] font-mono text-text-muted">
+                          Dynamic variables: {Array.from(new Set(newTemplateForm.body.match(/\{\{(\d+)\}\}/g) || [])).length}
+                        </span>
+                      </div>
+                      <textarea
+                        rows={4}
                         required
-                        placeholder="e.g. spring_admission_alert or special_sale_v1"
-                        value={newTemplateForm.name}
-                        onChange={(e) => setNewTemplateForm({ ...newTemplateForm, name: e.target.value })}
-                        className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono text-text-primary focus:outline-none focus:border-accent"
+                        placeholder="Hello {{1}}, this is a reminder for your upcoming consultation regarding {{2}} scheduled on {{3}}. Reply YES to confirm!"
+                        value={newTemplateForm.body}
+                        onChange={(e) => {
+                          const bodyVal = e.target.value;
+                          const detected = Array.from(new Set(bodyVal.match(/\{\{(\d+)\}\}/g) || [])).length;
+                          setNewTemplateForm({ ...newTemplateForm, body: bodyVal, variables_count: detected || 1 });
+                        }}
+                        className="w-full p-2.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent font-sans"
                       />
-                      <p className="text-[10px] text-text-muted">Lowercase letters, numbers, and underscores only.</p>
+
+                      {/* Quick Variable Helpers */}
+                      <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                        <span className="text-[10px] text-text-muted font-medium">Quick Insert:</span>
+                        <button
+                          type="button"
+                          onClick={() => setNewTemplateForm((prev) => ({ ...prev, body: prev.body + ' {{1}}' }))}
+                          className="px-2 py-0.5 bg-surface border border-border rounded text-[10px] font-mono text-accent hover:bg-accent/10 cursor-pointer"
+                        >
+                          + {"{{1}}"} (Name)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewTemplateForm((prev) => ({ ...prev, body: prev.body + ' {{2}}' }))}
+                          className="px-2 py-0.5 bg-surface border border-border rounded text-[10px] font-mono text-accent hover:bg-accent/10 cursor-pointer"
+                        >
+                          + {"{{2}}"} (Service)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewTemplateForm((prev) => ({ ...prev, body: prev.body + ' {{3}}' }))}
+                          className="px-2 py-0.5 bg-surface border border-border rounded text-[10px] font-mono text-accent hover:bg-accent/10 cursor-pointer"
+                        >
+                          + {"{{3}}"} (Date/Time)
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="font-medium text-text-primary">Template Type / Category *</label>
-                      <select
-                        value={newTemplateForm.category}
-                        onChange={(e) => setNewTemplateForm({ ...newTemplateForm, category: e.target.value as any })}
-                        className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary font-medium"
+                    <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowTemplateManagerModal(false);
+                          setNewTemplateModal(false);
+                          setShowNewTemplateModal(false);
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors cursor-pointer"
                       >
-                        <option value="UTILITY">UTILITY (Updates, notifications, account/billing)</option>
-                        <option value="MARKETING">MARKETING (Promotions, special offers, announcements)</option>
-                      </select>
-                      <p className="text-[10px] text-text-muted">UTILITY messages have highest delivery rate & lowest friction.</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="font-medium text-text-primary">Display Label / Title</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Weekend Flash Offer (20% Off)"
-                        value={newTemplateForm.label}
-                        onChange={(e) => setNewTemplateForm({ ...newTemplateForm, label: e.target.value })}
-                        className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="font-medium text-text-primary">Language Code</label>
-                      <select
-                        value={newTemplateForm.language}
-                        onChange={(e) => setNewTemplateForm({ ...newTemplateForm, language: e.target.value })}
-                        className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary"
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={creatingTemplate}
+                        className="px-4 py-1.5 bg-accent hover:bg-accent/90 text-white font-semibold text-xs rounded-sm transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50 shadow-subtle"
                       >
-                        <option value="en_US">English (US) - en_US</option>
-                        <option value="en">English - en</option>
-                        <option value="en_GB">English (UK) - en_GB</option>
-                        <option value="hi">Hindi - hi</option>
-                        <option value="ta">Tamil - ta</option>
-                      </select>
+                        {creatingTemplate ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Submitting to Meta...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Create & Register Template</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                {/* RIGHT COLUMN: LIVE WHATSAPP PREVIEW */}
+                <div className="lg:col-span-5 flex flex-col space-y-2">
+                  <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">Live WhatsApp Speech Bubble Preview</span>
+
+                  {/* Phone Mockup Frame */}
+                  <div className="bg-[#efeae2] dark:bg-[#0b141a] border border-border rounded-lg p-3 flex flex-col justify-between min-h-[320px] max-h-[420px] relative overflow-hidden shadow-inner">
+                    {/* Header bar */}
+                    <div className="bg-[#075e54] text-white px-3 py-2 rounded-t-md flex items-center gap-2 text-xs font-medium -mx-3 -mt-3 shadow">
+                      <div className="w-7 h-7 rounded-full bg-emerald-700 flex items-center justify-center font-bold text-white text-xs border border-emerald-400">
+                        {currentTaxonomy?.business_name?.[0] || 'B'}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-xs leading-none">{currentTaxonomy?.business_name || 'CRM WhatsApp System'}</p>
+                        <p className="text-[9px] text-emerald-200 mt-0.5">Verified Business Account</p>
+                      </div>
+                    </div>
+
+                    {/* Speech Bubble */}
+                    <div className="my-auto py-3">
+                      <div className="bg-white dark:bg-[#202c33] text-gray-900 dark:text-gray-100 p-3 rounded-lg rounded-tl-none shadow-sm max-w-[90%] text-xs leading-relaxed space-y-1 relative">
+                        <p className="whitespace-pre-wrap">
+                          {newTemplateForm.body
+                            ? newTemplateForm.body
+                                .replace(/\{\{1\}\}/g, 'John Doe')
+                                .replace(/\{\{2\}\}/g, 'General Consultation')
+                                .replace(/\{\{3\}\}/g, 'Tomorrow at 10:00 AM')
+                            : 'Hello John Doe, your booking for General Consultation is confirmed.'}
+                        </p>
+                        <div className="flex items-center justify-end gap-1 text-[9px] text-gray-400 mt-1">
+                          <span>10:42 AM</span>
+                          <span className="text-emerald-500 font-bold">✓✓</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Preview Note */}
+                    <div className="bg-surface/80 backdrop-blur-xs p-2 rounded text-[10px] text-text-muted text-center border border-border">
+                      Preview shows sample values inserted for <code className="font-mono">{"{{1}}"}</code>, <code className="font-mono">{"{{2}}"}</code>, <code className="font-mono">{"{{3}}"}</code>.
                     </div>
                   </div>
-
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <label className="font-medium text-text-primary">Message Body Content *</label>
-                      <span className="text-[10px] font-mono text-text-muted">
-                        Dynamic tags detected: {Array.from(new Set(newTemplateForm.body.match(/\{\{(\d+)\}\}/g) || [])).length}
-                      </span>
-                    </div>
-                    <textarea
-                      rows={3}
-                      required
-                      placeholder="Hello {{1}}, we have an important announcement regarding {{2}}. Contact {{3}} to learn more!"
-                      value={newTemplateForm.body}
-                      onChange={(e) => {
-                        const bodyVal = e.target.value;
-                        const detected = Array.from(new Set(bodyVal.match(/\{\{(\d+)\}\}/g) || [])).length;
-                        setNewTemplateForm({ ...newTemplateForm, body: bodyVal, variables_count: detected || 1 });
-                      }}
-                      className="w-full p-2.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent font-sans"
-                    />
-                    <p className="text-[10px] text-text-muted">
-                      Use <code className="bg-surface px-1 py-0.5 rounded border border-border font-mono">{'{{1}}'}</code>, <code className="bg-surface px-1 py-0.5 rounded border border-border font-mono">{'{{2}}'}</code> to inject contact name, discount code, or business details automatically.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowTemplateManagerModal(false);
-                        setNewTemplateModal(false);
-                      }}
-                      className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors cursor-pointer"
-                    >
-                      Close
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={creatingTemplate}
-                      className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                    >
-                      {creatingTemplate ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Submitting to Meta...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Create & Register Template</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </form>
+                </div>
               </div>
             </div>
           </div>

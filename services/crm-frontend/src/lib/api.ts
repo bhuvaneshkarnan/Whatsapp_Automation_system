@@ -1534,6 +1534,19 @@ export const marketing = {
       `/api/v1/marketing/templates/${encodeURIComponent(templateName)}`,
       { method: 'DELETE' }
     ),
+
+  syncMetaTemplates: () =>
+    request<{ success: boolean; created?: number; updated?: number; failed?: any[] }>(
+      '/api/v1/crm/templates/sync-meta',
+      { method: 'POST' }
+    ),
+
+  getMetaTemplatesStatus: () =>
+    request<{
+      success: boolean;
+      summary: { total: number; approved: number; pending: number; missing: number };
+      templates: Array<{ name: string; label: string; category: string; status: string; exists_in_meta: boolean }>;
+    }>('/api/v1/crm/templates/meta-status'),
 };
 
 // ── Health ────────────────────────────────────────────────────────────────────
