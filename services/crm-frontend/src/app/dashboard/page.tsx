@@ -8558,9 +8558,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               <span className="text-xs font-semibold text-text-primary leading-none">
                 {user?.display_name || user?.email?.split('@')[0] || 'Staff'}
               </span>
-              <span className="text-[10px] text-text-muted capitalize">
-                {user?.permissions?.assigned_doctor ? user.permissions.assigned_doctor : formatRoleName(user?.role)}
-              </span>
             </div>
             <button
               onClick={handleLogout}
@@ -8733,14 +8730,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
           {/* Bottom Settings Link & Powered By Footer */}
           <div className="pt-2 border-t border-border">
-            {/* Whitelabel System Info Footer */}
-            <div className="flex items-center justify-between px-2 py-1.5 mb-2 rounded-sm bg-surface-subtle/50 text-[11px] text-text-muted border border-border/60">
-              <div className="flex items-center gap-1.5 truncate">
-                <ShieldCheck className="w-3.5 h-3.5 text-accent shrink-0" />
-                <span className="font-medium text-text-primary truncate">{settingsForm.name || 'CRM System'}</span>
-              </div>
-              <span className="text-[9px] uppercase font-mono px-1 py-0.2 bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 rounded font-semibold shrink-0">Pro</span>
-            </div>
+
 
             {canManageSettings && (
               <button
