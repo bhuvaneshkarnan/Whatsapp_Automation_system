@@ -1557,20 +1557,38 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [activeRepeatActionMenuId, setActiveRepeatActionMenuId] = useState<string | null>(null);
 
   async function handleSendRepeatWhatsApp() {
-    if (!selectedRepeatClient || !repeatMessageText.trim()) return;
+    if (!selectedRepeatClient) return;
     if (!selectedRepeatClient.phone) {
       alert('This client has no valid phone number saved.');
       return;
     }
     setSendingRepeatMessage(true);
     try {
-      await crm.sendWhatsAppDirect(
-        selectedRepeatClient.phone,
-        repeatMessageText.trim(),
-        selectedRepeatClient.id
-      );
+      if (repeatSendMode === 'meta_template') {
+        const tplName = repeatMetaTemplateName.trim() || 'hello_world';
+        const paramKeys = Object.keys(repeatMetaParams).sort((a, b) => Number(a) - Number(b));
+        const paramValues = paramKeys.map((k) => repeatMetaParams[k] || '');
+        await crm.sendWhatsAppDirect(
+          selectedRepeatClient.phone,
+          repeatMessageText.trim() || `[Template: ${tplName}]`,
+          selectedRepeatClient.id,
+          tplName,
+          paramValues
+        );
+      } else {
+        if (!repeatMessageText.trim()) {
+          alert('Please enter a message body.');
+          setSendingRepeatMessage(false);
+          return;
+        }
+        await crm.sendWhatsAppDirect(
+          selectedRepeatClient.phone,
+          repeatMessageText.trim(),
+          selectedRepeatClient.id
+        );
+      }
       setRepeatFollowupModalOpen(false);
-      setActionNotice(`WhatsApp message sent successfully to ${selectedRepeatClient.name || 'client'} from system number!`);
+      setActionNotice(`WhatsApp message template sent successfully to ${selectedRepeatClient.name || 'client'} from system number!`);
       setTimeout(() => setActionNotice(null), 4000);
       loadCustomers();
     } catch (err: any) {
@@ -2248,6 +2266,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [templateVariableValues, setTemplateVariableValues] = useState<Record<string, string>>({});
   const [templateSearchQuery, setTemplateSearchQuery] = useState('');
   const [sendingChatTemplate, setSendingChatTemplate] = useState(false);
+
+  // Repeat Client Meta Template State
+  const [repeatSendMode, setRepeatSendMode] = useState<'meta_template' | 'quick_text'>('meta_template');
+  const [repeatMetaTemplateName, setRepeatMetaTemplateName] = useState<string>('hello_world');
+  const [repeatMetaParams, setRepeatMetaParams] = useState<Record<string, string>>({});
 
   // Feature 4: Staff Assignment Dropdown State
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
@@ -7896,55 +7919,216 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <div className="p-5 flex-1 overflow-y-auto space-y-4">
             {repeatActionTab === 'template' ? (
               <>
-                <div>
-                  <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-2">
-                    Select Follow-up Template
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {templates.map((tmpl) => (
-                      <button
-                        key={tmpl.id}
-                        type="button"
-                        onClick={() => {
-                          setRepeatSelectedTemplate(tmpl.id);
-                          setRepeatMessageText(tmpl.text);
-                        }}
-                        className={`p-3 text-left rounded-md border transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
-                          repeatSelectedTemplate === tmpl.id
-                            ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20 shadow-xs'
-                            : 'border-border bg-surface hover:bg-surface-subtle'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold text-text-primary text-xs">{tmpl.title}</span>
-                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300">
-                            {tmpl.badge}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-text-muted line-clamp-2">{tmpl.text}</p>
-                      </button>
-                    ))}
-                  </div>
+                {/* 24-Hour Window Mode Switcher Banner */}
+                <div className="p-1 bg-surface-subtle border border-border rounded-md flex items-center gap-1 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setRepeatSendMode('meta_template')}
+                    className={`flex-1 py-1.5 px-2.5 rounded-sm font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      repeatSendMode === 'meta_template'
+                        ? 'bg-emerald-600 text-white font-semibold shadow-2xs'
+                        : 'text-text-muted hover:text-text-primary'
+                    }`}
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Meta Approved Template (&gt;24h Window)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRepeatSendMode('quick_text')}
+                    className={`flex-1 py-1.5 px-2.5 rounded-sm font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      repeatSendMode === 'quick_text'
+                        ? 'bg-surface text-text-primary font-semibold shadow-2xs border border-border-strong'
+                        : 'text-text-muted hover:text-text-primary'
+                    }`}
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>Quick Follow-up Text (&lt;24h Window)</span>
+                  </button>
                 </div>
 
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
-                      Message Content (Editable)
-                    </label>
-                    <span className="text-[10px] text-text-muted">{repeatMessageText.length} chars</span>
+                {repeatSendMode === 'meta_template' ? (
+                  <div className="space-y-4">
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-md flex items-start gap-2.5 text-xs text-emerald-900 dark:text-emerald-200">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold block">Official WhatsApp Cloud API Template Payload</span>
+                        <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
+                          Meta strictly requires approved HSM templates for contacts idle over 24 hours. Dispatches directly via system WhatsApp line.
+                        </span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-2">
+                        Select Approved Meta Template
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {[
+                          {
+                            name: 'hello_world',
+                            label: 'Hello World (Default Test)',
+                            category: 'UTILITY',
+                            vars: 0,
+                            body: 'Welcome and thank you for choosing our service.',
+                          },
+                          {
+                            name: 'routine_checkin',
+                            label: 'Routine Check-in',
+                            category: 'MARKETING',
+                            vars: 2,
+                            body: `Hi {{1}}, checking in after your recent {{2}} session. How is everything going?`,
+                          },
+                          {
+                            name: 'appointment_reminder',
+                            label: 'Appointment Follow-up',
+                            category: 'UTILITY',
+                            vars: 2,
+                            body: `Hi {{1}}, this is a follow-up regarding your {{2}} appointment with us.`,
+                          },
+                          {
+                            name: 'reengagement_promo',
+                            label: 'Re-engagement Special',
+                            category: 'MARKETING',
+                            vars: 2,
+                            body: `Hi {{1}}, we miss you at {{2}}! Reply to book your next session with a special VIP offer.`,
+                          },
+                          ...(marketingTemplates.length > 0
+                            ? marketingTemplates.map((m) => ({
+                                name: m.name,
+                                label: m.label || m.name,
+                                category: m.category || 'UTILITY',
+                                vars: m.variables_count || 0,
+                                body: m.body || m.name,
+                              }))
+                            : []),
+                        ].map((tpl) => {
+                          const isSelected = repeatMetaTemplateName === tpl.name;
+                          return (
+                            <button
+                              key={tpl.name}
+                              type="button"
+                              onClick={() => {
+                                setRepeatMetaTemplateName(tpl.name);
+                                const defaultParams: Record<string, string> = {};
+                                if (tpl.vars >= 1) defaultParams['1'] = cust.name || 'valued client';
+                                if (tpl.vars >= 2) defaultParams['2'] = serviceName || 'session';
+                                setRepeatMetaParams(defaultParams);
+
+                                // Format preview body
+                                let formattedBody = tpl.body;
+                                Object.keys(defaultParams).forEach((k) => {
+                                  formattedBody = formattedBody.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), defaultParams[k]);
+                                });
+                                setRepeatMessageText(formattedBody);
+                              }}
+                              className={`p-3 text-left rounded-md border transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
+                                isSelected
+                                  ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20 shadow-xs'
+                                  : 'border-border bg-surface hover:bg-surface-subtle'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold text-text-primary text-xs">{tpl.label}</span>
+                                <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-surface-subtle text-text-muted border border-border">
+                                  {tpl.category}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-text-muted line-clamp-2">{tpl.body}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Template Variable Inputs */}
+                    <div className="space-y-3 pt-2 border-t border-border">
+                      <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
+                        Template Variable Parameters
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-medium text-text-muted">Parameter {"{{1}}"} (Client Name)</label>
+                          <input
+                            type="text"
+                            value={repeatMetaParams['1'] !== undefined ? repeatMetaParams['1'] : (cust.name || '')}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setRepeatMetaParams((prev) => ({ ...prev, '1': val }));
+                            }}
+                            className="w-full p-2 text-xs bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-emerald-500"
+                            placeholder="Client Name"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-medium text-text-muted">Parameter {"{{2}}"} (Service / Date)</label>
+                          <input
+                            type="text"
+                            value={repeatMetaParams['2'] !== undefined ? repeatMetaParams['2'] : serviceName}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setRepeatMetaParams((prev) => ({ ...prev, '2': val }));
+                            }}
+                            className="w-full p-2 text-xs bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-emerald-500"
+                            placeholder="Service Name or Date"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <textarea
-                    rows={4}
-                    value={repeatMessageText}
-                    onChange={(e) => {
-                      setRepeatMessageText(e.target.value);
-                      setRepeatSelectedTemplate('custom');
-                    }}
-                    className="w-full p-2.5 bg-surface border border-border rounded-md text-xs text-text-primary focus:outline-none focus:border-emerald-500 font-sans"
-                    placeholder="Type customized follow-up message..."
-                  />
-                </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-2">
+                        Select Quick Follow-up Template
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {templates.map((tmpl) => (
+                          <button
+                            key={tmpl.id}
+                            type="button"
+                            onClick={() => {
+                              setRepeatSelectedTemplate(tmpl.id);
+                              setRepeatMessageText(tmpl.text);
+                            }}
+                            className={`p-3 text-left rounded-md border transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
+                              repeatSelectedTemplate === tmpl.id
+                                ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20 shadow-xs'
+                                : 'border-border bg-surface hover:bg-surface-subtle'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold text-text-primary text-xs">{tmpl.title}</span>
+                              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300">
+                                {tmpl.badge}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-text-muted line-clamp-2">{tmpl.text}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
+                          Message Content (Editable)
+                        </label>
+                        <span className="text-[10px] text-text-muted">{repeatMessageText.length} chars</span>
+                      </div>
+                      <textarea
+                        rows={4}
+                        value={repeatMessageText}
+                        onChange={(e) => {
+                          setRepeatMessageText(e.target.value);
+                          setRepeatSelectedTemplate('custom');
+                        }}
+                        className="w-full p-2.5 bg-surface border border-border rounded-md text-xs text-text-primary focus:outline-none focus:border-emerald-500 font-sans"
+                        placeholder="Type customized follow-up message..."
+                      />
+                    </div>
+                  </>
+                )}
               </>
             ) : (
               <div className="space-y-4">
