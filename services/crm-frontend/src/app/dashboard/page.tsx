@@ -17475,30 +17475,196 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               <div className="overflow-y-auto max-h-[80vh] p-5 space-y-6">
 
                 {/* Section 1: Profile Summary */}
-                <div>
-                  <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                    <User className="w-3.5 h-3.5 text-accent" /> Profile
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    {[
-                      { label: 'Name', value: selectedCustomer.name || '—' },
-                      { label: 'Phone', value: selectedCustomer.phone },
-                      { label: 'Age', value: selectedCustomer.age ? String(selectedCustomer.age) : '—' },
-                      { label: 'Location', value: selectedCustomer.location || '—' },
-                      { label: currentTaxonomy.requirement_label || 'Concern', value: selectedCustomer.health_concern || '—' },
-                      { label: currentTaxonomy.staff_label || 'Staff', value: selectedCustomer.preferred_doctor || '—' },
-                      { label: 'CRM Status', value: selectedCustomer.status || '—' },
-                      { label: 'Lead Grade', value: selectedCustomer.lead_probability || '—' },
-                      { label: 'Converted', value: selectedCustomer.converted ? 'Yes' : 'No' },
-                      { label: 'Follow-up Date', value: selectedCustomer.followup_date || '—' },
-                      { label: 'Follow-up Time', value: selectedCustomer.followup_time || '—' },
-                      { label: 'Created', value: selectedCustomer.created_at ? new Date(selectedCustomer.created_at).toLocaleDateString() : '—' },
-                    ].map((item) => (
-                      <div key={item.label} className="bg-surface-subtle rounded-sm px-3 py-2 border border-border">
-                        <p className="text-[10px] text-text-muted uppercase tracking-wide mb-0.5">{item.label}</p>
-                        <p className="text-xs font-medium text-text-primary truncate">{item.value}</p>
+                <div className="space-y-4">
+                  {/* Hero Customer Card */}
+                  <div className="bg-gradient-to-r from-surface-subtle via-surface to-surface-subtle p-4 rounded-lg border border-border/80 shadow-2xs">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      {/* Left: Avatar + Name + Actions */}
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="w-11 h-11 rounded-full bg-gradient-to-br from-indigo-500 via-purple-600 to-accent text-white font-bold text-base flex items-center justify-center shrink-0 shadow-xs">
+                          {(selectedCustomer.name || 'C').charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-base font-bold text-text-primary tracking-tight truncate">
+                              {selectedCustomer.name || 'Unnamed Customer'}
+                            </h3>
+                            {/* Lead Grade Badge */}
+                            {selectedCustomer.lead_probability && (
+                              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${
+                                selectedCustomer.lead_probability === 'hot'
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+                                  : selectedCustomer.lead_probability === 'warm'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                                  : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                              }`}>
+                                {selectedCustomer.lead_probability === 'hot' ? <Flame className="w-3 h-3 text-rose-500 fill-rose-500 animate-pulse" /> :
+                                 selectedCustomer.lead_probability === 'warm' ? <Zap className="w-3 h-3 text-amber-500 fill-amber-500" /> :
+                                 <Snowflake className="w-3 h-3 text-slate-400" />}
+                                <span>{selectedCustomer.lead_probability} lead</span>
+                              </span>
+                            )}
+                            {/* Converted Badge */}
+                            {selectedCustomer.converted ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                <span>Converted</span>
+                              </span>
+                            ) : null}
+                          </div>
+
+                          {/* Quick Action Bar for Phone & Chat */}
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs">
+                            <span className="font-mono font-semibold text-text-primary text-xs flex items-center gap-1 bg-surface px-2 py-0.5 rounded border border-border/60">
+                              <Phone className="w-3 h-3 text-text-muted" />
+                              {selectedCustomer.phone}
+                            </span>
+                            
+                            {/* Call Action */}
+                            <a
+                              href={`tel:${selectedCustomer.phone}`}
+                              className="px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[11px] font-medium rounded border border-sky-200 dark:border-sky-800 transition-colors inline-flex items-center gap-1 cursor-pointer"
+                              title={`Call ${selectedCustomer.phone}`}
+                            >
+                              <PhoneCall className="w-3 h-3 text-sky-600 stroke-[2]" />
+                              <span>Call</span>
+                            </a>
+
+                            {/* WhatsApp Action */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowCustomerHistoryModal(false);
+                                openChatForContact(selectedCustomer.phone);
+                              }}
+                              className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 text-[11px] font-medium rounded border border-emerald-200 dark:border-emerald-800 transition-colors inline-flex items-center gap-1 cursor-pointer"
+                              title="Open in WhatsApp Chat"
+                            >
+                              <MessageSquare className="w-3 h-3 text-emerald-600 stroke-[2]" />
+                              <span>WhatsApp</span>
+                            </button>
+
+                            {/* Copy Phone Action */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const clean = selectedCustomer.phone?.trim() || '';
+                                if (typeof window !== 'undefined' && navigator.clipboard) {
+                                  navigator.clipboard.writeText(clean);
+                                }
+                                setDrawerPhoneCopied(true);
+                                setTimeout(() => setDrawerPhoneCopied(false), 1800);
+                              }}
+                              className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-secondary text-[11px] font-medium rounded border border-border/80 transition-colors inline-flex items-center gap-1 cursor-pointer"
+                              title="Copy Phone Number"
+                            >
+                              {drawerPhoneCopied ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                  <span className="text-emerald-600 font-bold">Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3 text-text-muted" />
+                                  <span>Copy</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    ))}
+                    </div>
+                  </div>
+
+                  {/* 3 Structured Attribute Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {/* Card 1: Personal & Demographics */}
+                    <div className="bg-surface-subtle/80 rounded-md p-3 border border-border space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-text-primary border-b border-border/60 pb-1.5">
+                        <User className="w-3.5 h-3.5 text-accent" />
+                        <span>Demographics & Info</span>
+                      </div>
+                      <div className="space-y-1.5 text-xs">
+                        <div className="flex justify-between items-center">
+                          <span className="text-text-muted text-[11px]">Age:</span>
+                          <span className="font-semibold text-text-primary">{selectedCustomer.age ? `${selectedCustomer.age} yrs` : '—'}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-text-muted text-[11px] flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-text-muted" /> Location:
+                          </span>
+                          <span className="font-semibold text-text-primary truncate max-w-[140px]">{selectedCustomer.location || '—'}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-text-muted text-[11px]">Created Date:</span>
+                          <span className="font-mono text-text-secondary text-[11px]">
+                            {selectedCustomer.created_at ? new Date(selectedCustomer.created_at).toLocaleDateString() : '—'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 2: CRM & Classification */}
+                    <div className="bg-surface-subtle/80 rounded-md p-3 border border-border space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-text-primary border-b border-border/60 pb-1.5">
+                        <Tag className="w-3.5 h-3.5 text-accent" />
+                        <span>CRM & Assignment</span>
+                      </div>
+                      <div className="space-y-1.5 text-xs">
+                        <div className="flex justify-between items-center">
+                          <span className="text-text-muted text-[11px]">CRM Status:</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-accent/10 text-accent border border-accent/20 capitalize">
+                            {(selectedCustomer.status || 'new').replace('_', ' ')}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-text-muted text-[11px]">{currentTaxonomy.requirement_label || 'Concern'}:</span>
+                          <span className="font-semibold text-accent truncate max-w-[140px]">{selectedCustomer.health_concern || '—'}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-text-muted text-[11px] flex items-center gap-1">
+                            <UserCheck className="w-3 h-3 text-text-muted" /> {currentTaxonomy.staff_label || 'Staff'}:
+                          </span>
+                          <span className="font-semibold text-text-primary truncate max-w-[140px]">{selectedCustomer.preferred_doctor || '—'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 3: Schedule & Google Sync */}
+                    <div className="bg-surface-subtle/80 rounded-md p-3 border border-border space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-text-primary border-b border-border/60 pb-1.5">
+                        <CalendarClock className="w-3.5 h-3.5 text-accent" />
+                        <span>Scheduled Follow-up</span>
+                      </div>
+                      <div className="space-y-1.5 text-xs">
+                        <div className="flex justify-between items-center">
+                          <span className="text-text-muted text-[11px]">Date & Time:</span>
+                          <span className="font-medium text-text-primary text-[11px]">
+                            {selectedCustomer.followup_date ? (
+                              <span className="font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                                {selectedCustomer.followup_date} {selectedCustomer.followup_time || '10:00 AM'}
+                              </span>
+                            ) : 'No follow-up set'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-text-muted text-[11px]">Tasks Sync:</span>
+                          {selectedCustomer.google_task_id ? (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">Synced</span>
+                          ) : (
+                            <span className="text-[10px] text-text-muted">Not Synced</span>
+                          )}
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-text-muted text-[11px]">Calendar Sync:</span>
+                          {selectedCustomer.google_calendar_event_id ? (
+                            <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">Synced</span>
+                          ) : (
+                            <span className="text-[10px] text-text-muted">Not Synced</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
