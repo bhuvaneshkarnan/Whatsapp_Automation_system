@@ -4327,18 +4327,87 @@ export default function SuperAdminClients() {
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="p-4 bg-surface-subtle rounded-md border border-border space-y-2">
-                          <label className="block text-xs font-medium text-text-primary">Subscription Tier</label>
-                          <select
-                            value={editingConfigTenant.plan || 'pro'}
-                            onChange={(e) => setEditingConfigTenant({ ...editingConfigTenant, plan: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-accent cursor-pointer"
-                          >
-                            <option value="pro">Standard Automation Plan (₹3,499/mo) &mdash; Official Razorpay Sub</option>
-                            <option value="starter">Starter Plan (₹999/mo)</option>
-                            <option value="enterprise">Enterprise Plan (₹9,999/mo)</option>
-                            <option value="custom">Custom Plan</option>
-                          </select>
+                        <div className="p-4 bg-surface-subtle rounded-md border border-border space-y-3 md:col-span-2">
+                          <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">Feature Plan, Pricing & Sales Channel</label>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-secondary mb-1">Feature Suite Plan</label>
+                              <select
+                                value={editingConfigTenant.plan || 'full_suite'}
+                                onChange={(e) => setEditingConfigTenant({ ...editingConfigTenant, plan: e.target.value })}
+                                className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-accent cursor-pointer"
+                              >
+                                <option value="full_suite">Full Suite (Automation + Reviews)</option>
+                                <option value="automation_only">WhatsApp Automation Only</option>
+                                <option value="review_only">AI Review System Only</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-secondary mb-1">Monthly Price (₹)</label>
+                              <input
+                                type="number"
+                                value={editingConfigTenant.monthly_price || 3499}
+                                onChange={(e) => setEditingConfigTenant({ ...editingConfigTenant, monthly_price: Number(e.target.value) })}
+                                className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-secondary mb-1">Sales Channel</label>
+                              <select
+                                value={editingConfigTenant.sales_channel || 'direct'}
+                                onChange={(e) => setEditingConfigTenant({ ...editingConfigTenant, sales_channel: e.target.value })}
+                                className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-accent cursor-pointer"
+                              >
+                                <option value="direct">Direct Sales ("I myself sell")</option>
+                                <option value="partner">Partner Agency Sales ("Company Partner")</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {(editingConfigTenant.sales_channel === 'partner') && (
+                            <div className="p-3 bg-white rounded border border-border space-y-2 mt-2">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div>
+                                  <label className="block text-[10px] font-semibold text-text-muted mb-0.5">Partner Agency Name</label>
+                                  <input
+                                    type="text"
+                                    placeholder="Partner Agency Name"
+                                    value={editingConfigTenant.partner_name || ''}
+                                    onChange={(e) => setEditingConfigTenant({ ...editingConfigTenant, partner_name: e.target.value })}
+                                    className="w-full px-2 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-semibold text-text-muted mb-0.5">Partner Share %</label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={editingConfigTenant.partner_share_pct ?? 50}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      setEditingConfigTenant({ ...editingConfigTenant, partner_share_pct: val, owner_share_pct: 100 - val });
+                                    }}
+                                    className="w-full px-2 py-1 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-semibold text-text-muted mb-0.5">Owner Share %</label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={editingConfigTenant.owner_share_pct ?? 50}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      setEditingConfigTenant({ ...editingConfigTenant, owner_share_pct: val, partner_share_pct: 100 - val });
+                                    }}
+                                    className="w-full px-2 py-1 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         <div className="p-4 bg-surface-subtle rounded-md border border-border space-y-2">
