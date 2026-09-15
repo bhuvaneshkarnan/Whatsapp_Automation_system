@@ -44,6 +44,14 @@ export default function ReviewClient() {
   } | null>(null);
 
   useEffect(() => {
+    // Pre-fill customer details from URL params (sent by WhatsApp review nudge)
+    const urlName = searchParams.get('name');
+    const urlPhone = searchParams.get('phone');
+    if (urlName) setCustomerName(decodeURIComponent(urlName));
+    if (urlPhone) setCustomerPhone(decodeURIComponent(urlPhone));
+  }, [searchParams]);
+
+  useEffect(() => {
     async function loadSettings() {
       setLoading(true);
       try {

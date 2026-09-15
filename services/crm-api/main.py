@@ -4284,9 +4284,21 @@ async def update_booking_status(
         dispatch_template = None
         dispatch_params = []
 
-        google_review_link = (t_settings_dict.get("google_review_link") or wa_data.get("google_review_link") or "").strip()
+        google_review_link = (t_settings_dict.get("google_review_link") or t_settings_dict.get("gmb_review_url") or wa_data.get("google_review_link") or "").strip()
         if not google_review_link:
             google_review_link = f"https://search.google.com/local/writereview?placeid={tenant_name.replace(' ', '+')}"
+
+        # Build smart CRM review URL with customer details pre-filled
+        from urllib.parse import quote as _url_quote
+        _tenant_slug = t_settings_dict.get("slug", "")
+        _customer_phone_raw = (booking.get("phone") or "").strip()
+        _crm_origin = "https://crm.goboldlabs.com"
+        if _tenant_slug:
+            _encoded_name = _url_quote(patient_name or "", safe="")
+            _encoded_phone = _url_quote(_customer_phone_raw or "", safe="")
+            smart_review_url = f"{_crm_origin}/{_tenant_slug}/review?name={_encoded_name}&phone={_encoded_phone}"
+        else:
+            smart_review_url = google_review_link
 
         if payload.status in ["completed", "attended"]:
             auto_review_enabled = t_settings_dict.get("enable_auto_review", True) if t_settings_dict.get("enable_auto_review") is not None else True
@@ -4323,14 +4335,14 @@ async def update_booking_status(
                     logger.info("review_request_already_sent_skipping_duplicate", tenant_id=tenant_id, booking_id=booking_id)
                 else:
                     delay_seconds = 10
-                    review_link_block = f"\n\nGoogle Review link:\n{google_review_link}" if google_review_link else ""
+                    review_link_block = f"\n\nTap the link below to share your experience:\n{smart_review_url}"
                     automated_text = (
                         f"Hi {patient_name}, thank you for attending your {service_name} session with {tenant_name} today.\n\n"
                         f"We hope you had a wonderful experience! Could you please take 30 seconds to share your review with us?{review_link_block}\n\n"
                         f"Your feedback helps us maintain the highest standard of service. Thank you for choosing {tenant_name}."
                     )
                     dispatch_template = str(t_review_tpl).strip()
-                    dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", google_review_link]
+                    dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", smart_review_url]
                     # Update review_sent_at timestamp immediately to avoid race conditions
                     await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid", booking_id)
 

@@ -15615,34 +15615,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           Send an automated Google Review request template on WhatsApp after an appointment is marked as Attended. When changing status, you will also be prompted with the choice to send or skip for each client.
                         </p>
                         {settingsForm.enable_auto_review !== false && (
-                          <div className="pt-1 space-y-3">
-                            <div>
-                              <label className="block text-[11px] font-medium text-text-secondary mb-1">
-                                Google Review Link (Legacy)
-                              </label>
-                              <input
-                                type="text"
-                                placeholder="https://g.page/r/your-business-id/review"
-                                value={settingsForm.google_review_link || ''}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, google_review_link: e.target.value, gmb_review_url: e.target.value })}
-                                className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                              />
-                            </div>
-
+                          <div className="pt-1">
                             <div className="p-3 bg-amber-500/5 rounded-md border border-amber-500/20 space-y-1.5">
                               <label className="block text-[11px] font-semibold text-text-primary flex items-center gap-1.5">
                                 <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-                                <span>GMB Public Review Link (AI Smart Review Collector)</span>
+                                <span>Google / GMB Review Link</span>
                               </label>
                               <input
                                 type="text"
                                 placeholder="https://g.page/r/your-gmb-review-link/review"
                                 value={settingsForm.gmb_review_url || settingsForm.google_review_link || ''}
                                 onChange={(e) => setSettingsForm({ ...settingsForm, gmb_review_url: e.target.value, google_review_link: e.target.value })}
-                                className="w-full px-3 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent transition-colors duration-150"
+                                className="w-full px-3 py-2 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent transition-colors duration-150"
                               />
                               <p className="text-[10px] text-text-muted">
-                                Used by your public review collector page (<strong>/{settingsForm.slug || 'slug'}/review</strong>). When a customer leaves 4 or 5 stars, their AI review is copied and they are automatically redirected to this link.
+                                Paste your Google Business review link here. Used by the public AI review collector page (<strong>/{settingsForm.slug || 'slug'}/review</strong>) — 4–5★ reviews are auto-copied and redirected here. Also sent in WhatsApp post-service review nudges with the customer's name pre-filled.
                               </p>
                             </div>
                           </div>
