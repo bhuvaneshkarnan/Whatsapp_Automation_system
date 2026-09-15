@@ -14913,7 +14913,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {/* TAB: REVIEWS & GMB FEEDBACK HUB                                            */}
             {/* ========================================================================= */}
             {activeNav === 'reviews' && (
-              <div className="space-y-3">
+              <div className="flex-1 flex flex-col overflow-y-auto space-y-3 pr-1 pb-20">
 
                 {/* ── HEADER ROW ──────────────────────────────────────────── */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
@@ -19800,6 +19800,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           >
             <Calendar className="w-5 h-5 stroke-[1.5]" />
             <span className="text-[10px] mt-0.5 tracking-tight">Calendar</span>
+          </button>
+        )}
+
+        {settingsForm.plan !== 'automation_only' && (
+          <button
+            type="button"
+            onClick={() => navigateTo('reviews' as any)}
+            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer touch-manipulation ${
+              activeNav === 'reviews'
+                ? 'text-accent font-semibold'
+                : 'text-text-muted hover:text-text-primary'
+            }`}
+          >
+            <Star className="w-5 h-5 stroke-[1.5]" />
+            <span className="text-[10px] mt-0.5 tracking-tight">Reviews</span>
           </button>
         )}
 
