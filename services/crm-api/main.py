@@ -25,7 +25,10 @@ except ImportError:
     try:
         from crm_api import razorpay_client
     except ImportError:
-        import services.crm_api.razorpay_client as razorpay_client
+        try:
+            import services.crm_api.razorpay_client as razorpay_client
+        except ImportError:
+            razorpay_client = None
 
 logger = structlog.get_logger("crm-api")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://platform_user:devpassword@localhost:5432/whatsapp_platform")

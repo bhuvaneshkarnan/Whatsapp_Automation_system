@@ -8620,22 +8620,31 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                 </div>
 
-                {/* 5 Top Summary Metric Cards */}
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-4">
-                    {/* Card 1: WhatsApp Messages */}
+                {/* 4 Core Essential Summary Metric Cards */}
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                    {/* Card 1: WhatsApp Messages & Automation */}
                     <div
                       onClick={() => setActiveNav('inbox')}
-                      className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 cursor-pointer space-y-1.5"
+                      className="bg-surface border border-border hover:border-emerald-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-text-muted">Total messages</span>
-                        <MessageSquare className="w-4 h-4 stroke-[1.5] text-accent" />
+                        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Messages & Automation</span>
+                        <div className="w-7 h-7 rounded-sm bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                          <MessageSquare className="w-4 h-4 stroke-[1.8]" />
+                        </div>
                       </div>
-                      <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
-                        {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_messages : conversations.length}
-                      </p>
-                      <p className="text-[11px] text-text-muted truncate">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                          {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_messages : conversations.length}
+                        </p>
+                        {dashboardAnalyticsData && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            {dashboardAnalyticsData.summary.ai_autonomous_rate}% AI
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-text-muted truncate flex items-center gap-1.5">
                         {dashboardAnalyticsData
                           ? `${dashboardAnalyticsData.summary.inbound_messages} in • ${dashboardAnalyticsData.summary.outbound_messages} out`
                           : 'Active conversations'}
@@ -8645,19 +8654,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {/* Card 2: Leads & Conversion */}
                     <div
                       onClick={() => setActiveNav('customers')}
-                      className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 cursor-pointer space-y-1.5"
+                      className="bg-surface border border-border hover:border-blue-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-text-muted">Leads & conversion</span>
-                        <Users className="w-4 h-4 stroke-[1.5] text-blue-600" />
+                        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Leads & Conversion</span>
+                        <div className="w-7 h-7 rounded-sm bg-blue-50 text-blue-600 flex items-center justify-center">
+                          <Users className="w-4 h-4 stroke-[1.8]" />
+                        </div>
                       </div>
-                      <div className="flex items-baseline gap-1.5">
-                        <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
                           {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_leads : contacts.length}
                         </p>
                         {dashboardAnalyticsData && (
-                          <span className="text-xs font-semibold px-1.5 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            {dashboardAnalyticsData.summary.conversion_rate}%
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
+                            {dashboardAnalyticsData.summary.conversion_rate}% Conv.
                           </span>
                         )}
                       </div>
@@ -8669,15 +8680,24 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {/* Card 3: Scheduled Bookings */}
                     <div
                       onClick={() => setActiveNav('bookings')}
-                      className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 cursor-pointer space-y-1.5"
+                      className="bg-surface border border-border hover:border-indigo-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-text-muted">Bookings</span>
-                        <CalendarDays className="w-4 h-4 stroke-[1.5] text-indigo-600" />
+                        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Appointments</span>
+                        <div className="w-7 h-7 rounded-sm bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                          <CalendarDays className="w-4 h-4 stroke-[1.8]" />
+                        </div>
                       </div>
-                      <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
-                        {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_bookings : bookings.filter((b) => b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled').length}
-                      </p>
+                      <div className="flex items-baseline justify-between gap-2">
+                        <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                          {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_bookings : bookings.filter((b) => b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled').length}
+                        </p>
+                        {dashboardAnalyticsData && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200">
+                            {dashboardAnalyticsData.summary.attendance_rate}% Attended
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[11px] text-text-muted truncate">
                         {dashboardAnalyticsData
                           ? `${dashboardAnalyticsData.summary.completed_bookings} attended (${dashboardAnalyticsData.summary.attendance_rate}%)`
@@ -8691,13 +8711,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         setActiveNav('bookings');
                         setBookingFilter('completed');
                       }}
-                      className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 cursor-pointer space-y-1.5"
+                      className="bg-surface border border-border hover:border-emerald-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-text-muted">Attended revenue</span>
-                        <TrendingUp className="w-4 h-4 stroke-[1.5] text-emerald-600" />
+                        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Attended Revenue</span>
+                        <div className="w-7 h-7 rounded-sm bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                          <TrendingUp className="w-4 h-4 stroke-[1.8]" />
+                        </div>
                       </div>
-                      <p className="text-2xl font-semibold text-emerald-700 font-mono tabular-nums">
+                      <p className="text-2xl font-bold text-emerald-700 font-mono tabular-nums">
                         {currentCurrencySymbol}{dashboardAnalyticsData
                           ? dashboardAnalyticsData.summary.total_revenue.toLocaleString()
                           : bookings.filter((b) => b.status === 'completed' || b.status === 'attended').reduce((sum, b) => sum + (Number(b.price) || 0), 0).toLocaleString()}
@@ -8710,60 +8732,37 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           : 'No completed visits yet'}
                       </p>
                     </div>
-
-                    {/* Card 5: AI Autonomy */}
-                    <div
-                      className="bg-surface border border-border hover:border-border-strong rounded-md p-4 transition-colors duration-150 space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-text-muted">AI automation</span>
-                        <Zap className="w-4 h-4 stroke-[1.5] text-amber-500" />
-                      </div>
-                      <div className="flex items-baseline gap-1.5">
-                        <p className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
-                          {dashboardAnalyticsData ? `${dashboardAnalyticsData.summary.ai_autonomous_rate}%` : '0%'}
-                        </p>
-                        <span className="text-[10px] px-1 py-0.2 rounded-xs bg-status-success-bg text-status-success border border-status-success-border font-medium">
-                          {dashboardAnalyticsData && dashboardAnalyticsData.summary.ai_autonomous_rate >= 50 ? 'Active' : 'Assisted'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-text-muted truncate">
-                        {dashboardAnalyticsData
-                          ? `${dashboardAnalyticsData.summary.ai_conversations} AI replies • ${dashboardAnalyticsData.summary.human_conversations} staff replies`
-                          : 'Messages automated'}
-                      </p>
-                    </div>
                   </div>
                 </div>
 
-                {/* ── Interactive Visual Analytics Suite ── */}
+                {/* ── Visual Analytics Grid ── */}
                 {dashboardAnalyticsData && (
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-1">
                     {/* Chart: Daily WhatsApp Message Traffic (Span 2 cols) */}
-                    <div className="lg:col-span-2 bg-surface border border-border rounded-md p-4 space-y-3">
+                    <div className="lg:col-span-2 bg-surface border border-border rounded-md p-4 space-y-3 shadow-xs">
                       <div className="flex items-center justify-between pb-2 border-b border-border">
                         <div className="flex items-center gap-2">
                           <Activity className="w-4 h-4 text-text-secondary stroke-[1.8]" />
-                          <h4 className="font-semibold text-xs text-text-primary">WhatsApp Message Traffic</h4>
+                          <h4 className="font-semibold text-xs text-text-primary">Daily WhatsApp Message Volume</h4>
                         </div>
                         <div className="flex items-center gap-3 text-[11px] text-text-muted">
-                          <span className="flex items-center gap-1">
+                          <span className="flex items-center gap-1.5">
                             <span className="w-2.5 h-2.5 rounded-xs bg-emerald-500 inline-block" />
-                            <span>Inbound ({dashboardAnalyticsData.summary.inbound_messages})</span>
+                            <span className="font-medium text-text-secondary">Inbound ({dashboardAnalyticsData.summary.inbound_messages})</span>
                           </span>
-                          <span className="flex items-center gap-1">
+                          <span className="flex items-center gap-1.5">
                             <span className="w-2.5 h-2.5 rounded-xs bg-accent inline-block" />
-                            <span>Outbound ({dashboardAnalyticsData.summary.outbound_messages})</span>
+                            <span className="font-medium text-text-secondary">Outbound ({dashboardAnalyticsData.summary.outbound_messages})</span>
                           </span>
                         </div>
                       </div>
 
                       {dashboardAnalyticsData.time_series.length === 0 ? (
-                        <div className="h-44 flex items-center justify-center text-xs text-text-muted">
+                        <div className="h-52 flex items-center justify-center text-xs text-text-muted">
                           No message activity recorded in this time range.
                         </div>
                       ) : (
-                        <div className="h-44 flex items-end gap-2 pt-4 px-2">
+                        <div className="h-52 flex items-end gap-2 pt-4 px-2">
                           {(() => {
                             const series = dashboardAnalyticsData.time_series;
                             const maxVal = Math.max(1, ...series.map((t) => Math.max(t.inbound, t.outbound, t.total)));
@@ -8772,18 +8771,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             return series.map((t, i) => {
                               const inPct = Math.round((t.inbound / maxVal) * 100);
                               const outPct = Math.round((t.outbound / maxVal) * 100);
-                              const dayLabel = t.day.slice(5); // MM-DD
+                              const dayLabel = t.day.slice(5);
                               return (
                                 <div key={t.day || i} className={`flex-1 min-w-[28px] ${barMaxW} flex flex-col items-center gap-1 group relative`}>
                                   {/* Tooltip on hover */}
-                                  <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col bg-gray-900 text-white text-[10px] rounded-md px-2.5 py-1.5 shadow-xl pointer-events-none z-20 whitespace-nowrap border border-white/10">
+                                  <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col bg-slate-900 text-white text-[10px] rounded-md px-2.5 py-1.5 shadow-xl pointer-events-none z-20 whitespace-nowrap border border-white/10">
                                     <span className="font-semibold border-b border-white/20 pb-0.5 mb-0.5">{t.day}</span>
                                     <span className="flex items-center gap-1.5"><ArrowDownLeft className="w-3 h-3 text-emerald-400 stroke-[2]" /> Inbound: {t.inbound}</span>
                                     <span className="flex items-center gap-1.5"><ArrowUpRight className="w-3 h-3 text-blue-400 stroke-[2]" /> Outbound: {t.outbound}</span>
                                     <span className="font-medium pt-0.5 border-t border-white/20 mt-0.5">Total: {t.total}</span>
                                   </div>
                                   {/* Bars */}
-                                  <div className={`w-full h-32 flex items-end justify-center ${barGap}`}>
+                                  <div className={`w-full h-36 flex items-end justify-center ${barGap}`}>
                                     <div
                                       style={{ height: `${Math.max(inPct, 6)}%` }}
                                       className="w-1/2 bg-emerald-500 rounded-t-sm transition-all duration-300 hover:brightness-110 cursor-pointer"
@@ -8805,48 +8804,34 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
 
                     {/* Funnel: Lead & Conversion Funnel (1 col) */}
-                    <div className="bg-surface border border-border rounded-md p-4 space-y-3 flex flex-col justify-between">
+                    <div className="bg-surface border border-border rounded-md p-4 space-y-4 flex flex-col justify-between shadow-xs">
                       <div className="flex items-center justify-between pb-2 border-b border-border">
                         <div className="flex items-center gap-2">
                           <TrendingUp className="w-4 h-4 text-text-secondary stroke-[1.8]" />
                           <h4 className="font-semibold text-xs text-text-primary">Conversion Funnel</h4>
                         </div>
-                        <span className="text-[11px] font-mono text-emerald-700 font-semibold">
-                          {dashboardAnalyticsData.summary.conversion_rate}% Conv.
+                        <span className="text-[11px] font-mono text-emerald-700 font-bold px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded">
+                          {dashboardAnalyticsData.summary.conversion_rate}% Overall Conv.
                         </span>
                       </div>
 
-                      <div className="space-y-2.5 py-1">
-                        {/* Step 1: Inbound Contacts */}
+                      <div className="space-y-3 py-1">
+                        {/* Stage 1: Inbound Contacts */}
                         <div>
-                          <div className="flex justify-between text-xs mb-1">
+                          <div className="flex justify-between text-xs mb-1 font-medium">
                             <span className="text-text-secondary">Inbound Inquiries</span>
-                            <span className="font-mono font-semibold text-text-primary">{dashboardAnalyticsData.pipeline.new}</span>
+                            <span className="font-mono font-bold text-text-primary">{dashboardAnalyticsData.pipeline.new}</span>
                           </div>
                           <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
                             <div className="bg-blue-500 h-full rounded-full" style={{ width: '100%' }} />
                           </div>
                         </div>
 
-                        {/* Step 2: Contacted */}
+                        {/* Stage 2: Tracked & Qualified */}
                         <div>
-                          <div className="flex justify-between text-xs mb-1">
-                            <span className="text-text-secondary">Engaged in Chat</span>
-                            <span className="font-mono font-semibold text-text-primary">{dashboardAnalyticsData.pipeline.contacted}</span>
-                          </div>
-                          <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
-                            <div
-                              className="bg-indigo-500 h-full rounded-full"
-                              style={{ width: `${dashboardAnalyticsData.pipeline.new > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.pipeline.contacted / dashboardAnalyticsData.pipeline.new) * 100)) : 0}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Step 3: Qualified / Follow-up */}
-                        <div>
-                          <div className="flex justify-between text-xs mb-1">
-                            <span className="text-text-secondary">Tracked in CRM</span>
-                            <span className="font-mono font-semibold text-text-primary">{dashboardAnalyticsData.pipeline.qualified}</span>
+                          <div className="flex justify-between text-xs mb-1 font-medium">
+                            <span className="text-text-secondary">CRM Qualified Leads</span>
+                            <span className="font-mono font-bold text-text-primary">{dashboardAnalyticsData.pipeline.qualified}</span>
                           </div>
                           <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
                             <div
@@ -8856,25 +8841,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
                         </div>
 
-                        {/* Step 4: Booked Visits */}
+                        {/* Stage 3: Booked & Attended */}
                         <div>
-                          <div className="flex justify-between text-xs mb-1">
-                            <span className="text-text-secondary">Booked Appointments</span>
-                            <span className="font-mono font-semibold text-text-primary">{dashboardAnalyticsData.summary.total_bookings}</span>
-                          </div>
-                          <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
-                            <div
-                              className="bg-purple-500 h-full rounded-full"
-                              style={{ width: `${dashboardAnalyticsData.pipeline.new > 0 ? Math.min(100, Math.round((dashboardAnalyticsData.summary.total_bookings / dashboardAnalyticsData.pipeline.new) * 100)) : 0}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Step 5: Completed Visits */}
-                        <div>
-                          <div className="flex justify-between text-xs mb-1">
-                            <span className="text-emerald-700 font-medium">Attended / Completed</span>
-                            <span className="font-mono font-semibold text-emerald-700">{dashboardAnalyticsData.summary.completed_bookings}</span>
+                          <div className="flex justify-between text-xs mb-1 font-medium">
+                            <span className="text-emerald-700 font-semibold">Booked & Attended</span>
+                            <span className="font-mono font-bold text-emerald-700">{dashboardAnalyticsData.summary.completed_bookings}</span>
                           </div>
                           <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
                             <div
@@ -8886,142 +8857,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </div>
 
                       {/* Status Badges Row */}
-                      <div className="pt-2 border-t border-border grid grid-cols-3 gap-1 text-center">
-                        <div className="p-1 rounded bg-surface-subtle">
-                          <p className="text-[10px] text-text-muted">Confirmed</p>
-                          <p className="text-xs font-semibold text-text-primary font-mono">{dashboardAnalyticsData.bookings_by_status.confirmed}</p>
+                      <div className="pt-2.5 border-t border-border grid grid-cols-3 gap-1.5 text-center">
+                        <div className="p-1.5 rounded bg-surface-subtle border border-border">
+                          <p className="text-[10px] text-text-muted font-medium">Confirmed</p>
+                          <p className="text-xs font-bold text-text-primary font-mono mt-0.5">{dashboardAnalyticsData.bookings_by_status.confirmed}</p>
                         </div>
-                        <div className="p-1 rounded bg-emerald-50 text-emerald-800">
-                          <p className="text-[10px] text-emerald-700">Attended</p>
-                          <p className="text-xs font-semibold font-mono">{dashboardAnalyticsData.bookings_by_status.completed}</p>
+                        <div className="p-1.5 rounded bg-emerald-50 text-emerald-900 border border-emerald-200">
+                          <p className="text-[10px] text-emerald-700 font-semibold">Attended</p>
+                          <p className="text-xs font-bold font-mono text-emerald-800 mt-0.5">{dashboardAnalyticsData.bookings_by_status.completed}</p>
                         </div>
-                        <div className="p-1 rounded bg-rose-50 text-rose-800">
-                          <p className="text-[10px] text-rose-700">No-Show</p>
-                          <p className="text-xs font-semibold font-mono">{dashboardAnalyticsData.bookings_by_status.no_show}</p>
+                        <div className="p-1.5 rounded bg-rose-50 text-rose-900 border border-rose-200">
+                          <p className="text-[10px] text-rose-700 font-semibold">No-Show</p>
+                          <p className="text-xs font-bold font-mono text-rose-800 mt-0.5">{dashboardAnalyticsData.bookings_by_status.no_show}</p>
                         </div>
                       </div>
                     </div>
                   </div>
                 )}
-
-                {/* 2-Column Overview Widgets */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
-                  {/* Widget 1: Recent Inbound Conversations */}
-                  <div className="bg-surface border border-border rounded-md p-4 space-y-3">
-                    <div className="flex items-center justify-between pb-2 border-b border-border">
-                      <div className="flex items-center gap-2">
-                        <MessageSquare className="w-4 h-4 text-text-secondary stroke-[1.5]" />
-                        <h4 className="font-medium text-xs text-text-primary">Recent inbound chats</h4>
-                      </div>
-                      <button
-                        onClick={() => setActiveNav('inbox')}
-                        className="text-xs font-medium text-accent hover:text-accent-hover cursor-pointer"
-                      >
-                        View all
-                      </button>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      {conversations.length === 0 ? (
-                        <div className="text-center py-8 text-xs text-text-muted">
-                          No WhatsApp conversations yet.
-                        </div>
-                      ) : (
-                        conversations.slice(0, 4).map((c) => (
-                          <div
-                            key={c.id}
-                            onClick={() => {
-                              setSelectedConv(c);
-                              selectConversation(c);
-                              setActiveNav('inbox');
-                            }}
-                            className="p-2.5 rounded-sm border border-border hover:bg-surface-subtle transition-colors duration-150 cursor-pointer flex items-center justify-between"
-                          >
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-7 h-7 rounded-sm bg-surface-subtle text-text-secondary flex items-center justify-center font-medium text-xs">
-                                {(c.contact_name || c.contact_phone || 'W').slice(0, 2).toUpperCase()}
-                              </div>
-                              <div>
-                                <p className="font-medium text-xs text-text-primary">
-                                  {c.contact_name || c.contact_phone || 'WhatsApp Client'}
-                                </p>
-                                <p className="text-xs text-text-muted line-clamp-1 max-w-[200px]">
-                                  {c.last_message || 'Active conversation'}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              {c.ai_enabled ? (
-                                <span className="px-1.5 py-0.5 bg-status-success-bg text-status-success border border-status-success-border text-xs font-medium rounded-sm">
-                                  AI Auto
-                                </span>
-                              ) : (
-                                <span className="px-1.5 py-0.5 bg-surface-subtle text-text-muted border border-border text-xs font-medium rounded-sm">
-                                  Human
-                                </span>
-                              )}
-                              <ChevronRight className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Widget 2: Next Upcoming Bookings */}
-                  <div className="bg-surface border border-border rounded-md p-4 space-y-3">
-                    <div className="flex items-center justify-between pb-2 border-b border-border">
-                      <div className="flex items-center gap-2">
-                        <CalendarDays className="w-4 h-4 text-text-secondary stroke-[1.5]" />
-                        <h4 className="font-medium text-xs text-text-primary">Upcoming appointments</h4>
-                      </div>
-                      <button
-                        onClick={() => setActiveNav('bookings')}
-                        className="text-xs font-medium text-accent hover:text-accent-hover cursor-pointer"
-                      >
-                        View all
-                      </button>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      {bookings.filter((b) => b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled').length === 0 ? (
-                        <div className="text-center py-8 text-xs text-text-muted">
-                          No upcoming bookings scheduled.
-                        </div>
-                      ) : (
-                        bookings
-                          .filter((b) => b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled')
-                          .slice(0, 4)
-                          .map((b) => (
-                            <div
-                              key={b.id}
-                              className="p-2.5 rounded-sm border border-border hover:bg-surface-subtle transition-colors duration-150 flex items-center justify-between"
-                            >
-                              <div>
-                                <p className="font-medium text-xs text-text-primary">
-                                  {b.contact_name || b.contact_phone || 'Client'}
-                                </p>
-                                <p className="text-xs text-text-muted">
-                                  {b.service} &bull; {new Date(b.start_time || b.appointment_time || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })} at {formatTime12(b.start_time || b.appointment_time || new Date())}
-                                </p>
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-medium text-text-primary font-mono tabular-nums">{currentCurrencySymbol}{b.price || 0}</span>
-                                <span className={`px-1.5 py-0.5 text-xs font-medium rounded-sm capitalize border ${
-                                  b.status === 'rescheduled' ? 'bg-purple-50 text-purple-700 border-purple-200' :
-                                  b.status === 'confirmed' ? 'bg-status-success-bg text-status-success border-status-success-border' : 'bg-status-warning-bg text-status-warning border-status-warning-border'
-                                }`}>
-                                  {b.status}
-                                </span>
-                              </div>
-                            </div>
-                          ))
-                      )}
-                    </div>
-                  </div>
-                </div>
               </div>
             )}
 
