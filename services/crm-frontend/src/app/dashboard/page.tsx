@@ -2378,7 +2378,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   // Calendar View State (day | week | month)
   const [calendarViewMode, setCalendarViewMode] = useState<'day' | 'week' | 'month'>('month');
   const [calendarLayerFilter, setCalendarLayerFilter] = useState<'all' | 'bookings' | 'followups' | 'tasks'>('all');
+  const [liveGcalEvents, setLiveGcalEvents] = useState<LiveCalendarSlot[]>([]);
+  const [liveGcalLoading, setLiveGcalLoading] = useState(false);
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
+
+  const activeSlug = (routeSlug || (params?.slug as string) || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : '') || '').toLowerCase();
+  const isMindBodyRecovery = activeSlug.includes('mindbody') || activeSlug.includes('mind_body') || activeSlug.includes('mindbodyrecovery') || (user?.tenant_slug || '').toLowerCase().includes('mindbody');
 
   // Customers State
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -4321,19 +4326,26 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   async function loadCalendarData() {
     setLoadingBookings(true);
+    setLiveGcalLoading(true);
     try {
-      const [bData, cData, tData] = await Promise.all([
+      const [bData, cData, tData, gData] = await Promise.all([
         crm.getBookings(undefined, 500).catch(() => []),
         crm.getCustomers({ limit: 500 }).catch(() => []),
-        crm.getTasks('all').catch(() => []),
+        isMindBodyRecovery ? crm.getTasks('all').catch(() => []) : Promise.resolve([]),
+        crm.getLiveCalendarAvailability().catch(() => null),
       ]);
       if (Array.isArray(bData)) setBookings(bData);
       if (Array.isArray(cData) && cData.length > 0) setCustomers(cData);
       if (Array.isArray(tData)) setTasks(tData);
+      if (gData && Array.isArray(gData.busy_slots)) {
+        const googleOnly = gData.busy_slots.filter((s: LiveCalendarSlot) => s.source === 'Google Calendar');
+        setLiveGcalEvents(googleOnly);
+      }
     } catch (err) {
       console.error('Error loading calendar data:', err);
     } finally {
       setLoadingBookings(false);
+      setLiveGcalLoading(false);
     }
   }
 
@@ -9459,15 +9471,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <span>Table</span>
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => setShowAddTaskModal(true)}
-                        className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer whitespace-nowrap"
-                        title="Create a new task"
-                      >
-                        <CheckSquare className="w-3.5 h-3.5 stroke-[1.5] text-amber-600" />
-                        <span>+ Task</span>
-                      </button>
+                      {isMindBodyRecovery && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAddTaskModal(true)}
+                          className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                          title="Create a new task"
+                        >
+                          <CheckSquare className="w-3.5 h-3.5 stroke-[1.5] text-amber-600" />
+                          <span>+ Task</span>
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -9481,12 +9495,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
 
                   {/* Row 2: Unified Layer / Filter Selector Pills (All, Appointments, Follow-ups, Tasks) */}
-                  <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5 w-fit">
+                  <div className="flex items-center gap-1.5 bg-surface-subtle border border-border rounded-sm p-0.5 w-fit flex-wrap overflow-x-auto max-w-full">
                     {[
-                      { key: 'all', label: 'All Schedule', icon: LayoutGrid, count: (bookings?.length || 0) + (customers?.filter(c => c.followup_date).length || 0) + (tasks?.filter(t => !t.completed).length || 0) },
+                      { key: 'all', label: 'All Schedule', icon: LayoutGrid, count: (bookings?.length || 0) + (customers?.filter(c => c.followup_date).length || 0) + (isMindBodyRecovery ? (tasks?.filter(t => !t.completed).length || 0) : 0) + (liveGcalEvents?.length || 0) },
                       { key: 'bookings', label: currentTaxonomy.event_label || 'Appointments', icon: Calendar, count: bookings?.length || 0 },
                       { key: 'followups', label: 'Follow-ups', icon: Phone, count: customers?.filter(c => c.followup_date).length || 0 },
-                      { key: 'tasks', label: 'Tasks', icon: CheckSquare, count: tasks?.filter(t => !t.completed).length || 0 },
+                      ...(isMindBodyRecovery ? [{ key: 'tasks', label: 'Tasks', icon: CheckSquare, count: tasks?.filter(t => !t.completed).length || 0 }] : []),
                     ].map((tab) => {
                       const IconComp = tab.icon;
                       const isActive = calendarLayerFilter === tab.key;
@@ -9545,22 +9559,36 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           return isSameDay(c.followup_date, cellDate);
                         });
 
-                        // 3. Matching Tasks
-                        const cellTasks = (tasks || []).filter((t) => {
+                        // 3. Matching Tasks (MindBodyRecovery ONLY)
+                        const cellTasks = isMindBodyRecovery ? (tasks || []).filter((t) => {
                           if (!t || !t.due_date) return false;
                           return isSameDay(t.due_date, cellDate);
+                        }) : [];
+
+                        // 4. Matching Google Calendar Live Events
+                        const cellGcalEvents = (liveGcalEvents || []).filter((g) => {
+                          if (!g || !g.start) return false;
+                          try {
+                            const gDate = new Date(g.start.replace('Z', '+00:00'));
+                            return isSameDay(gDate, cellDate);
+                          } catch {
+                            return false;
+                          }
                         });
 
                         const showBookings = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings';
                         const showFollowups = calendarLayerFilter === 'all' || calendarLayerFilter === 'followups';
-                        const showTasks = calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks';
+                        const showTasks = isMindBodyRecovery && (calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks');
+                        const showGcal = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings';
 
                         const allCellItems: Array<
                           | { type: 'booking'; data: Booking }
+                          | { type: 'gcal'; data: LiveCalendarSlot }
                           | { type: 'followup'; data: Customer }
                           | { type: 'task'; data: FollowupTask }
                         > = [
                           ...(showBookings ? cellBookings.map((b) => ({ type: 'booking' as const, data: b })) : []),
+                          ...(showGcal ? cellGcalEvents.map((g) => ({ type: 'gcal' as const, data: g })) : []),
                           ...(showFollowups ? cellFollowups.map((f) => ({ type: 'followup' as const, data: f })) : []),
                           ...(showTasks ? cellTasks.map((t) => ({ type: 'task' as const, data: t })) : []),
                         ];
@@ -9626,6 +9654,26 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       {b.status === 'rescheduled' && <RotateCcw className="w-2.5 h-2.5 inline mr-1 text-amber-600 stroke-[2]" />}
                                       {formatTime12(b.start_time)} · {b.contact_name || b.service}
                                     </button>
+                                  );
+                                }
+                                if (item.type === 'gcal') {
+                                  const g = item.data;
+                                  const gTime = g.start ? formatTime12(g.start) : 'GCal';
+                                  return (
+                                    <a
+                                      key={`gcal-${g.id || g.start}-${g.desc}`}
+                                      href={g.html_link || '#'}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="w-full text-left px-1.5 py-0.5 rounded-sm text-[10px] truncate block font-medium bg-indigo-50 text-indigo-900 border border-indigo-200 hover:bg-indigo-100 transition-colors cursor-pointer"
+                                      title={`Google Calendar Event: ${g.desc} (${g.start_formatted || ''})`}
+                                    >
+                                      <span className="inline-flex items-center gap-1 truncate font-medium">
+                                        <Calendar className="w-2.5 h-2.5 text-indigo-600 shrink-0 stroke-[2]" />
+                                        <span>{gTime} · {g.desc || 'Google Event'}</span>
+                                      </span>
+                                    </a>
                                   );
                                 }
                                 if (item.type === 'followup') {

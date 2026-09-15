@@ -5972,8 +5972,8 @@ async def get_live_calendar_availability(
             tenant_tz = timezone(timedelta(hours=5, minutes=30))
 
         now_dt = datetime.now(tenant_tz)
-        min_dt = now_dt - timedelta(hours=2)
-        max_dt = now_dt + timedelta(days=7)
+        min_dt = now_dt - timedelta(days=30)
+        max_dt = now_dt + timedelta(days=60)
 
         # 1. CRM Bookings
         db_rows = await conn.fetch(
@@ -6027,27 +6027,55 @@ async def get_live_calendar_availability(
                             client_secret=g_data.get("client_secret"),
                         )
                         service = build("calendar", "v3", credentials=g_creds, cache_discovery=False)
-                        fb_res = service.freebusy().query(body={
-                            "timeMin": now_dt.isoformat(),
-                            "timeMax": max_dt.isoformat(),
-                            "timeZone": str(tenant_tz),
-                            "items": [{"id": cal_id}]
-                        }).execute()
-                        return fb_res.get("calendars", {}).get(cal_id, {}).get("busy", [])
+                        events_res = service.events().list(
+                            calendarId=cal_id,
+                            timeMin=min_dt.isoformat(),
+                            timeMax=max_dt.isoformat(),
+                            singleEvents=True,
+                            orderBy='startTime'
+                        ).execute()
+                        events_items = events_res.get("items", [])
+                        parsed_gcal = []
+                        for item in events_items:
+                            start_obj = item.get("start", {})
+                            end_obj = item.get("end", {})
+                            st_str = start_obj.get("dateTime") or start_obj.get("date")
+                            et_str = end_obj.get("dateTime") or end_obj.get("date")
+                            if st_str and et_str:
+                                summary = item.get("summary") or "Google Calendar Event"
+                                description = item.get("description", "")
+                                parsed_gcal.append({
+                                    "start": st_str,
+                                    "end": et_str,
+                                    "summary": summary,
+                                    "description": description,
+                                    "id": item.get("id"),
+                                    "html_link": item.get("htmlLink")
+                                })
+                        return parsed_gcal
 
-                    gcal_busy = await asyncio.wait_for(asyncio.to_thread(fetch_gcal), timeout=3.0)
+                    gcal_events = await asyncio.wait_for(asyncio.to_thread(fetch_gcal), timeout=5.0)
                     gcal_connected = True
-                    for b in gcal_busy:
+                    for item in gcal_events:
                         try:
-                            st = datetime.fromisoformat(b['start'].replace('Z', '+00:00')).astimezone(tenant_tz)
-                            et = datetime.fromisoformat(b['end'].replace('Z', '+00:00')).astimezone(tenant_tz)
+                            st_raw = item["start"].replace("Z", "+00:00")
+                            et_raw = item["end"].replace("Z", "+00:00")
+                            if "T" in st_raw:
+                                st = datetime.fromisoformat(st_raw).astimezone(tenant_tz)
+                                et = datetime.fromisoformat(et_raw).astimezone(tenant_tz)
+                            else:
+                                st = datetime.strptime(st_raw[:10], "%Y-%m-%d").replace(tzinfo=tenant_tz)
+                                et = st + timedelta(hours=23, minutes=59)
+                            
                             busy_slots.append({
+                                "id": item.get("id"),
                                 "start": st.strftime('%Y-%m-%dT%H:%M:%S%z'),
                                 "end": et.strftime('%Y-%m-%dT%H:%M:%S%z'),
                                 "start_formatted": st.strftime('%A, %d %b %Y at %I:%M %p'),
                                 "end_formatted": et.strftime('%I:%M %p'),
                                 "source": "Google Calendar",
-                                "desc": "Busy Event on Google Calendar"
+                                "desc": item.get("summary") or "Google Calendar Event",
+                                "html_link": item.get("html_link")
                             })
                         except Exception:
                             pass
