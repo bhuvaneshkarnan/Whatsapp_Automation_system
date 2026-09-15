@@ -1552,6 +1552,35 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       setSavingRepeatTask(false);
     }
   }
+
+  const [sendingRepeatMessage, setSendingRepeatMessage] = useState(false);
+  const [activeRepeatActionMenuId, setActiveRepeatActionMenuId] = useState<string | null>(null);
+
+  async function handleSendRepeatWhatsApp() {
+    if (!selectedRepeatClient || !repeatMessageText.trim()) return;
+    if (!selectedRepeatClient.phone) {
+      alert('This client has no valid phone number saved.');
+      return;
+    }
+    setSendingRepeatMessage(true);
+    try {
+      await crm.sendWhatsAppDirect(
+        selectedRepeatClient.phone,
+        repeatMessageText.trim(),
+        selectedRepeatClient.id
+      );
+      setRepeatFollowupModalOpen(false);
+      setActionNotice(`WhatsApp message sent successfully to ${selectedRepeatClient.name || 'client'} from system number!`);
+      setTimeout(() => setActionNotice(null), 4000);
+      loadCustomers();
+    } catch (err: any) {
+      console.error('Direct WhatsApp send failed:', err);
+      alert('Failed to send WhatsApp message via system: ' + (err?.message || String(err)) + '\n\nPlease verify your Meta credentials in Settings.');
+    } finally {
+      setSendingRepeatMessage(false);
+    }
+  }
+
   const [dashCalendarLoading, setDashCalendarLoading] = useState(false);
   const [dashCalendarAvailability, setDashCalendarAvailability] = useState<LiveCalendarAvailabilityResponse | null>(null);
   const [dashCalendarError, setDashCalendarError] = useState('');
@@ -7960,37 +7989,49 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           </div>
 
           {/* Footer Actions */}
-          <div className="px-5 py-3.5 border-t border-border bg-surface-subtle flex items-center justify-end gap-2.5">
-            <button
-              type="button"
-              onClick={() => setRepeatFollowupModalOpen(false)}
-              className="px-4 py-1.5 text-xs text-text-secondary hover:text-text-primary border border-border rounded-md bg-surface transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-
-            {repeatActionTab === 'template' ? (
+          <div className="px-5 py-3.5 border-t border-border bg-surface-subtle flex items-center justify-between gap-2.5">
+            {repeatActionTab === 'template' && (
               <a
                 href={waUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={() => setRepeatFollowupModalOpen(false)}
-                className="px-4 py-1.5 text-xs font-semibold text-white bg-[#25D366] hover:bg-[#20bd5a] rounded-md transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                className="text-[11px] text-text-muted hover:text-text-primary underline transition-colors"
+                title="Open in personal WhatsApp Web client"
               >
-                <WhatsAppIcon className="w-3.5 h-3.5" />
-                <span>Send via WhatsApp</span>
+                Open in WhatsApp Web
               </a>
-            ) : (
+            )}
+            <div className="flex items-center gap-2.5 ml-auto">
               <button
                 type="button"
-                onClick={handleSaveRepeatTask}
-                disabled={savingRepeatTask}
-                className="px-4 py-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-60 rounded-md transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                onClick={() => setRepeatFollowupModalOpen(false)}
+                className="px-4 py-1.5 text-xs text-text-secondary hover:text-text-primary border border-border rounded-md bg-surface transition-colors cursor-pointer"
               >
-                <Clock className="w-3.5 h-3.5" />
-                <span>{savingRepeatTask ? 'Scheduling...' : 'Save Follow-up Task'}</span>
+                Cancel
               </button>
-            )}
+
+              {repeatActionTab === 'template' ? (
+                <button
+                  type="button"
+                  onClick={handleSendRepeatWhatsApp}
+                  disabled={sendingRepeatMessage}
+                  className="px-4 py-1.5 text-xs font-semibold text-white bg-[#25D366] hover:bg-[#20bd5a] disabled:opacity-60 rounded-md transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                >
+                  <WhatsAppIcon className="w-3.5 h-3.5" />
+                  <span>{sendingRepeatMessage ? 'Sending via System WhatsApp...' : 'Send Message'}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSaveRepeatTask}
+                  disabled={savingRepeatTask}
+                  className="px-4 py-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-60 rounded-md transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{savingRepeatTask ? 'Scheduling...' : 'Save Follow-up Task'}</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -13568,76 +13609,93 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 </td>
 
                                 {/* Direct Actions (10%) */}
-                                <td className="p-1.5 text-right pr-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                                  <div className="flex items-center justify-end gap-1">
-                                    {/* Direct Call Icon */}
-                                    {cust.phone && (
-                                      <a
-                                        href={`tel:${cust.phone}`}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="p-1 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 rounded-sm border border-sky-200 dark:border-sky-800 transition-colors cursor-pointer flex items-center justify-center"
-                                        title={`Call ${cust.phone}`}
-                                      >
-                                        <PhoneCall className="w-3 h-3 text-sky-600 dark:text-sky-400 stroke-[2]" />
-                                      </a>
-                                    )}
-
-                                    {/* WhatsApp Follow-up Templates Trigger */}
+                                <td className="p-1.5 text-right pr-3 whitespace-nowrap relative" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {/* Primary Action Button: Follow Up */}
                                     <button
                                       type="button"
                                       onClick={() => openRepeatFollowupModal(cust, 'template')}
-                                      className="p-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-sm transition-colors cursor-pointer flex items-center justify-center"
-                                      title="Open WhatsApp follow-up templates modal"
+                                      className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] rounded-sm transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                                      title="Open Follow-up Templates & System WhatsApp modal"
                                     >
-                                      <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
+                                      <WhatsAppIcon className="w-3 h-3 text-white" />
+                                      <span>Follow Up</span>
                                     </button>
 
-                                    {/* Schedule Follow-up Task Trigger */}
+                                    {/* Secondary Actions Popover Menu Trigger */}
                                     <button
                                       type="button"
-                                      onClick={() => openRepeatFollowupModal(cust, 'schedule')}
-                                      className="p-1 bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-sm transition-colors cursor-pointer flex items-center justify-center"
-                                      title="Schedule follow-up task reminder"
-                                    >
-                                      <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400 stroke-[1.8]" />
-                                    </button>
-
-                                    {/* Book Next Session Icon */}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const tomorrow = new Date();
-                                        tomorrow.setDate(tomorrow.getDate() + 1);
-                                        const dStr = tomorrow.toISOString().split('T')[0];
-                                        setNewBookingForm({
-                                          contact_name: cust.name || '',
-                                          contact_phone: cust.phone || '',
-                                          service: cust.last_visit_service || currentTaxonomy.default_service || 'Consultation',
-                                          date: dStr,
-                                          time: '10:00',
-                                          price: 0,
-                                          notes: `Follow-up session for repeat client (${completedVisits} previous visits)`,
-                                        });
-                                        setIsAddBookingOpen(true);
-                                      }}
-                                      className="p-1 bg-surface hover:bg-surface-subtle text-text-primary border border-border rounded-sm flex items-center justify-center transition-colors cursor-pointer hover:border-accent"
-                                      title="Book next session for this repeat client"
-                                    >
-                                      <CalendarClock className="w-3 h-3 text-accent stroke-[1.8]" />
-                                    </button>
-
-                                    {/* View History Icon */}
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        await handleSelectCustomer(cust);
-                                        setShowCustomerHistoryModal(true);
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActiveRepeatActionMenuId(activeRepeatActionMenuId === cust.id ? null : cust.id);
                                       }}
                                       className="p-1 text-text-muted hover:text-text-primary hover:bg-surface-subtle border border-border rounded-sm transition-colors cursor-pointer flex items-center justify-center"
-                                      title="View session & revenue history"
+                                      title="More client actions"
                                     >
-                                      <FileText className="w-3 h-3 stroke-[1.5]" />
+                                      <MoreHorizontal className="w-3.5 h-3.5" />
                                     </button>
+
+                                    {/* Popover Menu Content */}
+                                    {activeRepeatActionMenuId === cust.id && (
+                                      <div className="absolute right-3 top-full mt-1 w-44 bg-surface border border-border rounded-md shadow-xl py-1 z-30 text-left">
+                                        {cust.phone && (
+                                          <a
+                                            href={`tel:${cust.phone}`}
+                                            onClick={() => setActiveRepeatActionMenuId(null)}
+                                            className="flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-surface-subtle transition-colors"
+                                          >
+                                            <PhoneCall className="w-3.5 h-3.5 text-sky-600 stroke-[2]" />
+                                            <span>Call {cust.phone}</span>
+                                          </a>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setActiveRepeatActionMenuId(null);
+                                            openRepeatFollowupModal(cust, 'schedule');
+                                          }}
+                                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-surface-subtle transition-colors cursor-pointer text-left"
+                                        >
+                                          <Clock className="w-3.5 h-3.5 text-amber-500" />
+                                          <span>Schedule Task</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setActiveRepeatActionMenuId(null);
+                                            const tomorrow = new Date();
+                                            tomorrow.setDate(tomorrow.getDate() + 1);
+                                            const dStr = tomorrow.toISOString().split('T')[0];
+                                            setNewBookingForm({
+                                              contact_name: cust.name || '',
+                                              contact_phone: cust.phone || '',
+                                              service: cust.last_visit_service || currentTaxonomy.default_service || 'Consultation',
+                                              date: dStr,
+                                              time: '10:00',
+                                              price: 0,
+                                              notes: `Follow-up session for repeat client (${completedVisits} previous visits)`,
+                                            });
+                                            setIsAddBookingOpen(true);
+                                          }}
+                                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-surface-subtle transition-colors cursor-pointer text-left"
+                                        >
+                                          <CalendarClock className="w-3.5 h-3.5 text-accent" />
+                                          <span>Book Session</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={async () => {
+                                            setActiveRepeatActionMenuId(null);
+                                            await handleSelectCustomer(cust);
+                                            setShowCustomerHistoryModal(true);
+                                          }}
+                                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-surface-subtle transition-colors cursor-pointer text-left border-t border-border mt-1 pt-1.5"
+                                        >
+                                          <FileText className="w-3.5 h-3.5 text-text-muted" />
+                                          <span>View History</span>
+                                        </button>
+                                      </div>
+                                    )}
                                   </div>
                                 </td>
                               </tr>

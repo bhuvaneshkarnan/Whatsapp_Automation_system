@@ -4913,6 +4913,75 @@ async def send_manual_message(
     }
 
 
+class DirectWhatsAppPayload(BaseModel):
+    phone: str
+    body: Optional[str] = ""
+    customer_id: Optional[str] = None
+    template_name: Optional[str] = None
+    template_params: Optional[list] = None
+
+
+@app.post("/send-whatsapp")
+@app.post("/api/v1/crm/send-whatsapp")
+async def send_direct_whatsapp(
+    payload: DirectWhatsAppPayload,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Send outbound WhatsApp message from the tenant's connected system number directly to a customer by phone."""
+    has_body = bool(payload.body and payload.body.strip())
+    has_template = bool(payload.template_name and payload.template_name.strip())
+    if not has_body and not has_template:
+        raise HTTPException(400, "Message body or template name is required")
+    if not payload.phone or not payload.phone.strip():
+        raise HTTPException(400, "Target phone number is required")
+
+    async with db_pool.acquire() as conn:
+        clean_p = payload.phone.strip()
+        # Find or create contact
+        contact = await conn.fetchrow(
+            """SELECT id FROM contacts 
+               WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10))
+               LIMIT 1""",
+            tenant_id, clean_p
+        )
+        if not contact:
+            cid = str(uuid.uuid4())
+            cust_row = None
+            if payload.customer_id:
+                cust_row = await conn.fetchrow("SELECT name FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid", payload.customer_id, tenant_id)
+            c_name = cust_row["name"] if cust_row and cust_row["name"] else "Client"
+            await conn.execute(
+                "INSERT INTO contacts (id, tenant_id, phone, name) VALUES ($1::uuid, $2::uuid, $3, $4)",
+                cid, tenant_id, clean_p, c_name
+            )
+            contact_id = cid
+        else:
+            contact_id = contact["id"]
+
+        # Find or create conversation
+        conv = await conn.fetchrow(
+            "SELECT id FROM conversations WHERE contact_id = $1::uuid AND tenant_id = $2::uuid LIMIT 1",
+            contact_id, tenant_id
+        )
+        if not conv:
+            cvid = str(uuid.uuid4())
+            await conn.execute(
+                "INSERT INTO conversations (id, tenant_id, contact_id, status, last_message_at) VALUES ($1::uuid, $2::uuid, $3::uuid, 'bot', now())",
+                cvid, tenant_id, contact_id
+            )
+            conv_id = cvid
+        else:
+            conv_id = conv["id"]
+
+        # Delegate to send_manual_message
+        msg_payload = MessageCreate(
+            body=payload.body,
+            template_name=payload.template_name,
+            template_params=payload.template_params
+        )
+        return await send_manual_message(conv_id, msg_payload, tenant_id)
+
+
 class AssignConversationPayload(BaseModel):
     assigned_to: Optional[str] = None
 

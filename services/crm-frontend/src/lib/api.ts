@@ -682,6 +682,15 @@ export const crm = {
       }
     ),
 
+  sendWhatsAppDirect: (phone: string, body: string, customer_id?: string, template_name?: string, template_params?: string[]) =>
+    request<Message>(
+      `/api/v1/crm/send-whatsapp`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ phone, body, customer_id, template_name, template_params }),
+      }
+    ),
+
   deleteConversation: (convId: string, deleteType: 'for_me' | 'for_everyone' = 'for_everyone') =>
     request<{ status: string; id: string }>(
       `/api/v1/crm/conversations/${convId}?delete_type=${deleteType}`,
