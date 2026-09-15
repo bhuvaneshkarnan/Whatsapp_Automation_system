@@ -758,6 +758,43 @@ export const crm = {
     return request<LiveCalendarAvailabilityResponse>(`/api/v1/crm/calendar/live-availability${qs}`);
   },
 
+  // Customer Smart Reviews & GMB Feedback
+  submitPublicReview: (data: {
+    tenant_slug: string;
+    customer_name?: string;
+    customer_phone?: string;
+    service_name?: string;
+    rating: number;
+    experience_notes?: string;
+  }) =>
+    request<{
+      status: string;
+      review_id: string;
+      destination: 'gmb' | 'crm_internal';
+      rating: number;
+      generated_review_text: string;
+      gmb_review_url: string;
+      tenant_name: string;
+    }>('/api/v1/crm/reviews/submit', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getCustomerReviews: (filters?: { rating?: number; destination?: string; status?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.rating) params.set('rating', String(filters.rating));
+    if (filters?.destination) params.set('destination', filters.destination);
+    if (filters?.status) params.set('status', filters.status);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request<{ reviews: CustomerReview[]; total: number }>(`/api/v1/crm/reviews${qs}`);
+  },
+
+  updateCustomerReview: (reviewId: string, status: 'pending' | 'resolved' | 'acknowledged') =>
+    request<{ status: string; review_id: string; new_status: string }>(`/api/v1/crm/reviews/${reviewId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+
   // Customer Follow-up & Tasks
   getCustomers: async (filters?: {
     status?: string;
@@ -1079,6 +1116,21 @@ export interface TenantSettingsResponse {
   next_charge_at?: string;
   last_payment_status?: string;
   last_charge_at?: string;
+  gmb_review_url?: string;
+}
+
+export interface CustomerReview {
+  id: string;
+  tenant_id: string;
+  customer_name?: string;
+  customer_phone?: string;
+  service_name?: string;
+  rating: number;
+  experience_notes?: string;
+  generated_review_text?: string;
+  destination: 'gmb' | 'crm_internal';
+  status: 'pending' | 'resolved' | 'acknowledged';
+  created_at: string;
 }
 
 export type TenantSettingsUpdate = Partial<TenantSettingsResponse>;

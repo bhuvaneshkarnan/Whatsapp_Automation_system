@@ -170,7 +170,23 @@ async def lifespan(app: FastAPI):
                     created_at TIMESTAMPTZ DEFAULT now()
                 );
 
-                CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_uniq ON customers(tenant_id, phone);
+                
+CREATE TABLE IF NOT EXISTS customer_reviews (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    customer_name TEXT,
+    customer_phone TEXT,
+    service_name TEXT,
+    rating INT NOT NULL,
+    experience_notes TEXT,
+    generated_review_text TEXT,
+    destination TEXT NOT NULL DEFAULT 'crm_internal',
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_customer_reviews_tenant ON customer_reviews(tenant_id, created_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_uniq ON customers(tenant_id, phone);
                 CREATE INDEX IF NOT EXISTS idx_contacts_clean_phone ON contacts (tenant_id, (RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10)));
                 CREATE INDEX IF NOT EXISTS idx_customers_clean_phone ON customers (tenant_id, (RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10)));
 
@@ -5235,6 +5251,7 @@ class TenantSettingsUpdate(BaseModel):
     timezone: Optional[str] = None
     country_code: Optional[str] = None
     currency: Optional[str] = None
+    gmb_review_url: Optional[str] = None
     currency_symbol: Optional[str] = None
     admin_whatsapp_number: Optional[str] = None
     template_booking_confirmation: Optional[str] = None
@@ -5464,6 +5481,7 @@ async def get_tenant_settings(
         }),
         "opening_time": tenant_settings.get("opening_time", "09:00"),
         "closing_time": tenant_settings.get("closing_time", "20:00"),
+        "gmb_review_url": tenant_settings.get("gmb_review_url", ""),
         "slot_booking_mode": tenant_settings.get("slot_booking_mode", "single"),
         "max_concurrent_bookings": tenant_settings.get("max_concurrent_bookings", 1),
 
@@ -5518,6 +5536,7 @@ async def update_tenant_settings(
         if payload.timezone is not None: cur_settings["timezone"] = payload.timezone.strip()
         if payload.country_code is not None: cur_settings["country_code"] = payload.country_code.strip()
         if payload.currency is not None: cur_settings["currency"] = payload.currency.strip()
+        if getattr(payload, "gmb_review_url", None) is not None: cur_settings["gmb_review_url"] = payload.gmb_review_url.strip()
         if payload.currency_symbol is not None: cur_settings["currency_symbol"] = payload.currency_symbol.strip()
         if payload.notification_email is not None: cur_settings["notification_email"] = payload.notification_email.strip()
         if payload.admin_whatsapp_number is not None: cur_settings["admin_whatsapp_number"] = payload.admin_whatsapp_number.strip()
@@ -10611,3 +10630,129 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
 
+
+
+# ── REVIEWS & GMB FEEDBACK SYSTEM ─────────────────────────────────────────────
+
+class PublicReviewSubmitRequest(BaseModel):
+    tenant_slug: str
+    customer_name: Optional[str] = ""
+    customer_phone: Optional[str] = ""
+    service_name: Optional[str] = ""
+    rating: int
+    experience_notes: Optional[str] = ""
+
+
+@app.post("/reviews/submit")
+async def submit_public_review(payload: PublicReviewSubmitRequest):
+    """Public endpoint for customer smart reviews & GMB feedback collection."""
+    slug = (payload.tenant_slug or "").strip().lower()
+    async with db_pool.acquire() as conn:
+        tenant = await conn.fetchrow("SELECT id, name, settings FROM tenants WHERE LOWER(slug) = $1 OR id::text = $1 LIMIT 1", slug)
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Client business workspace not found.")
+
+        t_id = tenant["id"]
+        t_name = tenant["name"]
+        settings = tenant["settings"] if isinstance(tenant["settings"], dict) else json.loads(tenant["settings"] or "{}")
+        gmb_url = settings.get("gmb_review_url") or ""
+
+        srv = (payload.service_name or "service").strip()
+        notes = (payload.experience_notes or "").strip()
+        name = (payload.customer_name or "").strip()
+
+        # Build AI / Smart Review Text
+        if payload.rating >= 4:
+            if notes:
+                gen_text = f"Had an outstanding experience with {srv} at {t_name}. {notes} Highly recommended!"
+            else:
+                gen_text = f"Exceptional service and great care for {srv} at {t_name}. Really impressed with their professional team!"
+            destination = "gmb"
+        else:
+            if notes:
+                gen_text = f"Feedback regarding {srv}: {notes}"
+            else:
+                gen_text = f"Customer provided {payload.rating}-star feedback for {srv}."
+            destination = "crm_internal"
+
+        # Save review to database
+        row = await conn.fetchrow("""
+            INSERT INTO customer_reviews (
+                tenant_id, customer_name, customer_phone, service_name,
+                rating, experience_notes, generated_review_text, destination, status
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+            RETURNING id, created_at
+        """, t_id, name, payload.customer_phone or "", srv, payload.rating, notes, gen_text, destination)
+
+        return {
+            "status": "ok",
+            "review_id": str(row["id"]),
+            "destination": destination,
+            "rating": payload.rating,
+            "generated_review_text": gen_text,
+            "gmb_review_url": gmb_url,
+            "tenant_name": t_name
+        }
+
+
+@app.get("/reviews")
+async def list_customer_reviews(
+    tenant_id: str = Depends(get_tenant_id),
+    rating: Optional[int] = None,
+    destination: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    """List customer reviews & feedback for tenant CRM dashboard."""
+    async with db_pool.acquire() as conn:
+        conditions = ["tenant_id = $1::uuid"]
+        params = [tenant_id]
+        idx = 2
+
+        if rating:
+            conditions.append(f"rating = ${idx}")
+            params.append(rating)
+            idx += 1
+        if destination:
+            conditions.append(f"destination = ${idx}")
+            params.append(destination)
+            idx += 1
+        if status:
+            conditions.append(f"status = ${idx}")
+            params.append(status)
+            idx += 1
+
+        where_clause = " WHERE " + " AND ".join(conditions)
+        query = f"SELECT id::text, tenant_id::text, customer_name, customer_phone, service_name, rating, experience_notes, generated_review_text, destination, status, created_at::text FROM customer_reviews {where_clause} ORDER BY created_at DESC LIMIT ${idx} OFFSET ${idx+1}"
+        params.extend([limit, offset])
+
+        rows = await conn.fetch(query, *params)
+        count = await conn.fetchval(f"SELECT COUNT(*) FROM customer_reviews {where_clause}", *params[:idx-1])
+
+        return {
+            "reviews": [dict(r) for r in rows],
+            "total": count
+        }
+
+
+class ReviewStatusUpdateRequest(BaseModel):
+    status: str
+
+@app.patch("/reviews/{review_id}")
+async def update_customer_review_status(
+    review_id: str,
+    payload: ReviewStatusUpdateRequest,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Update review resolution status in CRM."""
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            UPDATE customer_reviews
+            SET status = $1
+            WHERE id = $2::uuid AND tenant_id = $3::uuid
+            RETURNING id::text, status
+        """, payload.status, review_id, tenant_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Review record not found.")
+        return {"status": "ok", "review_id": str(row["id"]), "new_status": row["status"]}

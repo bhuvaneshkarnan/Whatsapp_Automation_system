@@ -1454,12 +1454,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const pathname = usePathname();
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
   
-  // Navigation: overview | inbox | bookings | calendar | customers | repeat_clients | followup | marketing | settings
-  const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'repeat_clients' | 'followup' | 'marketing' | 'settings' | 'team'>(() => {
+  // Navigation: overview | inbox | bookings | calendar | customers | repeat_clients | followup | marketing | reviews | settings
+  const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'repeat_clients' | 'followup' | 'marketing' | 'reviews' | 'settings' | 'team'>(() => {
     if (typeof window !== 'undefined') {
       try {
         const hash = window.location.hash.replace('#', '');
-        const validTabs = ['overview', 'inbox', 'bookings', 'calendar', 'customers', 'repeat_clients', 'followup', 'marketing', 'settings'];
+        const validTabs = ['overview', 'inbox', 'bookings', 'calendar', 'customers', 'repeat_clients', 'followup', 'marketing', 'reviews', 'settings'];
         if (hash && validTabs.includes(hash)) {
           return hash as any;
         }
@@ -2075,6 +2075,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [overallNoteText, setOverallNoteText] = useState('');
   const [overallNoteColor, setOverallNoteColor] = useState('slate');
   const [savingOverallNote, setSavingOverallNote] = useState(false);
+
+  // Customer Reviews & GMB Feedback State
+  const [customerReviews, setCustomerReviews] = useState<CustomerReview[]>([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+  const [reviewRatingFilter, setReviewRatingFilter] = useState<number | 'all'>('all');
+  const [reviewStatusFilter, setReviewStatusFilter] = useState<string>('all');
+  const [reviewSearchQuery, setReviewSearchQuery] = useState('');
+  const [reviewCopied, setReviewCopied] = useState(false);
 
 
   // Customer WhatsApp Chat in Detail Drawer
@@ -3758,7 +3766,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             }
           } else if (typeof window !== 'undefined') {
             // Visiting /dashboard without slug: default to user's home tenant or resolved boldlabs
-            const defaultSlug = data.tenant_slug || 'boldlabs';
+            const defaultSlug = data.tenant_slug || 'tenant';
             let defaultId = data.tenant_id || getCachedTenantId(defaultSlug);
             if (!defaultId) {
               try {
@@ -4169,6 +4177,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           } catch {
             // silent
           }
+        }
+
+        // Load Reviews when on reviews tab
+        if (activeNav === 'reviews') {
+          try {
+            const revRes = await crm.getCustomerReviews();
+            if (isMounted && Array.isArray(revRes?.reviews)) {
+              setCustomerReviews(revRes.reviews);
+            }
+          } catch {}
         }
 
         // 3. Real-time Customers directory automatic live sync (when on customers, followup, or repeat_clients tab)
@@ -5133,6 +5151,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
+  async function handleUpdateReviewStatus(id: string, newStatus: 'pending' | 'resolved' | 'acknowledged') {
+    try {
+      await crm.updateCustomerReview(id, newStatus);
+      setCustomerReviews((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, status: newStatus } : r))
+      );
+    } catch (err) {
+      console.error('Failed to update review status:', err);
+    }
+  }
+
   async function handleSaveSettings(e?: React.FormEvent) {
     if (e) e.preventDefault();
     setSettingsSaving(true);
@@ -5165,6 +5194,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         strict_rules: settingsForm.strict_rules,
         objection_handling: settingsForm.objection_handling,
         google_review_link: settingsForm.google_review_link,
+        gmb_review_url: settingsForm.gmb_review_url,
         enable_auto_review: settingsForm.enable_auto_review,
         template_booking_confirmation: settingsForm.template_booking_confirmation,
         template_reschedule_confirmation: settingsForm.template_reschedule_confirmation,
@@ -6229,7 +6259,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     localStorage.removeItem('tenant_slug');
     const noteKey = getStickyNotesKey();
     localStorage.removeItem(noteKey);
-    localStorage.removeItem('boldlabs_sticky_notes');
+    localStorage.removeItem('crm_sticky_notes');
     localStorage.removeItem('whatsapp_crm_important_chats');
     localStorage.removeItem('whatsapp_crm_custom_templates');
     localStorage.removeItem('whatsapp_crm_active_nav');
@@ -6638,7 +6668,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   }
 
   function renderTeamManagementView() {
-    const loginPortalUrl = typeof window !== 'undefined' ? `${window.location.origin}/login` : 'https://crm.goboldlabs.com/login';
+    const loginPortalUrl = typeof window !== 'undefined' ? `${window.location.origin}/login` : typeof window !== 'undefined' ? `${window.location.origin}/login` : '/login';
     // All staff accounts for this organization
     const addedMembers = teamList;
     const salesCount = addedMembers.filter((m) => m.role === 'sales').length;
@@ -8674,25 +8704,33 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <span>{currentTaxonomy.tab_marketing_label || 'Marketing'}</span>
                 </button>
               )}
+
+              <button
+                onClick={() => navigateTo('reviews' as any)}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-sm text-xs transition-colors duration-150 cursor-pointer ${
+                  activeNav === 'reviews'
+                    ? 'bg-surface-subtle text-text-primary font-semibold'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Star className={`w-4 h-4 stroke-[1.5] shrink-0 ${activeNav === 'reviews' ? 'text-amber-500 fill-amber-400' : 'text-text-muted'}`} />
+                  <span>Reviews & GMB</span>
+                </div>
+              </button>
             </nav>
           </div>
 
           {/* Bottom Settings Link & Powered By Footer */}
           <div className="pt-2 border-t border-border">
-            {/* Powered by Boldlabs Link */}
-            <a
-              href="https://goboldlabs.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group flex items-center justify-between px-2 py-1.5 mb-2 rounded-sm bg-surface-subtle/50 hover:bg-surface-subtle text-[11px] text-text-muted hover:text-text-primary transition-colors duration-150 border border-border/60 hover:border-border cursor-pointer"
-              title="Visit goboldlabs.com"
-            >
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] text-text-muted tracking-tight">Powered by</span>
-                <span className="font-semibold text-text-primary group-hover:text-accent transition-colors">Boldlabs</span>
+            {/* Whitelabel System Info Footer */}
+            <div className="flex items-center justify-between px-2 py-1.5 mb-2 rounded-sm bg-surface-subtle/50 text-[11px] text-text-muted border border-border/60">
+              <div className="flex items-center gap-1.5 truncate">
+                <ShieldCheck className="w-3.5 h-3.5 text-accent shrink-0" />
+                <span className="font-medium text-text-primary truncate">{settingsForm.name || 'CRM System'}</span>
               </div>
-              <ArrowUpRight className="w-3 h-3 text-text-muted group-hover:text-accent transition-colors stroke-[1.5]" />
-            </a>
+              <span className="text-[9px] uppercase font-mono px-1 py-0.2 bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 rounded font-semibold shrink-0">Pro</span>
+            </div>
 
             {canManageSettings && (
               <button
@@ -14870,6 +14908,373 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             )}
 
             {/* ── VIEW 5: WORKSPACE PREFERENCES & SYSTEM BILLING ────────── */}
+                        {/* ========================================================================= */}
+            {/* TAB: REVIEWS & GMB FEEDBACK HUB                                            */}
+            {/* ========================================================================= */}
+            {activeNav === 'reviews' && (
+              <div className="space-y-6">
+                {/* Header & Public Link Share */}
+                <div className="bg-surface p-5 rounded-lg border border-border shadow-2xs space-y-4">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <h2 className="text-lg font-bold text-text-primary flex items-center gap-2">
+                        <Star className="w-5 h-5 text-amber-500 fill-amber-400 stroke-[1.5]" />
+                        <span>Customer Reviews & GMB Feedback Hub</span>
+                      </h2>
+                      <p className="text-xs text-text-muted mt-0.5">
+                        Collect AI-assisted customer reviews, redirect 4–5★ ratings to Google My Business, and keep 1–3★ feedback private for internal resolution.
+                      </p>
+                    </div>
+
+                    {/* Copy Public Review Link Button */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const pubUrl = typeof window !== 'undefined' 
+                            ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` 
+                            : `/${settingsForm.slug || 'tenant'}/review`;
+                          navigator.clipboard.writeText(pubUrl);
+                          setReviewCopied(true);
+                          setTimeout(() => setReviewCopied(false), 2000);
+                        }}
+                        className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-md shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        {reviewCopied ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 stroke-[2]" />
+                            <span>Link Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-4 h-4 stroke-[2]" />
+                            <span>Copy Public Review Link</span>
+                          </>
+                        )}
+                      </button>
+
+                      <a
+                        href={typeof window !== 'undefined' ? `/${settingsForm.slug || 'tenant'}/review` : '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 text-text-muted hover:text-text-primary bg-surface-subtle hover:bg-border/40 rounded-md border border-border transition-colors cursor-pointer"
+                        title="Open public review page in new tab"
+                      >
+                        <ArrowUpRight className="w-4 h-4" />
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* Quick URL preview bar */}
+                  <div className="flex items-center gap-2 p-2.5 bg-surface-subtle rounded-md border border-border/80 font-mono text-xs text-text-secondary overflow-x-auto">
+                    <Globe className="w-3.5 h-3.5 text-accent shrink-0" />
+                    <span className="text-[11px] text-text-muted shrink-0">Public Collector URL:</span>
+                    <span className="font-semibold text-text-primary select-all truncate">
+                      {typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `/${settingsForm.slug || 'tenant'}/review`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4 Overview Stat Cards */}
+                {(() => {
+                  const total = customerReviews.length;
+                  const avg = total > 0 ? (customerReviews.reduce((sum, r) => sum + (r.rating || 0), 0) / total).toFixed(1) : '0.0';
+                  const gmbCount = customerReviews.filter(r => (r.rating || 0) >= 4).length;
+                  const privateCount = customerReviews.filter(r => (r.rating || 0) <= 3).length;
+
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* Stat 1: Total */}
+                      <div className="bg-surface p-4 rounded-lg border border-border shadow-2xs space-y-1">
+                        <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
+                          Total Feedback Collected
+                        </span>
+                        <div className="text-2xl font-bold text-text-primary">
+                          {total}
+                        </div>
+                        <p className="text-[11px] text-text-muted">
+                          Across all services & check-ins
+                        </p>
+                      </div>
+
+                      {/* Stat 2: Avg Rating */}
+                      <div className="bg-surface p-4 rounded-lg border border-border shadow-2xs space-y-1">
+                        <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
+                          Average Rating
+                        </span>
+                        <div className="text-2xl font-bold text-amber-500 flex items-center gap-1.5">
+                          <span>{avg}</span>
+                          <Star className="w-5 h-5 fill-amber-400 stroke-[1.5]" />
+                        </div>
+                        <p className="text-[11px] text-text-muted">
+                          Calculated from overall submissions
+                        </p>
+                      </div>
+
+                      {/* Stat 3: GMB Conversions (4-5 Star) */}
+                      <div className="bg-surface p-4 rounded-lg border border-border shadow-2xs space-y-1">
+                        <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider block">
+                          Public GMB Conversions (4–5★)
+                        </span>
+                        <div className="text-2xl font-bold text-emerald-600">
+                          {gmbCount}
+                        </div>
+                        <p className="text-[11px] text-emerald-700/80 font-medium">
+                          Auto-copied & redirected to GMB
+                        </p>
+                      </div>
+
+                      {/* Stat 4: Private Internal (1-3 Star) */}
+                      <div className="bg-surface p-4 rounded-lg border border-border shadow-2xs space-y-1">
+                        <span className="text-[10px] font-semibold text-rose-600 uppercase tracking-wider block">
+                          Private Internal Feedback (1–3★)
+                        </span>
+                        <div className="text-2xl font-bold text-rose-600">
+                          {privateCount}
+                        </div>
+                        <p className="text-[11px] text-rose-700/80 font-medium">
+                          Kept internal for direct resolution
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Filter & Search Bar */}
+                <div className="bg-surface p-4 rounded-lg border border-border shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Star Filter */}
+                    <div className="flex items-center gap-1 bg-surface-subtle p-1 rounded-md border border-border text-xs">
+                      <span className="text-[11px] font-medium text-text-muted px-2">Rating:</span>
+                      {(['all', 5, 4, 3, 2, 1] as const).map((star) => (
+                        <button
+                          key={String(star)}
+                          type="button"
+                          onClick={() => setReviewRatingFilter(star)}
+                          className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors cursor-pointer ${
+                            reviewRatingFilter === star
+                              ? 'bg-amber-500 text-slate-950 shadow-2xs'
+                              : 'text-text-secondary hover:text-text-primary hover:bg-surface'
+                          }`}
+                        >
+                          {star === 'all' ? 'All' : `${star}★`}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Status Filter */}
+                    <div className="flex items-center gap-1 bg-surface-subtle p-1 rounded-md border border-border text-xs">
+                      <span className="text-[11px] font-medium text-text-muted px-2">Status:</span>
+                      {(['all', 'new', 'acknowledged', 'resolved'] as const).map((st) => (
+                        <button
+                          key={st}
+                          type="button"
+                          onClick={() => setReviewStatusFilter(st)}
+                          className={`px-2.5 py-1 rounded text-xs font-semibold capitalize transition-colors cursor-pointer ${
+                            reviewStatusFilter === st
+                              ? 'bg-accent text-accent-contrast shadow-2xs'
+                              : 'text-text-secondary hover:text-text-primary hover:bg-surface'
+                          }`}
+                        >
+                          {st === 'new' ? 'Pending' : st}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Search Input */}
+                  <div className="relative w-full md:w-64">
+                    <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Search customer, phone, text..."
+                      value={reviewSearchQuery}
+                      onChange={(e) => setReviewSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 bg-surface border border-border rounded-md text-xs text-text-primary focus:outline-none focus:border-accent"
+                    />
+                  </div>
+                </div>
+
+                {/* Reviews List Table */}
+                <div className="bg-surface rounded-lg border border-border shadow-2xs overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-surface-subtle border-b border-border text-[11px] font-semibold text-text-muted uppercase tracking-wider">
+                          <th className="px-4 py-3">Customer</th>
+                          <th className="px-4 py-3">Rating & Routing</th>
+                          <th className="px-4 py-3">Service / Category</th>
+                          <th className="px-4 py-3">Review & Internal Notes</th>
+                          <th className="px-4 py-3">Submitted</th>
+                          <th className="px-4 py-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border text-xs">
+                        {(() => {
+                          const filtered = customerReviews.filter((r) => {
+                            if (reviewRatingFilter !== 'all' && r.rating !== reviewRatingFilter) return false;
+                            if (reviewStatusFilter !== 'all') {
+                              if (reviewStatusFilter === 'new' && (r.status !== 'new' && r.status !== 'pending' && r.status)) return false;
+                              if (reviewStatusFilter !== 'new' && r.status !== reviewStatusFilter) return false;
+                            }
+                            if (reviewSearchQuery.trim()) {
+                              const q = reviewSearchQuery.toLowerCase();
+                              const nameMatch = (r.customer_name || '').toLowerCase().includes(q);
+                              const phoneMatch = (r.customer_phone || '').toLowerCase().includes(q);
+                              const textMatch = (r.review_text || '').toLowerCase().includes(q);
+                              const notesMatch = (r.notes || '').toLowerCase().includes(q);
+                              if (!nameMatch && !phoneMatch && !textMatch && !notesMatch) return false;
+                            }
+                            return true;
+                          });
+
+                          if (loadingReviews) {
+                            return (
+                              <tr>
+                                <td colSpan={6} className="px-4 py-8 text-center text-text-muted">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <RefreshCw className="w-4 h-4 animate-spin text-accent" />
+                                    <span>Loading reviews...</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          if (filtered.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={6} className="px-4 py-10 text-center text-text-muted space-y-2">
+                                  <Star className="w-8 h-8 text-text-muted/40 mx-auto stroke-[1]" />
+                                  <p className="font-medium text-xs">No customer reviews found</p>
+                                  <p className="text-[11px] max-w-sm mx-auto">
+                                    Share your public review collector URL with your clients to start gathering feedback automatically.
+                                  </p>
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return filtered.map((rev) => {
+                            const isHighRating = (rev.rating || 0) >= 4;
+
+                            return (
+                              <tr key={rev.id} className="hover:bg-surface-subtle/40 transition-colors">
+                                {/* Customer Name & Phone */}
+                                <td className="px-4 py-3 font-medium text-text-primary whitespace-nowrap">
+                                  <div>
+                                    <span>{rev.customer_name || 'Anonymous Client'}</span>
+                                    {rev.customer_phone && (
+                                      <p className="text-[11px] font-mono text-text-muted mt-0.5">
+                                        {rev.customer_phone}
+                                      </p>
+                                    )}
+                                  </div>
+                                </td>
+
+                                {/* Rating & Routing Badge */}
+                                <td className="px-4 py-3 whitespace-nowrap">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-0.5 text-amber-500">
+                                      {Array.from({ length: 5 }).map((_, idx) => (
+                                        <Star
+                                          key={idx}
+                                          className={`w-3.5 h-3.5 ${
+                                            idx < (rev.rating || 0)
+                                              ? 'fill-amber-400 text-amber-500'
+                                              : 'text-border fill-surface-subtle'
+                                          }`}
+                                        />
+                                      ))}
+                                      <span className="ml-1 font-bold text-text-primary text-xs">
+                                        {rev.rating}★
+                                      </span>
+                                    </div>
+
+                                    {isHighRating ? (
+                                      <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-medium">
+                                        <CheckCircle2 className="w-2.5 h-2.5" />
+                                        <span>Redirected to GMB</span>
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-[10px] px-2 py-0.5 rounded-full font-medium">
+                                        <AlertCircle className="w-2.5 h-2.5" />
+                                        <span>Private Internal CRM</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+
+                                {/* Service / Category */}
+                                <td className="px-4 py-3 whitespace-nowrap text-text-secondary">
+                                  <span className="px-2 py-1 bg-surface-subtle rounded border border-border text-[11px] font-medium">
+                                    {rev.service_type || 'General Service'}
+                                  </span>
+                                </td>
+
+                                {/* Review Text & Internal Notes */}
+                                <td className="px-4 py-3 max-w-xs md:max-w-md">
+                                  <div className="space-y-1">
+                                    {rev.review_text && (
+                                      <p className="text-text-primary text-xs italic font-sans leading-snug">
+                                        "{rev.review_text}"
+                                      </p>
+                                    )}
+                                    {rev.notes && (
+                                      <div className="p-2 bg-rose-500/5 rounded border border-rose-500/20 text-[11px] text-rose-900 dark:text-rose-200 mt-1">
+                                        <span className="font-semibold block text-[10px] text-rose-700 dark:text-rose-400 uppercase tracking-wider">
+                                          Customer Note:
+                                        </span>
+                                        {rev.notes}
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+
+                                {/* Submitted Date */}
+                                <td className="px-4 py-3 whitespace-nowrap font-mono text-[11px] text-text-muted">
+                                  {rev.created_at ? new Date(rev.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent'}
+                                </td>
+
+                                {/* Status & Actions */}
+                                <td className="px-4 py-3 text-right whitespace-nowrap">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateReviewStatus(rev.id, 'acknowledged')}
+                                      className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer ${
+                                        rev.status === 'acknowledged'
+                                          ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300'
+                                          : 'bg-surface-subtle hover:bg-border/60 text-text-secondary border border-border'
+                                      }`}
+                                    >
+                                      Ack
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateReviewStatus(rev.id, 'resolved')}
+                                      className={`px-2.5 py-1 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                                        rev.status === 'resolved'
+                                          ? 'bg-emerald-600 text-white shadow-2xs'
+                                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200'
+                                      }`}
+                                    >
+                                      {rev.status === 'resolved' ? '✓ Resolved' : 'Resolve'}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {activeNav === 'settings' && (
               <div className="flex-1 overflow-y-auto space-y-6 max-w-4xl">
                 
@@ -15231,17 +15636,36 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           Send an automated Google Review request template on WhatsApp after an appointment is marked as Attended. When changing status, you will also be prompted with the choice to send or skip for each client.
                         </p>
                         {settingsForm.enable_auto_review !== false && (
-                          <div className="pt-1">
-                            <label className="block text-[11px] font-medium text-text-secondary mb-1">
-                              Google Review Link
-                            </label>
-                            <input
-                              type="text"
-                              placeholder="https://g.page/r/your-business-id/review"
-                              value={settingsForm.google_review_link || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, google_review_link: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
+                          <div className="pt-1 space-y-3">
+                            <div>
+                              <label className="block text-[11px] font-medium text-text-secondary mb-1">
+                                Google Review Link (Legacy)
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="https://g.page/r/your-business-id/review"
+                                value={settingsForm.google_review_link || ''}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, google_review_link: e.target.value, gmb_review_url: e.target.value })}
+                                className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                              />
+                            </div>
+
+                            <div className="p-3 bg-amber-500/5 rounded-md border border-amber-500/20 space-y-1.5">
+                              <label className="block text-[11px] font-semibold text-text-primary flex items-center gap-1.5">
+                                <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
+                                <span>GMB Public Review Link (AI Smart Review Collector)</span>
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="https://g.page/r/your-gmb-review-link/review"
+                                value={settingsForm.gmb_review_url || settingsForm.google_review_link || ''}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, gmb_review_url: e.target.value, google_review_link: e.target.value })}
+                                className="w-full px-3 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent transition-colors duration-150"
+                              />
+                              <p className="text-[10px] text-text-muted">
+                                Used by your public review collector page (<strong>/{settingsForm.slug || 'slug'}/review</strong>). When a customer leaves 4 or 5 stars, their AI review is copied and they are automatically redirected to this link.
+                              </p>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -15397,7 +15821,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             </label>
                             <button
                               type="button"
-                              onClick={() => copyToClipboard('https://crm.goboldlabs.com/api/v1/crm/oauth/google/callback', 'gcal_redirect')}
+                              onClick={() => copyToClipboard(typeof window !== 'undefined' ? `${window.location.origin}/api/v1/crm/oauth/google/callback` : '', 'gcal_redirect')}
                               className="text-xs font-medium text-accent hover:text-accent-hover flex items-center gap-1 cursor-pointer"
                             >
                               {copiedKey === 'gcal_redirect' ? <Check className="w-3.5 h-3.5 stroke-[1.5]" /> : <Copy className="w-3.5 h-3.5 stroke-[1.5]" />}
@@ -17982,11 +18406,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <div className="p-3 bg-surface rounded border border-border space-y-2 text-xs font-mono">
                     <div className="flex justify-between items-center">
                       <span className="text-[11px] font-sans text-text-muted">Platform Admin UPI ID:</span>
-                      <span className="font-bold text-emerald-700 dark:text-emerald-400 select-all">goboldlabs@upi</span>
+                      <span className="font-bold text-emerald-700 dark:text-emerald-400 select-all">billing@crm.app</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-[11px] font-sans text-text-muted">Account Name:</span>
-                      <span className="font-bold text-text-primary">Boldlabs Technologies</span>
+                      <span className="font-bold text-text-primary">Platform Billing</span>
                     </div>
                   </div>
 
