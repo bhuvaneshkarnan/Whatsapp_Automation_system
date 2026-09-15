@@ -15384,23 +15384,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                 )}
 
-                {/* Managed Platform Banner */}
-                <div className="p-4 bg-surface rounded-md border border-border flex items-start gap-3.5">
-                  <div className="w-8 h-8 rounded-md bg-accent/10 text-accent flex items-center justify-center shrink-0 mt-0.5 border border-accent/20">
-                    <Sparkles className="w-4 h-4 stroke-[1.5]" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-xs font-semibold text-text-primary">Managed Client Workspace</h4>
-                      <span className="text-[10px] font-medium bg-surface-subtle text-text-muted px-2 py-0.5 rounded-sm border border-border">
-                        Platform Managed
-                      </span>
-                    </div>
-                    <p className="text-xs text-text-muted mt-1 leading-relaxed">
-                      Your AI language models, WhatsApp Meta Cloud API webhooks, and core integrations are securely managed by your platform administrator. Customize your business branding, billing preferences, alert channels, regional defaults, and CRM labels below.
-                    </p>
-                  </div>
-                </div>
+
 
                 {settingsSaved && (
                   <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-md font-medium flex items-center gap-2">
