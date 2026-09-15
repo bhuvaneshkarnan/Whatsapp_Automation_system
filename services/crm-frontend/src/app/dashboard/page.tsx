@@ -8812,46 +8812,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    {/* Client / Workspace Selector Dropdown */}
-                    {user?.role === 'super_admin' ? (
-                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-subtle rounded-sm border border-border text-xs">
-                        <Building2 className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
-                        <select
-                          value={
-                            selectedAnalyticsSlug ||
-                            (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') ||
-                            routeSlug ||
-                            'boldlabs'
-                          }
-                          onChange={(e) => {
-                            const newSlug = e.target.value;
-                            setSelectedAnalyticsSlug(newSlug);
-                            if (typeof window !== 'undefined' && newSlug !== 'all') {
-                              localStorage.setItem('tenant_slug', newSlug);
-                              const resolvedId = getCachedTenantId(newSlug);
-                              if (resolvedId) localStorage.setItem('tenant_id', resolvedId);
-                            }
-                            loadDashboardAnalytics(analyticsPeriod, newSlug);
-                          }}
-                          className="bg-transparent text-text-primary font-semibold focus:outline-none cursor-pointer pr-1"
-                        >
-                          <option value="all">⚡ All Workspaces (Aggregate)</option>
-                          <option value="boldlabs">Boldlabs</option>
-                          <option value="mindbodyrecovery">Mind Body Recovery</option>
-                        </select>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-subtle rounded-sm border border-border text-xs font-semibold text-text-primary">
-                        <Building2 className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
-                        <span>
-                          {settingsForm.name ||
-                            (routeSlug === 'mindbodyrecovery' ||
-                            (typeof window !== 'undefined' && localStorage.getItem('tenant_slug') === 'mindbodyrecovery')
-                              ? 'Mind Body Recovery'
-                              : 'Boldlabs')}
-                        </span>
-                      </div>
-                    )}
 
                     {/* Period Selector Pills */}
                     <div className="flex items-center p-0.5 bg-surface-subtle rounded-sm border border-border">
