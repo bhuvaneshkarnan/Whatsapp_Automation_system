@@ -306,6 +306,8 @@ async def get_tenant_id(
 
         # Super admin can view/act on behalf of any requested tenant, or defaults to own
         if role in ("super_admin", "owner"):
+            if clean_requested_slug == "all" or clean_requested_id == "all":
+                return "all"
             if clean_requested_id:
                 return clean_requested_id
             if token_tenant:
