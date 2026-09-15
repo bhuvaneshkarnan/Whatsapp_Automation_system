@@ -3887,15 +3887,45 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const loadMarketingTemplates = async () => {
     setLoadingTemplates(true);
     try {
-      const list = await marketing.getTemplates();
+      let list = await marketing.getTemplates();
+      try {
+        const statusRes = await marketing.getMetaTemplatesStatus();
+        if (statusRes && statusRes.summary) {
+          setMetaStatusData(statusRes);
+          if (Array.isArray(statusRes.templates) && statusRes.templates.length > 0) {
+            const metaMapped = statusRes.templates.map((mt: any) => ({
+              id: mt.meta_id || mt.name,
+              name: mt.name,
+              label: mt.label || mt.name,
+              category: mt.category || 'UTILITY',
+              status: mt.status || 'APPROVED',
+              language: mt.language || 'en',
+              body: mt.description || mt.body || `[Approved Meta Template: ${mt.name}]`,
+              variables_count: mt.variables_count || 0,
+            }));
+            const merged = [...metaMapped];
+            if (Array.isArray(list)) {
+              for (const custom of list) {
+                if (!merged.some((m) => m.name === custom.name)) {
+                  merged.push(custom);
+                }
+              }
+            }
+            list = merged;
+          }
+        }
+      } catch (_) {}
+
       if (Array.isArray(list) && list.length > 0) {
         setMarketingTemplates(list);
-        setCustomTemplates(list.map(t => ({
-          id: t.id || t.name,
-          name: t.name,
-          label: t.label || `${t.name} (${t.category || 'UTILITY'})`,
-          variables_count: t.variables_count || 0
-        })));
+        setCustomTemplates(
+          list.map((t) => ({
+            id: t.id || t.name,
+            name: t.name,
+            label: t.label || `${t.name} (${t.category || 'UTILITY'})`,
+            variables_count: t.variables_count || 0,
+          }))
+        );
       } else {
         const fallback = [
           {
@@ -3949,6 +3979,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         loadTeamList();
       }
     } else if (activeNav === 'marketing') {
+      loadContacts();
+      loadCustomers();
       loadMarketingTemplates();
       // Load campaigns from backend
       setLoadingCampaigns(true);
