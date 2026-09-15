@@ -10571,3 +10571,9 @@ async def client_delete_staff(
 
         await conn.execute("DELETE FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid", user_id, tenant_id)
         return {"status": "deleted", "id": user_id}
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
+
