@@ -16,6 +16,13 @@ const DEFAULT_EXPERIENCE_TAGS = [
   'Easy Booking & Response',
 ];
 
+// Helper: get experience tags from tenant settings or defaults
+function getExperienceTags(settings: TenantSettingsResponse | null): string[] {
+  const custom = (settings as any)?.review_experience_tags;
+  if (custom && Array.isArray(custom) && custom.length > 0) return custom;
+  return DEFAULT_EXPERIENCE_TAGS;
+}
+
 export default function ReviewClient() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -301,7 +308,7 @@ export default function ReviewClient() {
                   <span>How did you feel about the service? (Select multiple)</span>
                 </label>
                 <div className="flex flex-wrap gap-1.5">
-                  {DEFAULT_EXPERIENCE_TAGS.map((tag) => {
+                  {getExperienceTags(settings).map((tag) => {
                     const isSelected = selectedTags.includes(tag);
                     return (
                       <button
