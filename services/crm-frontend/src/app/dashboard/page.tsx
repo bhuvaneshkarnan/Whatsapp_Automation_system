@@ -2238,6 +2238,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // Feature 1: Analytics & Reports State
   const [analyticsPeriod, setAnalyticsPeriod] = useState<'7d' | '30d' | '90d' | 'this_month' | 'all'>('30d');
+  const [selectedAnalyticsSlug, setSelectedAnalyticsSlug] = useState<string>('');
   const [dashboardAnalyticsData, setDashboardAnalyticsData] = useState<DashboardAnalyticsData | null>(null);
   const [loadingDashboardAnalytics, setLoadingDashboardAnalytics] = useState(false);
 
@@ -5386,10 +5387,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   }
 
   // ── Feature 1: Analytics & Reports Handlers ────────────────────────────────
-  async function loadDashboardAnalytics(period: string = analyticsPeriod) {
+  async function loadDashboardAnalytics(period: string = analyticsPeriod, workspaceSlug?: string) {
     setLoadingDashboardAnalytics(true);
     try {
-      const data = await crm.getDashboardAnalytics(period);
+      const targetSlug = workspaceSlug !== undefined ? workspaceSlug : (selectedAnalyticsSlug || (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') || '');
+      const data = await crm.getDashboardAnalytics(period, targetSlug);
       setDashboardAnalyticsData(data);
     } catch (err) {
       console.error('Failed to load dashboard analytics:', err);
@@ -8560,6 +8562,29 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    {/* Client / Workspace Selector Dropdown */}
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-subtle rounded-sm border border-border text-xs">
+                      <Building2 className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
+                      <select
+                        value={selectedAnalyticsSlug || (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') || 'boldlabs'}
+                        onChange={(e) => {
+                          const newSlug = e.target.value;
+                          setSelectedAnalyticsSlug(newSlug);
+                          if (typeof window !== 'undefined' && newSlug !== 'all') {
+                            localStorage.setItem('tenant_slug', newSlug);
+                            const resolvedId = getCachedTenantId(newSlug);
+                            if (resolvedId) localStorage.setItem('tenant_id', resolvedId);
+                          }
+                          loadDashboardAnalytics(analyticsPeriod, newSlug);
+                        }}
+                        className="bg-transparent text-text-primary font-semibold focus:outline-none cursor-pointer pr-1"
+                      >
+                        <option value="all">⚡ All Workspaces (Aggregate)</option>
+                        <option value="boldlabs">Boldlabs</option>
+                        <option value="mindbodyrecovery">Mind Body Recovery</option>
+                      </select>
+                    </div>
+
                     {/* Period Selector Pills */}
                     <div className="flex items-center p-0.5 bg-surface-subtle rounded-sm border border-border">
                       {(['7d', '30d', 'this_month', 'all'] as const).map((p) => {

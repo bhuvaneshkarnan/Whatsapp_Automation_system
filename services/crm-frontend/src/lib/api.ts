@@ -670,8 +670,11 @@ export const crm = {
       }
     ),
 
-  getDashboardAnalytics: (period: string = '30d') =>
-    request<DashboardAnalyticsData>(`/api/v1/crm/analytics/dashboard?period=${period}`),
+  getDashboardAnalytics: (period: string = '30d', workspaceSlug?: string) => {
+    const slug = workspaceSlug || (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') || '';
+    const query = `/api/v1/crm/analytics/dashboard?period=${period}${slug ? `&target_tenant_slug=${encodeURIComponent(slug)}` : ''}`;
+    return request<DashboardAnalyticsData>(query, slug ? { headers: { 'X-Tenant-Slug': slug } } : undefined);
+  },
 
   sendMessage: (convId: string, body: string, template_name?: string, template_params?: string[]) =>
     request<Message>(

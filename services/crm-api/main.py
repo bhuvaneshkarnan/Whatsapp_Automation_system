@@ -8311,6 +8311,9 @@ async def get_dashboard_analytics(
     elif period == "this_month":
         since = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
+    is_all = (str(tenant_id).lower() == "all")
+    actual_tenant_uuid = None if is_all else tenant_id
+
     async with db_pool.acquire() as conn:
         # 1. Message Volume Breakdown (Real DB data: AI vs Human)
         msg_counts = await conn.fetchrow(
@@ -8321,9 +8324,9 @@ async def get_dashboard_analytics(
                 COUNT(*) FILTER (WHERE direction = 'outbound' AND ai_model_used IS NOT NULL) as ai_messages,
                 COUNT(*) FILTER (WHERE direction = 'outbound' AND ai_model_used IS NULL) as human_messages
                FROM messages
-               WHERE tenant_id = $1::uuid
-                 AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)""",
-            tenant_id, since
+               WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
+                 AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)""",
+            is_all, actual_tenant_uuid, since
         )
         total_msgs = msg_counts["total_messages"] or 0
         inbound_msgs = msg_counts["inbound_messages"] or 0
@@ -8334,21 +8337,22 @@ async def get_dashboard_analytics(
 
         # 2. Daily Message Traffic Time Series (grouped by tenant's configured timezone)
         tenant_tz_str = "Asia/Kolkata"
-        tz_setting = await conn.fetchval("SELECT settings->>'timezone' FROM tenants WHERE id = $1::uuid", tenant_id)
-        if tz_setting and tz_setting.strip():
-            tenant_tz_str = tz_setting.strip()
+        if not is_all and actual_tenant_uuid:
+            tz_setting = await conn.fetchval("SELECT settings->>'timezone' FROM tenants WHERE id = $1::uuid", actual_tenant_uuid)
+            if tz_setting and tz_setting.strip():
+                tenant_tz_str = tz_setting.strip()
 
         daily_rows = await conn.fetch(
-            """SELECT to_char(created_at AT TIME ZONE $3, 'YYYY-MM-DD') as day,
+            """SELECT to_char(created_at AT TIME ZONE $4, 'YYYY-MM-DD') as day,
                       COUNT(*) FILTER (WHERE direction = 'inbound') as inbound,
                       COUNT(*) FILTER (WHERE direction = 'outbound') as outbound,
                       COUNT(*) as total
                FROM messages
-               WHERE tenant_id = $1::uuid
-                 AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
+               WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
+                 AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
                GROUP BY day
                ORDER BY day ASC""",
-            tenant_id, since, tenant_tz_str
+            is_all, actual_tenant_uuid, since, tenant_tz_str
         )
         time_series = [
             {
@@ -8363,29 +8367,29 @@ async def get_dashboard_analytics(
         # 3. Lead & Customer Lifecycle Funnel (Real progression from inbound to booked)
         inbound_contacts = await conn.fetchval(
             """SELECT COUNT(DISTINCT contact_id) FROM conversations
-               WHERE tenant_id = $1::uuid
-                 AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)""",
-            tenant_id, since
+               WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
+                 AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)""",
+            is_all, actual_tenant_uuid, since
         ) or 0
         engaged_contacts = await conn.fetchval(
             """SELECT COUNT(DISTINCT c.id) FROM conversations c
-               WHERE c.tenant_id = $1::uuid
-                 AND ($2::timestamptz IS NULL OR c.created_at >= $2::timestamptz)
+               WHERE ($1::boolean IS TRUE OR c.tenant_id = $2::uuid)
+                 AND ($3::timestamptz IS NULL OR c.created_at >= $3::timestamptz)
                  AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'outbound')""",
-            tenant_id, since
+            is_all, actual_tenant_uuid, since
         ) or 0
         crm_leads = await conn.fetchval(
             """SELECT COUNT(*) FROM customers
-               WHERE tenant_id = $1::uuid
-                 AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)""",
-            tenant_id, since
+               WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
+                 AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)""",
+            is_all, actual_tenant_uuid, since
         ) or 0
         converted_leads = await conn.fetchval(
-            """SELECT COUNT(*) FROM customers
-               WHERE tenant_id = $1::uuid
-                 AND (converted = true OR status = 'converted')
-                 AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)""",
-            tenant_id, since
+            """SELECT COUNT(DISTINCT c.id) FROM customers c
+               WHERE ($1::boolean IS TRUE OR c.tenant_id = $2::uuid)
+                 AND (c.converted = true OR c.status = 'converted' OR EXISTS (SELECT 1 FROM bookings b WHERE b.tenant_id = c.tenant_id AND (b.contact_id = c.id OR b.notes ILIKE '%' || c.phone || '%')))
+                 AND ($3::timestamptz IS NULL OR c.created_at >= $3::timestamptz)""",
+            is_all, actual_tenant_uuid, since
         ) or 0
 
         total_leads = max(inbound_contacts, crm_leads)
@@ -8404,9 +8408,9 @@ async def get_dashboard_analytics(
                 COALESCE(SUM(price) FILTER (WHERE status IN ('completed', 'attended')), 0.0) as total_revenue,
                 COALESCE(AVG(price) FILTER (WHERE status IN ('completed', 'attended') AND price > 0), 0.0) as avg_ticket
                FROM bookings
-               WHERE tenant_id = $1::uuid
-                 AND ($2::timestamptz IS NULL OR start_time >= $2::timestamptz)""",
-            tenant_id, since
+               WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
+                 AND ($3::timestamptz IS NULL OR start_time >= $3::timestamptz)""",
+            is_all, actual_tenant_uuid, since
         )
         total_bookings = booking_stats["total_bookings"] or 0
         completed_bookings = booking_stats["completed_bookings"] or 0
