@@ -15351,47 +15351,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {activeNav === 'settings' && (
               <div className="flex-1 overflow-y-auto space-y-6 max-w-4xl">
                 
-                {/* System Payment & Subscription Alert Card */}
-                <div className={`p-4 rounded-lg border transition-all ${
-                  settingsForm.subscription_status === 'payment_failed' || settingsForm.last_payment_status === 'failed' || (settingsForm.next_charge_at && new Date(settingsForm.next_charge_at) < new Date())
-                    ? 'bg-rose-50/90 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-950 dark:text-rose-200 shadow-xs'
-                    : settingsForm.subscription_status === 'paused'
-                    ? 'bg-amber-50/90 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-200'
-                    : 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-950 dark:text-emerald-200'
-                }`}>
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                {/* System Payment Alert Card - ONLY shown if payment is overdue/failed */}
+                {(settingsForm.subscription_status === 'payment_failed' || settingsForm.last_payment_status === 'failed') && (
+                  <div className="p-4 rounded-lg border bg-rose-50/90 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-950 dark:text-rose-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-start gap-3 min-w-0">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 shadow-2xs ${
-                        settingsForm.subscription_status === 'payment_failed' || settingsForm.last_payment_status === 'failed'
-                          ? 'bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-300'
-                          : 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300'
-                      }`}>
+                      <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-300">
                         <CreditCard className="w-5 h-5 stroke-[2]" />
                       </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="text-xs font-bold text-text-primary tracking-tight">
-                            System Subscription & Billing Details
-                          </h4>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${
-                            settingsForm.subscription_status === 'payment_failed' || settingsForm.last_payment_status === 'failed'
-                              ? 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-900/50 dark:text-rose-200'
-                              : settingsForm.subscription_status === 'active'
-                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-200'
-                              : 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/50 dark:text-amber-200'
-                          }`}>
-                            {settingsForm.subscription_status === 'payment_failed' ? '⚠️ Payment Overdue' : (settingsForm.subscription_status || 'Active Plan')}
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xs font-bold text-text-primary tracking-tight">System Payment Overdue</h4>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-rose-100 text-rose-800 border-rose-300">
+                            Action Required
                           </span>
                         </div>
-                        <p className="text-xs text-text-secondary mt-0.5 flex items-center gap-2 flex-wrap">
-                          <span>Billing Cycle: Monthly Platform License</span>
-                          <span>•</span>
-                          <span>
-                            Due Date:{' '}
-                            <strong className="font-mono text-text-primary">
-                              {settingsForm.next_charge_at ? new Date(settingsForm.next_charge_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Next billing cycle'}
-                            </strong>
-                          </span>
+                        <p className="text-xs text-text-secondary mt-0.5">
+                          Please complete your recurring platform renewal to keep automation services uninterrupted.
                         </p>
                       </div>
                     </div>
@@ -15399,18 +15374,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         type="button"
-                        onClick={() => {
-                          setSettingsTab('billing');
-                          setShowPaymentModal(true);
-                        }}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                        onClick={() => setShowPaymentModal(true)}
+                        className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-md shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                       >
-                        <CreditCard className="w-4 h-4 stroke-[2]" />
-                        <span>Pay Now / Make Payment</span>
+                        <CreditCard className="w-4 h-4" />
+                        <span>Pay Now</span>
                       </button>
                     </div>
                   </div>
-                </div>
+                )}
 
                 {/* Managed Platform Banner */}
                 <div className="p-4 bg-surface rounded-md border border-border flex items-start gap-3.5">
@@ -15479,30 +15451,46 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   {/* ── 0. SUBSCRIPTION & SYSTEM BILLING ─────────────────────── */}
                   {settingsTab === 'billing' && (
                     <div className="space-y-6">
-                      {/* Subscription Overview Card */}
-                      <div className="bg-surface p-5 rounded-lg border border-border space-y-5">
-                        <div className="pb-3 border-b border-border flex items-center justify-between">
+                      {/* Clean Subscription Overview Card */}
+                      <div className="bg-surface p-5 rounded-lg border border-border space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
                           <div>
                             <h4 className="font-bold text-sm text-text-primary flex items-center gap-2">
                               <CreditCard className="w-4 h-4 text-accent" />
-                              <span>System License & Subscription Status</span>
+                              <span>System Subscription & Licensing</span>
                             </h4>
                             <p className="text-xs text-text-muted mt-0.5">
-                              View your current subscription plan, payment due date, and make instant online payments.
+                              View current platform license status, next billing cycle date, and manage payments.
                             </p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setShowPaymentModal(true)}
-                            className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                          >
-                            <CreditCard className="w-3.5 h-3.5 stroke-[2]" />
-                            <span>Make Payment</span>
-                          </button>
+
+                          {/* Single Action Button */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {settingsForm.razorpay_short_url ? (
+                              <a
+                                href={settingsForm.razorpay_short_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <span>Pay Online via Razorpay</span>
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setShowPaymentModal(true)}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <CreditCard className="w-3.5 h-3.5" />
+                                <span>Manage Subscription</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
 
-                        {/* 4 Overview Grid Boxes */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        {/* Clean 3 Box Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           {/* Box 1: Plan Status */}
                           <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
                             <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
@@ -15516,38 +15504,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 {settingsForm.subscription_status === 'payment_failed' ? 'Payment Due' : (settingsForm.subscription_status || 'Active')}
                               </span>
                             </div>
-                            <p className="text-[11px] text-text-muted">
-                              {settingsForm.org_lifecycle_stage || 'billing_active'}
-                            </p>
                           </div>
 
-                          {/* Box 2: Due Date */}
+                          {/* Box 2: Next Renewal Date */}
                           <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
                             <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
-                              Payment Due Date
+                              Next Renewal Date
                             </span>
                             <div className="text-sm font-bold font-mono text-accent">
-                              {settingsForm.next_charge_at ? new Date(settingsForm.next_charge_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Active'}
+                              {settingsForm.next_charge_at ? new Date(settingsForm.next_charge_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Monthly Cycle'}
                             </div>
-                            <p className="text-[11px] text-text-muted">
-                              Monthly recurring renewal
-                            </p>
                           </div>
 
-                          {/* Box 3: Last Charge */}
-                          <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
-                            <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
-                              Last Payment Date
-                            </span>
-                            <div className="text-sm font-bold text-text-primary font-mono">
-                              {settingsForm.last_charge_at ? new Date(settingsForm.last_charge_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                            </div>
-                            <p className="text-[11px] text-emerald-600 font-semibold">
-                              {settingsForm.last_payment_status === 'paid' ? '✓ Paid' : (settingsForm.last_payment_status || 'Verified')}
-                            </p>
-                          </div>
-
-                          {/* Box 4: Razorpay ID */}
+                          {/* Box 3: Subscription Ref ID */}
                           <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
                             <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
                               Subscription Ref ID
@@ -15555,43 +15524,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             <div className="text-xs font-mono font-semibold text-text-primary truncate">
                               {settingsForm.razorpay_subscription_id || `sub_${settingsForm.slug || 'tenant'}`}
                             </div>
-                            <p className="text-[11px] text-text-muted truncate">
-                              Razorpay Auto-Debit Line
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Pay Now Box */}
-                        <div className="p-4 bg-gradient-to-r from-emerald-50 via-surface to-emerald-50 dark:from-emerald-950/20 dark:via-surface dark:to-emerald-950/20 rounded-md border border-emerald-200 dark:border-emerald-800/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                          <div>
-                            <h5 className="text-xs font-bold text-emerald-950 dark:text-emerald-300 flex items-center gap-1.5">
-                              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                              Need to clear or update your system payment?
-                            </h5>
-                            <p className="text-[11px] text-emerald-800 dark:text-emerald-400 mt-0.5">
-                              Click below to open instant online payment (Credit Card, Netbanking, UPI, Wallet) or copy UPI payment handle directly.
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            {settingsForm.razorpay_short_url && (
-                              <a
-                                href={settingsForm.razorpay_short_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <span>Pay Online via Razorpay</span>
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setShowPaymentModal(true)}
-                              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <CreditCard className="w-3.5 h-3.5" />
-                              <span>Instant Payment Portal</span>
-                            </button>
                           </div>
                         </div>
                       </div>
