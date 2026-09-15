@@ -1475,6 +1475,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [settingsTab, setSettingsTab] = useState<'branding' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team'>('branding');
   const [drawerPhoneCopied, setDrawerPhoneCopied] = useState(false);
   const [chatHeaderPhoneCopied, setChatHeaderPhoneCopied] = useState(false);
+  const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
+
+  const handleCopyPhone = (e: React.MouseEvent, phone: string, id: string) => {
+    e.stopPropagation();
+    if (!phone) return;
+    try {
+      navigator.clipboard.writeText(phone);
+    } catch {}
+    setCopiedPhoneId(id);
+    setTimeout(() => {
+      setCopiedPhoneId(null);
+    }, 2000);
+  };
 
   // Live Google Calendar Slot Availability Tester in Dashboard Settings
   const [dashCalendarLoading, setDashCalendarLoading] = useState(false);
