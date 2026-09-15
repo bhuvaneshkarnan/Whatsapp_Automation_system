@@ -6920,7 +6920,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
     return (
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-2 sm:p-4 md:p-6 animate-in fade-in duration-150"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4 md:p-6 animate-in fade-in duration-150"
         onClick={() => {
           setSelectedCustomer(null);
           setIsDrawerExpanded(false);
@@ -6928,8 +6928,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       >
         <div
           className={`w-full ${
-            isDrawerExpanded ? 'max-w-5xl h-[92vh] max-h-[920px]' : 'max-w-2xl lg:max-w-3xl h-[88vh] max-h-[840px]'
-          } bg-surface border border-border rounded-lg shadow-2xl flex flex-col overflow-hidden transition-all duration-200 animate-in zoom-in-95`}
+            isDrawerExpanded ? 'max-w-5xl h-[100dvh] sm:h-[92vh] sm:max-h-[920px]' : 'max-w-2xl lg:max-w-3xl h-[100dvh] sm:h-[88vh] sm:max-h-[840px]'
+          } bg-surface border-0 sm:border border-border rounded-none sm:rounded-lg shadow-2xl flex flex-col overflow-hidden transition-all duration-200 animate-in zoom-in-95 safe-area-pb`}
           onClick={(e) => e.stopPropagation()}
         >
         {/* Top Header: Customer info, Stepper navigation & controls */}
@@ -10826,7 +10826,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       {/* Chat Input */}
                       {canSendMessages ? (
-                        <form onSubmit={handleSendMessage} className="p-2 sm:p-3 border-t border-border flex items-center gap-2 bg-surface shrink-0">
+                        <form onSubmit={handleSendMessage} className="p-2 sm:p-3 safe-area-pb border-t border-border flex items-center gap-2 bg-surface shrink-0">
                           <button
                             type="button"
                             onClick={openChatTemplatePicker}

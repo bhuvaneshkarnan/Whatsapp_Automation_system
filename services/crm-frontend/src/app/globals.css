@@ -131,3 +131,23 @@ html {
   padding-right: env(safe-area-inset-right, 0px);
 }
 
+/* Dynamic Viewport & Mobile Scroll Helpers */
+.h-dvh {
+  height: 100vh;
+  height: 100dvh;
+}
+.min-h-dvh {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.max-h-dvh {
+  max-height: 100vh;
+  max-height: 100dvh;
+}
+
+.touch-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+
