@@ -1472,7 +1472,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     return 'overview';
   });
   const [sidebarFilter, setSidebarFilter] = useState<'all' | 'recent' | 'favorites' | 'active'>('all');
-  const [settingsTab, setSettingsTab] = useState<'branding' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team'>('branding');
+  const [settingsTab, setSettingsTab] = useState<'branding' | 'billing' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team'>('billing');
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentTxnRef, setPaymentTxnRef] = useState('');
+  const [submittingPaymentProof, setSubmittingPaymentProof] = useState(false);
+  const [paymentProofNotice, setPaymentProofNotice] = useState<string | null>(null);
   const [drawerPhoneCopied, setDrawerPhoneCopied] = useState(false);
   const [chatHeaderPhoneCopied, setChatHeaderPhoneCopied] = useState(false);
   const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
@@ -14865,9 +14869,71 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </div>
             )}
 
-            {/* ── VIEW 5: WORKSPACE PREFERENCES (WHITE-LABEL CLIENT VIEW) ────────── */}
+            {/* ── VIEW 5: WORKSPACE PREFERENCES & SYSTEM BILLING ────────── */}
             {activeNav === 'settings' && (
               <div className="flex-1 overflow-y-auto space-y-6 max-w-4xl">
+                
+                {/* System Payment & Subscription Alert Card */}
+                <div className={`p-4 rounded-lg border transition-all ${
+                  settingsForm.subscription_status === 'payment_failed' || settingsForm.last_payment_status === 'failed' || (settingsForm.next_charge_at && new Date(settingsForm.next_charge_at) < new Date())
+                    ? 'bg-rose-50/90 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-950 dark:text-rose-200 shadow-xs'
+                    : settingsForm.subscription_status === 'paused'
+                    ? 'bg-amber-50/90 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-200'
+                    : 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-950 dark:text-emerald-200'
+                }`}>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 shadow-2xs ${
+                        settingsForm.subscription_status === 'payment_failed' || settingsForm.last_payment_status === 'failed'
+                          ? 'bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-300'
+                          : 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300'
+                      }`}>
+                        <CreditCard className="w-5 h-5 stroke-[2]" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-xs font-bold text-text-primary tracking-tight">
+                            System Subscription & Billing Details
+                          </h4>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${
+                            settingsForm.subscription_status === 'payment_failed' || settingsForm.last_payment_status === 'failed'
+                              ? 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-900/50 dark:text-rose-200'
+                              : settingsForm.subscription_status === 'active'
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-200'
+                              : 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/50 dark:text-amber-200'
+                          }`}>
+                            {settingsForm.subscription_status === 'payment_failed' ? '⚠️ Payment Overdue' : (settingsForm.subscription_status || 'Active Plan')}
+                          </span>
+                        </div>
+                        <p className="text-xs text-text-secondary mt-0.5 flex items-center gap-2 flex-wrap">
+                          <span>Billing Cycle: Monthly Platform License</span>
+                          <span>•</span>
+                          <span>
+                            Due Date:{' '}
+                            <strong className="font-mono text-text-primary">
+                              {settingsForm.next_charge_at ? new Date(settingsForm.next_charge_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Next billing cycle'}
+                            </strong>
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettingsTab('billing');
+                          setShowPaymentModal(true);
+                        }}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <CreditCard className="w-4 h-4 stroke-[2]" />
+                        <span>Pay Now / Make Payment</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Managed Platform Banner */}
                 <div className="p-4 bg-surface rounded-md border border-border flex items-start gap-3.5">
                   <div className="w-8 h-8 rounded-md bg-accent/10 text-accent flex items-center justify-center shrink-0 mt-0.5 border border-accent/20">
@@ -14881,7 +14947,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </span>
                     </div>
                     <p className="text-xs text-text-muted mt-1 leading-relaxed">
-                      Your AI language models, WhatsApp Meta Cloud API webhooks, and core integrations are securely managed by your platform administrator. Customize your business branding, alert channels, regional defaults, and CRM labels below.
+                      Your AI language models, WhatsApp Meta Cloud API webhooks, and core integrations are securely managed by your platform administrator. Customize your business branding, billing preferences, alert channels, regional defaults, and CRM labels below.
                     </p>
                   </div>
                 </div>
@@ -14903,6 +14969,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* Subtabs Bar - Horizontally Scrollable Strip on Mobile */}
                 <div className="flex gap-1 border-b border-border pb-3 overflow-x-auto no-scrollbar flex-nowrap shrink-0 max-w-full">
                   {[
+                    { id: 'billing', label: '💳 Subscription & Payments', icon: CreditCard },
                     { id: 'branding', label: 'Profile & Branding', icon: Building2 },
                     { id: 'calendar', label: 'Google Calendar & Scheduling', icon: CalendarDays },
                     { id: 'notifications', label: 'Alert Channels', icon: Bell },
@@ -14914,10 +14981,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     return (
                       <button
                         key={tab.id}
+                        type="button"
                         onClick={() => setSettingsTab(tab.id as any)}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 ${
                           settingsTab === tab.id
-                            ? 'bg-surface-subtle text-text-primary font-semibold border border-border-strong'
+                            ? 'bg-surface-subtle text-text-primary font-semibold border border-border-strong shadow-2xs'
                             : 'bg-surface text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium border border-border'
                         }`}
                       >
@@ -14929,6 +14997,128 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </div>
 
                 <form onSubmit={handleSaveSettings} className="space-y-6">
+
+                  {/* ── 0. SUBSCRIPTION & SYSTEM BILLING ─────────────────────── */}
+                  {settingsTab === 'billing' && (
+                    <div className="space-y-6">
+                      {/* Subscription Overview Card */}
+                      <div className="bg-surface p-5 rounded-lg border border-border space-y-5">
+                        <div className="pb-3 border-b border-border flex items-center justify-between">
+                          <div>
+                            <h4 className="font-bold text-sm text-text-primary flex items-center gap-2">
+                              <CreditCard className="w-4 h-4 text-accent" />
+                              <span>System License & Subscription Status</span>
+                            </h4>
+                            <p className="text-xs text-text-muted mt-0.5">
+                              View your current subscription plan, payment due date, and make instant online payments.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowPaymentModal(true)}
+                            className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                          >
+                            <CreditCard className="w-3.5 h-3.5 stroke-[2]" />
+                            <span>Make Payment</span>
+                          </button>
+                        </div>
+
+                        {/* 4 Overview Grid Boxes */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          {/* Box 1: Plan Status */}
+                          <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
+                            <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
+                              Subscription Status
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className={`w-2.5 h-2.5 rounded-full ${
+                                settingsForm.subscription_status === 'payment_failed' ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'
+                              }`} />
+                              <span className="text-sm font-bold text-text-primary capitalize">
+                                {settingsForm.subscription_status === 'payment_failed' ? 'Payment Due' : (settingsForm.subscription_status || 'Active')}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-text-muted">
+                              {settingsForm.org_lifecycle_stage || 'billing_active'}
+                            </p>
+                          </div>
+
+                          {/* Box 2: Due Date */}
+                          <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
+                            <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
+                              Payment Due Date
+                            </span>
+                            <div className="text-sm font-bold font-mono text-accent">
+                              {settingsForm.next_charge_at ? new Date(settingsForm.next_charge_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Active'}
+                            </div>
+                            <p className="text-[11px] text-text-muted">
+                              Monthly recurring renewal
+                            </p>
+                          </div>
+
+                          {/* Box 3: Last Charge */}
+                          <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
+                            <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
+                              Last Payment Date
+                            </span>
+                            <div className="text-sm font-bold text-text-primary font-mono">
+                              {settingsForm.last_charge_at ? new Date(settingsForm.last_charge_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                            </div>
+                            <p className="text-[11px] text-emerald-600 font-semibold">
+                              {settingsForm.last_payment_status === 'paid' ? '✓ Paid' : (settingsForm.last_payment_status || 'Verified')}
+                            </p>
+                          </div>
+
+                          {/* Box 4: Razorpay ID */}
+                          <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
+                            <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
+                              Subscription Ref ID
+                            </span>
+                            <div className="text-xs font-mono font-semibold text-text-primary truncate">
+                              {settingsForm.razorpay_subscription_id || `sub_${settingsForm.slug || 'tenant'}`}
+                            </div>
+                            <p className="text-[11px] text-text-muted truncate">
+                              Razorpay Auto-Debit Line
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Pay Now Box */}
+                        <div className="p-4 bg-gradient-to-r from-emerald-50 via-surface to-emerald-50 dark:from-emerald-950/20 dark:via-surface dark:to-emerald-950/20 rounded-md border border-emerald-200 dark:border-emerald-800/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                          <div>
+                            <h5 className="text-xs font-bold text-emerald-950 dark:text-emerald-300 flex items-center gap-1.5">
+                              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                              Need to clear or update your system payment?
+                            </h5>
+                            <p className="text-[11px] text-emerald-800 dark:text-emerald-400 mt-0.5">
+                              Click below to open instant online payment (Credit Card, Netbanking, UPI, Wallet) or copy UPI payment handle directly.
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {settingsForm.razorpay_short_url && (
+                              <a
+                                href={settingsForm.razorpay_short_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-md transition-colors inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>Pay Online via Razorpay</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setShowPaymentModal(true)}
+                              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <CreditCard className="w-3.5 h-3.5" />
+                              <span>Instant Payment Portal</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   
                   {/* ── 1. PROFILE & BRANDING ─────────────────────────────────── */}
                   {settingsTab === 'branding' && (
@@ -17714,7 +17904,150 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           </div>
         )}
 
-        {/* ── MODAL 3: DELETE CONVERSATION CONFIRMATION ───── */}
+        {/* ── MODAL: TENANT INSTANT PAYMENT & BILLING PORTAL ─────────────── */}
+        {showPaymentModal && (
+          <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-150">
+            <div className="bg-surface rounded-lg border border-border w-full max-w-lg my-6 shadow-2xl overflow-hidden flex flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-surface-subtle">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-bold text-xs shrink-0">
+                    <CreditCard className="w-4 h-4 stroke-[2]" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-text-primary">System Payment & Renewal Portal</h3>
+                    <p className="text-[11px] text-text-muted">{settingsForm.name || 'Client Tenant'} ({settingsForm.slug || 'workspace'})</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPaymentModal(false)}
+                  className="p-1.5 rounded-sm hover:bg-surface text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-5 overflow-y-auto max-h-[75vh]">
+                {/* Billing Summary Box */}
+                <div className="bg-gradient-to-r from-emerald-50/80 via-surface to-emerald-50/80 dark:from-emerald-950/30 dark:via-surface dark:to-emerald-950/30 p-4 rounded-md border border-emerald-200 dark:border-emerald-800/40 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-text-secondary font-medium">Subscription Status</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${
+                      settingsForm.subscription_status === 'payment_failed'
+                        ? 'bg-rose-100 text-rose-800 border-rose-300'
+                        : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                    }`}>
+                      {settingsForm.subscription_status === 'payment_failed' ? '⚠️ Payment Overdue' : (settingsForm.subscription_status || 'Active')}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-text-secondary font-medium">Next Due Date</span>
+                    <span className="text-xs font-bold font-mono text-accent">
+                      {settingsForm.next_charge_at ? new Date(settingsForm.next_charge_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Active Cycle'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Option 1: Direct Razorpay Link */}
+                {settingsForm.razorpay_short_url ? (
+                  <div className="space-y-2 p-3.5 bg-surface-subtle rounded-md border border-border">
+                    <span className="text-xs font-bold text-text-primary flex items-center gap-1.5">
+                      <ExternalLink className="w-3.5 h-3.5 text-accent" />
+                      Option 1: Pay Online via Razorpay Link
+                    </span>
+                    <p className="text-[11px] text-text-muted">
+                      Supports All Credit Cards, Debit Cards, Netbanking, UPI (GPay/PhonePe/Paytm), and Wallets.
+                    </p>
+                    <a
+                      href={settingsForm.razorpay_short_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <span>Pay Online via Razorpay</span>
+                      <ExternalLink className="w-3.5 h-3.5 stroke-[2]" />
+                    </a>
+                  </div>
+                ) : null}
+
+                {/* Option 2: Direct UPI Payment Details */}
+                <div className="space-y-3 p-3.5 bg-surface-subtle rounded-md border border-border">
+                  <span className="text-xs font-bold text-text-primary flex items-center gap-1.5">
+                    <Coins className="w-3.5 h-3.5 text-accent" />
+                    Option 2: Direct UPI / Bank Payment
+                  </span>
+                  
+                  <div className="p-3 bg-surface rounded border border-border space-y-2 text-xs font-mono">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[11px] font-sans text-text-muted">Platform Admin UPI ID:</span>
+                      <span className="font-bold text-emerald-700 dark:text-emerald-400 select-all">goboldlabs@upi</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[11px] font-sans text-text-muted">Account Name:</span>
+                      <span className="font-bold text-text-primary">Boldlabs Technologies</span>
+                    </div>
+                  </div>
+
+                  {/* Submission Form */}
+                  <div className="space-y-2 pt-2 border-t border-border">
+                    <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider block">
+                      Submit Payment Transaction Ref / UTR No.
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={paymentTxnRef}
+                        onChange={(e) => setPaymentTxnRef(e.target.value)}
+                        placeholder="e.g. UTR 425619283719"
+                        className="flex-1 p-2 text-xs bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-emerald-500 font-mono"
+                      />
+                      <button
+                        type="button"
+                        disabled={!paymentTxnRef.trim() || submittingPaymentProof}
+                        onClick={async () => {
+                          setSubmittingPaymentProof(true);
+                          setPaymentProofNotice(null);
+                          try {
+                            await crm.updateSettings({
+                              last_payment_status: `Proof Submitted: ${paymentTxnRef.trim()}`,
+                            });
+                            setPaymentProofNotice('Payment proof submitted successfully! Our billing team will verify it shortly.');
+                            setPaymentTxnRef('');
+                          } catch (err: any) {
+                            setPaymentProofNotice('Failed to record payment reference. Please try again.');
+                          } finally {
+                            setSubmittingPaymentProof(false);
+                          }
+                        }}
+                        className="px-3.5 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-xs font-semibold rounded-md transition-colors cursor-pointer shrink-0"
+                      >
+                        {submittingPaymentProof ? 'Submitting...' : 'Submit Proof'}
+                      </button>
+                    </div>
+                    {paymentProofNotice && (
+                      <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
+                        {paymentProofNotice}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-5 py-3 border-t border-border bg-surface-subtle flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowPaymentModal(false)}
+                  className="px-4 py-1.5 bg-surface border border-border text-text-primary text-xs font-medium rounded-md hover:bg-surface-subtle transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {deleteChatModal?.isOpen && (
           <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-surface rounded-md border border-border w-full max-w-md overflow-hidden shadow-subtle p-6 space-y-4">
