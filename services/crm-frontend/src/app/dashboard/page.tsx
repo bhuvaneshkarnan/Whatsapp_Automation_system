@@ -12802,266 +12802,216 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
             {/* ── VIEW: REPEAT CLIENTS WORKSPACE ───────────────────── */}
             {activeNav === 'repeat_clients' && (
-              <div className="flex-1 flex flex-col overflow-hidden space-y-3">
-                {/* Header with Title, Retention Strategy Overview, and Actions */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-border pb-2.5 pt-1">
-                  <div>
-                    <h3 className="font-semibold text-sm text-text-primary flex items-center gap-2">
-                      <UserCheck className="w-4 h-4 text-amber-500 stroke-[1.8]" />
-                      <span>Repeat & Retained {currentTaxonomy.client_plural || 'Clients'}</span>
-                    </h3>
-                    <p className="text-[11px] text-text-muted mt-0.5">
-                      Automated client retention engine, VIP loyalty tiers, and 1-click industry WhatsApp re-engagement.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {/* Export Repeat Clients CSV */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const repeatList = customers.filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat');
-                        const headers = ['Name', 'Phone', 'Age', 'Location', 'Completed Visits', 'Total Bookings', 'Last Visit Date', 'Last Visit Service', 'Days Since Last Visit', 'Retention Status', 'Preferred Staff'];
-                        const rows = repeatList.map(c => [
-                          `"${(c.name || '').replace(/"/g, '""')}"`,
-                          `"${c.phone}"`,
-                          c.age || '',
-                          `"${(c.location || '').replace(/"/g, '""')}"`,
-                          c.completed_bookings_count || 0,
-                          c.total_bookings_count || 0,
-                          (c.last_visit_date || c.last_visited) ? new Date(c.last_visit_date || c.last_visited!).toLocaleDateString() : '',
-                          `"${(c.last_visit_service || '').replace(/"/g, '""')}"`,
-                          c.days_since_last_visit != null ? c.days_since_last_visit : '',
-                          c.retention_status || '',
-                          `"${(c.preferred_doctor || '').replace(/"/g, '""')}"`
-                        ]);
-                        const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-                        const encodedUri = encodeURI(csvContent);
-                        const link = document.createElement('a');
-                        link.setAttribute('href', encodedUri);
-                        link.setAttribute('download', `repeat_clients_${new Date().toISOString().split('T')[0]}.csv`);
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                      }}
-                      className="flex items-center gap-1.5 px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-sm transition-colors cursor-pointer"
-                      title="Export repeat client records to CSV"
-                    >
-                      <Download className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>Export CSV</span>
-                    </button>
-
-                    {/* Schedule Booking */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const tomorrow = new Date();
-                        tomorrow.setDate(tomorrow.getDate() + 1);
-                        const dStr = tomorrow.toISOString().split('T')[0];
-                        setNewBookingForm({
-                          contact_name: '',
-                          contact_phone: '',
-                          service: currentTaxonomy.default_service || 'Consultation',
-                          date: dStr,
-                          time: '10:00',
-                          price: 0,
-                          notes: 'Repeat client appointment',
-                        });
-                        setIsAddBookingOpen(true);
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer shrink-0"
-                    >
-                      <CalendarClock className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>{currentTaxonomy.booking_cta || 'Book Session'}</span>
-                    </button>
-
-                    {/* Refresh */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        loadCustomers();
-                        loadBookings();
-                      }}
-                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
-                      title="Refresh"
-                    >
-                      <RotateCcw className={`w-3.5 h-3.5 ${loadingCustomers ? 'animate-spin' : ''}`} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* ── KPI Retention Metric Cards ── */}
+              <div className="flex-1 flex flex-col overflow-hidden space-y-2 h-full">
+                {/* Top Control Header (2-Line High-Density Toolbar) */}
                 {(() => {
                   const allRepeat = customers.filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat');
                   const activeCount = allRepeat.filter(c => c.retention_status === 'active' || (c.days_since_last_visit != null && c.days_since_last_visit <= 30)).length;
                   const dueCount = allRepeat.filter(c => c.retention_status === 'due' || (c.days_since_last_visit != null && c.days_since_last_visit > 30 && c.days_since_last_visit <= 60)).length;
                   const lapsedCount = allRepeat.filter(c => c.retention_status === 'lapsed' || (c.days_since_last_visit != null && c.days_since_last_visit > 60)).length;
-                  const platinumVipCount = allRepeat.filter(c => (c.completed_bookings_count ?? 0) >= 5).length;
                   const vipCount = allRepeat.filter(c => (c.completed_bookings_count ?? 0) >= 3).length;
 
                   return (
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 overflow-x-auto no-scrollbar touch-scroll">
-                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between shrink-0">
-                        <div>
-                          <p className="text-[11px] text-text-muted font-medium">Total Repeat</p>
-                          <p className="text-base font-bold text-text-primary mt-0.5">
-                            {allRepeat.length}
-                            <span className="text-[10px] text-amber-600 font-normal ml-1">
-                              ({customers.length ? Math.round((allRepeat.length / customers.length) * 100) : 0}% of base)
-                            </span>
-                          </p>
+                    <div className="bg-surface border border-border rounded-sm p-2 flex flex-col gap-2 shrink-0">
+                      {/* Toolbar Line 1: Title, Slim Metric Inline Strip & Main CTAs */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-1.5">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <h3 className="font-semibold text-xs text-text-primary flex items-center gap-1.5 shrink-0">
+                            <UserCheck className="w-3.5 h-3.5 text-amber-500 stroke-[1.8]" />
+                            <span>Repeat & Retained {currentTaxonomy.client_plural || 'Clients'}</span>
+                          </h3>
+
+                          {/* Slim Inline KPI Strip */}
+                          <div className="flex items-center gap-1.5 text-[11px] bg-surface-subtle border border-border px-2 py-0.5 rounded-sm font-medium shrink-0">
+                            <span className="text-text-secondary">Total: <strong className="text-text-primary">{allRepeat.length}</strong></span>
+                            <span className="text-text-muted">•</span>
+                            <span className="text-emerald-700 dark:text-emerald-400">Active: <strong>{activeCount}</strong></span>
+                            <span className="text-text-muted">•</span>
+                            <span className="text-amber-700 dark:text-amber-400">Due: <strong>{dueCount}</strong></span>
+                            <span className="text-text-muted">•</span>
+                            <span className="text-rose-700 dark:text-rose-400 cursor-pointer" onClick={() => setRepeatHealthFilter('lapsed')} title="Filter at-risk clients">At-Risk: <strong>{lapsedCount}</strong></span>
+                            <span className="text-text-muted">•</span>
+                            <span className="text-purple-700 dark:text-purple-400">VIPs: <strong>{vipCount}</strong></span>
+                          </div>
                         </div>
-                        <UserCheck className="w-4 h-4 text-amber-500 stroke-[1.5]" />
+
+                        {/* Top Action CTAs */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Export CSV */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const repeatList = customers.filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat');
+                              const headers = ['Name', 'Phone', 'Age', 'Location', 'Completed Visits', 'Total Bookings', 'Last Visit Date', 'Last Visit Service', 'Days Since Last Visit', 'Retention Status', 'Preferred Staff'];
+                              const rows = repeatList.map(c => [
+                                `"${(c.name || '').replace(/"/g, '""')}"`,
+                                `"${c.phone}"`,
+                                c.age || '',
+                                `"${(c.location || '').replace(/"/g, '""')}"`,
+                                c.completed_bookings_count || 0,
+                                c.total_bookings_count || 0,
+                                (c.last_visit_date || c.last_visited) ? new Date(c.last_visit_date || c.last_visited!).toLocaleDateString() : '',
+                                `"${(c.last_visit_service || '').replace(/"/g, '""')}"`,
+                                c.days_since_last_visit != null ? c.days_since_last_visit : '',
+                                c.retention_status || '',
+                                `"${(c.preferred_doctor || '').replace(/"/g, '""')}"`
+                              ]);
+                              const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+                              const encodedUri = encodeURI(csvContent);
+                              const link = document.createElement('a');
+                              link.setAttribute('href', encodedUri);
+                              link.setAttribute('download', `repeat_clients_${new Date().toISOString().split('T')[0]}.csv`);
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                            }}
+                            className="flex items-center gap-1 px-2 py-0.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-[11px] font-medium rounded-sm transition-colors cursor-pointer"
+                            title="Export repeat client records to CSV"
+                          >
+                            <Download className="w-3 h-3 stroke-[1.5]" />
+                            <span className="hidden sm:inline">Export CSV</span>
+                          </button>
+
+                          {/* Schedule Booking */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const tomorrow = new Date();
+                              tomorrow.setDate(tomorrow.getDate() + 1);
+                              const dStr = tomorrow.toISOString().split('T')[0];
+                              setNewBookingForm({
+                                contact_name: '',
+                                contact_phone: '',
+                                service: currentTaxonomy.default_service || 'Consultation',
+                                date: dStr,
+                                time: '10:00',
+                                price: 0,
+                                notes: 'Repeat client appointment',
+                              });
+                              setIsAddBookingOpen(true);
+                            }}
+                            className="flex items-center gap-1 px-2 py-0.5 bg-accent hover:bg-accent-hover text-white text-[11px] font-medium rounded-sm transition-colors cursor-pointer shrink-0"
+                          >
+                            <CalendarClock className="w-3 h-3 stroke-[1.5]" />
+                            <span>{currentTaxonomy.booking_cta || 'Book Session'}</span>
+                          </button>
+
+                          {/* Refresh */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              loadCustomers();
+                              loadBookings();
+                            }}
+                            className="p-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm text-[11px] flex items-center transition-colors cursor-pointer"
+                            title="Refresh repeat clients"
+                          >
+                            <RotateCcw className={`w-3 h-3 ${loadingCustomers ? 'animate-spin' : ''}`} />
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="p-3 bg-surface border border-emerald-200/70 bg-emerald-50/20 rounded-sm flex items-center justify-between shrink-0">
-                        <div>
-                          <p className="text-[11px] text-emerald-800 font-medium">Active (&lt;30d)</p>
-                          <p className="text-base font-bold text-emerald-900 mt-0.5">{activeCount}</p>
+                      {/* Toolbar Line 2: Retention Filter Pills, Staff Filter, Sorting & Search */}
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
+                        {/* Retention Filter Pills */}
+                        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar touch-scroll max-w-full shrink-0">
+                          {[
+                            { key: 'all', label: 'All Repeat' },
+                            { key: 'active', label: 'Active (<30d)', dot: 'bg-emerald-500' },
+                            { key: 'due', label: 'Due (30-60d)', dot: 'bg-amber-500' },
+                            { key: 'lapsed', label: 'At-Risk (>60d)', dot: 'bg-rose-500' },
+                            { key: 'vip', label: 'VIPs (3+)', dot: 'bg-purple-500' },
+                          ].map((st) => (
+                            <button
+                              key={st.key}
+                              type="button"
+                              onClick={() => setRepeatHealthFilter(st.key as any)}
+                              className={`px-2 py-0.5 text-[11px] rounded-sm border transition-colors cursor-pointer shrink-0 flex items-center gap-1 ${
+                                repeatHealthFilter === st.key
+                                  ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
+                                  : 'bg-surface border-border text-text-secondary hover:text-text-primary hover:bg-surface-subtle'
+                              }`}
+                            >
+                              {st.dot && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${st.dot}`} />}
+                              <span>{st.label}</span>
+                            </button>
+                          ))}
                         </div>
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 stroke-[1.5]" />
-                      </div>
 
-                      <div className="p-3 bg-surface border border-amber-200/70 bg-amber-50/20 rounded-sm flex items-center justify-between shrink-0">
-                        <div>
-                          <p className="text-[11px] text-amber-800 font-medium">Due for Check-in (30-60d)</p>
-                          <p className="text-base font-bold text-amber-900 mt-0.5">{dueCount}</p>
-                        </div>
-                        <Clock className="w-4 h-4 text-amber-600 stroke-[1.5]" />
-                      </div>
+                        {/* Dropdowns & Search */}
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
+                          <select
+                            value={repeatSortBy}
+                            onChange={(e) => setRepeatSortBy(e.target.value as any)}
+                            className="px-1.5 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer"
+                            title="Sort repeat clients"
+                          >
+                            <option value="most_visits">Most Visits</option>
+                            <option value="longest_idle">Longest Idle</option>
+                            <option value="recent_visit">Recently Visited</option>
+                            <option value="name">Name (A-Z)</option>
+                          </select>
 
-                      <div
-                        onClick={() => setRepeatHealthFilter('lapsed')}
-                        className="p-3 bg-surface border border-rose-200/70 bg-rose-50/20 rounded-sm flex items-center justify-between cursor-pointer hover:border-rose-400 shrink-0 transition-colors"
-                        title="Click to filter At-Risk / Lapsed clients for WhatsApp re-engagement"
-                      >
-                        <div>
-                          <p className="text-[11px] text-rose-800 font-medium flex items-center gap-1">
-                            <span>At-Risk (&gt;60d)</span>
-                            {lapsedCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />}
-                          </p>
-                          <p className="text-base font-bold text-rose-900 mt-0.5">{lapsedCount}</p>
-                        </div>
-                        <AlertCircle className="w-4 h-4 text-rose-600 stroke-[1.5]" />
-                      </div>
+                          <select
+                            value={repeatDoctorFilter}
+                            onChange={(e) => setRepeatDoctorFilter(e.target.value)}
+                            className="px-1.5 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[130px]"
+                          >
+                            <option value="all">All {presetRolePlural}</option>
+                            <option value="unassigned">Unassigned</option>
+                            {categorizedStaffOptions.predefinedDoctors.length > 0 && (
+                              <optgroup label={`${presetRoleSingular} Presets`}>
+                                {categorizedStaffOptions.predefinedDoctors.map((s) => (
+                                  <option key={s.value} value={s.value}>{s.value}</option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </select>
 
-                      <div className="p-3 bg-surface border border-purple-200/70 bg-purple-50/20 rounded-sm flex items-center justify-between shrink-0">
-                        <div>
-                          <p className="text-[11px] text-purple-800 font-medium">VIP Tier (3+ Visits)</p>
-                          <p className="text-base font-bold text-purple-900 mt-0.5">
-                            {vipCount}
-                            {platinumVipCount > 0 && <span className="text-[10px] text-purple-700 font-mono ml-1">({platinumVipCount} Platinum)</span>}
-                          </p>
+                          <div className="relative">
+                            <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" />
+                            <input
+                              type="text"
+                              placeholder="Search..."
+                              value={repeatSearch}
+                              onChange={(e) => setRepeatSearch(e.target.value)}
+                              className="pl-6 pr-5 py-0.5 bg-surface-subtle border border-border rounded-sm text-[11px] text-text-primary focus:outline-none focus:border-accent w-36"
+                            />
+                            {repeatSearch && (
+                              <button
+                                type="button"
+                                onClick={() => setRepeatSearch('')}
+                                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <Star className="w-4 h-4 text-purple-600 fill-purple-400 stroke-[1.5]" />
                       </div>
                     </div>
                   );
                 })()}
 
-                {/* ── Retention Health Filter, Sort & Search Controls ── */}
-                <div className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 bg-surface border border-border rounded-sm">
-                  {/* Health Filter Pills */}
-                  <div className="flex items-center gap-1 overflow-x-auto no-scrollbar touch-scroll py-0.5 max-w-full shrink-0">
-                    <span className="text-[11px] font-medium text-text-muted mr-1 shrink-0">Retention:</span>
-                    {[
-                      { key: 'all', label: 'All Repeat' },
-                      { key: 'active', label: 'Active (<30d)', dot: 'bg-emerald-500' },
-                      { key: 'due', label: 'Due for Check-in (30-60d)', dot: 'bg-amber-500' },
-                      { key: 'lapsed', label: 'At-Risk (>60d)', dot: 'bg-rose-500' },
-                      { key: 'vip', label: 'VIPs (3+ Visits)', dot: 'bg-purple-500' },
-                    ].map((st) => (
-                      <button
-                        key={st.key}
-                        type="button"
-                        onClick={() => setRepeatHealthFilter(st.key as any)}
-                        className={`px-2.5 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer shrink-0 flex items-center gap-1.5 ${
-                          repeatHealthFilter === st.key
-                            ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
-                            : 'bg-surface border-border text-text-secondary hover:text-text-primary hover:bg-surface-subtle'
-                        }`}
-                      >
-                        {st.dot && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${st.dot}`} />}
-                        <span>{st.label}</span>
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Sorting, Staff Filter & Search */}
-                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                    {/* Sort By Dropdown */}
-                    <div className="flex items-center gap-1">
-                      <span className="text-[11px] text-text-muted font-medium hidden sm:inline">Sort:</span>
-                      <select
-                        value={repeatSortBy}
-                        onChange={(e) => setRepeatSortBy(e.target.value as any)}
-                        className="px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer"
-                        title="Sort repeat clients"
-                      >
-                        <option value="most_visits">Most Visits (VIP First)</option>
-                        <option value="longest_idle">Longest Idle (At-Risk First)</option>
-                        <option value="recent_visit">Recently Visited</option>
-                        <option value="name">Name (A-Z)</option>
-                      </select>
-                    </div>
-
-                    <select
-                      value={repeatDoctorFilter}
-                      onChange={(e) => setRepeatDoctorFilter(e.target.value)}
-                      className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[150px]"
-                    >
-                      <option value="all">All {presetRolePlural}</option>
-                      <option value="unassigned">Unassigned</option>
-                      {categorizedStaffOptions.predefinedDoctors.length > 0 && (
-                        <optgroup label={`${presetRoleSingular} Presets`}>
-                          {categorizedStaffOptions.predefinedDoctors.map((s) => (
-                            <option key={s.value} value={s.value}>{s.value}</option>
-                          ))}
-                        </optgroup>
-                      )}
-                    </select>
-
-                    <div className="relative">
-                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
-                      <input
-                        type="text"
-                        placeholder="Search repeat clients..."
-                        value={repeatSearch}
-                        onChange={(e) => setRepeatSearch(e.target.value)}
-                        className="pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-44"
-                      />
-                      {repeatSearch && (
-                        <button
-                          type="button"
-                          onClick={() => setRepeatSearch('')}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* ── Repeat Clients Table & Drawer ── */}
-                <div className="flex-1 flex overflow-hidden gap-3">
-                  <div className="flex-1 overflow-y-auto overflow-x-auto border border-border rounded-sm bg-surface touch-scroll">
-                    <table className="w-full text-left text-xs min-w-[820px]">
+                {/* ── Repeat Clients Fixed Table Container (Single View Zero Horizontal Scroll) ── */}
+                <div className="flex-1 border border-border rounded-sm bg-surface overflow-hidden flex flex-col min-h-0">
+                  <div className="flex-1 overflow-y-auto touch-scroll">
+                    <table className="table-fixed w-full text-left text-xs">
                       <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                         <tr>
-                          <th className="p-2.5 pl-4">{currentTaxonomy.repeat_col_client || `${currentTaxonomy.client_label || 'Client'} & Contact`}</th>
-                          <th className="p-2.5">{currentTaxonomy.repeat_col_visits || (settingsForm.industry === 'ecommerce' ? 'Orders & VIP Tier' : 'Visits & Loyalty Tier')}</th>
-                          <th className="p-2.5">{currentTaxonomy.repeat_col_last_session || (settingsForm.industry === 'ecommerce' ? 'Last Order Details' : 'Last Session Details')}</th>
-                          <th className="p-2.5">{currentTaxonomy.repeat_col_retention || (settingsForm.industry === 'ecommerce' ? 'Buyer Status' : 'Retention Status')}</th>
-                          <th className="p-2.5">{currentTaxonomy.repeat_col_staff || (currentTaxonomy.staff_label ? `Assigned ${currentTaxonomy.staff_label.split('/')[0].trim()}` : 'Assigned Staff')}</th>
-                          <th className="p-2.5">{currentTaxonomy.repeat_col_requirement || currentTaxonomy.requirement_label || 'Requirement / Service'}</th>
-                          <th className="p-2.5 text-right pr-4">{currentTaxonomy.repeat_col_actions || currentTaxonomy.actions_label || 'Direct Actions'}</th>
+                          <th className="p-1.5 pl-3 w-[25%]">{currentTaxonomy.repeat_col_client || `${currentTaxonomy.client_label || 'Client'} & Contact`}</th>
+                          <th className="p-1.5 w-[12%]">{currentTaxonomy.repeat_col_visits || (settingsForm.industry === 'ecommerce' ? 'Orders & VIP' : 'Visits & Loyalty')}</th>
+                          <th className="p-1.5 w-[16%]">{currentTaxonomy.repeat_col_last_session || (settingsForm.industry === 'ecommerce' ? 'Last Order' : 'Last Session')}</th>
+                          <th className="p-1.5 w-[15%]">{currentTaxonomy.repeat_col_retention || (settingsForm.industry === 'ecommerce' ? 'Buyer Status' : 'Retention Status')}</th>
+                          <th className="p-1.5 w-[12%]">{currentTaxonomy.repeat_col_staff || (currentTaxonomy.staff_label ? `Assigned ${currentTaxonomy.staff_label.split('/')[0].trim()}` : 'Assigned Staff')}</th>
+                          <th className="p-1.5 w-[10%] truncate">{currentTaxonomy.repeat_col_requirement || currentTaxonomy.requirement_label || 'Requirement'}</th>
+                          <th className="p-1.5 text-right pr-3 w-[10%]">{currentTaxonomy.repeat_col_actions || currentTaxonomy.actions_label || 'Actions'}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
                         {loadingCustomers ? (
                           <tr>
-                            <td colSpan={7} className="p-8 text-center text-text-muted">
+                            <td colSpan={7} className="p-6 text-center text-text-muted">
                               <div className="flex items-center justify-center gap-2">
                                 <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
                                 <span>Loading repeat clients...</span>
@@ -13131,9 +13081,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           if (repeatList.length === 0) {
                             return (
                               <tr>
-                                <td colSpan={7} className="p-8 text-center text-text-muted space-y-1">
-                                  <UserCheck className="w-6 h-6 mx-auto text-text-muted stroke-[1.2] mb-1" />
-                                  <p className="font-medium text-text-secondary">No repeat clients found</p>
+                                <td colSpan={7} className="p-6 text-center text-text-muted space-y-1">
+                                  <UserCheck className="w-5 h-5 mx-auto text-text-muted stroke-[1.2] mb-1" />
+                                  <p className="font-medium text-text-secondary text-xs">No repeat clients found</p>
                                   <p className="text-[11px]">
                                     {repeatSearch || repeatHealthFilter !== 'all' || repeatDoctorFilter !== 'all'
                                       ? 'Try clearing your filters or search term'
@@ -13183,41 +13133,41 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   isSelected ? 'bg-amber-50/40 border-l-2 border-l-amber-500' : 'hover:bg-surface-subtle/70'
                                 }`}
                               >
-                                {/* Client & Contact */}
-                                <td className="p-2.5 pl-4">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="font-semibold text-text-primary text-[12px]">{cust.name || 'Client'}</span>
+                                {/* Client & Contact (25%) */}
+                                <td className="p-1.5 pl-3">
+                                  <div className="flex items-center gap-1 truncate">
+                                    <span className="font-semibold text-text-primary text-[12px] truncate">{cust.name || 'Client'}</span>
 
                                     {/* 4-Tier VIP Loyalty Badge */}
                                     {isPlatinumVip ? (
-                                      <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-xs bg-purple-100 text-purple-900 border border-purple-300 shrink-0 flex items-center gap-0.5 shadow-2xs">
-                                        <Star className="w-2.5 h-2.5 text-purple-600 fill-purple-500 animate-pulse" />
+                                      <span className="text-[9px] font-bold px-1 py-0.2 rounded-xs bg-purple-100 text-purple-900 border border-purple-300 shrink-0 flex items-center gap-0.5">
+                                        <Star className="w-2.5 h-2.5 text-purple-600 fill-purple-500" />
                                         <span>Platinum VIP</span>
                                       </span>
                                     ) : isGoldVip ? (
-                                      <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-xs bg-amber-100 text-amber-900 border border-amber-300 shrink-0 flex items-center gap-0.5">
+                                      <span className="text-[9px] font-bold px-1 py-0.2 rounded-xs bg-amber-100 text-amber-900 border border-amber-300 shrink-0 flex items-center gap-0.5">
                                         <Flame className="w-2.5 h-2.5 text-amber-600 fill-amber-500" />
                                         <span>Gold VIP</span>
                                       </span>
                                     ) : isSilver ? (
-                                      <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded-xs bg-blue-50 text-blue-800 border border-blue-200 shrink-0 flex items-center gap-0.5">
+                                      <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-blue-50 text-blue-800 border border-blue-200 shrink-0 flex items-center gap-0.5">
                                         <ShieldCheck className="w-2.5 h-2.5 text-blue-600" />
-                                        <span>Silver Regular</span>
+                                        <span>Silver</span>
                                       </span>
                                     ) : (
-                                      <span className="text-[9px] font-medium px-1.5 py-0.2 rounded-xs bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
-                                        Returning
+                                      <span className="text-[9px] font-medium px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
+                                        Repeat
                                       </span>
                                     )}
                                   </div>
 
-                                  <div className="font-mono text-[10px] text-text-muted mt-0.5 flex items-center gap-1">
+                                  <div className="font-mono text-[10px] text-text-muted mt-0.5 flex items-center gap-1 truncate">
                                     <span>{cust.phone}</span>
                                     {cust.phone && (
                                       <button
                                         type="button"
                                         onClick={(e) => handleCopyPhone(e, cust.phone, cust.id)}
-                                        className="p-0.5 text-text-muted hover:text-accent rounded transition-colors cursor-pointer"
+                                        className="p-0.5 text-text-muted hover:text-accent rounded transition-colors cursor-pointer shrink-0"
                                         title="Click to copy phone number"
                                       >
                                         {copiedPhoneId === cust.id ? (
@@ -13228,54 +13178,33 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       </button>
                                     )}
                                   </div>
-
-                                  {(cust.age || cust.location) && (
-                                    <div className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1">
-                                      {cust.age && <span>{cust.age}y</span>}
-                                      {cust.age && cust.location && <span>·</span>}
-                                      {cust.location && <span className="flex items-center gap-0.5"><MapPin className="w-2.5 h-2.5" />{cust.location}</span>}
-                                    </div>
-                                  )}
                                 </td>
 
-                                {/* Visits & Loyalty */}
-                                <td className="p-2.5 whitespace-nowrap">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-bold text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded-sm border border-amber-300/80 text-[11px]">
+                                {/* Visits & Loyalty (12%) */}
+                                <td className="p-1.5 whitespace-nowrap">
+                                  <div className="flex items-center gap-1">
+                                    <span className="font-bold text-amber-900 bg-amber-100/80 px-1.5 py-0.5 rounded-sm border border-amber-300/80 text-[10px]">
                                       {completedVisits} visits
                                     </span>
-                                    {cust.total_bookings_count != null && cust.total_bookings_count > completedVisits && (
-                                      <span className="text-[10px] text-text-muted font-mono" title={`${cust.total_bookings_count} total booked`}>
-                                        ({cust.total_bookings_count} total)
-                                      </span>
-                                    )}
                                   </div>
                                 </td>
 
-                                {/* Last Session Details */}
-                                <td className="p-2.5 text-[11px]">
+                                {/* Last Session Details (16%) */}
+                                <td className="p-1.5 text-[11px] truncate">
                                   {(() => {
                                     const visitDate = cust.last_visit_date || cust.last_visited;
                                     if (visitDate) {
                                       const d = new Date(visitDate);
                                       const formattedDate = !isNaN(d.getTime())
-                                        ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                        ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                                         : visitDate;
-                                      const docRaw = cust.last_visit_doctor || cust.preferred_doctor;
-                                      const docDisplay = docRaw || null;
                                       return (
-                                        <div>
-                                          <div className="font-medium text-text-primary flex items-center gap-1">
-                                            <span>{formattedDate}</span>
-                                            {cust.days_since_last_visit != null && (
-                                              <span className="text-[10px] text-text-muted font-normal font-mono">
-                                                {cust.days_since_last_visit === 0 ? '(Today)' : cust.days_since_last_visit === 1 ? '(1d ago)' : `(${cust.days_since_last_visit}d ago)`}
-                                              </span>
-                                            )}
+                                        <div className="truncate">
+                                          <div className="font-medium text-text-primary text-[11px] truncate">
+                                            {formattedDate} {cust.days_since_last_visit != null && <span className="text-[10px] text-text-muted font-normal font-mono">({cust.days_since_last_visit}d ago)</span>}
                                           </div>
-                                          <div className="text-[10px] text-text-secondary truncate max-w-[170px] mt-0.5">
-                                            {cust.last_visit_service || currentTaxonomy.default_service || 'Consultation / Session'}
-                                            {docDisplay && <span> • {docDisplay}</span>}
+                                          <div className="text-[10px] text-text-secondary truncate mt-0.5">
+                                            {cust.last_visit_service || currentTaxonomy.default_service || 'Session'}
                                           </div>
                                         </div>
                                       );
@@ -13284,32 +13213,32 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   })()}
                                 </td>
 
-                                {/* Retention Status */}
-                                <td className="p-2.5 whitespace-nowrap">
+                                {/* Retention Status (15%) */}
+                                <td className="p-1.5 whitespace-nowrap">
                                   {cust.retention_status === 'active' || (cust.days_since_last_visit != null && cust.days_since_last_visit <= 30) ? (
-                                    <span className="px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 w-fit">
+                                    <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1">
                                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                                      <span>Active Regular (&lt;30d)</span>
+                                      <span>Active (&lt;30d)</span>
                                     </span>
                                   ) : cust.retention_status === 'due' || (cust.days_since_last_visit != null && cust.days_since_last_visit > 30 && cust.days_since_last_visit <= 60) ? (
-                                    <span className="px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1 w-fit">
+                                    <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300 inline-flex items-center gap-1">
                                       <Clock className="w-2.5 h-2.5 text-amber-700" />
-                                      <span>Due for Check-in ({daysIdle}d)</span>
+                                      <span>Due ({daysIdle}d)</span>
                                     </span>
                                   ) : cust.retention_status === 'lapsed' || (cust.days_since_last_visit != null && cust.days_since_last_visit > 60) ? (
-                                    <span className="px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 w-fit">
-                                      <AlertCircle className="w-2.5 h-2.5 text-rose-700 animate-bounce" />
-                                      <span>At-Risk / Lapsed ({daysIdle}d)</span>
+                                    <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-rose-100 text-rose-800 border border-rose-300 inline-flex items-center gap-1">
+                                      <AlertCircle className="w-2.5 h-2.5 text-rose-700" />
+                                      <span>At-Risk ({daysIdle}d)</span>
                                     </span>
                                   ) : (
-                                    <span className="px-2 py-0.5 rounded-sm text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                                    <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
                                       Repeat
                                     </span>
                                   )}
                                 </td>
 
-                                {/* Assigned Staff */}
-                                <td className="p-2.5 text-text-secondary whitespace-nowrap text-[11px]" onClick={(e) => e.stopPropagation()}>
+                                {/* Assigned Staff (12%) */}
+                                <td className="p-1.5 text-text-secondary whitespace-nowrap text-[11px]" onClick={(e) => e.stopPropagation()}>
                                   {renderStaffAssignTrigger({
                                     value: cust.preferred_doctor || '',
                                     onClick: (e) => {
@@ -13320,28 +13249,50 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   })}
                                 </td>
 
-                                {/* Requirement / Service */}
-                                <td className="p-2.5 text-[11px] text-text-secondary max-w-[150px] truncate" title={cust.health_concern || ''}>
+                                {/* Requirement / Service (10%) */}
+                                <td className="p-1.5 text-[11px] text-text-secondary truncate" title={cust.health_concern || ''}>
                                   {cust.health_concern || '—'}
                                 </td>
 
-                                {/* Direct Actions */}
-                                <td className="p-2.5 text-right pr-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                                  <div className="flex items-center justify-end gap-1.5">
-                                    {/* Direct Call Button */}
+                                {/* Direct Actions (10%) */}
+                                <td className="p-1.5 text-right pr-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center justify-end gap-1">
+                                    {/* Direct Call Icon */}
                                     {cust.phone && (
                                       <a
                                         href={`tel:${cust.phone}`}
                                         onClick={(e) => e.stopPropagation()}
-                                        className="px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[11px] font-semibold rounded-sm border border-sky-200 dark:border-sky-800 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                                        title={`Click to call ${cust.phone}`}
+                                        className="p-1 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 rounded-sm border border-sky-200 dark:border-sky-800 transition-colors cursor-pointer flex items-center justify-center"
+                                        title={`Call ${cust.phone}`}
                                       >
                                         <PhoneCall className="w-3 h-3 text-sky-600 dark:text-sky-400 stroke-[2]" />
-                                        <span>Call</span>
                                       </a>
                                     )}
 
-                                    {/* Book Next Session */}
+                                    {/* WhatsApp Re-engage Icon / Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const cleanTarget = (cust.phone || '').replace(/[^0-9]/g, '');
+                                        const conv = conversations.find((c) => {
+                                          const p = (c.contact_phone || c.phone || '').replace(/[^0-9]/g, '');
+                                          return p === cleanTarget;
+                                        });
+                                        if (conv) {
+                                          selectConversation(conv);
+                                          setCustomerReplyText(customReengageMsg);
+                                        } else {
+                                          setSearchQuery(cust.phone);
+                                        }
+                                        navigateTo('inbox');
+                                      }}
+                                      className="p-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-sm transition-colors cursor-pointer flex items-center justify-center"
+                                      title="Open WhatsApp chat with re-engagement template"
+                                    >
+                                      <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
+                                    </button>
+
+                                    {/* Book Next Session Icon */}
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -13359,48 +13310,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         });
                                         setIsAddBookingOpen(true);
                                       }}
-                                      className="px-2 py-1 text-[11px] font-medium bg-surface hover:bg-surface-subtle text-text-primary border border-border rounded-sm flex items-center gap-1 transition-colors cursor-pointer shadow-2xs hover:border-accent"
+                                      className="p-1 bg-surface hover:bg-surface-subtle text-text-primary border border-border rounded-sm flex items-center justify-center transition-colors cursor-pointer hover:border-accent"
                                       title="Book next session for this repeat client"
                                     >
                                       <CalendarClock className="w-3 h-3 text-accent stroke-[1.8]" />
-                                      <span>Book Next</span>
                                     </button>
 
-                                    {/* WhatsApp Re-engage */}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const cleanTarget = (cust.phone || '').replace(/[^0-9]/g, '');
-                                        const conv = conversations.find((c) => {
-                                          const p = (c.contact_phone || c.phone || '').replace(/[^0-9]/g, '');
-                                          return p === cleanTarget;
-                                        });
-                                        if (conv) {
-                                          selectConversation(conv);
-                                          setCustomerReplyText(customReengageMsg);
-                                        } else {
-                                          setSearchQuery(cust.phone);
-                                        }
-                                        navigateTo('inbox');
-                                      }}
-                                      className="px-2 py-1 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-sm transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                                      title="Open WhatsApp chat with pre-filled custom re-engagement message"
-                                    >
-                                      <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
-                                      <span>Re-engage</span>
-                                    </button>
-
-                                    {/* View History */}
+                                    {/* View History Icon */}
                                     <button
                                       type="button"
                                       onClick={async () => {
                                         await handleSelectCustomer(cust);
                                         setShowCustomerHistoryModal(true);
                                       }}
-                                      className="p-1 text-text-muted hover:text-text-primary hover:bg-surface-subtle border border-border rounded-sm transition-colors cursor-pointer"
-                                      title="View customer session & revenue history"
+                                      className="p-1 text-text-muted hover:text-text-primary hover:bg-surface-subtle border border-border rounded-sm transition-colors cursor-pointer flex items-center justify-center"
+                                      title="View session & revenue history"
                                     >
-                                      <FileText className="w-3.5 h-3.5 stroke-[1.5]" />
+                                      <FileText className="w-3 h-3 stroke-[1.5]" />
                                     </button>
                                   </div>
                                 </td>
