@@ -1489,7 +1489,69 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }, 2000);
   };
 
-  // Live Google Calendar Slot Availability Tester in Dashboard Settings
+  // ── Repeat Client Follow-up Templates & Scheduling Modal State ──────────────
+  const [repeatFollowupModalOpen, setRepeatFollowupModalOpen] = useState(false);
+  const [selectedRepeatClient, setSelectedRepeatClient] = useState<Customer | null>(null);
+  const [repeatSelectedTemplate, setRepeatSelectedTemplate] = useState<'routine' | 'vip' | 'lapsed' | 'rebook' | 'custom'>('routine');
+  const [repeatMessageText, setRepeatMessageText] = useState('');
+  const [repeatScheduleDate, setRepeatScheduleDate] = useState(getFollowupDateString(7));
+  const [repeatScheduleTime, setRepeatScheduleTime] = useState('10:00 AM');
+  const [repeatTaskNotes, setRepeatTaskNotes] = useState('');
+  const [repeatActionTab, setRepeatActionTab] = useState<'template' | 'schedule'>('template');
+  const [savingRepeatTask, setSavingRepeatTask] = useState(false);
+
+  function openRepeatFollowupModal(cust: Customer, defaultTab: 'template' | 'schedule' = 'template') {
+    setSelectedRepeatClient(cust);
+    setRepeatActionTab(defaultTab);
+    const completedVisits = cust.completed_bookings_count ?? 0;
+    const daysIdle = cust.days_since_last_visit != null ? cust.days_since_last_visit : 30;
+    const bizName = settingsForm.business_name || settingsForm.assistant_name || 'our team';
+    const serviceName = cust.last_visit_service || cust.health_concern || currentTaxonomy.default_service || 'service';
+    const visitDate = cust.last_visit_date || cust.last_visited;
+    const formattedDate = visitDate ? new Date(visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'your recent session';
+
+    let initialMsg = `Hi ${cust.name || 'valued customer'}, checking in after your recent ${serviceName} session on ${formattedDate}. How is everything going?`;
+    if (daysIdle > 60) {
+      initialMsg = `Hi ${cust.name || 'valued client'}, we miss you at ${bizName}! It's been ${daysIdle} days since your last ${serviceName} session. Reply to reserve your slot this week!`;
+      setRepeatSelectedTemplate('lapsed');
+    } else if (completedVisits >= 3) {
+      initialMsg = `Hi ${cust.name || 'valued client'}, as one of our VIP regular clients (${completedVisits} visits), enjoy an exclusive 15% VIP discount on your next ${serviceName} session if booked this week!`;
+      setRepeatSelectedTemplate('vip');
+    } else {
+      setRepeatSelectedTemplate('routine');
+    }
+
+    setRepeatMessageText(initialMsg);
+    setRepeatScheduleDate(getFollowupDateString(7));
+    setRepeatScheduleTime('10:00 AM');
+    setRepeatTaskNotes(`Follow up with ${cust.name || 'client'} regarding ${serviceName}`);
+    setRepeatFollowupModalOpen(true);
+  }
+
+  async function handleSaveRepeatTask() {
+    if (!selectedRepeatClient) return;
+    setSavingRepeatTask(true);
+    try {
+      const followupDate = repeatScheduleDate || getFollowupDateString(7);
+      const followupTime = repeatScheduleTime || '10:00 AM';
+      const doc = selectedRepeatClient.preferred_doctor || currentUserRole || '';
+      
+      await crm.updateCustomerFollowup(selectedRepeatClient.id, {
+        followup_date: followupDate,
+        followup_time: followupTime,
+        preferred_doctor: doc,
+        notes: repeatTaskNotes || `Scheduled follow-up for repeat client ${selectedRepeatClient.name || ''}`,
+      });
+      
+      await loadCustomers();
+      setRepeatFollowupModalOpen(false);
+      alert(`Follow-up task scheduled for ${selectedRepeatClient.name || 'client'} on ${followupDate} at ${followupTime}!`);
+    } catch (err: any) {
+      alert('Failed to schedule follow-up task: ' + (err?.message || String(err)));
+    } finally {
+      setSavingRepeatTask(false);
+    }
+  }
   const [dashCalendarLoading, setDashCalendarLoading] = useState(false);
   const [dashCalendarAvailability, setDashCalendarAvailability] = useState<LiveCalendarAvailabilityResponse | null>(null);
   const [dashCalendarError, setDashCalendarError] = useState('');
@@ -7697,6 +7759,244 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     );
   }
 
+  function renderRepeatFollowupModal() {
+    if (!repeatFollowupModalOpen || !selectedRepeatClient) return null;
+
+    const cust = selectedRepeatClient;
+    const completedVisits = cust.completed_bookings_count ?? 0;
+    const daysIdle = cust.days_since_last_visit != null ? cust.days_since_last_visit : 30;
+    const bizName = settingsForm.business_name || settingsForm.assistant_name || 'our team';
+    const serviceName = cust.last_visit_service || cust.health_concern || currentTaxonomy.default_service || 'service';
+    const visitDate = cust.last_visit_date || cust.last_visited;
+    const formattedDate = visitDate ? new Date(visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'your recent session';
+
+    const templates = [
+      {
+        id: 'routine' as const,
+        title: 'Routine Check-in',
+        badge: 'Recommended',
+        text: `Hi ${cust.name || 'valued customer'}, checking in after your recent ${serviceName} session on ${formattedDate}. How is everything going?`,
+      },
+      {
+        id: 'vip' as const,
+        title: `VIP Reward (${completedVisits} visits)`,
+        badge: 'Loyalty Special',
+        text: `Hi ${cust.name || 'valued client'}, as one of our VIP regular clients (${completedVisits} visits), enjoy an exclusive 15% VIP discount on your next ${serviceName} session if booked this week!`,
+      },
+      {
+        id: 'lapsed' as const,
+        title: `Win-Back (${daysIdle} days idle)`,
+        badge: 'Re-engagement',
+        text: `Hi ${cust.name || 'valued client'}, we miss you at ${bizName}! It's been ${daysIdle} days since your last ${serviceName} session. Reply to reserve your slot this week!`,
+      },
+      {
+        id: 'rebook' as const,
+        title: 'Re-booking Inquiry',
+        badge: 'Schedule Next',
+        text: `Hi ${cust.name || 'valued client'}, would you like to schedule your next ${serviceName} session with us for next week? Let us know your preferred day & time!`,
+      },
+    ];
+
+    const cleanPhone = (cust.phone || '').replace(/[^0-9]/g, '');
+    const waUrl = cleanPhone
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(repeatMessageText)}`
+      : `https://wa.me/?text=${encodeURIComponent(repeatMessageText)}`;
+
+    return (
+      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="bg-surface border border-border rounded-lg shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh]">
+          {/* Header */}
+          <div className="px-5 py-4 border-b border-border flex items-center justify-between bg-surface-subtle">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs">
+                <WhatsAppIcon className="w-4 h-4 text-[#25D366]" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-text-primary text-sm">
+                  Repeat Client Follow-up — {cust.name || 'Client'}
+                </h3>
+                <p className="text-[11px] text-text-muted flex items-center gap-2">
+                  <span>{cust.phone}</span>
+                  <span>•</span>
+                  <span>{completedVisits} completed visits</span>
+                  <span>•</span>
+                  <span>{daysIdle}d since last visit</span>
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setRepeatFollowupModalOpen(false)}
+              className="text-text-muted hover:text-text-primary p-1 rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Action Tabs: Send WhatsApp Template vs Schedule Task */}
+          <div className="flex border-b border-border bg-surface-subtle/50 px-5 text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => setRepeatActionTab('template')}
+              className={`py-2.5 px-4 border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
+                repeatActionTab === 'template'
+                  ? 'border-emerald-500 text-emerald-700 dark:text-emerald-400 font-semibold'
+                  : 'border-transparent text-text-muted hover:text-text-primary'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
+              <span>Send Follow-up Message</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setRepeatActionTab('schedule')}
+              className={`py-2.5 px-4 border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
+                repeatActionTab === 'schedule'
+                  ? 'border-amber-500 text-amber-700 dark:text-amber-400 font-semibold'
+                  : 'border-transparent text-text-muted hover:text-text-primary'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5 text-amber-500" />
+              <span>Schedule Task Reminder</span>
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="p-5 flex-1 overflow-y-auto space-y-4">
+            {repeatActionTab === 'template' ? (
+              <>
+                <div>
+                  <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-2">
+                    Select Follow-up Template
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {templates.map((tmpl) => (
+                      <button
+                        key={tmpl.id}
+                        type="button"
+                        onClick={() => {
+                          setRepeatSelectedTemplate(tmpl.id);
+                          setRepeatMessageText(tmpl.text);
+                        }}
+                        className={`p-3 text-left rounded-md border transition-all cursor-pointer flex flex-col justify-between gap-1.5 ${
+                          repeatSelectedTemplate === tmpl.id
+                            ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20 shadow-xs'
+                            : 'border-border bg-surface hover:bg-surface-subtle'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-text-primary text-xs">{tmpl.title}</span>
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300">
+                            {tmpl.badge}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-text-muted line-clamp-2">{tmpl.text}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
+                      Message Content (Editable)
+                    </label>
+                    <span className="text-[10px] text-text-muted">{repeatMessageText.length} chars</span>
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={repeatMessageText}
+                    onChange={(e) => {
+                      setRepeatMessageText(e.target.value);
+                      setRepeatSelectedTemplate('custom');
+                    }}
+                    className="w-full p-2.5 bg-surface border border-border rounded-md text-xs text-text-primary focus:outline-none focus:border-emerald-500 font-sans"
+                    placeholder="Type customized follow-up message..."
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1">
+                      Follow-up Date
+                    </label>
+                    <input
+                      type="date"
+                      value={repeatScheduleDate}
+                      onChange={(e) => setRepeatScheduleDate(e.target.value)}
+                      className="w-full p-2 bg-surface border border-border rounded-md text-xs text-text-primary focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1">
+                      Follow-up Time
+                    </label>
+                    <input
+                      type="text"
+                      value={repeatScheduleTime}
+                      onChange={(e) => setRepeatScheduleTime(e.target.value)}
+                      placeholder="e.g. 10:00 AM"
+                      className="w-full p-2 bg-surface border border-border rounded-md text-xs text-text-primary focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1">
+                    Task Notes / Action Instructions
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={repeatTaskNotes}
+                    onChange={(e) => setRepeatTaskNotes(e.target.value)}
+                    className="w-full p-2.5 bg-surface border border-border rounded-md text-xs text-text-primary focus:outline-none focus:border-amber-500 font-sans"
+                    placeholder="Enter specific follow-up instructions..."
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Footer Actions */}
+          <div className="px-5 py-3.5 border-t border-border bg-surface-subtle flex items-center justify-end gap-2.5">
+            <button
+              type="button"
+              onClick={() => setRepeatFollowupModalOpen(false)}
+              className="px-4 py-1.5 text-xs text-text-secondary hover:text-text-primary border border-border rounded-md bg-surface transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+
+            {repeatActionTab === 'template' ? (
+              <a
+                href={waUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setRepeatFollowupModalOpen(false)}
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-[#25D366] hover:bg-[#20bd5a] rounded-md transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+              >
+                <WhatsAppIcon className="w-3.5 h-3.5" />
+                <span>Send via WhatsApp</span>
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSaveRepeatTask}
+                disabled={savingRepeatTask}
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-60 rounded-md transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>{savingRepeatTask ? 'Scheduling...' : 'Save Follow-up Task'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
 
   return (
     <div className="w-full h-screen bg-canvas flex flex-col overflow-hidden font-sans text-text-body">
@@ -13282,27 +13582,24 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       </a>
                                     )}
 
-                                    {/* WhatsApp Re-engage Icon / Button */}
+                                    {/* WhatsApp Follow-up Templates Trigger */}
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        const cleanTarget = (cust.phone || '').replace(/[^0-9]/g, '');
-                                        const conv = conversations.find((c) => {
-                                          const p = (c.contact_phone || c.phone || '').replace(/[^0-9]/g, '');
-                                          return p === cleanTarget;
-                                        });
-                                        if (conv) {
-                                          selectConversation(conv);
-                                          setCustomerReplyText(customReengageMsg);
-                                        } else {
-                                          setSearchQuery(cust.phone);
-                                        }
-                                        navigateTo('inbox');
-                                      }}
+                                      onClick={() => openRepeatFollowupModal(cust, 'template')}
                                       className="p-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-sm transition-colors cursor-pointer flex items-center justify-center"
-                                      title="Open WhatsApp chat with re-engagement template"
+                                      title="Open WhatsApp follow-up templates modal"
                                     >
                                       <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
+                                    </button>
+
+                                    {/* Schedule Follow-up Task Trigger */}
+                                    <button
+                                      type="button"
+                                      onClick={() => openRepeatFollowupModal(cust, 'schedule')}
+                                      className="p-1 bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-sm transition-colors cursor-pointer flex items-center justify-center"
+                                      title="Schedule follow-up task reminder"
+                                    >
+                                      <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400 stroke-[1.8]" />
                                     </button>
 
                                     {/* Book Next Session Icon */}
@@ -18407,6 +18704,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
       {renderCustomerAssignPopover()}
       {renderLeadRatePopover()}
+      {renderRepeatFollowupModal()}
 
       </div>
   );
