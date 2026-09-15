@@ -14922,7 +14922,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <Star className="w-4 h-4 text-amber-500 fill-amber-400 stroke-[1.5]" />
                       Customer Reviews & GMB Hub
                     </h2>
-                    <p className="text-[11px] text-text-muted mt-0.5">4–5★ auto-redirect to GMB · 1–3★ stored privately for internal resolution</p>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
@@ -14975,7 +14974,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <button type="button" onClick={() => {
                             const w = window.open('', '_blank');
                             if (w) { w.document.write(`<html><head><title>QR – ${settingsForm.name || 'Shop'}</title></head><body style="text-align:center;font-family:sans-serif;padding:40px;"><h2>${settingsForm.name || 'Leave Us A Review'}</h2><p>Scan to share your feedback!</p><img src="${qrApiUrl}" style="width:240px;height:240px;margin:16px 0;" /><p style="color:#888;font-size:12px;">Thank you for visiting! ⭐</p></body></html>`); w.document.close(); w.print(); }
-                          }} className="py-1 px-2 bg-accent text-accent-contrast rounded text-[10px] font-bold cursor-pointer text-center">
+                          }} className="py-1 px-2 bg-accent hover:opacity-90 text-white rounded text-[10px] font-bold cursor-pointer text-center transition-opacity">
                             Print Poster
                           </button>
                         </div>
@@ -15083,7 +15082,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0">
                       {(['all', 'new', 'acknowledged', 'resolved'] as const).map((st) => (
                         <button key={st} type="button" onClick={() => setReviewStatusFilter(st)}
-                          className={`px-2 py-0.5 rounded text-[11px] font-semibold capitalize transition-colors cursor-pointer ${reviewStatusFilter === st ? 'bg-accent text-accent-contrast' : 'text-text-secondary hover:text-text-primary'}`}>
+                          className={`px-2 py-0.5 rounded text-[11px] font-semibold capitalize transition-colors cursor-pointer ${reviewStatusFilter === st ? 'bg-accent text-white font-bold' : 'text-text-secondary hover:text-text-primary'}`}>
                           {st === 'all' ? 'All' : st === 'new' ? 'Pending' : st.charAt(0).toUpperCase() + st.slice(1)}
                         </button>
                       ))}
