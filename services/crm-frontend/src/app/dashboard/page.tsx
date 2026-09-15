@@ -1874,6 +1874,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [repeatHealthFilter, setRepeatHealthFilter] = useState<'all' | 'active' | 'due' | 'lapsed' | 'vip'>('all');
   const [repeatDoctorFilter, setRepeatDoctorFilter] = useState<string>('all');
   const [repeatSearch, setRepeatSearch] = useState<string>('');
+  const [repeatSortBy, setRepeatSortBy] = useState<'most_visits' | 'longest_idle' | 'recent_visit' | 'name'>('most_visits');
 
   // Selected Customer Detail Drawer
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -12810,7 +12811,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <span>Repeat & Retained {currentTaxonomy.client_plural || 'Clients'}</span>
                     </h3>
                     <p className="text-[11px] text-text-muted mt-0.5">
-                      Monitor client retention, track recurring sessions, and re-engage regular clients.
+                      Automated client retention engine, VIP loyalty tiers, and 1-click industry WhatsApp re-engagement.
                     </p>
                   </div>
 
@@ -12895,11 +12896,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   const activeCount = allRepeat.filter(c => c.retention_status === 'active' || (c.days_since_last_visit != null && c.days_since_last_visit <= 30)).length;
                   const dueCount = allRepeat.filter(c => c.retention_status === 'due' || (c.days_since_last_visit != null && c.days_since_last_visit > 30 && c.days_since_last_visit <= 60)).length;
                   const lapsedCount = allRepeat.filter(c => c.retention_status === 'lapsed' || (c.days_since_last_visit != null && c.days_since_last_visit > 60)).length;
+                  const platinumVipCount = allRepeat.filter(c => (c.completed_bookings_count ?? 0) >= 5).length;
                   const vipCount = allRepeat.filter(c => (c.completed_bookings_count ?? 0) >= 3).length;
 
                   return (
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 overflow-x-auto no-scrollbar touch-scroll">
+                      <div className="p-3 bg-surface border border-border rounded-sm flex items-center justify-between shrink-0">
                         <div>
                           <p className="text-[11px] text-text-muted font-medium">Total Repeat</p>
                           <p className="text-base font-bold text-text-primary mt-0.5">
@@ -12912,7 +12914,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <UserCheck className="w-4 h-4 text-amber-500 stroke-[1.5]" />
                       </div>
 
-                      <div className="p-3 bg-surface border border-emerald-200/70 bg-emerald-50/20 rounded-sm flex items-center justify-between">
+                      <div className="p-3 bg-surface border border-emerald-200/70 bg-emerald-50/20 rounded-sm flex items-center justify-between shrink-0">
                         <div>
                           <p className="text-[11px] text-emerald-800 font-medium">Active (&lt;30d)</p>
                           <p className="text-base font-bold text-emerald-900 mt-0.5">{activeCount}</p>
@@ -12920,7 +12922,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 stroke-[1.5]" />
                       </div>
 
-                      <div className="p-3 bg-surface border border-amber-200/70 bg-amber-50/20 rounded-sm flex items-center justify-between">
+                      <div className="p-3 bg-surface border border-amber-200/70 bg-amber-50/20 rounded-sm flex items-center justify-between shrink-0">
                         <div>
                           <p className="text-[11px] text-amber-800 font-medium">Due for Check-in (30-60d)</p>
                           <p className="text-base font-bold text-amber-900 mt-0.5">{dueCount}</p>
@@ -12928,18 +12930,28 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <Clock className="w-4 h-4 text-amber-600 stroke-[1.5]" />
                       </div>
 
-                      <div className="p-3 bg-surface border border-rose-200/70 bg-rose-50/20 rounded-sm flex items-center justify-between">
+                      <div
+                        onClick={() => setRepeatHealthFilter('lapsed')}
+                        className="p-3 bg-surface border border-rose-200/70 bg-rose-50/20 rounded-sm flex items-center justify-between cursor-pointer hover:border-rose-400 shrink-0 transition-colors"
+                        title="Click to filter At-Risk / Lapsed clients for WhatsApp re-engagement"
+                      >
                         <div>
-                          <p className="text-[11px] text-rose-800 font-medium">At-Risk / Inactive (&gt;60d)</p>
+                          <p className="text-[11px] text-rose-800 font-medium flex items-center gap-1">
+                            <span>At-Risk (&gt;60d)</span>
+                            {lapsedCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />}
+                          </p>
                           <p className="text-base font-bold text-rose-900 mt-0.5">{lapsedCount}</p>
                         </div>
                         <AlertCircle className="w-4 h-4 text-rose-600 stroke-[1.5]" />
                       </div>
 
-                      <div className="p-3 bg-surface border border-purple-200/70 bg-purple-50/20 rounded-sm flex items-center justify-between">
+                      <div className="p-3 bg-surface border border-purple-200/70 bg-purple-50/20 rounded-sm flex items-center justify-between shrink-0">
                         <div>
-                          <p className="text-[11px] text-purple-800 font-medium">VIP Clients (3+ Visits)</p>
-                          <p className="text-base font-bold text-purple-900 mt-0.5">{vipCount}</p>
+                          <p className="text-[11px] text-purple-800 font-medium">VIP Tier (3+ Visits)</p>
+                          <p className="text-base font-bold text-purple-900 mt-0.5">
+                            {vipCount}
+                            {platinumVipCount > 0 && <span className="text-[10px] text-purple-700 font-mono ml-1">({platinumVipCount} Platinum)</span>}
+                          </p>
                         </div>
                         <Star className="w-4 h-4 text-purple-600 fill-purple-400 stroke-[1.5]" />
                       </div>
@@ -12947,11 +12959,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   );
                 })()}
 
-                {/* ── Retention Health Filter & Search Controls ── */}
+                {/* ── Retention Health Filter, Sort & Search Controls ── */}
                 <div className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 bg-surface border border-border rounded-sm">
                   {/* Health Filter Pills */}
-                  <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5 max-w-full shrink-0">
-                    <span className="text-[11px] font-medium text-text-muted mr-1">Retention:</span>
+                  <div className="flex items-center gap-1 overflow-x-auto no-scrollbar touch-scroll py-0.5 max-w-full shrink-0">
+                    <span className="text-[11px] font-medium text-text-muted mr-1 shrink-0">Retention:</span>
                     {[
                       { key: 'all', label: 'All Repeat' },
                       { key: 'active', label: 'Active (<30d)', dot: 'bg-emerald-500' },
@@ -12963,7 +12975,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         key={st.key}
                         type="button"
                         onClick={() => setRepeatHealthFilter(st.key as any)}
-                        className={`px-2.5 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                        className={`px-2.5 py-0.5 text-xs rounded-sm border transition-colors cursor-pointer shrink-0 flex items-center gap-1.5 ${
                           repeatHealthFilter === st.key
                             ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
                             : 'bg-surface border-border text-text-secondary hover:text-text-primary hover:bg-surface-subtle'
@@ -12975,12 +12987,28 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     ))}
                   </div>
 
-                  {/* Staff Filter & Search */}
-                  <div className="flex items-center gap-2">
+                  {/* Sorting, Staff Filter & Search */}
+                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                    {/* Sort By Dropdown */}
+                    <div className="flex items-center gap-1">
+                      <span className="text-[11px] text-text-muted font-medium hidden sm:inline">Sort:</span>
+                      <select
+                        value={repeatSortBy}
+                        onChange={(e) => setRepeatSortBy(e.target.value as any)}
+                        className="px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer"
+                        title="Sort repeat clients"
+                      >
+                        <option value="most_visits">Most Visits (VIP First)</option>
+                        <option value="longest_idle">Longest Idle (At-Risk First)</option>
+                        <option value="recent_visit">Recently Visited</option>
+                        <option value="name">Name (A-Z)</option>
+                      </select>
+                    </div>
+
                     <select
                       value={repeatDoctorFilter}
                       onChange={(e) => setRepeatDoctorFilter(e.target.value)}
-                      className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[160px]"
+                      className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[150px]"
                     >
                       <option value="all">All {presetRolePlural}</option>
                       <option value="unassigned">Unassigned</option>
@@ -13000,20 +13028,29 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         placeholder="Search repeat clients..."
                         value={repeatSearch}
                         onChange={(e) => setRepeatSearch(e.target.value)}
-                        className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-48"
+                        className="pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-44"
                       />
+                      {repeatSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setRepeatSearch('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
 
                 {/* ── Repeat Clients Table & Drawer ── */}
                 <div className="flex-1 flex overflow-hidden gap-3">
-                  <div className="flex-1 overflow-y-auto overflow-x-auto border border-border rounded-sm bg-surface">
-                    <table className="w-full text-left text-xs min-w-[760px]">
+                  <div className="flex-1 overflow-y-auto overflow-x-auto border border-border rounded-sm bg-surface touch-scroll">
+                    <table className="w-full text-left text-xs min-w-[820px]">
                       <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                         <tr>
                           <th className="p-2.5 pl-4">{currentTaxonomy.repeat_col_client || `${currentTaxonomy.client_label || 'Client'} & Contact`}</th>
-                          <th className="p-2.5">{currentTaxonomy.repeat_col_visits || (settingsForm.industry === 'ecommerce' ? 'Orders & Repurchases' : 'Visits & Loyalty')}</th>
+                          <th className="p-2.5">{currentTaxonomy.repeat_col_visits || (settingsForm.industry === 'ecommerce' ? 'Orders & VIP Tier' : 'Visits & Loyalty Tier')}</th>
                           <th className="p-2.5">{currentTaxonomy.repeat_col_last_session || (settingsForm.industry === 'ecommerce' ? 'Last Order Details' : 'Last Session Details')}</th>
                           <th className="p-2.5">{currentTaxonomy.repeat_col_retention || (settingsForm.industry === 'ecommerce' ? 'Buyer Status' : 'Retention Status')}</th>
                           <th className="p-2.5">{currentTaxonomy.repeat_col_staff || (currentTaxonomy.staff_label ? `Assigned ${currentTaxonomy.staff_label.split('/')[0].trim()}` : 'Assigned Staff')}</th>
@@ -13032,7 +13069,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             </td>
                           </tr>
                         ) : (() => {
-                          const repeatList = (customers || []).filter((c) => {
+                          let repeatList = (customers || []).filter((c) => {
                             if (!c) return false;
                             const isRepeat = (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat';
                             if (!isRepeat) return false;
@@ -13069,6 +13106,28 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             return true;
                           });
 
+                          // Sorting logic
+                          repeatList = [...repeatList].sort((a, b) => {
+                            const aVisits = a.completed_bookings_count ?? 0;
+                            const bVisits = b.completed_bookings_count ?? 0;
+                            const aDays = a.days_since_last_visit ?? 0;
+                            const bDays = b.days_since_last_visit ?? 0;
+
+                            if (repeatSortBy === 'most_visits') {
+                              return bVisits - aVisits;
+                            }
+                            if (repeatSortBy === 'longest_idle') {
+                              return bDays - aDays;
+                            }
+                            if (repeatSortBy === 'recent_visit') {
+                              return aDays - bDays;
+                            }
+                            if (repeatSortBy === 'name') {
+                              return (a.name || '').localeCompare(b.name || '');
+                            }
+                            return 0;
+                          });
+
                           if (repeatList.length === 0) {
                             return (
                               <tr>
@@ -13087,8 +13146,34 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                           return repeatList.map((cust) => {
                             const completedVisits = cust.completed_bookings_count ?? 0;
-                            const isVip = completedVisits >= 3;
+                            const isPlatinumVip = completedVisits >= 5;
+                            const isGoldVip = completedVisits >= 3 && completedVisits < 5;
+                            const isSilver = completedVisits === 2;
                             const isSelected = selectedCustomer?.id === cust.id;
+
+                            // Build industry custom re-engagement template message
+                            const daysIdle = cust.days_since_last_visit != null ? cust.days_since_last_visit : 45;
+                            const bizName = settingsForm.business_name || settingsForm.assistant_name || 'our team';
+                            const serviceName = cust.last_visit_service || cust.health_concern || currentTaxonomy.default_service || 'service';
+                            const retentionState = cust.retention_status || (daysIdle > 60 ? 'lapsed' : daysIdle > 30 ? 'due' : 'active');
+
+                            let customReengageMsg = `Hi ${cust.name || 'valued customer'}, we noticed it's been ${daysIdle} days since your last visit to ${bizName}. We'd love to welcome you back — reply to book your next session!`;
+                            const ind = (settingsForm.industry || '').toLowerCase();
+                            if (ind.includes('clinic') || ind.includes('health') || ind.includes('dental') || ind.includes('doctor')) {
+                              customReengageMsg = retentionState === 'lapsed'
+                                ? `Hi ${cust.name || 'patient'}, it's been ${daysIdle} days since your last consultation at ${bizName}. Your health is our top priority! Reply to book your routine check-up.`
+                                : `Hi ${cust.name || 'patient'}, it's time for your follow-up check-up at ${bizName}. Would you like to schedule an appointment this week?`;
+                            } else if (ind.includes('salon') || ind.includes('beauty') || ind.includes('spa') || ind.includes('skincare')) {
+                              customReengageMsg = retentionState === 'lapsed'
+                                ? `We miss you at ${bizName}, ${cust.name || 'beautiful'}! Enjoy an exclusive VIP 15% discount on your next ${serviceName} session if booked this week.`
+                                : `Hi ${cust.name || 'client'}, your last ${serviceName} treatment at ${bizName} was ${daysIdle} days ago. Keep your glow going — reply to reserve your slot!`;
+                            } else if (ind.includes('ecommerce') || ind.includes('retail')) {
+                              customReengageMsg = `We haven't seen you in a while, ${cust.name || 'shopper'}! Use code WELCOMEBACK for free shipping + 10% off your next order at ${bizName}!`;
+                            } else if (ind.includes('agency') || ind.includes('b2b') || ind.includes('consulting')) {
+                              customReengageMsg = `Hi ${cust.name || 'partner'}, it's time for our growth strategy check-in at ${bizName}. When are you free for a brief 15-minute sync this week?`;
+                            } else if (ind.includes('gym') || ind.includes('fitness')) {
+                              customReengageMsg = `Hi ${cust.name || 'member'}, don't break your fitness streak! Reply 'START' to claim a free 1-on-1 personal training assessment at ${bizName}.`;
+                            }
 
                             return (
                               <tr
@@ -13100,16 +13185,50 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               >
                                 {/* Client & Contact */}
                                 <td className="p-2.5 pl-4">
-                                  <div className="flex items-center gap-1.5">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
                                     <span className="font-semibold text-text-primary text-[12px]">{cust.name || 'Client'}</span>
-                                    {isVip && (
-                                      <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-xs bg-purple-50 text-purple-700 border border-purple-200 shrink-0 flex items-center gap-0.5">
-                                        <Star className="w-2.5 h-2.5 text-purple-600 fill-purple-400" />
-                                        <span>VIP</span>
+
+                                    {/* 4-Tier VIP Loyalty Badge */}
+                                    {isPlatinumVip ? (
+                                      <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-xs bg-purple-100 text-purple-900 border border-purple-300 shrink-0 flex items-center gap-0.5 shadow-2xs">
+                                        <Star className="w-2.5 h-2.5 text-purple-600 fill-purple-500 animate-pulse" />
+                                        <span>Platinum VIP</span>
+                                      </span>
+                                    ) : isGoldVip ? (
+                                      <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-xs bg-amber-100 text-amber-900 border border-amber-300 shrink-0 flex items-center gap-0.5">
+                                        <Flame className="w-2.5 h-2.5 text-amber-600 fill-amber-500" />
+                                        <span>Gold VIP</span>
+                                      </span>
+                                    ) : isSilver ? (
+                                      <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded-xs bg-blue-50 text-blue-800 border border-blue-200 shrink-0 flex items-center gap-0.5">
+                                        <ShieldCheck className="w-2.5 h-2.5 text-blue-600" />
+                                        <span>Silver Regular</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-[9px] font-medium px-1.5 py-0.2 rounded-xs bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
+                                        Returning
                                       </span>
                                     )}
                                   </div>
-                                  <div className="font-mono text-[10px] text-text-muted mt-0.5">{cust.phone}</div>
+
+                                  <div className="font-mono text-[10px] text-text-muted mt-0.5 flex items-center gap-1">
+                                    <span>{cust.phone}</span>
+                                    {cust.phone && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => handleCopyPhone(e, cust.phone, cust.id)}
+                                        className="p-0.5 text-text-muted hover:text-accent rounded transition-colors cursor-pointer"
+                                        title="Click to copy phone number"
+                                      >
+                                        {copiedPhoneId === cust.id ? (
+                                          <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                        ) : (
+                                          <Copy className="w-2.5 h-2.5" />
+                                        )}
+                                      </button>
+                                    )}
+                                  </div>
+
                                   {(cust.age || cust.location) && (
                                     <div className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1">
                                       {cust.age && <span>{cust.age}y</span>}
@@ -13117,19 +13236,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       {cust.location && <span className="flex items-center gap-0.5"><MapPin className="w-2.5 h-2.5" />{cust.location}</span>}
                                     </div>
                                   )}
-                                  {(cust.latest_note || cust.notes) && (
-                                    <div className="mt-1 flex items-center gap-1 text-[10px] text-text-secondary bg-surface-subtle px-1.5 py-0.5 rounded border border-border/60 max-w-[210px] truncate" title={cust.latest_note || cust.notes}>
-                                      <FileText className="w-2.5 h-2.5 text-text-muted shrink-0" />
-                                      <span className="truncate">{cust.latest_note || cust.notes}</span>
-                                    </div>
-                                  )}
                                 </td>
 
                                 {/* Visits & Loyalty */}
                                 <td className="p-2.5 whitespace-nowrap">
-                                  <div className="flex items-center gap-1">
+                                  <div className="flex items-center gap-1.5">
                                     <span className="font-bold text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded-sm border border-amber-300/80 text-[11px]">
-                                      {completedVisits} completed
+                                      {completedVisits} visits
                                     </span>
                                     {cust.total_bookings_count != null && cust.total_bookings_count > completedVisits && (
                                       <span className="text-[10px] text-text-muted font-mono" title={`${cust.total_bookings_count} total booked`}>
@@ -13175,18 +13288,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 <td className="p-2.5 whitespace-nowrap">
                                   {cust.retention_status === 'active' || (cust.days_since_last_visit != null && cust.days_since_last_visit <= 30) ? (
                                     <span className="px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 w-fit">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
                                       <span>Active Regular (&lt;30d)</span>
                                     </span>
                                   ) : cust.retention_status === 'due' || (cust.days_since_last_visit != null && cust.days_since_last_visit > 30 && cust.days_since_last_visit <= 60) ? (
                                     <span className="px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1 w-fit">
                                       <Clock className="w-2.5 h-2.5 text-amber-700" />
-                                      <span>Due for Check-in (30-60d)</span>
+                                      <span>Due for Check-in ({daysIdle}d)</span>
                                     </span>
                                   ) : cust.retention_status === 'lapsed' || (cust.days_since_last_visit != null && cust.days_since_last_visit > 60) ? (
                                     <span className="px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 w-fit">
-                                      <AlertCircle className="w-2.5 h-2.5 text-rose-700" />
-                                      <span>At-Risk / Inactive (&gt;60d)</span>
+                                      <AlertCircle className="w-2.5 h-2.5 text-rose-700 animate-bounce" />
+                                      <span>At-Risk / Lapsed ({daysIdle}d)</span>
                                     </span>
                                   ) : (
                                     <span className="px-2 py-0.5 rounded-sm text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
@@ -13215,15 +13328,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 {/* Direct Actions */}
                                 <td className="p-2.5 text-right pr-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                   <div className="flex items-center justify-end gap-1.5">
-                                    {/* Follow-up scheduled badge if active */}
-                                    {cust.followup_date && (
-                                      <span
-                                        className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1 shrink-0"
-                                        title={`Follow-up scheduled for ${cust.followup_date} ${cust.followup_time || ''}`}
+                                    {/* Direct Call Button */}
+                                    {cust.phone && (
+                                      <a
+                                        href={`tel:${cust.phone}`}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[11px] font-semibold rounded-sm border border-sky-200 dark:border-sky-800 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                        title={`Click to call ${cust.phone}`}
                                       >
-                                        <Calendar className="w-2.5 h-2.5 text-blue-600 shrink-0" />
-                                        <span>{cust.followup_date}</span>
-                                      </span>
+                                        <PhoneCall className="w-3 h-3 text-sky-600 dark:text-sky-400 stroke-[2]" />
+                                        <span>Call</span>
+                                      </a>
                                     )}
 
                                     {/* Book Next Session */}
@@ -13251,7 +13366,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       <span>Book Next</span>
                                     </button>
 
-                                    {/* Open WhatsApp Chat */}
+                                    {/* WhatsApp Re-engage */}
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -13262,18 +13377,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         });
                                         if (conv) {
                                           selectConversation(conv);
+                                          setCustomerReplyText(customReengageMsg);
                                         } else {
                                           setSearchQuery(cust.phone);
                                         }
                                         navigateTo('inbox');
                                       }}
-                                      className="p-1 text-[#25D366] hover:bg-[#25D366]/10 border border-border hover:border-[#25D366]/40 rounded-sm transition-colors cursor-pointer"
-                                      title="Chat on WhatsApp"
+                                      className="px-2 py-1 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-sm transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                      title="Open WhatsApp chat with pre-filled custom re-engagement message"
                                     >
-                                      <WhatsAppIcon className="w-3.5 h-3.5" />
+                                      <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
+                                      <span>Re-engage</span>
                                     </button>
 
-                                    {/* View History Drawer */}
+                                    {/* View History */}
                                     <button
                                       type="button"
                                       onClick={async () => {
