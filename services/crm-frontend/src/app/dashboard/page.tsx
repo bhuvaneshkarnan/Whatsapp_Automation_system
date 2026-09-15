@@ -14539,6 +14539,190 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
                     SUB-TAB 3: ANALYTICS
                 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+                {/* ── SUB-TAB 3: TEMPLATE MANAGER & META STATUS ───────────────────────── */}
+                {marketingSubTab === 'templates' && (
+                  <div className="space-y-4">
+                    {/* Header & Summary Stat Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div className="bg-surface border border-border rounded-md p-3.5 flex items-center justify-between shadow-subtle">
+                        <div>
+                          <p className="text-[10px] uppercase font-semibold text-text-muted tracking-wider">Approved Templates</p>
+                          <p className="text-xl font-bold text-emerald-600 font-headline mt-0.5">
+                            {metaStatusData?.summary?.approved ?? marketingTemplates.filter(t => t.status === 'APPROVED' || !t.status).length}
+                          </p>
+                        </div>
+                        <div className="w-9 h-9 rounded-full bg-emerald-500/15 flex items-center justify-center text-emerald-600">
+                          <CheckCircle2 className="w-5 h-5" />
+                        </div>
+                      </div>
+
+                      <div className="bg-surface border border-border rounded-md p-3.5 flex items-center justify-between shadow-subtle">
+                        <div>
+                          <p className="text-[10px] uppercase font-semibold text-text-muted tracking-wider">Pending Meta Review</p>
+                          <p className="text-xl font-bold text-amber-600 font-headline mt-0.5">
+                            {metaStatusData?.summary?.pending ?? marketingTemplates.filter(t => t.status === 'PENDING').length}
+                          </p>
+                        </div>
+                        <div className="w-9 h-9 rounded-full bg-amber-500/15 flex items-center justify-center text-amber-600">
+                          <Clock className="w-5 h-5" />
+                        </div>
+                      </div>
+
+                      <div className="bg-surface border border-border rounded-md p-3.5 flex items-center justify-between shadow-subtle">
+                        <div>
+                          <p className="text-[10px] uppercase font-semibold text-text-muted tracking-wider">Meta API Synced</p>
+                          <p className="text-xl font-bold text-blue-600 font-headline mt-0.5">
+                            {metaStatusData?.summary?.total ?? marketingTemplates.length}
+                          </p>
+                        </div>
+                        <div className="w-9 h-9 rounded-full bg-blue-500/15 flex items-center justify-center text-blue-600">
+                          <ShieldCheck className="w-5 h-5" />
+                        </div>
+                      </div>
+
+                      <div className="bg-surface border border-border rounded-md p-3.5 flex items-center justify-between shadow-subtle">
+                        <div>
+                          <p className="text-[10px] uppercase font-semibold text-text-muted tracking-wider">Active System Templates</p>
+                          <p className="text-xl font-bold text-text-primary font-headline mt-0.5">
+                            {marketingTemplates.length}
+                          </p>
+                        </div>
+                        <div className="w-9 h-9 rounded-full bg-accent/15 flex items-center justify-center text-accent">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Toolbar */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface border border-border rounded-md p-3 shadow-subtle">
+                      <div className="flex items-center gap-2 flex-1 max-w-md">
+                        <div className="relative flex-1">
+                          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                          <input
+                            type="text"
+                            placeholder="Filter templates by name, label or content..."
+                            value={templateSearchQuery}
+                            onChange={(e) => setTemplateSearchQuery(e.target.value)}
+                            className="w-full pl-8 pr-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleSyncMetaTemplates}
+                          disabled={metaSyncing}
+                          className="px-3 py-1.5 bg-surface-subtle hover:bg-surface border border-border text-text-secondary hover:text-text-primary rounded-sm text-xs font-medium cursor-pointer flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${metaSyncing ? 'animate-spin' : ''}`} />
+                          <span>{metaSyncing ? 'Syncing with Meta...' : 'Sync with Meta'}</span>
+                        </button>
+
+                        <button
+                          onClick={() => setShowNewTemplateModal(true)}
+                          className="px-3.5 py-1.5 bg-accent hover:bg-accent/90 text-white rounded-sm text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition-colors shadow-subtle"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>+ Create Template</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Template Cards Grid */}
+                    {loadingTemplates ? (
+                      <div className="flex items-center justify-center py-12 text-text-muted text-xs gap-2">
+                        <RefreshCw className="w-4 h-4 animate-spin text-accent" />
+                        Loading message templates...
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {marketingTemplates
+                          .filter((tpl: any) =>
+                            !templateSearchQuery ||
+                            tpl.name.toLowerCase().includes(templateSearchQuery.toLowerCase()) ||
+                            (tpl.label && tpl.label.toLowerCase().includes(templateSearchQuery.toLowerCase())) ||
+                            (tpl.body && tpl.body.toLowerCase().includes(templateSearchQuery.toLowerCase()))
+                          )
+                          .map((tpl: any) => {
+                            const isApproved = tpl.status === 'APPROVED' || !tpl.status;
+                            const isPending = tpl.status === 'PENDING';
+                            return (
+                              <div key={tpl.id || tpl.name} className="bg-surface border border-border rounded-md p-4 flex flex-col justify-between space-y-3 hover:border-border-strong transition-all shadow-subtle group">
+                                <div className="space-y-2.5">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="space-y-1">
+                                      <span className="font-mono text-xs font-semibold text-text-primary bg-surface-subtle px-2 py-0.5 rounded border border-border">
+                                        {tpl.name}
+                                      </span>
+                                      <p className="text-[11px] text-text-secondary font-medium">
+                                        {tpl.label || tpl.name}
+                                      </p>
+                                    </div>
+
+                                    {/* Status Badge */}
+                                    <span
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider shrink-0 ${
+                                        isApproved
+                                          ? 'bg-emerald-500/15 text-emerald-700 border border-emerald-500/30'
+                                          : isPending
+                                          ? 'bg-amber-500/15 text-amber-700 border border-amber-500/30'
+                                          : 'bg-red-500/15 text-red-700 border border-red-500/30'
+                                      }`}
+                                    >
+                                      {isApproved ? <CheckCircle2 className="w-3 h-3" /> : isPending ? <Clock className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                                      {tpl.status || 'APPROVED'}
+                                    </span>
+                                  </div>
+
+                                  {/* Tags */}
+                                  <div className="flex items-center gap-2 text-[10px] text-text-muted">
+                                    <span className="px-1.5 py-0.2 rounded bg-surface-subtle border border-border font-medium">
+                                      {tpl.category || 'UTILITY'}
+                                    </span>
+                                    <span>•</span>
+                                    <span>{tpl.language || 'en_US'}</span>
+                                    <span>•</span>
+                                    <span>{tpl.variables_count || 0} variables</span>
+                                  </div>
+
+                                  {/* Body preview */}
+                                  <div className="p-2.5 bg-surface-subtle/70 border border-border rounded text-[11px] text-text-primary leading-relaxed whitespace-pre-wrap font-sans max-h-28 overflow-y-auto">
+                                    {tpl.body || `Hello {{1}}, your booking for {{2}} is confirmed.`}
+                                  </div>
+                                </div>
+
+                                {/* Footer */}
+                                <div className="pt-2 border-t border-border flex items-center justify-between text-xs">
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(tpl.name);
+                                      setActionNotice(`Template name "${tpl.name}" copied!`);
+                                      setTimeout(() => setActionNotice(null), 3000);
+                                    }}
+                                    className="text-text-muted hover:text-text-primary flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Copy className="w-3.5 h-3.5" />
+                                    <span>Copy Name</span>
+                                  </button>
+
+                                  {tpl.name !== 'utility_general_update' && (
+                                    <button
+                                      onClick={() => handleDeleteTemplate(tpl.name)}
+                                      className="text-red-500 hover:text-red-700 flex items-center gap-1 cursor-pointer opacity-80 group-hover:opacity-100"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                      <span>Delete</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {marketingSubTab === 'analytics' && (
                   <div className="space-y-4">
                     <div>
