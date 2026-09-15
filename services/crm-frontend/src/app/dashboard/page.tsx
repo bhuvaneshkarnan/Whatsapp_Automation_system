@@ -14913,135 +14913,97 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {/* TAB: REVIEWS & GMB FEEDBACK HUB                                            */}
             {/* ========================================================================= */}
             {activeNav === 'reviews' && (
-              <div className="space-y-5">
+              <div className="space-y-3">
 
-                {/* ── TOP HEADER CARD ──────────────────────────────────────── */}
-                <div className="bg-surface p-4 rounded-lg border border-border shadow-2xs">
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h2 className="text-base font-bold text-text-primary flex items-center gap-2">
-                        <Star className="w-5 h-5 text-amber-500 fill-amber-400 stroke-[1.5] shrink-0" />
-                        <span>Customer Reviews & GMB Hub</span>
-                      </h2>
-                      <p className="text-xs text-text-muted mt-0.5 leading-relaxed">
-                        AI-assisted reviews: 4–5★ auto-redirect to Google My Business. 1–3★ kept private for internal resolution.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const pubUrl = typeof window !== 'undefined'
-                            ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review`
-                            : `/${settingsForm.slug || 'tenant'}/review`;
-                          navigator.clipboard.writeText(pubUrl);
-                          setReviewCopied(true);
-                          setTimeout(() => setReviewCopied(false), 2000);
-                        }}
-                        className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-md shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        {reviewCopied ? (
-                          <><CheckCircle2 className="w-3.5 h-3.5 stroke-[2]" /><span>Copied!</span></>
-                        ) : (
-                          <><Copy className="w-3.5 h-3.5 stroke-[2]" /><span>Copy Review Link</span></>
-                        )}
-                      </button>
-                      <a
-                        href={typeof window !== 'undefined' ? `/${settingsForm.slug || 'tenant'}/review` : '#'}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-1.5 text-text-muted hover:text-text-primary bg-surface-subtle hover:bg-border/40 rounded-md border border-border transition-colors"
-                        title="Open public review page"
-                      >
-                        <ArrowUpRight className="w-4 h-4" />
-                      </a>
-                    </div>
+                {/* ── HEADER ROW ──────────────────────────────────────────── */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
+                  <div>
+                    <h2 className="text-sm font-bold text-text-primary flex items-center gap-1.5">
+                      <Star className="w-4 h-4 text-amber-500 fill-amber-400 stroke-[1.5]" />
+                      Customer Reviews & GMB Hub
+                    </h2>
+                    <p className="text-[11px] text-text-muted mt-0.5">4–5★ auto-redirect to GMB · 1–3★ stored privately for internal resolution</p>
                   </div>
-
-                  {/* URL + QR — 2 col on md+, stacked on mobile */}
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 p-3 bg-surface-subtle rounded-lg border border-border">
-                    <div className="space-y-2 min-w-0">
-                      <div className="flex items-center gap-1.5 text-xs font-semibold text-text-primary">
-                        <Globe className="w-3.5 h-3.5 text-accent shrink-0" />
-                        <span>Public Review Collector URL</span>
-                      </div>
-                      <p className="text-[11px] text-text-muted leading-relaxed">
-                        Share on WhatsApp or print the QR for your shop counter. 4–5★ reviews auto-redirect to GMB; 1–3★ stored privately.
-                      </p>
-                      <div className="p-2 bg-surface rounded border border-border font-mono text-[11px] text-text-primary select-all truncate">
-                        {typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `/${settingsForm.slug || 'tenant'}/review`}
-                      </div>
-                    </div>
-
-                    {/* QR Code */}
-                    {(() => {
-                      const pubUrl = typeof window !== 'undefined'
-                        ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review`
-                        : `https://crm.goboldlabs.com/${settingsForm.slug || 'tenant'}/review`;
-                      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(pubUrl)}`;
-                      return (
-                        <div className="flex flex-row md:flex-col items-center gap-3 md:gap-2 p-3 bg-surface rounded-md border border-border md:w-36">
-                          <img src={qrApiUrl} alt="QR Code" className="w-20 h-20 md:w-24 md:h-24 rounded border border-border p-1 bg-white shrink-0" />
-                          <div className="flex flex-col gap-1.5 w-full">
-                            <span className="text-[10px] font-bold text-text-primary uppercase tracking-wide text-center hidden md:block">Counter QR</span>
-                            <a
-                              href={qrApiUrl}
-                              download={`QR-${settingsForm.slug || 'shop'}.png`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="py-1 px-2 bg-surface-subtle hover:bg-border/60 text-text-primary border border-border rounded text-[10px] font-semibold transition-colors flex items-center justify-center gap-1 cursor-pointer"
-                            >
-                              Download QR
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const printWin = window.open('', '_blank');
-                                if (printWin) {
-                                  printWin.document.write(`<html><head><title>QR Poster – ${settingsForm.name || 'Shop'}</title></head><body style="text-align:center;font-family:sans-serif;padding:40px;"><h2 style="margin-bottom:8px;">${settingsForm.name || 'Leave Us A Review'}</h2><p style="color:#555;margin-bottom:20px;">Scan the QR code below with your mobile camera to share your feedback!</p><img src="${qrApiUrl}" style="width:260px;height:260px;" /><p style="margin-top:24px;font-size:13px;color:#888;">Thank you for visiting us! ⭐</p></body></html>`);
-                                  printWin.document.close();
-                                  printWin.print();
-                                }
-                              }}
-                              className="py-1 px-2 bg-accent text-accent-contrast rounded text-[10px] font-bold transition-colors flex items-center justify-center gap-1 cursor-pointer"
-                            >
-                              Print Poster
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })()}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const pubUrl = typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `/${settingsForm.slug || 'tenant'}/review`;
+                        navigator.clipboard.writeText(pubUrl);
+                        setReviewCopied(true);
+                        setTimeout(() => setReviewCopied(false), 2000);
+                      }}
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-md transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      {reviewCopied ? <><CheckCircle2 className="w-3.5 h-3.5 stroke-[2]" /><span>Copied!</span></> : <><Copy className="w-3.5 h-3.5 stroke-[2]" /><span>Copy Link</span></>}
+                    </button>
+                    <a href={typeof window !== 'undefined' ? `/${settingsForm.slug || 'tenant'}/review` : '#'} target="_blank" rel="noopener noreferrer"
+                      className="p-1.5 text-text-muted hover:text-text-primary bg-surface hover:bg-surface-subtle rounded-md border border-border transition-colors" title="Open review page">
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                    </a>
                   </div>
                 </div>
 
-                {/* ── STAT CARDS ────────────────────────────────────────────── */}
+                {/* ── URL + QR + STATS — single compact row ──────────────── */}
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3">
+                  {/* Left: URL bar */}
+                  <div className="bg-surface rounded-lg border border-border p-3 space-y-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold text-text-primary">
+                      <Globe className="w-3.5 h-3.5 text-accent shrink-0" />
+                      Public Review Collector URL
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 px-2.5 py-1.5 bg-surface-subtle border border-border rounded text-[11px] font-mono text-text-primary select-all truncate">
+                        {typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `/${settingsForm.slug || 'tenant'}/review`}
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-text-muted">Share on WhatsApp or print the QR below for your shop counter</p>
+                  </div>
+
+                  {/* Right: QR compact */}
+                  {(() => {
+                    const pubUrl = typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `https://crm.goboldlabs.com/${settingsForm.slug || 'tenant'}/review`;
+                    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pubUrl)}`;
+                    return (
+                      <div className="bg-surface rounded-lg border border-border p-3 flex items-center gap-3 lg:flex-col lg:items-center lg:w-36">
+                        <img src={qrApiUrl} alt="QR" className="w-16 h-16 lg:w-20 lg:h-20 rounded border border-border p-0.5 bg-white shrink-0" />
+                        <div className="flex flex-col lg:flex-col gap-1.5 w-full">
+                          <a href={qrApiUrl} download={`QR-${settingsForm.slug || 'shop'}.png`} target="_blank" rel="noopener noreferrer"
+                            className="py-1 px-2 bg-surface-subtle hover:bg-border/60 text-text-primary border border-border rounded text-[10px] font-semibold text-center cursor-pointer">
+                            Download QR
+                          </a>
+                          <button type="button" onClick={() => {
+                            const w = window.open('', '_blank');
+                            if (w) { w.document.write(`<html><head><title>QR – ${settingsForm.name || 'Shop'}</title></head><body style="text-align:center;font-family:sans-serif;padding:40px;"><h2>${settingsForm.name || 'Leave Us A Review'}</h2><p>Scan to share your feedback!</p><img src="${qrApiUrl}" style="width:240px;height:240px;margin:16px 0;" /><p style="color:#888;font-size:12px;">Thank you for visiting! ⭐</p></body></html>`); w.document.close(); w.print(); }
+                          }} className="py-1 px-2 bg-accent text-accent-contrast rounded text-[10px] font-bold cursor-pointer text-center">
+                            Print Poster
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* ── 4 STAT CHIPS ─────────────────────────────────────────── */}
                 {(() => {
                   const total = customerReviews.length;
-                  const avg = total > 0 ? (customerReviews.reduce((sum, r) => sum + (r.rating || 0), 0) / total).toFixed(1) : '0.0';
+                  const avg = total > 0 ? (customerReviews.reduce((s, r) => s + (r.rating || 0), 0) / total).toFixed(1) : '0.0';
                   const gmbCount = customerReviews.filter(r => (r.rating || 0) >= 4).length;
                   const privateCount = customerReviews.filter(r => (r.rating || 0) <= 3).length;
                   return (
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                      <div className="bg-surface p-3.5 rounded-lg border border-border shadow-2xs space-y-1">
-                        <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">Total Feedback</span>
-                        <div className="text-2xl font-bold text-text-primary">{total}</div>
-                        <p className="text-[11px] text-text-muted">All services & check-ins</p>
-                      </div>
-                      <div className="bg-surface p-3.5 rounded-lg border border-border shadow-2xs space-y-1">
-                        <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">Avg Rating</span>
-                        <div className="text-2xl font-bold text-amber-500 flex items-center gap-1">{avg}<Star className="w-4 h-4 fill-amber-400 stroke-[1.5]" /></div>
-                        <p className="text-[11px] text-text-muted">Overall submissions</p>
-                      </div>
-                      <div className="bg-surface p-3.5 rounded-lg border border-border shadow-2xs space-y-1">
-                        <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider block">GMB Conversions (4–5★)</span>
-                        <div className="text-2xl font-bold text-emerald-600">{gmbCount}</div>
-                        <p className="text-[11px] text-emerald-700/80 font-medium">Auto-redirected to GMB</p>
-                      </div>
-                      <div className="bg-surface p-3.5 rounded-lg border border-border shadow-2xs space-y-1">
-                        <span className="text-[10px] font-semibold text-rose-600 uppercase tracking-wider block">Private (1–3★)</span>
-                        <div className="text-2xl font-bold text-rose-600">{privateCount}</div>
-                        <p className="text-[11px] text-rose-700/80 font-medium">Kept for internal resolution</p>
-                      </div>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                      {[
+                        { label: 'Total Feedback', value: total, sub: 'All services', color: 'text-text-primary' },
+                        { label: 'Avg Rating', value: avg + '★', sub: 'Overall', color: 'text-amber-500' },
+                        { label: 'GMB (4–5★)', value: gmbCount, sub: 'Auto-redirected', color: 'text-emerald-600' },
+                        { label: 'Private (1–3★)', value: privateCount, sub: 'Internal only', color: 'text-rose-600' },
+                      ].map(({ label, value, sub, color }) => (
+                        <div key={label} className="bg-surface p-3 rounded-lg border border-border">
+                          <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wide block">{label}</span>
+                          <div className={`text-xl font-bold mt-0.5 ${color}`}>{value}</div>
+                          <p className="text-[10px] text-text-muted mt-0.5">{sub}</p>
+                        </div>
+                      ))}
                     </div>
                   );
                 })()}
@@ -15049,287 +15011,163 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* ── CONFIGURE REVIEW PAGE ────────────────────────────────── */}
                 {(() => {
                   const defaultTags = ['Friendly & Caring Staff','Clean & Hygienic Space','Quick & Prompt Service','Detailed Explanation','Great Results & Treatment','Value for Money','Comfortable & Relaxing','Easy Booking & Response'];
-                  const currentTags: string[] = (settingsForm.review_experience_tags && settingsForm.review_experience_tags.length > 0)
+                  const currentTags: string[] = (settingsForm.review_experience_tags && (settingsForm.review_experience_tags as string[]).length > 0)
                     ? settingsForm.review_experience_tags as string[]
                     : defaultTags;
                   const services: string[] = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                    ? settingsForm.taxonomy.requirement_presets
-                    : [];
+                    ? settingsForm.taxonomy.requirement_presets : [];
                   return (
-                    <div className="bg-surface p-4 rounded-lg border border-border shadow-2xs space-y-4">
+                    <div className="bg-surface rounded-lg border border-border p-3 space-y-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-md bg-violet-500/10 text-violet-600 border border-violet-500/20 flex items-center justify-center shrink-0">
-                          <Tag className="w-3.5 h-3.5" />
-                        </div>
-                        <div>
-                          <h3 className="text-sm font-bold text-text-primary">Configure Public Review Page</h3>
-                          <p className="text-[11px] text-text-muted">Manage what options customers see when they open your review link</p>
-                        </div>
+                        <Tag className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                        <span className="text-xs font-bold text-text-primary">Configure Review Page</span>
+                        <span className="text-[10px] text-text-muted">— what customers see when they open your review link</span>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Services shown to customers */}
-                        <div className="p-3 bg-surface-subtle rounded-md border border-border space-y-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {/* Services */}
+                        <div className="p-2.5 bg-surface-subtle rounded-md border border-border space-y-1.5">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold text-text-primary">Services Customers Can Choose</span>
-                            <span className="text-[10px] text-text-muted bg-surface px-2 py-0.5 rounded border border-border">{services.length} options</span>
+                            <span className="text-[11px] font-semibold text-text-primary">Services to Choose</span>
+                            <span className="text-[10px] text-text-muted">{services.length} options</span>
                           </div>
                           {services.length > 0 ? (
-                            <div className="flex flex-wrap gap-1.5">
-                              {services.map((s, i) => (
-                                <span key={i} className="px-2 py-0.5 bg-accent/10 text-accent border border-accent/20 rounded-full text-[11px] font-medium">{s}</span>
-                              ))}
+                            <div className="flex flex-wrap gap-1">
+                              {services.map((s, i) => <span key={i} className="px-2 py-0.5 bg-accent/10 text-accent border border-accent/20 rounded-full text-[10px] font-medium">{s}</span>)}
                             </div>
                           ) : (
-                            <p className="text-[11px] text-text-muted italic">No services configured. Go to Settings → Profile → Services & Taxonomy to add them.</p>
+                            <p className="text-[10px] text-text-muted italic">No services set. Add them in Settings → Profile → Taxonomy.</p>
                           )}
-                          <p className="text-[10px] text-text-muted">Edit services in <strong>Settings → Profile</strong> under your Taxonomy / Services section.</p>
                         </div>
 
                         {/* Experience Tags */}
-                        <div className="p-3 bg-surface-subtle rounded-md border border-border space-y-2">
+                        <div className="p-2.5 bg-surface-subtle rounded-md border border-border space-y-1.5">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold text-text-primary">Experience Tags (Highlights)</span>
-                            <span className="text-[10px] text-text-muted bg-surface px-2 py-0.5 rounded border border-border">{currentTags.length} tags</span>
+                            <span className="text-[11px] font-semibold text-text-primary">Experience Tags</span>
+                            <span className="text-[10px] text-text-muted">{currentTags.length} tags</span>
                           </div>
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className="flex flex-wrap gap-1">
                             {currentTags.map((tag, i) => (
-                              <span
-                                key={i}
-                                className="group flex items-center gap-1 px-2 py-0.5 bg-surface rounded-full border border-border text-[11px] font-medium text-text-secondary"
-                              >
+                              <span key={i} className="flex items-center gap-0.5 px-2 py-0.5 bg-surface rounded-full border border-border text-[10px] text-text-secondary">
                                 {tag}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const updated = currentTags.filter((_, idx) => idx !== i);
-                                    setSettingsForm({ ...settingsForm, review_experience_tags: updated });
-                                  }}
-                                  className="text-text-muted hover:text-rose-500 transition-colors ml-0.5 cursor-pointer"
-                                  title="Remove tag"
-                                >×</button>
+                                <button type="button" onClick={() => setSettingsForm({ ...settingsForm, review_experience_tags: currentTags.filter((_, idx) => idx !== i) })} className="ml-0.5 text-text-muted hover:text-rose-500 cursor-pointer transition-colors leading-none">×</button>
                               </span>
                             ))}
                           </div>
                           <div className="flex gap-1.5">
-                            <input
-                              type="text"
-                              id="new-review-tag-input"
-                              placeholder="Add a tag…"
-                              className="flex-1 px-2.5 py-1.5 bg-surface border border-border rounded text-xs text-text-primary focus:border-accent focus:outline-none"
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  const val = (e.target as HTMLInputElement).value.trim();
-                                  if (val && !currentTags.includes(val)) {
-                                    setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, val] });
-                                    (e.target as HTMLInputElement).value = '';
-                                  }
-                                }
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const inp = document.getElementById('new-review-tag-input') as HTMLInputElement;
-                                const val = inp?.value.trim();
-                                if (val && !currentTags.includes(val)) {
-                                  setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, val] });
-                                  if (inp) inp.value = '';
-                                }
-                              }}
-                              className="px-3 py-1.5 bg-accent text-accent-contrast text-xs font-semibold rounded cursor-pointer hover:opacity-90"
-                            >
-                              Add
-                            </button>
+                            <input type="text" id="rev-tag-inp" placeholder="Add tag…"
+                              className="flex-1 px-2 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:border-accent focus:outline-none"
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const v = (e.target as HTMLInputElement).value.trim(); if (v && !currentTags.includes(v)) { setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] }); (e.target as HTMLInputElement).value = ''; } } }} />
+                            <button type="button" onClick={() => { const inp = document.getElementById('rev-tag-inp') as HTMLInputElement; const v = inp?.value.trim(); if (v && !currentTags.includes(v)) { setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] }); if (inp) inp.value = ''; } }}
+                              className="px-2.5 py-1 bg-surface-subtle border border-border text-text-secondary text-[11px] font-semibold rounded cursor-pointer hover:bg-border/60">Add</button>
+                            <button type="button" onClick={async () => { try { await crm.updateTenantSettings(settingsForm.slug || slug, { review_experience_tags: currentTags } as any); } catch(e){} }}
+                              className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded cursor-pointer">Save</button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                await crm.updateTenantSettings(settingsForm.slug || slug, { review_experience_tags: (settingsForm.review_experience_tags && settingsForm.review_experience_tags.length > 0) ? settingsForm.review_experience_tags : defaultTags } as any);
-                                alert('Experience tags saved!');
-                              } catch (e) {
-                                console.error(e);
-                              }
-                            }}
-                            className="w-full py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded cursor-pointer transition-colors"
-                          >
-                            Save Tags to Review Page
-                          </button>
                         </div>
                       </div>
                     </div>
                   );
                 })()}
 
-                {/* ── FILTER BAR ────────────────────────────────────────────── */}
-                <div className="bg-surface p-3 rounded-lg border border-border shadow-2xs space-y-2">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {/* Rating pills */}
-                      <div className="flex items-center gap-0.5 bg-surface-subtle p-1 rounded-md border border-border text-xs overflow-x-auto">
-                        <span className="text-[11px] font-medium text-text-muted px-1.5 shrink-0">Rating:</span>
-                        {(['all', 5, 4, 3, 2, 1] as const).map((star) => (
-                          <button
-                            key={String(star)}
-                            type="button"
-                            onClick={() => setReviewRatingFilter(star)}
-                            className={`px-2 py-1 rounded text-xs font-semibold transition-colors cursor-pointer shrink-0 ${
-                              reviewRatingFilter === star
-                                ? 'bg-amber-500 text-slate-950 shadow-2xs'
-                                : 'text-text-secondary hover:text-text-primary hover:bg-surface'
-                            }`}
-                          >
-                            {star === 'all' ? 'All' : `${star}★`}
-                          </button>
-                        ))}
-                      </div>
-                      {/* Status pills */}
-                      <div className="flex items-center gap-0.5 bg-surface-subtle p-1 rounded-md border border-border text-xs overflow-x-auto">
-                        <span className="text-[11px] font-medium text-text-muted px-1.5 shrink-0">Status:</span>
-                        {(['all', 'new', 'acknowledged', 'resolved'] as const).map((st) => (
-                          <button
-                            key={st}
-                            type="button"
-                            onClick={() => setReviewStatusFilter(st)}
-                            className={`px-2 py-1 rounded text-xs font-semibold capitalize transition-colors cursor-pointer shrink-0 ${
-                              reviewStatusFilter === st
-                                ? 'bg-accent text-accent-contrast shadow-2xs'
-                                : 'text-text-secondary hover:text-text-primary hover:bg-surface'
-                            }`}
-                          >
-                            {st === 'new' ? 'Pending' : st.charAt(0).toUpperCase() + st.slice(1)}
-                          </button>
-                        ))}
-                      </div>
+                {/* ── FILTER BAR ───────────────────────────────────────────── */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div className="flex items-center gap-1 overflow-x-auto">
+                    <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0">
+                      {(['all', 5, 4, 3, 2, 1] as const).map((s) => (
+                        <button key={String(s)} type="button" onClick={() => setReviewRatingFilter(s)}
+                          className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors cursor-pointer ${reviewRatingFilter === s ? 'bg-amber-500 text-slate-950' : 'text-text-secondary hover:text-text-primary'}`}>
+                          {s === 'all' ? 'All' : `${s}★`}
+                        </button>
+                      ))}
                     </div>
-                    {/* Search */}
-                    <div className="relative w-full sm:w-56">
-                      <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      <input
-                        type="text"
-                        placeholder="Search customer, phone…"
-                        value={reviewSearchQuery}
-                        onChange={(e) => setReviewSearchQuery(e.target.value)}
-                        className="w-full pl-8 pr-3 py-1.5 bg-surface border border-border rounded-md text-xs text-text-primary focus:outline-none focus:border-accent"
-                      />
+                    <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0">
+                      {(['all', 'new', 'acknowledged', 'resolved'] as const).map((st) => (
+                        <button key={st} type="button" onClick={() => setReviewStatusFilter(st)}
+                          className={`px-2 py-0.5 rounded text-[11px] font-semibold capitalize transition-colors cursor-pointer ${reviewStatusFilter === st ? 'bg-accent text-accent-contrast' : 'text-text-secondary hover:text-text-primary'}`}>
+                          {st === 'all' ? 'All' : st === 'new' ? 'Pending' : st.charAt(0).toUpperCase() + st.slice(1)}
+                        </button>
+                      ))}
                     </div>
+                  </div>
+                  <div className="relative sm:ml-auto w-full sm:w-48">
+                    <Search className="w-3 h-3 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input type="text" placeholder="Search…" value={reviewSearchQuery} onChange={(e) => setReviewSearchQuery(e.target.value)}
+                      className="w-full pl-7 pr-3 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:outline-none focus:border-accent" />
                   </div>
                 </div>
 
-                {/* ── REVIEWS TABLE (desktop) / CARDS (mobile) ─────────────── */}
+                {/* ── REVIEWS TABLE / CARDS ─────────────────────────────────── */}
                 {(() => {
                   const filtered = customerReviews.filter((r) => {
                     if (reviewRatingFilter !== 'all' && r.rating !== reviewRatingFilter) return false;
                     if (reviewStatusFilter !== 'all') {
-                      if (reviewStatusFilter === 'new' && (r.status !== 'new' && r.status !== 'pending' && r.status)) return false;
+                      if (reviewStatusFilter === 'new' && r.status && r.status !== 'new' && r.status !== 'pending') return false;
                       if (reviewStatusFilter !== 'new' && r.status !== reviewStatusFilter) return false;
                     }
                     if (reviewSearchQuery.trim()) {
                       const q = reviewSearchQuery.toLowerCase();
-                      if (!(r.customer_name || '').toLowerCase().includes(q) &&
-                          !(r.customer_phone || '').toLowerCase().includes(q) &&
-                          !(r.review_text || '').toLowerCase().includes(q) &&
-                          !(r.notes || '').toLowerCase().includes(q)) return false;
+                      if (!(r.customer_name || '').toLowerCase().includes(q) && !(r.customer_phone || '').toLowerCase().includes(q) && !(r.review_text || '').toLowerCase().includes(q) && !(r.notes || '').toLowerCase().includes(q)) return false;
                     }
                     return true;
                   });
 
-                  const emptyOrLoading = loadingReviews ? (
-                    <div className="py-10 flex items-center justify-center gap-2 text-text-muted text-xs">
-                      <RefreshCw className="w-4 h-4 animate-spin text-accent" /> Loading reviews…
-                    </div>
-                  ) : filtered.length === 0 ? (
+                  const empty = (
                     <div className="py-10 flex flex-col items-center gap-2 text-text-muted text-xs text-center">
-                      <Star className="w-8 h-8 text-text-muted/30 stroke-[1]" />
-                      <p className="font-medium">No reviews found</p>
-                      <p className="max-w-xs text-[11px]">Share your review link or QR code with customers to start collecting feedback.</p>
+                      <Star className="w-7 h-7 text-text-muted/30 stroke-[1]" />
+                      <p className="font-medium">{loadingReviews ? 'Loading reviews…' : 'No reviews yet'}</p>
+                      {!loadingReviews && <p className="text-[10px] max-w-xs">Share your review link or QR code to start collecting feedback.</p>}
                     </div>
-                  ) : null;
+                  );
 
                   return (
-                    <div className="bg-surface rounded-lg border border-border shadow-2xs overflow-hidden">
+                    <div className="bg-surface rounded-lg border border-border overflow-hidden">
                       {/* Desktop Table */}
                       <div className="hidden md:block overflow-x-auto">
                         <table className="w-full text-left border-collapse">
-                          <thead>
-                            <tr className="bg-surface-subtle border-b border-border text-[11px] font-semibold text-text-muted uppercase tracking-wider">
-                              <th className="px-4 py-3">Customer</th>
-                              <th className="px-4 py-3">Rating</th>
-                              <th className="px-4 py-3">Service</th>
-                              <th className="px-4 py-3">Review & Notes</th>
-                              <th className="px-4 py-3">Date</th>
-                              <th className="px-4 py-3 text-right">Actions</th>
+                          <thead className="bg-surface-subtle border-b border-border text-[10px] font-semibold text-text-muted uppercase tracking-wider">
+                            <tr>
+                              <th className="px-3 py-2">Customer</th>
+                              <th className="px-3 py-2">Rating</th>
+                              <th className="px-3 py-2">Service</th>
+                              <th className="px-3 py-2">Review & Notes</th>
+                              <th className="px-3 py-2">Date</th>
+                              <th className="px-3 py-2 text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border text-xs">
-                            {loadingReviews && (
-                              <tr><td colSpan={6} className="px-4 py-8 text-center text-text-muted">
-                                <div className="flex items-center justify-center gap-2"><RefreshCw className="w-4 h-4 animate-spin text-accent" /><span>Loading reviews…</span></div>
-                              </td></tr>
-                            )}
-                            {!loadingReviews && filtered.length === 0 && (
-                              <tr><td colSpan={6} className="px-4 py-10 text-center text-text-muted space-y-2">
-                                <Star className="w-8 h-8 text-text-muted/40 mx-auto stroke-[1]" />
-                                <p className="font-medium text-xs">No reviews found</p>
-                                <p className="text-[11px] max-w-sm mx-auto">Share your review link with customers to start gathering feedback.</p>
-                              </td></tr>
-                            )}
-                            {filtered.map((rev) => {
+                            {(loadingReviews || filtered.length === 0) ? (
+                              <tr><td colSpan={6}>{empty}</td></tr>
+                            ) : filtered.map((rev) => {
                               const isHigh = (rev.rating || 0) >= 4;
                               return (
                                 <tr key={rev.id} className="hover:bg-surface-subtle/40 transition-colors">
-                                  <td className="px-4 py-3 font-medium text-text-primary whitespace-nowrap">
-                                    <div>
-                                      <span>{rev.customer_name || 'Anonymous'}</span>
-                                      {rev.customer_phone && <p className="text-[11px] font-mono text-text-muted mt-0.5">{rev.customer_phone}</p>}
-                                    </div>
+                                  <td className="px-3 py-2.5 whitespace-nowrap">
+                                    <p className="font-medium text-text-primary text-xs">{rev.customer_name || 'Anonymous'}</p>
+                                    {rev.customer_phone && <p className="text-[10px] font-mono text-text-muted">{rev.customer_phone}</p>}
                                   </td>
-                                  <td className="px-4 py-3 whitespace-nowrap">
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-0.5 text-amber-500">
-                                        {Array.from({ length: 5 }).map((_, idx) => (
-                                          <Star key={idx} className={`w-3 h-3 ${idx < (rev.rating || 0) ? 'fill-amber-400 text-amber-500' : 'text-border fill-surface-subtle'}`} />
-                                        ))}
-                                        <span className="ml-1 font-bold text-text-primary text-xs">{rev.rating}★</span>
-                                      </div>
-                                      {isHigh ? (
-                                        <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 text-[10px] px-2 py-0.5 rounded-full font-medium">
-                                          <CheckCircle2 className="w-2.5 h-2.5" />GMB
-                                        </span>
-                                      ) : (
-                                        <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 text-[10px] px-2 py-0.5 rounded-full font-medium">
-                                          <AlertCircle className="w-2.5 h-2.5" />Private
-                                        </span>
-                                      )}
-                                    </div>
+                                  <td className="px-3 py-2.5 whitespace-nowrap">
+                                    <div className="flex items-center gap-0.5">{Array.from({length:5}).map((_,i)=><Star key={i} className={`w-2.5 h-2.5 ${i<(rev.rating||0)?'fill-amber-400 text-amber-500':'text-border'}`}/>)}<span className="ml-1 font-bold text-xs text-text-primary">{rev.rating}★</span></div>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium mt-0.5 inline-block ${isHigh ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                                      {isHigh ? '→ GMB' : 'Private'}
+                                    </span>
                                   </td>
-                                  <td className="px-4 py-3 whitespace-nowrap">
-                                    <span className="px-2 py-1 bg-surface-subtle rounded border border-border text-[11px] font-medium text-text-secondary">{rev.service_type || 'General'}</span>
+                                  <td className="px-3 py-2.5 whitespace-nowrap">
+                                    <span className="px-1.5 py-0.5 bg-surface-subtle rounded border border-border text-[10px] text-text-secondary">{rev.service_type || 'General'}</span>
                                   </td>
-                                  <td className="px-4 py-3 max-w-xs md:max-w-md">
-                                    <div className="space-y-1">
-                                      {rev.review_text && <p className="text-text-primary text-xs italic leading-snug">"{rev.review_text}"</p>}
-                                      {rev.notes && (
-                                        <div className="p-1.5 bg-rose-500/5 rounded border border-rose-500/20 text-[11px] text-rose-900 dark:text-rose-200">
-                                          <span className="font-semibold">Note: </span>{rev.notes}
-                                        </div>
-                                      )}
-                                    </div>
+                                  <td className="px-3 py-2.5 max-w-xs">
+                                    {rev.review_text && <p className="text-xs text-text-primary italic leading-snug">"{rev.review_text}"</p>}
+                                    {rev.notes && <p className="text-[10px] text-rose-700 mt-0.5"><strong>Note: </strong>{rev.notes}</p>}
                                   </td>
-                                  <td className="px-4 py-3 whitespace-nowrap font-mono text-[11px] text-text-muted">
-                                    {rev.created_at ? new Date(rev.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent'}
+                                  <td className="px-3 py-2.5 whitespace-nowrap font-mono text-[10px] text-text-muted">
+                                    {rev.created_at ? new Date(rev.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : 'Recent'}
                                   </td>
-                                  <td className="px-4 py-3 text-right whitespace-nowrap">
-                                    <div className="flex items-center justify-end gap-1.5">
+                                  <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                    <div className="flex items-center justify-end gap-1">
                                       <button type="button" onClick={() => handleUpdateReviewStatus(rev.id, 'acknowledged')}
-                                        className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer ${rev.status === 'acknowledged' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300' : 'bg-surface-subtle hover:bg-border/60 text-text-secondary border border-border'}`}>
-                                        Ack
-                                      </button>
+                                        className={`px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer ${rev.status==='acknowledged'?'bg-blue-100 text-blue-800 border border-blue-300':'bg-surface-subtle text-text-secondary border border-border hover:bg-border/60'}`}>Ack</button>
                                       <button type="button" onClick={() => handleUpdateReviewStatus(rev.id, 'resolved')}
-                                        className={`px-2.5 py-1 rounded text-[10px] font-bold transition-colors cursor-pointer ${rev.status === 'resolved' ? 'bg-emerald-600 text-white shadow-2xs' : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200'}`}>
-                                        {rev.status === 'resolved' ? '✓ Done' : 'Resolve'}
+                                        className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer ${rev.status==='resolved'?'bg-emerald-600 text-white':'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'}`}>
+                                        {rev.status==='resolved'?'✓ Done':'Resolve'}
                                       </button>
                                     </div>
                                   </td>
@@ -15340,45 +15178,30 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </table>
                       </div>
 
-                      {/* Mobile Card List */}
+                      {/* Mobile Cards */}
                       <div className="md:hidden divide-y divide-border">
-                        {emptyOrLoading || filtered.map((rev) => {
+                        {(loadingReviews || filtered.length === 0) ? empty : filtered.map((rev) => {
                           const isHigh = (rev.rating || 0) >= 4;
                           return (
-                            <div key={rev.id} className="p-4 space-y-2.5">
+                            <div key={rev.id} className="p-3 space-y-2">
                               <div className="flex items-start justify-between gap-2">
                                 <div>
                                   <p className="text-xs font-semibold text-text-primary">{rev.customer_name || 'Anonymous'}</p>
-                                  {rev.customer_phone && <p className="text-[11px] font-mono text-text-muted">{rev.customer_phone}</p>}
+                                  {rev.customer_phone && <p className="text-[10px] font-mono text-text-muted">{rev.customer_phone}</p>}
                                 </div>
                                 <div className="flex items-center gap-0.5 shrink-0">
-                                  {Array.from({ length: 5 }).map((_, idx) => (
-                                    <Star key={idx} className={`w-3 h-3 ${idx < (rev.rating || 0) ? 'fill-amber-400 text-amber-500' : 'text-border'}`} />
-                                  ))}
+                                  {Array.from({length:5}).map((_,i)=><Star key={i} className={`w-2.5 h-2.5 ${i<(rev.rating||0)?'fill-amber-400 text-amber-500':'text-border'}`}/>)}
+                                  <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${isHigh?'bg-emerald-50 text-emerald-700':'bg-rose-50 text-rose-700'}`}>{isHigh?'→ GMB':'Private'}</span>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="px-2 py-0.5 bg-surface-subtle rounded border border-border text-[11px] text-text-secondary">{rev.service_type || 'General'}</span>
-                                {isHigh ? (
-                                  <span className="text-[10px] px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-medium">→ GMB</span>
-                                ) : (
-                                  <span className="text-[10px] px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-full font-medium">Private</span>
-                                )}
-                                <span className="text-[11px] text-text-muted font-mono ml-auto">
-                                  {rev.created_at ? new Date(rev.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recent'}
-                                </span>
-                              </div>
-                              {rev.review_text && <p className="text-xs text-text-primary italic leading-snug">"{rev.review_text}"</p>}
-                              {rev.notes && <p className="text-[11px] text-rose-700 bg-rose-50 p-2 rounded border border-rose-200"><strong>Note: </strong>{rev.notes}</p>}
-                              <div className="flex gap-2 pt-1">
-                                <button type="button" onClick={() => handleUpdateReviewStatus(rev.id, 'acknowledged')}
-                                  className={`flex-1 py-1.5 rounded text-xs font-semibold border transition-colors cursor-pointer ${rev.status === 'acknowledged' ? 'bg-blue-100 text-blue-800 border-blue-300' : 'bg-surface-subtle text-text-secondary border-border'}`}>
-                                  Acknowledge
-                                </button>
-                                <button type="button" onClick={() => handleUpdateReviewStatus(rev.id, 'resolved')}
-                                  className={`flex-1 py-1.5 rounded text-xs font-bold transition-colors cursor-pointer ${rev.status === 'resolved' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
-                                  {rev.status === 'resolved' ? '✓ Resolved' : 'Resolve'}
-                                </button>
+                              {rev.review_text && <p className="text-xs italic text-text-primary">"{rev.review_text}"</p>}
+                              {rev.notes && <p className="text-[10px] text-rose-700"><strong>Note: </strong>{rev.notes}</p>}
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] text-text-muted font-mono">{rev.created_at ? new Date(rev.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : 'Recent'}</span>
+                                <div className="flex gap-1.5">
+                                  <button type="button" onClick={() => handleUpdateReviewStatus(rev.id,'acknowledged')} className={`px-2 py-1 rounded text-[10px] font-semibold cursor-pointer border ${rev.status==='acknowledged'?'bg-blue-100 text-blue-800 border-blue-300':'bg-surface-subtle text-text-secondary border-border'}`}>Ack</button>
+                                  <button type="button" onClick={() => handleUpdateReviewStatus(rev.id,'resolved')} className={`px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer ${rev.status==='resolved'?'bg-emerald-600 text-white':'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>{rev.status==='resolved'?'✓ Done':'Resolve'}</button>
+                                </div>
                               </div>
                             </div>
                           );
