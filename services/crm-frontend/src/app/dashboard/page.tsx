@@ -2412,6 +2412,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [billingInvoices, setBillingInvoices] = useState<Invoice[]>([]);
   const [loadingBillingInvoices, setLoadingBillingInvoices] = useState(false);
+  const [selectedInvoiceModal, setSelectedInvoiceModal] = useState<Invoice | null>(null);
   const [copiedPaymentUrl, setCopiedPaymentUrl] = useState(false);
   const [initiatingPayment, setInitiatingPayment] = useState(false);
   const [initiatePaymentError, setInitiatePaymentError] = useState('');
@@ -5671,8 +5672,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   function handleSelectTemplate(tpl: any) {
     setSelectedChatTemplate(tpl);
     const initialValues: Record<string, string> = {};
-    if (selectedConv?.contact_name || selectedConv?.name) {
-      initialValues['1'] = (selectedConv.contact_name || selectedConv.name || '').trim();
+    const custName = (selectedConv?.contact_name || selectedConv?.name || '').trim();
+    if (custName) {
+      initialValues['1'] = custName;
+    }
+    if (tpl.name === 'client_followup_checkin') {
+      if (!initialValues['1']) initialValues['1'] = 'there';
+      initialValues['2'] = (currentUser?.name || settingsForm.admin_name || 'Our Team').trim();
+      initialValues['3'] = (settingsForm.name || 'Boldlabs').trim();
     }
     setTemplateVariableValues(initialValues);
   }
@@ -5713,9 +5720,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       setTemplateVariableValues({});
       setActionNotice(`Template "${selectedChatTemplate.name}" dispatched successfully!`);
       setTimeout(() => setActionNotice(null), 3500);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to send template:', err);
-      alert('Could not send WhatsApp template. Please verify your Meta Business template setup.');
+      const errMsg = err?.message || 'Please verify your Meta Business template setup.';
+      alert(`Could not send WhatsApp template: ${errMsg}`);
     } finally {
       setSendingChatTemplate(false);
     }
@@ -19723,11 +19731,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             {Array.from({ length: selectedChatTemplate.variables_count || 0 }, (_, i) => i + 1).map((idx) => (
                               <div key={idx} className="space-y-1">
                                 <label className="text-[10px] text-text-muted block font-medium">
-                                  Variable {"{{"}{idx}{"}}"} {idx === 1 ? '(Customer Name)' : ''}
+                                  Variable {"{{"}{idx}{"}}"} {idx === 1 ? '(Customer Name)' : (idx === 2 ? '(Sender / Staff Name)' : (idx === 3 ? '(Clinic / Business Name)' : ''))}
                                 </label>
                                 <input
                                   type="text"
-                                  placeholder={idx === 1 ? 'e.g. Rahul Sharma' : `Value for {{${idx}}}`}
+                                  placeholder={idx === 1 ? 'e.g. Rahul Sharma' : (idx === 2 ? 'e.g. Dr. Jane or Our Team' : (idx === 3 ? 'e.g. Boldlabs' : `Value for {{${idx}}}`))}
                                   value={templateVariableValues[String(idx)] || ''}
                                   onChange={(e) =>
                                     setTemplateVariableValues((prev) => ({

@@ -4822,7 +4822,21 @@ async def send_manual_message(
 
                 # 1. If explicit template requested
                 if has_template:
-                    tpl_params = payload.template_params or []
+                    tpl_name = payload.template_name.strip()
+                    tpl_params = list(payload.template_params or [])
+
+                    # Auto-fill missing variables for client_followup_checkin so it never fails with parameter count mismatch
+                    if tpl_name == "client_followup_checkin":
+                        default_p = [
+                            conv["contact_name"] or "there",
+                            assistant_name or "our team",
+                            conv["tenant_name"] or "our clinic"
+                        ]
+                        tpl_params = [
+                            (tpl_params[i] if i < len(tpl_params) and str(tpl_params[i]).strip() else default_p[i])
+                            for i in range(3)
+                        ]
+
                     tpl_components = []
                     if tpl_params:
                         tpl_components.append({
@@ -4834,7 +4848,7 @@ async def send_manual_message(
                         "to": clean_phone,
                         "type": "template",
                         "template": {
-                            "name": payload.template_name.strip(),
+                            "name": tpl_name,
                             "language": {"code": "en"},
                             "components": tpl_components
                         }
@@ -9316,6 +9330,15 @@ async def get_meta_templates_status(tenant_id: str = Depends(get_tenant_id)):
 
     for name, spec in required_specs.items():
         found = meta_templates_map.get(name)
+        body_comp = None
+        if found and found.get("components"):
+            body_comp = next((c for c in found["components"] if isinstance(c, dict) and c.get("type", "").upper() == "BODY"), None)
+        if not body_comp and spec and spec.get("components"):
+            body_comp = next((c for c in spec["components"] if isinstance(c, dict) and c.get("type", "").upper() == "BODY"), None)
+        body_text = (body_comp.get("text", "") if body_comp else "") or spec.get("description", "")
+        var_matches = re.findall(r'\{\{(\d+)\}\}', body_text)
+        var_count = len(set(var_matches)) if var_matches else 0
+
         if found:
             st = found.get("status", "UNKNOWN").upper()
             if st == "APPROVED":
@@ -9326,6 +9349,8 @@ async def get_meta_templates_status(tenant_id: str = Depends(get_tenant_id)):
                 "name": name,
                 "label": spec["label"],
                 "description": spec["description"],
+                "body": body_text,
+                "variables_count": var_count,
                 "category": found.get("category", spec["category"]),
                 "status": st,
                 "exists_in_meta": True,
@@ -9338,11 +9363,38 @@ async def get_meta_templates_status(tenant_id: str = Depends(get_tenant_id)):
                 "name": name,
                 "label": spec["label"],
                 "description": spec["description"],
+                "body": body_text,
+                "variables_count": var_count,
                 "category": spec["category"],
                 "status": "MISSING",
                 "exists_in_meta": False,
                 "meta_id": None,
                 "language": spec["language"],
+            })
+
+    # Also include any approved templates in Meta that might not be in required_specs
+    for meta_name, found in meta_templates_map.items():
+        if meta_name not in required_specs:
+            st = found.get("status", "UNKNOWN").upper()
+            if st == "APPROVED":
+                approved_count += 1
+            elif st == "PENDING":
+                pending_count += 1
+            body_comp = next((c for c in (found.get("components") or []) if isinstance(c, dict) and c.get("type", "").upper() == "BODY"), None)
+            body_text = (body_comp.get("text", "") if body_comp else "") or found.get("name", "")
+            var_matches = re.findall(r'\{\{(\d+)\}\}', body_text)
+            var_count = len(set(var_matches)) if var_matches else 0
+            templates_result.append({
+                "name": meta_name,
+                "label": meta_name.replace("_", " ").title(),
+                "description": body_text[:60] + ("..." if len(body_text) > 60 else ""),
+                "body": body_text,
+                "variables_count": var_count,
+                "category": found.get("category", "MARKETING"),
+                "status": st,
+                "exists_in_meta": True,
+                "meta_id": found.get("id"),
+                "language": found.get("language", "en"),
             })
 
     return {
