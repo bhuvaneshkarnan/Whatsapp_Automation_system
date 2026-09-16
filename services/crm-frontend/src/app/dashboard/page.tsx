@@ -2082,6 +2082,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   // Customer Reviews & GMB Feedback State
   const [customerReviews, setCustomerReviews] = useState<CustomerReview[]>([]);
   const [loadingReviews, setLoadingReviews] = useState(false);
+  const [reviewSourceTab, setReviewSourceTab] = useState<'google' | 'local_store' | 'all'>('google');
   const [reviewRatingFilter, setReviewRatingFilter] = useState<number | 'all'>('all');
   const [reviewStatusFilter, setReviewStatusFilter] = useState<string>('all');
   const [reviewSearchQuery, setReviewSearchQuery] = useState('');
@@ -15245,16 +15246,29 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   return (
                     <div className="flex flex-wrap gap-2">
                       {[
-                        { label: 'Total', value: total, color: 'text-text-primary' },
-                        { label: 'Avg', value: avg, color: 'text-amber-500' },
-                        { label: 'GMB 4-5', value: gmbCount, color: 'text-emerald-600' },
-                        { label: 'Private 1-3', value: privateCount, color: 'text-rose-600' },
-                      ].map(({ label, value, color }) => (
-                        <div key={label} className="flex items-center gap-1.5 bg-surface px-2.5 py-1.5 rounded-md border border-border">
-                          <span className="text-[10px] font-medium text-text-muted uppercase">{label}</span>
-                          <span className={`text-sm font-bold ${color}`}>{value}</span>
-                        </div>
-                      ))}
+                        { label: 'Total', value: total, color: 'text-text-primary', tab: 'all' as const },
+                        { label: 'Avg', value: avg, color: 'text-amber-500', tab: null },
+                        { label: 'GMB 4-5', value: gmbCount, color: 'text-emerald-600', tab: 'google' as const },
+                        { label: 'Private 1-3', value: privateCount, color: 'text-rose-600', tab: 'local_store' as const },
+                      ].map(({ label, value, color, tab }) => {
+                        const isInteractive = tab !== null;
+                        const isActive = isInteractive && reviewSourceTab === tab;
+                        return (
+                          <button
+                            key={label}
+                            type="button"
+                            disabled={!isInteractive}
+                            onClick={() => { if (tab) { setReviewSourceTab(tab); setReviewRatingFilter('all'); } }}
+                            className={`flex items-center gap-1.5 bg-surface px-2.5 py-1.5 rounded-md border transition-all ${
+                              isInteractive ? 'cursor-pointer hover:border-accent' : 'cursor-default'
+                            } ${isActive ? 'border-accent shadow-2xs ring-1 ring-accent/30' : 'border-border'}`}
+                            title={isInteractive ? `Switch to ${label} reviews` : undefined}
+                          >
+                            <span className="text-[10px] font-medium text-text-muted uppercase">{label}</span>
+                            <span className={`text-sm font-bold ${color}`}>{value}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   );
                 })()}
@@ -15438,21 +15452,94 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   );
                 })()}
 
-                {/* ── FILTER BAR ───────────────────────────────────────────── */}
+                {/* ── DUAL TAB NAVIGATION (Google Reviews 4-5★ vs Local Store Reviews 1-3★) ── */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2.5">
+                  <button
+                    type="button"
+                    onClick={() => { setReviewSourceTab('google'); setReviewRatingFilter('all'); }}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+                      reviewSourceTab === 'google'
+                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-2xs'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-transparent'
+                    }`}
+                  >
+                    <Globe className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>Google Reviews (4–5★)</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      reviewSourceTab === 'google'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-surface-subtle text-text-muted border border-border'
+                    }`}>
+                      {customerReviews.filter(r => (r.rating || 0) >= 4).length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setReviewSourceTab('local_store'); setReviewRatingFilter('all'); }}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+                      reviewSourceTab === 'local_store'
+                        ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30 shadow-2xs'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-transparent'
+                    }`}
+                  >
+                    <Building2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
+                    <span>Local Store Reviews (1–3★)</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      reviewSourceTab === 'local_store'
+                        ? 'bg-rose-600 text-white'
+                        : 'bg-surface-subtle text-text-muted border border-border'
+                    }`}>
+                      {customerReviews.filter(r => (r.rating || 0) <= 3).length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setReviewSourceTab('all'); setReviewRatingFilter('all'); }}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+                      reviewSourceTab === 'all'
+                        ? 'bg-surface text-text-primary border border-border shadow-2xs font-bold'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-transparent'
+                    }`}
+                  >
+                    <span>All Reviews</span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-surface-subtle text-text-muted border border-border font-bold">
+                      {customerReviews.length}
+                    </span>
+                  </button>
+                </div>
+
+                {/* ── SUB-FILTER & SEARCH BAR ───────────────────────────────── */}
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                   <div className="flex items-center gap-1 overflow-x-auto">
+                    {/* Dynamic star rating options based on the active tab */}
                     <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0">
-                      {(['all', 5, 4, 3, 2, 1] as const).map((s) => (
-                        <button key={String(s)} type="button" onClick={() => setReviewRatingFilter(s)}
-                          className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors cursor-pointer flex items-center gap-1 ${reviewRatingFilter === s ? 'bg-amber-500 text-slate-950 font-bold' : 'text-text-secondary hover:text-text-primary'}`}>
-                          {s === 'all' ? 'All' : (
-                            <>
-                              <span>{s}</span>
-                              <Star className="w-2.5 h-2.5 fill-current" />
-                            </>
-                          )}
-                        </button>
-                      ))}
+                      {(() => {
+                        const starOptions = reviewSourceTab === 'google'
+                          ? (['all', 5, 4] as const)
+                          : reviewSourceTab === 'local_store'
+                          ? (['all', 3, 2, 1] as const)
+                          : (['all', 5, 4, 3, 2, 1] as const);
+
+                        return starOptions.map((s) => (
+                          <button
+                            key={String(s)}
+                            type="button"
+                            onClick={() => setReviewRatingFilter(s)}
+                            className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
+                              reviewRatingFilter === s ? 'bg-amber-500 text-slate-950 font-bold' : 'text-text-secondary hover:text-text-primary'
+                            }`}
+                          >
+                            {s === 'all' ? (reviewSourceTab === 'google' ? 'All (4-5★)' : reviewSourceTab === 'local_store' ? 'All (1-3★)' : 'All') : (
+                              <>
+                                <span>{s}</span>
+                                <Star className="w-2.5 h-2.5 fill-current" />
+                              </>
+                            )}
+                          </button>
+                        ));
+                      })()}
                     </div>
                     <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0">
                       {(['all', 'new', 'acknowledged', 'resolved'] as const).map((st) => (
@@ -15473,6 +15560,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* ── REVIEWS TABLE / CARDS ─────────────────────────────────── */}
                 {(() => {
                   const filtered = customerReviews.filter((r) => {
+                    if (reviewSourceTab === 'google' && (r.rating || 0) < 4) return false;
+                    if (reviewSourceTab === 'local_store' && (r.rating || 0) > 3) return false;
                     if (reviewRatingFilter !== 'all' && r.rating !== reviewRatingFilter) return false;
                     if (reviewStatusFilter !== 'all') {
                       if (reviewStatusFilter === 'new' && r.status && r.status !== 'new' && r.status !== 'pending') return false;
@@ -15486,10 +15575,42 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   });
 
                   const empty = (
-                    <div className="py-10 flex flex-col items-center gap-2 text-text-muted text-xs text-center">
-                      <Star className="w-7 h-7 text-text-muted/30 stroke-[1]" />
-                      <p className="font-medium">{loadingReviews ? 'Loading reviews...' : 'No reviews yet'}</p>
-                      {!loadingReviews && <p className="text-[10px] max-w-xs">Share your review link or QR code to start collecting feedback.</p>}
+                    <div className="py-12 flex flex-col items-center gap-2 text-text-muted text-xs text-center px-4">
+                      {reviewSourceTab === 'google' ? (
+                        <>
+                          <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center text-emerald-600">
+                            <Globe className="w-5 h-5 stroke-[1.8]" />
+                          </div>
+                          <p className="font-bold text-text-primary text-sm">
+                            {loadingReviews ? 'Loading reviews...' : 'No Google Reviews (4–5★) Found'}
+                          </p>
+                          {!loadingReviews && (
+                            <p className="text-[11px] text-text-muted max-w-sm">
+                              Reviews rated 4 or 5 stars from your public collector and synced Google Maps reviews will appear here.
+                            </p>
+                          )}
+                        </>
+                      ) : reviewSourceTab === 'local_store' ? (
+                        <>
+                          <div className="w-10 h-10 rounded-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center justify-center text-rose-600">
+                            <Building2 className="w-5 h-5 stroke-[1.8]" />
+                          </div>
+                          <p className="font-bold text-text-primary text-sm">
+                            {loadingReviews ? 'Loading reviews...' : 'No Local Store Reviews (1–3★) Found'}
+                          </p>
+                          {!loadingReviews && (
+                            <p className="text-[11px] text-text-muted max-w-sm">
+                              When customers rate 1 to 3 stars, their private feedback is caught here so you can resolve customer complaints before they post publicly.
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <Star className="w-7 h-7 text-text-muted/30 stroke-[1]" />
+                          <p className="font-medium">{loadingReviews ? 'Loading reviews...' : 'No reviews yet'}</p>
+                          {!loadingReviews && <p className="text-[10px] max-w-xs">Share your review link or QR code to start collecting feedback.</p>}
+                        </>
+                      )}
                     </div>
                   );
 
@@ -15534,7 +15655,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             </span>
                                           )}
                                         </p>
-                                        {rev.customer_phone && <p className="text-[10px] font-mono text-text-muted">{rev.customer_phone}</p>}
+                                        {rev.customer_phone && (
+                                          <a
+                                            href={`tel:${rev.customer_phone}`}
+                                            className="text-[10px] font-mono text-text-muted hover:text-accent flex items-center gap-1 transition-colors"
+                                            title="Click to call customer"
+                                          >
+                                            <Phone className="w-2.5 h-2.5 shrink-0 text-text-muted hover:text-accent" />
+                                            <span>{rev.customer_phone}</span>
+                                          </a>
+                                        )}
                                       </div>
                                     </div>
                                   </td>
@@ -15623,7 +15753,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         </span>
                                       )}
                                     </p>
-                                    {rev.customer_phone && <p className="text-[10px] font-mono text-text-muted">{rev.customer_phone}</p>}
+                                    {rev.customer_phone && (
+                                      <a
+                                        href={`tel:${rev.customer_phone}`}
+                                        className="text-[10px] font-mono text-text-muted hover:text-accent flex items-center gap-1 transition-colors"
+                                        title="Click to call customer"
+                                      >
+                                        <Phone className="w-2.5 h-2.5 shrink-0 text-text-muted" />
+                                        <span>{rev.customer_phone}</span>
+                                      </a>
+                                    )}
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-0.5 shrink-0">
