@@ -238,8 +238,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_uniq ON customers(tenan
                 )
                 ON CONFLICT (tenant_id, phone) DO NOTHING;
             """)
-        if not os.getenv("JWT_SECRET"):
-            logger.warning("jwt_secret_unset_startup_warning", warning="CRITICAL: JWT_SECRET environment variable is not set. Using hardcoded fallback secret.")
+        pass
     except Exception as e:
         logger.error("db_lifespan_init_error", error=str(e))
 
@@ -263,9 +262,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_uniq ON customers(tenan
 app = FastAPI(lifespan=lifespan, title="CRM API")
 
 # --- Auth dependencies ---
-JWT_SECRET = os.getenv("JWT_SECRET", "18d73e947ecf30719ab9a2c4e919fc892f36e5c74207429b4a9e82f5ad0e5e7f")
-if not os.getenv("JWT_SECRET"):
-    logger.warning("jwt_secret_unset_using_fallback", warning="JWT_SECRET is not set in environment! Using default fallback secret key.")
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError("CRITICAL: JWT_SECRET environment variable is not set. A secure secret key is required.")
 ALGORITHM = "HS256"
 
 async def get_tenant_id(
@@ -2499,15 +2498,68 @@ async def send_customer_chat_message(
             raise HTTPException(404, "Customer not found")
 
         phone = cust["phone"]
-        sent = await _dispatch_single_marketing_wa(
-            tenant_id=tenant_id,
-            phone=phone,
-            text=payload.message.strip(),
-            template_name=None,
-            template_params=None
+        # Look up active WhatsApp credentials for direct text dispatch
+        cred_row = await conn.fetchrow(
+            """SELECT credential_data FROM tenant_credentials
+               WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true""",
+            tenant_id
         )
+        creds = {}
+        if cred_row and cred_row["credential_data"]:
+            d = cred_row["credential_data"]
+            if isinstance(d, str):
+                try: d = json.loads(d)
+                except Exception: d = {}
+            creds = dict(d)
 
-    return {"status": "sent" if sent else "failed", "phone": phone, "message": payload.message.strip()}
+        phone_id = creds.get("phone_number_id")
+        token = creds.get("access_token")
+        clean_phone = re.sub(r'[^0-9]', '', str(phone))
+        if len(clean_phone) == 10:
+            clean_phone = f"91{clean_phone}"
+
+        sent = False
+        wa_id = None
+        if phone_id and token and not str(token).startswith("EAAB_test"):
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+            msg_payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": clean_phone,
+                "type": "text",
+                "text": {"preview_url": False, "body": payload.message.strip()}
+            }
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.post(url, headers=headers, json=msg_payload)
+                    if resp.status_code in (200, 201):
+                        sent = True
+                        data = resp.json()
+                        wa_id = data.get("messages", [{}])[0].get("id")
+                    else:
+                        logger.error("direct_customer_chat_dispatch_failed", status=resp.status_code, body=resp.text, phone=clean_phone)
+            except Exception as e:
+                logger.error("direct_customer_chat_dispatch_error", error=str(e), phone=clean_phone)
+
+        # Record outbound message in conversation history and update customer touchpoint
+        conv = await conn.fetchrow(
+            """SELECT id FROM conversations WHERE tenant_id = $1::uuid
+               AND contact_id IN (SELECT id FROM contacts WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($2, 10)))
+               ORDER BY last_message_at DESC NULLS LAST LIMIT 1""",
+            tenant_id, clean_phone
+        )
+        if conv:
+            await conn.execute(
+                """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, status, created_at)
+                   VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, 'outbound', 'text', $4, $5, now())""",
+                conv["id"], tenant_id, wa_id, payload.message.strip(), "sent" if sent else "failed"
+            )
+            await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv["id"], tenant_id)
+
+        await conn.execute("UPDATE customers SET last_messaged_at = now(), updated_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
+
+    return {"status": "sent" if sent else "failed", "phone": phone, "message": payload.message.strip(), "wa_message_id": wa_id}
 
 
 
