@@ -860,6 +860,45 @@ export const crm = {
       body: JSON.stringify({ status }),
     }),
 
+  // Google Business Profile Reviews & Live Reply
+  initGoogleBusinessOAuth: (clientId?: string, clientSecret?: string, source: string = 'dashboard') =>
+    request<{ auth_url: string; redirect_uri: string }>('/api/v1/crm/oauth/google-business/init', {
+      method: 'POST',
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, source }),
+    }),
+
+  getGoogleBusinessStatus: () =>
+    request<GoogleBusinessStatus>('/api/v1/crm/reviews/google/status'),
+
+  syncGoogleReviews: () =>
+    request<{ status: string; synced_count: number; total_google_reviews: number; average_rating?: number }>(
+      '/api/v1/crm/reviews/google/sync',
+      { method: 'POST' }
+    ),
+
+  replyToGoogleReview: (reviewId: string, comment: string) =>
+    request<{ status: string; message: string; comment: string }>(
+      `/api/v1/crm/reviews/${reviewId}/google-reply`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ comment }),
+      }
+    ),
+
+  draftAiReply: (reviewId: string, tone: 'grateful' | 'apology' | 'brief' = 'grateful') =>
+    request<{ status: string; draft: string }>(
+      `/api/v1/crm/reviews/${reviewId}/ai-reply-draft`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ tone }),
+      }
+    ),
+
+  disconnectGoogleBusiness: () =>
+    request<{ status: string; message: string }>('/api/v1/crm/reviews/google/disconnect', {
+      method: 'POST',
+    }),
+
   // Customer Follow-up & Tasks
   getCustomers: async (filters?: {
     status?: string;
@@ -1199,9 +1238,24 @@ export interface CustomerReview {
   rating: number;
   experience_notes?: string;
   generated_review_text?: string;
-  destination: 'gmb' | 'crm_internal';
+  destination: 'gmb' | 'crm_internal' | 'google_business';
   status: 'pending' | 'resolved' | 'acknowledged';
   created_at: string;
+  google_review_id?: string;
+  reviewer_photo_url?: string;
+  owner_reply_text?: string;
+  owner_replied_at?: string;
+  source?: 'direct_collector' | 'google_business';
+}
+
+export interface GoogleBusinessStatus {
+  is_connected: boolean;
+  account_name?: string;
+  location_name?: string;
+  location_title?: string;
+  last_synced_at?: string;
+  connected_at?: string;
+  google_reviews_count?: number;
 }
 
 export type TenantSettingsUpdate = Partial<TenantSettingsResponse>;

@@ -30,6 +30,7 @@ import {
   registerTenantSlug,
   getCachedTenantId,
   CrmDropdownOptions,
+  GoogleBusinessStatus,
 } from '@/lib/api';
 import { ModernCustomerView } from '@/components/dashboard/ModernCustomerView';
 import {
@@ -2087,6 +2088,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [reviewCopied, setReviewCopied] = useState(false);
   const [reviewServicesSaved, setReviewServicesSaved] = useState(false);
   const [reviewTagsSaved, setReviewTagsSaved] = useState(false);
+
+  // Google Business Profile Reviews Integration State
+  const [googleBusinessStatus, setGoogleBusinessStatus] = useState<GoogleBusinessStatus | null>(null);
+  const [syncingGoogleReviews, setSyncingGoogleReviews] = useState(false);
+  const [googleConnectModalOpen, setGoogleConnectModalOpen] = useState(false);
+  const [googleClientId, setGoogleClientId] = useState('');
+  const [googleClientSecret, setGoogleClientSecret] = useState('');
+  const [connectingGoogleBusiness, setConnectingGoogleBusiness] = useState(false);
+  const [activeReplyReview, setActiveReplyReview] = useState<CustomerReview | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [replyLoading, setReplyLoading] = useState(false);
+  const [replyAiLoading, setReplyAiLoading] = useState(false);
+  const [replyError, setReplyError] = useState('');
+  const [replySuccessMsg, setReplySuccessMsg] = useState('');
 
 
   // Customer WhatsApp Chat in Detail Drawer
@@ -4208,12 +4223,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           }
         }
 
-        // Load Reviews when on reviews tab
+        // Load Reviews & Google Business Status when on reviews tab
         if (activeNav === 'reviews') {
           try {
-            const revRes = await crm.getCustomerReviews();
-            if (isMounted && Array.isArray(revRes?.reviews)) {
-              setCustomerReviews(revRes.reviews);
+            const [revRes, gStatus] = await Promise.allSettled([
+              crm.getCustomerReviews(),
+              crm.getGoogleBusinessStatus(),
+            ]);
+            if (isMounted && revRes.status === 'fulfilled' && Array.isArray(revRes.value?.reviews)) {
+              setCustomerReviews(revRes.value.reviews);
+            }
+            if (isMounted && gStatus.status === 'fulfilled' && gStatus.value) {
+              setGoogleBusinessStatus(gStatus.value);
             }
           } catch {}
         }
@@ -5278,6 +5299,78 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       );
     } catch (err) {
       console.error('Failed to update review status:', err);
+    }
+  }
+
+  async function handleConnectGoogleBusiness(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    setConnectingGoogleBusiness(true);
+    try {
+      const res = await crm.initGoogleBusinessOAuth(googleClientId.trim(), googleClientSecret.trim());
+      if (res && res.auth_url) {
+        window.location.href = res.auth_url;
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to initiate Google connection.');
+    } finally {
+      setConnectingGoogleBusiness(false);
+    }
+  }
+
+  async function handleSyncGoogleReviews() {
+    setSyncingGoogleReviews(true);
+    try {
+      const syncRes = await crm.syncGoogleReviews();
+      const fresh = await crm.getCustomerReviews();
+      if (fresh?.reviews) setCustomerReviews(fresh.reviews);
+      const st = await crm.getGoogleBusinessStatus();
+      setGoogleBusinessStatus(st);
+      alert(`Synced ${syncRes.synced_count} reviews from Google Business Profile!`);
+    } catch (err: any) {
+      alert(err?.message || 'Failed to sync Google reviews. Ensure Google My Business API access is approved for your project.');
+    } finally {
+      setSyncingGoogleReviews(false);
+    }
+  }
+
+  async function handlePostGoogleReply() {
+    if (!activeReplyReview || !replyText.trim()) return;
+    setReplyLoading(true);
+    setReplyError('');
+    try {
+      await crm.replyToGoogleReview(activeReplyReview.id, replyText.trim());
+      setCustomerReviews((prev) =>
+        prev.map((r) =>
+          r.id === activeReplyReview.id
+            ? { ...r, owner_reply_text: replyText.trim(), owner_replied_at: new Date().toISOString(), status: 'resolved' }
+            : r
+        )
+      );
+      setReplySuccessMsg('Reply published successfully!');
+      setTimeout(() => {
+        setReplySuccessMsg('');
+        setActiveReplyReview(null);
+        setReplyText('');
+      }, 1200);
+    } catch (err: any) {
+      setReplyError(err?.message || 'Failed to publish reply to Google.');
+    } finally {
+      setReplyLoading(false);
+    }
+  }
+
+  async function handleGenerateAiReplyDraft(tone: 'grateful' | 'apology' | 'brief') {
+    if (!activeReplyReview) return;
+    setReplyAiLoading(true);
+    try {
+      const res = await crm.draftAiReply(activeReplyReview.id, tone);
+      if (res && res.draft) {
+        setReplyText(res.draft);
+      }
+    } catch (err) {
+      console.error('Failed to generate AI reply draft:', err);
+    } finally {
+      setReplyAiLoading(false);
     }
   }
 
@@ -15072,7 +15165,32 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     Customer Reviews & GMB Hub
                   </h2>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <div className="hidden sm:block px-2 py-1 bg-surface-subtle border border-border rounded text-[10px] font-mono text-text-muted truncate max-w-[220px] select-all">
+                    {/* Google Business Profile Connection & Live Sync */}
+                    {googleBusinessStatus?.is_connected ? (
+                      <button
+                        type="button"
+                        onClick={handleSyncGoogleReviews}
+                        disabled={syncingGoogleReviews}
+                        className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 rounded-md text-[10px] font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+                        title="Google Business Profile connected. Click to sync latest reviews from Google Maps."
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="hidden sm:inline font-bold">{googleBusinessStatus.location_title || 'Google Maps'}</span>
+                        <RefreshCw className={`w-3 h-3 text-emerald-600 dark:text-emerald-400 ${syncingGoogleReviews ? 'animate-spin' : ''}`} />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setGoogleConnectModalOpen(true)}
+                        className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border hover:border-blue-400 text-text-secondary hover:text-blue-600 rounded-md text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                        title="Connect Google Business Profile to sync reviews and reply live"
+                      >
+                        <Globe className="w-3 h-3 text-blue-500" />
+                        <span className="hidden sm:inline">Connect Google</span>
+                      </button>
+                    )}
+
+                    <div className="hidden sm:block px-2 py-1 bg-surface-subtle border border-border rounded text-[10px] font-mono text-text-muted truncate max-w-[200px] select-all">
                       {typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `/${settingsForm.slug || 'tenant'}/review`}
                     </div>
                     <button
@@ -15395,30 +15513,76 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <tr><td colSpan={6}>{empty}</td></tr>
                             ) : filtered.map((rev) => {
                               const isHigh = (rev.rating || 0) >= 4;
+                              const isGoogle = rev.source === 'google_business' || Boolean(rev.google_review_id);
                               return (
                                 <tr key={rev.id} className="hover:bg-surface-subtle/40 transition-colors">
                                   <td className="px-3 py-2.5 whitespace-nowrap">
-                                    <p className="font-medium text-text-primary text-xs">{rev.customer_name || 'Anonymous'}</p>
-                                    {rev.customer_phone && <p className="text-[10px] font-mono text-text-muted">{rev.customer_phone}</p>}
+                                    <div className="flex items-center gap-2">
+                                      {rev.reviewer_photo_url ? (
+                                        <img src={rev.reviewer_photo_url} alt="" className="w-6 h-6 rounded-full shrink-0 border border-border object-cover" />
+                                      ) : (
+                                        <div className="w-6 h-6 rounded-full bg-surface-subtle border border-border flex items-center justify-center text-[10px] font-bold text-text-secondary shrink-0">
+                                          {(rev.customer_name || 'C').charAt(0).toUpperCase()}
+                                        </div>
+                                      )}
+                                      <div>
+                                        <p className="font-medium text-text-primary text-xs flex items-center gap-1">
+                                          <span>{rev.customer_name || 'Anonymous'}</span>
+                                          {isGoogle && (
+                                            <span className="text-[9px] px-1.5 py-0.2 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 rounded font-semibold border border-blue-200/60">
+                                              Google
+                                            </span>
+                                          )}
+                                        </p>
+                                        {rev.customer_phone && <p className="text-[10px] font-mono text-text-muted">{rev.customer_phone}</p>}
+                                      </div>
+                                    </div>
                                   </td>
                                   <td className="px-3 py-2.5 whitespace-nowrap">
                                     <div className="flex items-center gap-0.5">{Array.from({length:5}).map((_,i)=><Star key={i} className={`w-2.5 h-2.5 ${i<(rev.rating||0)?'fill-amber-400 text-amber-500':'text-border'}`}/>)}<span className="ml-1 font-bold text-xs text-text-primary">{rev.rating}</span></div>
-                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium mt-0.5 inline-block ${isHigh ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
-                                      {isHigh ? 'Google Review' : 'Private Feedback'}
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium mt-0.5 inline-block ${
+                                      isGoogle
+                                        ? 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300'
+                                        : isHigh
+                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                        : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                    }`}>
+                                      {isGoogle ? 'Google Maps' : isHigh ? 'Google Review' : 'Private Feedback'}
                                     </span>
                                   </td>
                                   <td className="px-3 py-2.5 whitespace-nowrap">
                                     <span className="px-1.5 py-0.5 bg-surface-subtle rounded border border-border text-[10px] text-text-secondary">{rev.service_name || 'General'}</span>
                                   </td>
-                                  <td className="px-3 py-2.5 max-w-xs">
+                                  <td className="px-3 py-2.5 max-w-sm">
                                     {rev.generated_review_text && <p className="text-xs text-text-primary italic leading-snug">"{rev.generated_review_text}"</p>}
-                                    {rev.experience_notes && <p className="text-[10px] text-rose-700 mt-0.5"><strong>Note: </strong>{rev.experience_notes}</p>}
+                                    {rev.experience_notes && rev.experience_notes !== rev.generated_review_text && (
+                                      <p className="text-[10px] text-rose-700 mt-0.5"><strong>Note: </strong>{rev.experience_notes}</p>
+                                    )}
+                                    {rev.owner_reply_text && (
+                                      <div className="mt-1 p-1.5 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-800/40 rounded text-[10px] text-blue-950 dark:text-blue-200">
+                                        <span className="font-semibold text-blue-700 dark:text-blue-300">Your Reply: </span>
+                                        <span>"{rev.owner_reply_text}"</span>
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="px-3 py-2.5 whitespace-nowrap font-mono text-[10px] text-text-muted">
                                     {rev.created_at ? new Date(rev.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : 'Recent'}
                                   </td>
                                   <td className="px-3 py-2.5 text-right whitespace-nowrap">
                                     <div className="flex items-center justify-end gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setActiveReplyReview(rev);
+                                          setReplyText(rev.owner_reply_text || '');
+                                          setReplyError('');
+                                        }}
+                                        className="px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer bg-surface-subtle text-text-primary border border-border hover:bg-border/60 flex items-center gap-1"
+                                        title={rev.owner_reply_text ? 'Edit your reply' : 'Reply to review'}
+                                      >
+                                        <MessageSquare className="w-2.5 h-2.5 text-accent" />
+                                        <span>{rev.owner_reply_text ? 'Edit Reply' : 'Reply'}</span>
+                                      </button>
                                       <button type="button" onClick={() => handleUpdateReviewStatus(rev.id, 'acknowledged')}
                                         className={`px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer ${rev.status==='acknowledged'?'bg-blue-100 text-blue-800 border border-blue-300':'bg-surface-subtle text-text-secondary border border-border hover:bg-border/60'}`}>Ack</button>
                                       <button type="button" onClick={() => handleUpdateReviewStatus(rev.id, 'resolved')}
@@ -15438,23 +15602,68 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <div className="md:hidden divide-y divide-border">
                         {(loadingReviews || filtered.length === 0) ? empty : filtered.map((rev) => {
                           const isHigh = (rev.rating || 0) >= 4;
+                          const isGoogle = rev.source === 'google_business' || Boolean(rev.google_review_id);
                           return (
                             <div key={rev.id} className="p-3 space-y-2">
                               <div className="flex items-start justify-between gap-2">
-                                <div>
-                                  <p className="text-xs font-semibold text-text-primary">{rev.customer_name || 'Anonymous'}</p>
-                                  {rev.customer_phone && <p className="text-[10px] font-mono text-text-muted">{rev.customer_phone}</p>}
+                                <div className="flex items-center gap-2">
+                                  {rev.reviewer_photo_url ? (
+                                    <img src={rev.reviewer_photo_url} alt="" className="w-6 h-6 rounded-full shrink-0 border border-border object-cover" />
+                                  ) : (
+                                    <div className="w-6 h-6 rounded-full bg-surface-subtle border border-border flex items-center justify-center text-[10px] font-bold text-text-secondary shrink-0">
+                                      {(rev.customer_name || 'C').charAt(0).toUpperCase()}
+                                    </div>
+                                  )}
+                                  <div>
+                                    <p className="text-xs font-semibold text-text-primary flex items-center gap-1">
+                                      <span>{rev.customer_name || 'Anonymous'}</span>
+                                      {isGoogle && (
+                                        <span className="text-[9px] px-1 py-0.2 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 rounded font-semibold border border-blue-200/60">
+                                          Google
+                                        </span>
+                                      )}
+                                    </p>
+                                    {rev.customer_phone && <p className="text-[10px] font-mono text-text-muted">{rev.customer_phone}</p>}
+                                  </div>
                                 </div>
                                 <div className="flex items-center gap-0.5 shrink-0">
                                   {Array.from({length:5}).map((_,i)=><Star key={i} className={`w-2.5 h-2.5 ${i<(rev.rating||0)?'fill-amber-400 text-amber-500':'text-border'}`}/>)}
-                                  <span className={`ml-1.5 text-[10px] px-2 py-0.5 rounded-full font-medium ${isHigh?'bg-emerald-50 text-emerald-700':'bg-rose-50 text-rose-700'}`}>{isHigh?'Google Review':'Private Feedback'}</span>
+                                  <span className={`ml-1.5 text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                                    isGoogle
+                                      ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                      : isHigh
+                                      ? 'bg-emerald-50 text-emerald-700'
+                                      : 'bg-rose-50 text-rose-700'
+                                  }`}>
+                                    {isGoogle ? 'Google Maps' : isHigh ? 'Google Review' : 'Private Feedback'}
+                                  </span>
                                 </div>
                               </div>
                               {rev.generated_review_text && <p className="text-xs italic text-text-primary">"{rev.generated_review_text}"</p>}
-                              {rev.experience_notes && <p className="text-[10px] text-rose-700"><strong>Note: </strong>{rev.experience_notes}</p>}
+                              {rev.experience_notes && rev.experience_notes !== rev.generated_review_text && (
+                                <p className="text-[10px] text-rose-700"><strong>Note: </strong>{rev.experience_notes}</p>
+                              )}
+                              {rev.owner_reply_text && (
+                                <div className="p-1.5 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/70 rounded text-[10px] text-blue-950 dark:text-blue-200">
+                                  <span className="font-semibold text-blue-700 dark:text-blue-300">Your Reply: </span>
+                                  <span>"{rev.owner_reply_text}"</span>
+                                </div>
+                              )}
                               <div className="flex items-center justify-between">
                                 <span className="text-[10px] text-text-muted font-mono">{rev.created_at ? new Date(rev.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : 'Recent'}</span>
-                                <div className="flex gap-1.5">
+                                <div className="flex gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveReplyReview(rev);
+                                      setReplyText(rev.owner_reply_text || '');
+                                      setReplyError('');
+                                    }}
+                                    className="px-2 py-1 rounded text-[10px] font-semibold cursor-pointer border border-border bg-surface-subtle text-text-primary flex items-center gap-1"
+                                  >
+                                    <MessageSquare className="w-2.5 h-2.5 text-accent" />
+                                    <span>{rev.owner_reply_text ? 'Edit' : 'Reply'}</span>
+                                  </button>
                                   <button type="button" onClick={() => handleUpdateReviewStatus(rev.id,'acknowledged')} className={`px-2 py-1 rounded text-[10px] font-semibold cursor-pointer border ${rev.status==='acknowledged'?'bg-blue-100 text-blue-800 border-blue-300':'bg-surface-subtle text-text-secondary border-border'}`}>Ack</button>
                                   <button type="button" onClick={() => handleUpdateReviewStatus(rev.id,'resolved')} className={`px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer ${rev.status==='resolved'?'bg-emerald-600 text-white':'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>{rev.status==='resolved'?'Done':'Resolve'}</button>
                                 </div>
@@ -15464,6 +15673,230 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         })}
                       </div>
                     </div>
+                  );
+                })()}
+
+                {/* ── GOOGLE REVIEW REPLY MODAL ─────────────────────────────── */}
+                {activeReplyReview && (
+                  <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+                    <div className="bg-surface border border-border rounded-xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                      {/* Header */}
+                      <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface-subtle">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                            <Globe className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h3 className="text-xs font-bold text-text-primary">
+                              {activeReplyReview.source === 'google_business' ? 'Reply to Google Review' : 'Respond to Customer Feedback'}
+                            </h3>
+                            <p className="text-[10px] text-text-muted">
+                              {activeReplyReview.source === 'google_business' ? 'Publishes live on Google Search & Google Maps' : 'Record official resolution note'}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { setActiveReplyReview(null); setReplyText(''); setReplyError(''); }}
+                          className="text-text-muted hover:text-text-primary p-1 rounded hover:bg-surface"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      {/* Review Summary Box */}
+                      <div className="p-4 space-y-3">
+                        <div className="p-3 bg-surface-subtle rounded-lg border border-border space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              {activeReplyReview.reviewer_photo_url ? (
+                                <img src={activeReplyReview.reviewer_photo_url} alt="" className="w-6 h-6 rounded-full border border-border object-cover" />
+                              ) : (
+                                <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold">
+                                  {(activeReplyReview.customer_name || 'C').charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                              <span className="text-xs font-bold text-text-primary">{activeReplyReview.customer_name || 'Anonymous'}</span>
+                            </div>
+                            <div className="flex items-center gap-0.5">
+                              {Array.from({ length: 5 }).map((_, i) => (
+                                <Star key={i} className={`w-3 h-3 ${i < (activeReplyReview.rating || 0) ? 'fill-amber-400 text-amber-500' : 'text-border'}`} />
+                              ))}
+                            </div>
+                          </div>
+                          <p className="text-xs text-text-secondary italic">
+                            "{activeReplyReview.generated_review_text || activeReplyReview.experience_notes || 'No comment provided.'}"
+                          </p>
+                        </div>
+
+                        {/* AI Quick Reply Draft Buttons */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="font-semibold text-text-secondary flex items-center gap-1">
+                              <Sparkles className="w-3 h-3 text-violet-500" />
+                              AI Draft Suggestions
+                            </span>
+                            {replyAiLoading && <span className="text-[10px] text-violet-500 animate-pulse">Drafting...</span>}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateAiReplyDraft('grateful')}
+                              disabled={replyAiLoading}
+                              className="px-2.5 py-1 rounded-md bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 text-[10px] font-semibold transition-colors cursor-pointer"
+                            >
+                              Professional & Grateful
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateAiReplyDraft('warm')}
+                              disabled={replyAiLoading}
+                              className="px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-semibold transition-colors cursor-pointer"
+                            >
+                              Warm & Brief
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateAiReplyDraft('apology')}
+                              disabled={replyAiLoading}
+                              className="px-2.5 py-1 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-semibold transition-colors cursor-pointer"
+                            >
+                              Polite Resolution & Apology
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Text Area */}
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-semibold text-text-secondary">
+                            Your Response {activeReplyReview.source === 'google_business' && <span className="text-text-muted font-normal">(visible publicly on Google)</span>}
+                          </label>
+                          <textarea
+                            rows={4}
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            placeholder="Type your official owner response..."
+                            className="w-full p-2.5 bg-surface border border-border rounded-lg text-xs text-text-primary focus:outline-none focus:border-accent resize-none leading-relaxed"
+                          />
+                        </div>
+
+                        {replyError && (
+                          <p className="text-[11px] text-rose-600 bg-rose-50 p-2 rounded border border-rose-200">{replyError}</p>
+                        )}
+                        {replySuccessMsg && (
+                          <p className="text-[11px] text-emerald-600 bg-emerald-50 p-2 rounded border border-emerald-200">{replySuccessMsg}</p>
+                        )}
+                      </div>
+
+                      {/* Footer Actions */}
+                      <div className="px-4 py-3 bg-surface-subtle border-t border-border flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setActiveReplyReview(null); setReplyText(''); setReplyError(''); }}
+                          className="px-3 py-1.5 rounded-md border border-border text-xs font-semibold text-text-secondary hover:bg-border/60 transition-colors cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handlePostGoogleReply}
+                          disabled={replyLoading || !replyText.trim()}
+                          className="px-4 py-1.5 rounded-md bg-accent hover:opacity-90 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                        >
+                          {replyLoading ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Send className="w-3.5 h-3.5" />
+                          )}
+                          <span>{activeReplyReview.source === 'google_business' ? 'Publish to Google Maps' : 'Save Response'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── GOOGLE BUSINESS CONNECT MODAL ─────────────────────────── */}
+                {googleConnectModalOpen && (
+                  <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+                    <div className="bg-surface border border-border rounded-xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                      <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface-subtle">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600">
+                            <Globe className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h3 className="text-xs font-bold text-text-primary">Connect Google Business Profile</h3>
+                            <p className="text-[10px] text-text-muted">Manage Google Maps reviews & publish replies live</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setGoogleConnectModalOpen(false)}
+                          className="text-text-muted hover:text-text-primary p-1 rounded hover:bg-surface"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <form onSubmit={handleConnectGoogleBusiness} className="p-4 space-y-3">
+                        <p className="text-xs text-text-secondary leading-relaxed">
+                          Authenticate with your Google Account that manages your Google Business listing to enable live review sync and owner replies.
+                        </p>
+
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-semibold text-text-secondary">
+                            Google Client ID <span className="text-[10px] font-normal text-text-muted">(from Google Cloud project)</span>
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. 123456789-abc.apps.googleusercontent.com"
+                            value={googleClientId}
+                            onChange={(e) => setGoogleClientId(e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-surface border border-border rounded text-xs font-mono text-text-primary focus:outline-none focus:border-accent"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-semibold text-text-secondary">
+                            Google Client Secret
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="GOCSPX-..."
+                            value={googleClientSecret}
+                            onChange={(e) => setGoogleClientSecret(e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-surface border border-border rounded text-xs font-mono text-text-primary focus:outline-none focus:border-accent"
+                          />
+                        </div>
+
+                        <div className="p-2.5 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200/60 dark:border-blue-800/40 space-y-1">
+                          <span className="text-[10px] font-bold text-blue-800 dark:text-blue-300 block">Required Redirect URI:</span>
+                          <code className="text-[10px] font-mono text-blue-900 dark:text-blue-200 break-all select-all block bg-white dark:bg-slate-900 p-1 rounded border border-blue-200/40">
+                            https://crm.goboldlabs.com/api/v1/crm/oauth/google-business/callback
+                          </code>
+                        </div>
+
+                        <div className="pt-2 flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setGoogleConnectModalOpen(false)}
+                            className="px-3 py-1.5 rounded-md border border-border text-xs font-semibold text-text-secondary hover:bg-border/60 transition-colors cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={connectingGoogleBusiness}
+                            className="px-4 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                          >
+                            {connectingGoogleBusiness ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Globe className="w-3 h-3" />}
+                            <span>Authorize with Google</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
                   );
                 })()}
 

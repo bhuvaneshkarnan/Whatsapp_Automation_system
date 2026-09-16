@@ -185,6 +185,12 @@ CREATE TABLE IF NOT EXISTS customer_reviews (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_customer_reviews_tenant ON customer_reviews(tenant_id, created_at DESC);
+ALTER TABLE customer_reviews ADD COLUMN IF NOT EXISTS google_review_id TEXT;
+ALTER TABLE customer_reviews ADD COLUMN IF NOT EXISTS reviewer_photo_url TEXT;
+ALTER TABLE customer_reviews ADD COLUMN IF NOT EXISTS owner_reply_text TEXT;
+ALTER TABLE customer_reviews ADD COLUMN IF NOT EXISTS owner_replied_at TIMESTAMPTZ;
+ALTER TABLE customer_reviews ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'direct_collector';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_reviews_google_uniq ON customer_reviews(tenant_id, google_review_id) WHERE google_review_id IS NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_uniq ON customers(tenant_id, phone);
                 CREATE INDEX IF NOT EXISTS idx_contacts_clean_phone ON contacts (tenant_id, (RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10)));
@@ -11104,7 +11110,7 @@ async def list_customer_reviews(
             idx += 1
 
         where_clause = " WHERE " + " AND ".join(conditions)
-        query = f"SELECT id::text, tenant_id::text, customer_name, customer_phone, service_name, rating, experience_notes, generated_review_text, destination, status, created_at::text FROM customer_reviews {where_clause} ORDER BY created_at DESC LIMIT ${idx} OFFSET ${idx+1}"
+        query = f"SELECT id::text, tenant_id::text, customer_name, customer_phone, service_name, rating, experience_notes, generated_review_text, destination, status, created_at::text, COALESCE(google_review_id, '') AS google_review_id, COALESCE(reviewer_photo_url, '') AS reviewer_photo_url, COALESCE(owner_reply_text, '') AS owner_reply_text, owner_replied_at::text, COALESCE(source, 'direct_collector') AS source FROM customer_reviews {where_clause} ORDER BY created_at DESC LIMIT ${idx} OFFSET ${idx+1}"
         params.extend([limit, offset])
 
         rows = await conn.fetch(query, *params)
@@ -11137,3 +11143,496 @@ async def update_customer_review_status(
         if not row:
             raise HTTPException(status_code=404, detail="Review record not found.")
         return {"status": "ok", "review_id": str(row["id"]), "new_status": row["status"]}
+
+
+# ── Google Business Profile (GMB) Reviews & Live Reply API ───────────────────────
+
+GOOGLE_BUSINESS_REDIRECT_URI = os.getenv(
+    "GOOGLE_BUSINESS_REDIRECT_URI",
+    f"{APP_BASE_URL}/api/v1/crm/oauth/google-business/callback"
+)
+
+class GoogleBusinessOAuthInitPayload(BaseModel):
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    source: Optional[str] = "dashboard"
+
+class GoogleReviewReplyPayload(BaseModel):
+    comment: str
+
+class AiReplyDraftPayload(BaseModel):
+    tone: Optional[str] = "grateful"  # "grateful", "apology", "brief"
+
+
+async def get_google_business_access_token(conn, tenant_id: str) -> tuple[str, dict]:
+    """Retrieve and refresh Google Business access token if expired."""
+    row = await conn.fetchrow(
+        "SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_business' AND is_active = true",
+        tenant_id
+    )
+    if not row or not row["credential_data"]:
+        raise HTTPException(status_code=400, detail="Google Business Profile is not connected for this business.")
+
+    data = safe_json_loads(row["credential_data"], {})
+    refresh_token = data.get("refresh_token")
+    client_id = data.get("client_id") or os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = data.get("client_secret") or os.getenv("GOOGLE_CLIENT_SECRET")
+
+    if not refresh_token or not client_id or not client_secret:
+        raise HTTPException(status_code=400, detail="Google Business OAuth credentials incomplete.")
+
+    expiry = data.get("token_expiry", 0)
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    if data.get("access_token") and expiry > (now_ts + 60):
+        return data["access_token"], data
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token"
+            }
+        )
+        if resp.status_code != 200:
+            logger.error("google_business_token_refresh_failed", status=resp.status_code, body=resp.text)
+            raise HTTPException(status_code=400, detail=f"Failed to refresh Google token: {resp.text}")
+
+        token_data = resp.json()
+        new_access_token = token_data.get("access_token")
+        expires_in = token_data.get("expires_in", 3600)
+        data["access_token"] = new_access_token
+        data["token_expiry"] = now_ts + expires_in
+
+        await conn.execute(
+            "UPDATE tenant_credentials SET credential_data = $1::jsonb WHERE id = $2::uuid",
+            json.dumps(data), row["id"]
+        )
+        return new_access_token, data
+
+
+@app.post("/oauth/google-business/init")
+@app.post("/api/v1/crm/oauth/google-business/init")
+async def init_google_business_oauth(
+    payload: GoogleBusinessOAuthInitPayload,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Save Google Client ID & Secret, and generate Google OAuth authorization URL for Google Business Profile."""
+    c_id = (payload.client_id or os.getenv("GOOGLE_CLIENT_ID", "")).strip()
+    c_sec = (payload.client_secret or os.getenv("GOOGLE_CLIENT_SECRET", "")).strip()
+    if not c_id or not c_sec:
+        raise HTTPException(400, "Google Client ID and Client Secret are required.")
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_business'",
+            tenant_id
+        )
+        data = safe_json_loads(row["credential_data"] if row else {}, {})
+        data["client_id"] = c_id
+        data["client_secret"] = c_sec
+        g_id = str(row["id"]) if row else str(uuid.uuid4())
+
+        if row:
+            await conn.execute(
+                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid",
+                json.dumps(data), g_id
+            )
+        else:
+            await conn.execute(
+                "INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'google_business', $3::jsonb, true)",
+                g_id, tenant_id, json.dumps(data)
+            )
+
+    scopes = "https://www.googleapis.com/auth/business.manage openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"
+
+    state_nonce = os.urandom(16).hex()
+    state_exp = int(datetime.now(timezone.utc).timestamp()) + 600
+    state_dict = {
+        "tenant_id": tenant_id,
+        "source": (payload.source or "dashboard").strip(),
+        "nonce": state_nonce,
+        "exp": state_exp
+    }
+    state_raw = json.dumps(state_dict, separators=(',', ':'))
+    state_b64 = base64.urlsafe_b64encode(state_raw.encode("utf-8")).decode("utf-8").rstrip("=")
+    state_sig = hmac.new(JWT_SECRET.encode("utf-8"), state_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+    state_payload = f"{state_b64}.{state_sig}"
+
+    auth_url = (
+        f"https://accounts.google.com/o/oauth2/v2/auth?"
+        f"client_id={c_id}&"
+        f"redirect_uri={GOOGLE_BUSINESS_REDIRECT_URI}&"
+        f"response_type=code&"
+        f"scope={scopes}&"
+        f"access_type=offline&"
+        f"prompt=consent&"
+        f"state={state_payload}"
+    )
+    return {"auth_url": auth_url, "redirect_uri": GOOGLE_BUSINESS_REDIRECT_URI}
+
+
+@app.get("/oauth/google-business/callback")
+@app.get("/api/v1/crm/oauth/google-business/callback")
+async def google_business_oauth_callback(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None
+):
+    """OAuth callback for Google Business Profile: exchange code for refresh token and auto-discover business location."""
+    if not state or "." not in state:
+        raise HTTPException(400, "Invalid or missing OAuth state parameter.")
+    try:
+        parts = state.split(".", 1)
+        state_b64, state_sig = parts[0], parts[1]
+        expected_sig = hmac.new(JWT_SECRET.encode("utf-8"), state_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected_sig, state_sig):
+            raise HTTPException(400, "OAuth state signature verification failed.")
+        padded_b64 = state_b64 + "=" * ((4 - len(state_b64) % 4) % 4)
+        state_data = json.loads(base64.urlsafe_b64decode(padded_b64.encode("utf-8")).decode("utf-8"))
+    except Exception as e:
+        raise HTTPException(400, f"Invalid OAuth state: {str(e)}")
+
+    tenant_id = state_data.get("tenant_id")
+    if not tenant_id:
+        raise HTTPException(400, "Missing tenant ID in OAuth state.")
+
+    async with db_pool.acquire() as conn:
+        tenant_slug = await conn.fetchval("SELECT slug FROM tenants WHERE id = $1::uuid", tenant_id)
+        base_redir = f"{APP_BASE_URL}/{tenant_slug}" if tenant_slug else f"{APP_BASE_URL}/dashboard"
+
+        if error or not code:
+            return RedirectResponse(f"{base_redir}?gmb_error={error or 'cancelled'}")
+
+        row = await conn.fetchrow(
+            "SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_business'",
+            tenant_id
+        )
+        if not row:
+            return RedirectResponse(f"{base_redir}?gmb_error=missing_credentials")
+
+        cdata = safe_json_loads(row["credential_data"], {})
+        c_id = cdata.get("client_id")
+        c_sec = cdata.get("client_secret")
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            token_resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": c_id,
+                    "client_secret": c_sec,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": GOOGLE_BUSINESS_REDIRECT_URI,
+                }
+            )
+            if token_resp.status_code != 200:
+                logger.error("google_business_token_exchange_failed", status=token_resp.status_code, body=token_resp.text)
+                return RedirectResponse(f"{base_redir}?gmb_error=token_exchange_failed")
+
+            tjson = token_resp.json()
+            access_token = tjson.get("access_token")
+            refresh_token = tjson.get("refresh_token") or cdata.get("refresh_token")
+            expires_in = tjson.get("expires_in", 3600)
+            now_ts = int(datetime.now(timezone.utc).timestamp())
+
+            cdata["access_token"] = access_token
+            cdata["refresh_token"] = refresh_token
+            cdata["token_expiry"] = now_ts + expires_in
+            cdata["connected_at"] = datetime.now(timezone.utc).isoformat()
+
+            account_name = ""
+            location_name = ""
+            location_title = ""
+            try:
+                acc_resp = await client.get(
+                    "https://mybusinessaccountmanagement.googleapis.com/v1/accounts",
+                    headers={"Authorization": f"Bearer {access_token}"}
+                )
+                if acc_resp.status_code == 200:
+                    accounts = acc_resp.json().get("accounts", [])
+                    if accounts:
+                        account_name = accounts[0].get("name", "")
+                        loc_resp = await client.get(
+                            f"https://mybusinessbusinessinformation.googleapis.com/v1/{account_name}/locations?readMask=name,title,storefrontAddress",
+                            headers={"Authorization": f"Bearer {access_token}"}
+                        )
+                        if loc_resp.status_code == 200:
+                            locations = loc_resp.json().get("locations", [])
+                            if locations:
+                                location_name = locations[0].get("name", "")
+                                location_title = locations[0].get("title", "")
+            except Exception as e:
+                logger.warning("google_business_account_discovery_error", error=str(e))
+
+            cdata["account_name"] = account_name
+            cdata["location_name"] = location_name
+            cdata["location_title"] = location_title
+
+            await conn.execute(
+                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true, updated_at = now() WHERE id = $2::uuid",
+                json.dumps(cdata), row["id"]
+            )
+
+        return RedirectResponse(f"{base_redir}?gmb=connected")
+
+
+@app.get("/reviews/google/status")
+@app.get("/api/v1/crm/reviews/google/status")
+async def get_google_business_status(tenant_id: str = Depends(get_tenant_id)):
+    """Check whether Google Business Profile is connected and review counts."""
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, credential_data, is_active FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_business'",
+            tenant_id
+        )
+        if not row or not row["is_active"]:
+            return {"is_connected": False}
+
+        cdata = safe_json_loads(row["credential_data"], {})
+        is_conn = bool(cdata.get("refresh_token"))
+        google_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM customer_reviews WHERE tenant_id = $1::uuid AND source = 'google_business'",
+            tenant_id
+        )
+        return {
+            "is_connected": is_conn,
+            "account_name": cdata.get("account_name", ""),
+            "location_name": cdata.get("location_name", ""),
+            "location_title": cdata.get("location_title", ""),
+            "last_synced_at": cdata.get("last_synced_at", ""),
+            "connected_at": cdata.get("connected_at", ""),
+            "google_reviews_count": google_count or 0
+        }
+
+
+STAR_RATING_MAP = {
+    "FIVE": 5,
+    "FOUR": 4,
+    "THREE": 3,
+    "TWO": 2,
+    "ONE": 1,
+    "STAR_RATING_UNSPECIFIED": 5
+}
+
+@app.post("/reviews/google/sync")
+@app.post("/api/v1/crm/reviews/google/sync")
+async def sync_google_reviews(tenant_id: str = Depends(get_tenant_id)):
+    """Sync public reviews from Google Business Profile into CRM."""
+    async with db_pool.acquire() as conn:
+        access_token, cdata = await get_google_business_access_token(conn, tenant_id)
+        account_name = cdata.get("account_name")
+        location_name = cdata.get("location_name")
+
+        if not account_name or not location_name:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                acc_resp = await client.get(
+                    "https://mybusinessaccountmanagement.googleapis.com/v1/accounts",
+                    headers={"Authorization": f"Bearer {access_token}"}
+                )
+                if acc_resp.status_code == 200:
+                    accounts = acc_resp.json().get("accounts", [])
+                    if accounts:
+                        account_name = accounts[0].get("name", "")
+                        loc_resp = await client.get(
+                            f"https://mybusinessbusinessinformation.googleapis.com/v1/{account_name}/locations?readMask=name,title",
+                            headers={"Authorization": f"Bearer {access_token}"}
+                        )
+                        if loc_resp.status_code == 200:
+                            locations = loc_resp.json().get("locations", [])
+                            if locations:
+                                location_name = locations[0].get("name", "")
+                                cdata["location_title"] = locations[0].get("title", "")
+                                cdata["account_name"] = account_name
+                                cdata["location_name"] = location_name
+                                await conn.execute(
+                                    "UPDATE tenant_credentials SET credential_data = $1::jsonb WHERE tenant_id = $2::uuid AND provider = 'google_business'",
+                                    json.dumps(cdata), tenant_id
+                                )
+
+        if not account_name or not location_name:
+            raise HTTPException(400, "Google Business location could not be found. Please ensure your Google account manages a verified Business Profile.")
+
+        url = f"https://mybusiness.googleapis.com/v4/{account_name}/{location_name}/reviews?pageSize=50"
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {access_token}"})
+            if resp.status_code != 200:
+                err_text = resp.text
+                logger.error("google_business_sync_failed", status=resp.status_code, body=err_text)
+                if "PERMISSION_DENIED" in err_text:
+                    raise HTTPException(
+                        403,
+                        "Google Business Profile API access has not yet been approved by Google for this project. Please submit the Google API Access Request form."
+                    )
+                raise HTTPException(400, f"Google API Error ({resp.status_code}): {err_text}")
+
+            res_json = resp.json()
+            reviews = res_json.get("reviews", [])
+            synced_count = 0
+
+            for r in reviews:
+                g_id = r.get("reviewId")
+                if not g_id:
+                    continue
+                reviewer = r.get("reviewer", {})
+                display_name = reviewer.get("displayName") or "Google User"
+                photo_url = reviewer.get("profilePhotoUrl", "")
+                raw_rating = r.get("starRating", "FIVE")
+                rating_val = STAR_RATING_MAP.get(raw_rating, 5) if isinstance(raw_rating, str) else int(raw_rating or 5)
+                comment = r.get("comment", "")
+                created_time_str = r.get("createTime")
+                created_dt = datetime.fromisoformat(created_time_str.replace("Z", "+00:00")) if created_time_str else datetime.now(timezone.utc)
+
+                reply_obj = r.get("reviewReply", {})
+                reply_comment = reply_obj.get("comment") if reply_obj else None
+                reply_time_str = reply_obj.get("updateTime") if reply_obj else None
+                reply_dt = datetime.fromisoformat(reply_time_str.replace("Z", "+00:00")) if reply_time_str else None
+                status = "resolved" if reply_comment else "pending"
+
+                await conn.execute("""
+                    INSERT INTO customer_reviews (
+                        tenant_id, customer_name, service_name, rating,
+                        experience_notes, generated_review_text, destination,
+                        status, created_at, google_review_id, reviewer_photo_url,
+                        owner_reply_text, owner_replied_at, source
+                    ) VALUES (
+                        $1::uuid, $2, 'Google Review', $3,
+                        $4, $4, 'google_business',
+                        $5, $6, $7, $8,
+                        $9, $10, 'google_business'
+                    )
+                    ON CONFLICT (tenant_id, google_review_id) WHERE google_review_id IS NOT NULL
+                    DO UPDATE SET
+                        customer_name = EXCLUDED.customer_name,
+                        rating = EXCLUDED.rating,
+                        experience_notes = EXCLUDED.experience_notes,
+                        generated_review_text = EXCLUDED.generated_review_text,
+                        owner_reply_text = EXCLUDED.owner_reply_text,
+                        owner_replied_at = EXCLUDED.owner_replied_at,
+                        reviewer_photo_url = EXCLUDED.reviewer_photo_url,
+                        status = CASE WHEN EXCLUDED.owner_reply_text IS NOT NULL THEN 'resolved' ELSE customer_reviews.status END
+                """, tenant_id, display_name, rating_val, comment, status, created_dt, g_id, photo_url, reply_comment, reply_dt)
+                synced_count += 1
+
+            cdata["last_synced_at"] = datetime.now(timezone.utc).isoformat()
+            await conn.execute(
+                "UPDATE tenant_credentials SET credential_data = $1::jsonb WHERE tenant_id = $2::uuid AND provider = 'google_business'",
+                json.dumps(cdata), tenant_id
+            )
+
+            return {
+                "status": "ok",
+                "synced_count": synced_count,
+                "total_google_reviews": res_json.get("totalReviewCount", synced_count),
+                "average_rating": res_json.get("averageRating", None)
+            }
+
+
+@app.post("/reviews/{review_id}/google-reply")
+@app.post("/api/v1/crm/reviews/{review_id}/google-reply")
+async def reply_to_google_review(
+    review_id: str,
+    payload: GoogleReviewReplyPayload,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Publish owner response directly to Google Maps / Google Search, and update review status to resolved."""
+    comment_text = payload.comment.strip()
+    if not comment_text:
+        raise HTTPException(400, "Reply text cannot be empty.")
+
+    async with db_pool.acquire() as conn:
+        rev = await conn.fetchrow(
+            "SELECT id, google_review_id, customer_name FROM customer_reviews WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            review_id, tenant_id
+        )
+        if not rev:
+            raise HTTPException(404, "Review record not found.")
+
+        g_id = rev["google_review_id"]
+        if not g_id:
+            await conn.execute("""
+                UPDATE customer_reviews
+                SET owner_reply_text = $1, owner_replied_at = now(), status = 'resolved'
+                WHERE id = $2::uuid AND tenant_id = $3::uuid
+            """, comment_text, review_id, tenant_id)
+            return {"status": "ok", "message": "Reply saved successfully.", "comment": comment_text}
+
+        access_token, cdata = await get_google_business_access_token(conn, tenant_id)
+        account_name = cdata.get("account_name")
+        location_name = cdata.get("location_name")
+        if not account_name or not location_name:
+            raise HTTPException(400, "Google Business account/location not configured.")
+
+        url = f"https://mybusiness.googleapis.com/v4/{account_name}/{location_name}/reviews/{g_id}/reply"
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.put(
+                url,
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"comment": comment_text}
+            )
+            if resp.status_code not in (200, 201):
+                err_msg = resp.text
+                logger.error("google_business_reply_failed", status=resp.status_code, body=err_msg)
+                raise HTTPException(400, f"Google rejected reply ({resp.status_code}): {err_msg}")
+
+        await conn.execute("""
+            UPDATE customer_reviews
+            SET owner_reply_text = $1, owner_replied_at = now(), status = 'resolved'
+            WHERE id = $2::uuid AND tenant_id = $3::uuid
+        """, comment_text, review_id, tenant_id)
+
+        return {"status": "ok", "message": "Reply posted to Google Maps successfully!", "comment": comment_text}
+
+
+@app.post("/reviews/{review_id}/ai-reply-draft")
+@app.post("/api/v1/crm/reviews/{review_id}/ai-reply-draft")
+async def draft_ai_reply(
+    review_id: str,
+    payload: AiReplyDraftPayload,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Generate an AI-assisted professional owner response draft."""
+    async with db_pool.acquire() as conn:
+        rev = await conn.fetchrow(
+            "SELECT customer_name, rating, experience_notes, generated_review_text FROM customer_reviews WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            review_id, tenant_id
+        )
+        if not rev:
+            raise HTTPException(404, "Review record not found.")
+
+        t_name = await conn.fetchval("SELECT name FROM tenants WHERE id = $1::uuid", tenant_id) or "Our Team"
+        c_name = rev["customer_name"] or "valued customer"
+        rating = rev["rating"] or 5
+        tone = (payload.tone or "grateful").lower()
+
+        if rating >= 4:
+            if tone == "brief":
+                draft = f"Thank you so much for the review, {c_name}! We really appreciate your support and look forward to seeing you again at {t_name}."
+            elif tone == "warm":
+                draft = f"Hi {c_name}, thank you for taking the time to share your kind words! We are delighted to hear you had a great experience with us. See you again soon!"
+            else:
+                draft = f"Thank you so much, {c_name}! The team at {t_name} is thrilled to know you had an exceptional visit. We look forward to welcoming you back!"
+        else:
+            if tone == "apology":
+                draft = f"Dear {c_name}, thank you for your candid feedback. We are truly sorry that your experience did not meet our high standards. Please reach out to us directly so we can make this right for you."
+            elif tone == "brief":
+                draft = f"Hi {c_name}, we appreciate your feedback and apologize for any inconvenience. Please contact our team directly so we can address your concerns."
+            else:
+                draft = f"Hello {c_name}, thank you for bringing this to our attention. Customer satisfaction is our top priority, and we regret falling short during your visit. We would love the opportunity to speak with you directly and resolve this."
+
+        return {"status": "ok", "draft": draft}
+
+
+@app.post("/reviews/google/disconnect")
+@app.post("/api/v1/crm/reviews/google/disconnect")
+async def disconnect_google_business(tenant_id: str = Depends(get_tenant_id)):
+    """Disconnect Google Business Profile."""
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE tenant_credentials SET is_active = false WHERE tenant_id = $1::uuid AND provider = 'google_business'",
+            tenant_id
+        )
+        return {"status": "ok", "message": "Google Business Profile disconnected."}
+
