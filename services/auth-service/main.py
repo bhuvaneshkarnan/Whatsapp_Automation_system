@@ -5,13 +5,35 @@ from typing import Optional
 
 import asyncpg
 import structlog
-from fastapi import FastAPI, Depends, HTTPException, status, Form, Header
+from fastapi import FastAPI, Depends, HTTPException, status, Form, Header, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
 
 logger = structlog.get_logger("auth-service")
+
+_failed_login_attempts: dict = {}
+
+def check_login_rate_limit(key: str):
+    now = datetime.now(timezone.utc)
+    attempts, first_seen = _failed_login_attempts.get(key, (0, now))
+    if (now - first_seen).total_seconds() > 900:
+        _failed_login_attempts.pop(key, None)
+        return
+    if attempts >= 10:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Please try again in 15 minutes."
+        )
+
+def record_failed_login(key: str):
+    now = datetime.now(timezone.utc)
+    attempts, first_seen = _failed_login_attempts.get(key, (0, now))
+    if (now - first_seen).total_seconds() > 900:
+        _failed_login_attempts[key] = (1, now)
+    else:
+        _failed_login_attempts[key] = (attempts + 1, first_seen)
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://platform_user:devpassword@localhost:5432/whatsapp_platform")
 JWT_SECRET = os.getenv("JWT_SECRET")
 if not JWT_SECRET:
@@ -125,6 +147,7 @@ async def create_user(
 
 @app.post("/token", response_model=Token)
 async def login_for_access_token(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     remember_me: bool = Form(False),
     tenant_slug: Optional[str] = Form(None)
@@ -132,6 +155,10 @@ async def login_for_access_token(
     """OAuth2 compatible token login, returns JWT."""
     username_clean = (form_data.username or "").strip().lower()
     clean_tenant_slug = tenant_slug.strip().lower() if tenant_slug and tenant_slug.strip() else None
+
+    client_ip = request.client.host if request.client else "unknown"
+    rate_limit_key = f"{client_ip}:{username_clean}"
+    check_login_rate_limit(rate_limit_key)
 
     async with db_pool.acquire() as conn:
         if clean_tenant_slug:
@@ -160,6 +187,7 @@ async def login_for_access_token(
             user = users[0] if users else None
 
         if not user:
+            record_failed_login(rate_limit_key)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password. Please check your credentials and try again.",
@@ -167,6 +195,7 @@ async def login_for_access_token(
             )
 
         if not user.get("is_active", True):
+            record_failed_login(rate_limit_key)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password. Please check your credentials and try again.",
@@ -174,6 +203,7 @@ async def login_for_access_token(
             )
 
         if not verify_password(form_data.password, user["password_hash"]):
+            record_failed_login(rate_limit_key)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password. Please check your credentials and try again.",
@@ -238,6 +268,7 @@ async def login_for_access_token(
             expires_delta=access_token_expires
         )
         
+        _failed_login_attempts.pop(rate_limit_key, None)
         return {
             "access_token": access_token,
             "token_type": "bearer",
@@ -275,8 +306,10 @@ async def read_users_me(token: str = Depends(oauth2_scheme)):
                 )
                 if tenant_inv:
                     token_iat = payload.get("iat")
-                    if token_iat and datetime.fromtimestamp(token_iat, tz=timezone.utc) < tenant_inv:
-                        raise HTTPException(status_code=401, detail="Session expired due to account status change. Please log in again.")
+                    if token_iat:
+                        inv_dt = tenant_inv if getattr(tenant_inv, "tzinfo", None) else tenant_inv.replace(tzinfo=timezone.utc)
+                        if datetime.fromtimestamp(token_iat, tz=timezone.utc) < inv_dt:
+                            raise HTTPException(status_code=401, detail="Session expired due to account status change. Please log in again.")
 
         display_name = payload.get("display_name") or ""
         email = payload.get("email") or ""

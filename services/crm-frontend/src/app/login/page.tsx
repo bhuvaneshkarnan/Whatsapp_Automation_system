@@ -72,16 +72,22 @@ export default function LoginPage() {
         }
       } catch {}
 
-      // Handle explicit redirect target if provided (e.g. user was visiting /boldlabs)
-      if (redirectUrl && redirectUrl.startsWith('/') && !redirectUrl.startsWith('//')) {
-        // Guard: If regular client user was redirected to /bhuvanesh or /admin, route to their own workspace instead
-        if (userRole !== 'super_admin' && (redirectUrl.startsWith('/bhuvanesh') || redirectUrl.startsWith('/admin'))) {
-          const fallback = userSlug ? `/${userSlug}` : '/dashboard';
-          router.push(fallback);
+      // Handle explicit redirect target with strict protocol-relative & open redirect sanitization
+      if (redirectUrl) {
+        const cleanRedirect = redirectUrl.replace(/\\/g, '/').trim();
+        const isSafeLocalPath = cleanRedirect.startsWith('/') && 
+                               !cleanRedirect.startsWith('//') && 
+                               !/^\/[a-z0-9_.-]+:/i.test(cleanRedirect);
+        if (isSafeLocalPath) {
+          // Guard: If regular client user was redirected to /bhuvanesh or /admin, route to their own workspace instead
+          if (userRole !== 'super_admin' && (cleanRedirect.startsWith('/bhuvanesh') || cleanRedirect.startsWith('/admin'))) {
+            const fallback = userSlug ? `/${userSlug}` : '/dashboard';
+            router.push(fallback);
+            return;
+          }
+          router.push(cleanRedirect);
           return;
         }
-        router.push(redirectUrl);
-        return;
       }
 
       // Workspace routing: route directly to their business workspace (e.g. /boldlabs)
