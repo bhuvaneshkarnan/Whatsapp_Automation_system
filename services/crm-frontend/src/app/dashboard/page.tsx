@@ -12206,12 +12206,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                                         {/* Mind Body Recovery ONLY: Call Button below Status / Outcome */}
                                         {isMindBodyRecovery && (
-                                          <div className="pt-0.5 flex justify-center">
+                                          <div className="pt-0.5 flex justify-start">
                                             {cust.phone ? (
                                               <a
-                                                href={`tel:${cust.phone.replace(/[^0-9+]/g, '')}`}
+                                                href={`tel:${(cust.phone || '').replace(/[^0-9+]/g, '')}`}
                                                 onClick={(e) => e.stopPropagation()}
-                                                className="inline-flex items-center gap-1.5 h-6 px-3 rounded-full text-[10.5px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/80 shadow-2xs transition-all cursor-pointer group hover:border-emerald-400"
+                                                className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[10.5px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/80 shadow-2xs transition-all cursor-pointer group hover:border-emerald-400"
                                                 title={`Call ${cust.name || 'Patient'}: ${cust.phone}`}
                                               >
                                                 <PhoneCall className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 stroke-[2.2] group-hover:scale-110 transition-transform shrink-0" />
