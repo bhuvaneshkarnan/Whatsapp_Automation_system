@@ -930,7 +930,7 @@ export const crm = {
   },
 
   createCustomer: (data: Partial<Customer>) =>
-    request<{ status: string; id: string; phone: string }>('/api/v1/crm/customers', {
+    request<{ status: string; id: string; phone: string; name?: string; is_duplicate?: boolean; action?: string; message?: string }>('/api/v1/crm/customers', {
       method: 'POST',
       body: JSON.stringify(data),
     }),

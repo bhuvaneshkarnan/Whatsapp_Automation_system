@@ -1420,9 +1420,15 @@ async def create_customer(
     payload: CustomerCreatePayload,
     tenant_id: str = Depends(get_tenant_id)
 ):
-    """Create a new customer follow-up record."""
-    clean_phone = payload.phone.replace("+", "").replace(" ", "").replace("-", "").strip()
-    cust_id = str(uuid.uuid4())
+    """Create a new customer follow-up record or update existing if duplicate phone."""
+    raw_digits = re.sub(r"[^0-9]", "", payload.phone.strip())
+    if not raw_digits:
+        raise HTTPException(status_code=400, detail="Invalid phone number provided.")
+
+    # Extract last 10 digits for robust deduplication across formats (+91, 91, 0, etc.)
+    last10 = raw_digits[-10:] if len(raw_digits) >= 10 else raw_digits
+    canonical_phone = f"91{last10}" if len(raw_digits) == 10 else raw_digits
+
     f_date = None
     if payload.followup_date:
         try: f_date = datetime.strptime(payload.followup_date, "%Y-%m-%d").date()
@@ -1435,6 +1441,89 @@ async def create_customer(
     nxt_act = payload.next_action or "Call Again"
 
     async with db_pool.acquire() as conn:
+        # 1. Check if customer with same phone or last 10 digits already exists in this tenant
+        existing = await conn.fetchrow("""
+            SELECT id, phone, name, age, location, preferred_doctor, status, health_concern,
+                   lead_probability, converted, followup_date, followup_time, conversion_rate,
+                   call_status, next_action, primary_concerns, interested_services
+            FROM customers
+            WHERE tenant_id = $1::uuid
+              AND (
+                phone = $2
+                OR phone = $3
+                OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4
+              )
+            ORDER BY updated_at DESC NULLS LAST
+            LIMIT 1
+        """, tenant_id, raw_digits, canonical_phone, last10)
+
+        if existing:
+            cust_id = str(existing["id"])
+            new_name = payload.name.strip() if payload.name and payload.name.strip() else existing["name"]
+            new_age = payload.age if payload.age is not None else existing["age"]
+            new_location = payload.location.strip() if payload.location and payload.location.strip() else existing["location"]
+            new_doctor = payload.preferred_doctor.strip() if payload.preferred_doctor and payload.preferred_doctor.strip() else existing["preferred_doctor"]
+            new_concern = payload.health_concern.strip() if payload.health_concern and payload.health_concern.strip() else existing["health_concern"]
+            new_prob = payload.lead_probability if payload.lead_probability else existing["lead_probability"]
+            new_status = payload.status if payload.status and payload.status != 'new' else (existing["status"] or "new")
+            new_f_date = f_date if f_date else existing["followup_date"]
+            new_f_time = payload.followup_time if payload.followup_time else existing["followup_time"]
+
+            merged_concerns = list(dict.fromkeys((existing["primary_concerns"] or []) + concerns_arr))
+            merged_services = list(dict.fromkeys((existing["interested_services"] or []) + services_arr))
+
+            await conn.execute("""
+                UPDATE customers SET
+                    phone = $1,
+                    name = $2,
+                    age = $3,
+                    location = $4,
+                    preferred_doctor = $5,
+                    status = $6,
+                    health_concern = $7,
+                    lead_probability = $8,
+                    followup_date = $9,
+                    followup_time = $10,
+                    conversion_rate = COALESCE($11, conversion_rate),
+                    call_status = COALESCE($12, call_status),
+                    next_action = COALESCE($13, next_action),
+                    primary_concerns = $14,
+                    interested_services = $15,
+                    updated_at = now()
+                WHERE id = $16::uuid AND tenant_id = $17::uuid
+            """, canonical_phone, new_name, new_age, new_location, new_doctor, new_status, new_concern,
+                 new_prob, new_f_date, new_f_time, conv_rate, call_stat, nxt_act,
+                 merged_concerns, merged_services, cust_id, tenant_id)
+
+            if payload.initial_note and payload.initial_note.strip():
+                await conn.execute(
+                    """INSERT INTO customer_notes (id, tenant_id, customer_id, author, note_text, color, created_at)
+                       VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'Admin', $3, 'slate', now())""",
+                    tenant_id, cust_id, payload.initial_note.strip()
+                )
+
+            if new_name:
+                await conn.execute("""
+                    UPDATE contacts SET name = $1, updated_at = now()
+                    WHERE tenant_id = $2::uuid AND (phone = $3 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4)
+                """, new_name, tenant_id, canonical_phone, last10)
+
+            if new_concern:
+                await auto_route_lead_to_specialty(conn, tenant_id, canonical_phone, new_concern)
+
+            logger.info("customer_dedup_updated", tenant_id=tenant_id, customer_id=cust_id, phone=canonical_phone)
+            return {
+                "status": "ok",
+                "id": cust_id,
+                "phone": canonical_phone,
+                "name": new_name,
+                "is_duplicate": True,
+                "action": "updated",
+                "message": f"Customer '{new_name or canonical_phone}' already exists. Details updated instead of creating a duplicate."
+            }
+
+        # 2. Fresh record insertion
+        cust_id = str(uuid.uuid4())
         await conn.execute(
             """INSERT INTO customers (
                 id, tenant_id, phone, name, age, location, preferred_doctor, status, health_concern,
@@ -1457,7 +1546,7 @@ async def create_customer(
                 primary_concerns = COALESCE(EXCLUDED.primary_concerns, customers.primary_concerns),
                 interested_services = COALESCE(EXCLUDED.interested_services, customers.interested_services),
                 updated_at = now()""",
-            cust_id, tenant_id, clean_phone, payload.name, payload.age, payload.location, payload.preferred_doctor or None,
+            cust_id, tenant_id, canonical_phone, payload.name, payload.age, payload.location, payload.preferred_doctor or None,
             payload.status or "new", payload.health_concern or None,
             payload.lead_probability or "warm", payload.converted or False, f_date, payload.followup_time or (payload.followup_date and "10:00 AM" or None),
             conv_rate, call_stat, nxt_act, concerns_arr, services_arr
@@ -1474,11 +1563,21 @@ async def create_customer(
                VALUES (gen_random_uuid(), $1::uuid, $2, $3)
                ON CONFLICT (tenant_id, phone) DO UPDATE SET
                 name = COALESCE(EXCLUDED.name, contacts.name)""",
-            tenant_id, clean_phone, payload.name or "Customer"
+            tenant_id, canonical_phone, payload.name or "Customer"
         )
         if payload.health_concern:
-            await auto_route_lead_to_specialty(conn, tenant_id, clean_phone, payload.health_concern)
-    return {"status": "ok", "id": cust_id, "phone": clean_phone}
+            await auto_route_lead_to_specialty(conn, tenant_id, canonical_phone, payload.health_concern)
+
+        logger.info("customer_created", tenant_id=tenant_id, customer_id=cust_id, phone=canonical_phone)
+        return {
+            "status": "ok",
+            "id": cust_id,
+            "phone": canonical_phone,
+            "name": payload.name,
+            "is_duplicate": False,
+            "action": "created",
+            "message": f"Customer '{payload.name or canonical_phone}' created successfully."
+        }
 
 
 async def auto_route_lead_to_specialty(conn, tenant_id: str, phone: str, health_concern: str):

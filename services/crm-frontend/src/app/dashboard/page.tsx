@@ -4671,8 +4671,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         initial_note: addCustomerForm.initial_note.trim() || undefined,
       } as any);
 
-      setActionNotice(`Customer ${addCustomerForm.name || addCustomerForm.phone} created successfully!`);
-      setTimeout(() => setActionNotice(null), 3000);
+      if (res?.is_duplicate || res?.action === 'updated') {
+        setActionNotice(`Existing customer found — updated record for ${res?.name || addCustomerForm.name || addCustomerForm.phone}!`);
+      } else {
+        setActionNotice(`Customer ${addCustomerForm.name || addCustomerForm.phone} added successfully!`);
+      }
+      setTimeout(() => setActionNotice(null), 3500);
       setShowAddCustomerModal(false);
       setAddCustomerForm({
         name: '',
@@ -4686,11 +4690,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         followup_time: '10:00 AM',
         initial_note: '',
       });
-      await loadCustomers();
+      const freshCustomers = await crm.getCustomers();
+      const list = Array.isArray(freshCustomers) ? freshCustomers : [];
+      setCustomers(list);
+      if (res?.id) {
+        const targetRecord = list.find((c) => c.id === res.id);
+        if (targetRecord) {
+          handleSelectCustomer(targetRecord);
+        }
+      }
     } catch (err: any) {
       console.error('Failed to create customer:', err);
-      setActionNotice('Failed to create customer: ' + (err.message || 'Error'));
-      setTimeout(() => setActionNotice(null), 3000);
+      setActionNotice('Failed to save customer: ' + (err.message || 'Error'));
+      setTimeout(() => setActionNotice(null), 3500);
     } finally {
       setAddingCustomer(false);
     }
@@ -13456,6 +13468,71 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         />
                       </div>
                     </div>
+
+                    {/* Live Duplicate Customer Detection Banner */}
+                    {(() => {
+                      const digits = (addCustomerForm.phone || '').replace(/\D/g, '');
+                      const last10 = digits.length >= 10 ? digits.slice(-10) : '';
+                      const existingMatch = last10
+                        ? customers.find((c) => {
+                            const cDigits = (c.phone || '').replace(/\D/g, '');
+                            return cDigits.length >= 10 && cDigits.slice(-10) === last10;
+                          })
+                        : null;
+
+                      if (!existingMatch) return null;
+
+                      return (
+                        <div className="p-2.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs space-y-1.5 animate-in fade-in duration-200">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                              Customer Already Exists
+                            </span>
+                            <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-200/60 dark:bg-amber-900/60 font-semibold">
+                              {existingMatch.status || 'Existing'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-text-muted leading-relaxed">
+                            <strong className="text-text-primary">{existingMatch.name || 'Unnamed'}</strong> ({existingMatch.phone}) is already in your CRM. Submitting will update their record instead of creating a duplicate.
+                          </p>
+                          <div className="flex items-center gap-2 pt-0.5 text-[10px] font-semibold">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAddCustomerForm((prev) => ({
+                                  ...prev,
+                                  name: prev.name || existingMatch.name || '',
+                                  age: prev.age || (existingMatch.age ? String(existingMatch.age) : ''),
+                                  location: prev.location || existingMatch.location || '',
+                                  preferred_doctor: prev.preferred_doctor || existingMatch.preferred_doctor || '',
+                                  health_concern: prev.health_concern || existingMatch.health_concern || '',
+                                  lead_probability: (existingMatch.lead_probability as any) || prev.lead_probability,
+                                  followup_date: existingMatch.followup_date || prev.followup_date,
+                                  followup_time: existingMatch.followup_time || prev.followup_time,
+                                }));
+                              }}
+                              className="text-accent hover:underline flex items-center gap-1 cursor-pointer"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                              <span>Load existing info</span>
+                            </button>
+                            <span className="text-text-muted">•</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowAddCustomerModal(false);
+                                handleSelectCustomer(existingMatch);
+                              }}
+                              className="text-accent hover:underline flex items-center gap-1 cursor-pointer"
+                            >
+                              <span>Open customer profile</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-[11px] text-text-muted mb-1">Age</label>
@@ -13589,11 +13666,38 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         className="flex-1 py-1.5 px-3 bg-surface border border-border hover:bg-surface-subtle text-text-primary text-xs font-medium rounded-sm transition-colors cursor-pointer">
                         Cancel
                       </button>
-                      <button type="submit" disabled={addingCustomer}
-                        className="flex-1 py-1.5 px-3 bg-accent hover:bg-accent-hover disabled:opacity-60 text-white text-xs font-semibold rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5">
-                        <UserPlus className="w-3.5 h-3.5 stroke-[1.5]" />
-                        {addingCustomer ? 'Adding...' : `Add ${currentTaxonomy.client_label || 'Customer'}`}
-                      </button>
+                      {(() => {
+                        const digits = (addCustomerForm.phone || '').replace(/\D/g, '');
+                        const last10 = digits.length >= 10 ? digits.slice(-10) : '';
+                        const isDup = Boolean(
+                          last10 &&
+                          customers.some((c) => {
+                            const cDigits = (c.phone || '').replace(/\D/g, '');
+                            return cDigits.length >= 10 && cDigits.slice(-10) === last10;
+                          })
+                        );
+                        return (
+                          <button
+                            type="submit"
+                            disabled={addingCustomer}
+                            className={`flex-1 py-1.5 px-3 disabled:opacity-60 text-white text-xs font-semibold rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs ${
+                              isDup ? 'bg-amber-600 hover:bg-amber-700' : 'bg-accent hover:bg-accent-hover'
+                            }`}
+                          >
+                            {isDup ? (
+                              <>
+                                <UserCheck className="w-3.5 h-3.5" />
+                                <span>{addingCustomer ? 'Updating...' : `Update Existing ${currentTaxonomy.client_label || 'Customer'}`}</span>
+                              </>
+                            ) : (
+                              <>
+                                <UserPlus className="w-3.5 h-3.5 stroke-[1.5]" />
+                                <span>{addingCustomer ? 'Adding...' : `Add ${currentTaxonomy.client_label || 'Customer'}`}</span>
+                              </>
+                            )}
+                          </button>
+                        );
+                      })()}
                     </div>
                   </form>
                 </div>
