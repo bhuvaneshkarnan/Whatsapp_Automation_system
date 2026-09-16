@@ -2880,6 +2880,149 @@ async def toggle_task_completion(
     return {"status": "ok", "id": task_id, "completed": new_status}
 
 
+async def sync_completed_google_tasks_for_tenant(conn, tenant_id: str) -> dict:
+    """
+    Two-way sync: Queries Google Tasks API for tasks marked completed (or deleted)
+    by the user in Google Tasks app / Gmail, and automatically clears the corresponding
+    follow-up schedule from the CRM customer record and tasks table so it is removed from the calendar.
+    """
+    g_row = await conn.fetchrow(
+        "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+        tenant_id
+    )
+    if not g_row or not g_row["credential_data"]:
+        return {"status": "skipped", "reason": "no_credentials", "cleared_count": 0}
+
+    d = g_row["credential_data"]
+    if isinstance(d, str):
+        try: d = json.loads(d)
+        except Exception: d = {}
+    r_token = d.get("refresh_token")
+    c_id = d.get("client_id")
+    c_secret = d.get("client_secret")
+    if not (r_token and c_id and c_secret):
+        return {"status": "skipped", "reason": "incomplete_credentials", "cleared_count": 0}
+
+    cleared_count = 0
+    try:
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+        creds = Credentials(
+            token=None, refresh_token=r_token, token_uri="https://oauth2.googleapis.com/token",
+            client_id=c_id, client_secret=c_secret
+        )
+        t_svc = await asyncio.to_thread(build, "tasks", "v1", credentials=creds)
+        res = await asyncio.to_thread(
+            lambda: t_svc.tasks().list(tasklist="@default", maxResults=100, showCompleted=True, showHidden=True).execute()
+        )
+        items = res.get("items", [])
+        
+        # 1. Collect all completed or deleted Google Task IDs
+        completed_gt_ids = set()
+        for item in items:
+            t_id = item.get("id")
+            if not t_id:
+                continue
+            is_completed = item.get("status") == "completed"
+            is_deleted = bool(item.get("deleted"))
+            if is_completed or is_deleted:
+                completed_gt_ids.add(t_id)
+
+        if not completed_gt_ids:
+            return {"status": "ok", "cleared_count": 0}
+
+        # 2. Find matching customers with active followups
+        cust_rows = await conn.fetch(
+            """SELECT id, name, phone, google_task_id, google_calendar_event_id
+               FROM customers
+               WHERE tenant_id = $1::uuid
+                 AND followup_date IS NOT NULL
+                 AND google_task_id = ANY($2::text[])""",
+            tenant_id, list(completed_gt_ids)
+        )
+
+        cal_svc = None
+        for cust in cust_rows:
+            c_id = str(cust["id"])
+            gcal_id = cust.get("google_calendar_event_id")
+            
+            # If there's an associated Google Calendar event, delete it as well
+            if gcal_id:
+                try:
+                    if cal_svc is None:
+                        cal_svc = await asyncio.to_thread(build, "calendar", "v3", credentials=creds)
+                    await asyncio.to_thread(
+                        lambda gid=gcal_id: cal_svc.events().delete(calendarId="primary", eventId=gid).execute()
+                    )
+                except Exception as e_cal:
+                    logger.debug("delete_gcal_event_on_task_complete_fail", error=str(e_cal))
+
+            # Delete corresponding task in tasks table
+            await conn.execute(
+                "DELETE FROM tasks WHERE customer_id = $1::uuid AND tenant_id = $2::uuid",
+                c_id, tenant_id
+            )
+
+            # Clear follow-up from customer record so it leaves the calendar
+            await conn.execute(
+                """UPDATE customers
+                   SET followup_date = NULL, followup_time = NULL,
+                       google_task_id = NULL, google_calendar_event_id = NULL,
+                       updated_at = now()
+                   WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                c_id, tenant_id
+            )
+            cleared_count += 1
+            logger.info("google_task_completed_cleared_customer_followup", customer_id=c_id, name=cust.get("name"))
+
+        # Also clear any standalone tasks in tasks table that match completed_gt_ids
+        await conn.execute(
+            """UPDATE tasks
+               SET completed = true, updated_at = now()
+               WHERE tenant_id = $1::uuid
+                 AND completed = false
+                 AND google_task_id = ANY($2::text[])""",
+            tenant_id, list(completed_gt_ids)
+        )
+
+        return {"status": "ok", "cleared_count": cleared_count}
+    except Exception as ex:
+        logger.warning("sync_completed_google_tasks_error", tenant_id=tenant_id, error=str(ex))
+        return {"status": "error", "error": str(ex), "cleared_count": cleared_count}
+
+
+async def sync_all_tenants_google_tasks_completed():
+    """Background helper to sync completed Google Tasks across all active tenants."""
+    global db_pool
+    if not db_pool:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            tenants = await conn.fetch(
+                """SELECT DISTINCT tenant_id FROM tenant_credentials 
+                   WHERE provider = 'google_calendar' AND is_active = true"""
+            )
+            for t in tenants:
+                t_id = str(t["tenant_id"])
+                try:
+                    await sync_completed_google_tasks_for_tenant(conn, t_id)
+                except Exception as ex_t:
+                    logger.debug("sync_all_tenants_gt_item_fail", tenant_id=t_id, error=str(ex_t))
+    except Exception as ex:
+        logger.warning("sync_all_tenants_google_tasks_error", error=str(ex))
+
+
+@app.post("/tasks/sync-google-completed")
+@app.post("/api/v1/crm/tasks/sync-google-completed")
+@app.get("/tasks/sync-google-completed")
+@app.get("/api/v1/crm/tasks/sync-google-completed")
+async def endpoint_sync_google_tasks_completed(tenant_id: str = Depends(get_tenant_id)):
+    """Manually trigger two-way Google Tasks completion sync."""
+    async with db_pool.acquire() as conn:
+        res = await sync_completed_google_tasks_for_tenant(conn, tenant_id)
+        return res
+
+
 @app.post("/customers/{customer_id}/google-tasks")
 @app.post("/api/v1/crm/customers/{customer_id}/google-tasks")
 async def sync_customer_to_google_tasks(
@@ -6380,6 +6523,12 @@ async def get_live_calendar_availability(
     """
     effective_id = tenant_id
     async with db_pool.acquire() as conn:
+        # Auto-sync Google Tasks completions so calendar follow-ups are always up-to-date
+        try:
+            await sync_completed_google_tasks_for_tenant(conn, effective_id)
+        except Exception as e_sync:
+            logger.debug("calendar_google_tasks_sync_error", error=str(e_sync))
+
         tenant_st = await conn.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", effective_id)
         if tenant_st:
             if isinstance(tenant_st, str):
@@ -10215,6 +10364,7 @@ async def due_tasks_worker_loop():
     while True:
         try:
             await check_and_notify_due_tasks()
+            await sync_all_tenants_google_tasks_completed()
             await asyncio.sleep(30)
         except asyncio.CancelledError:
             logger.info("due_tasks_worker_loop_cancelled")

@@ -792,6 +792,11 @@ export const crm = {
     return request<LiveCalendarAvailabilityResponse>(`/api/v1/crm/calendar/live-availability${qs}`);
   },
 
+  syncGoogleTasksCompleted: () =>
+    request<{ status: string; cleared_count: number }>('/api/v1/crm/tasks/sync-google-completed', {
+      method: 'POST',
+    }),
+
   // Customer Smart Reviews & GMB Feedback
   submitPublicReview: (data: {
     tenant_slug: string;

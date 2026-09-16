@@ -4538,6 +4538,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         // 6. Real-time Calendar sync (when on calendar tab)
         if (activeNav === 'calendar') {
           try {
+            await crm.syncGoogleTasksCompleted().catch(() => null);
             const [bData, cData, tData] = await Promise.all([
               crm.getBookings(undefined, 500).catch(() => []),
               crm.getCustomers({ limit: 500 }).catch(() => []),
@@ -4606,6 +4607,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     setLoadingBookings(true);
     setLiveGcalLoading(true);
     try {
+      // Auto two-way sync: purge any tasks/followups marked completed or deleted in Google Tasks
+      await crm.syncGoogleTasksCompleted().catch(() => null);
+
       const [bData, cData, tData, gData] = await Promise.all([
         crm.getBookings(undefined, 500).catch(() => []),
         crm.getCustomers({ limit: 500 }).catch(() => []),
@@ -4624,6 +4628,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     } finally {
       setLoadingBookings(false);
       setLiveGcalLoading(false);
+    }
+  }
+
+  async function handleSyncGoogleTasks() {
+    setSyncingGoogleTasks(true);
+    try {
+      await crm.syncGoogleTasksCompleted().catch(() => null);
+      await loadCalendarData();
+    } catch (err) {
+      console.error('Error syncing Google Tasks:', err);
+    } finally {
+      setSyncingGoogleTasks(false);
     }
   }
 
@@ -9927,6 +9943,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       >
                         <List className="w-3.5 h-3.5 stroke-[1.5]" />
                         <span>Table</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleSyncGoogleTasks}
+                        disabled={syncingGoogleTasks}
+                        className="px-2 py-1 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1 cursor-pointer font-medium shadow-2xs whitespace-nowrap disabled:opacity-50"
+                        title="Sync with Google Tasks: automatically remove completed tasks & follow-ups"
+                      >
+                        <RotateCcw className={`w-3.5 h-3.5 stroke-[1.5] text-accent ${syncingGoogleTasks ? 'animate-spin' : ''}`} />
+                        <span>{syncingGoogleTasks ? 'Syncing...' : 'Sync Tasks'}</span>
                       </button>
 
                       {isMindBodyRecovery && (
