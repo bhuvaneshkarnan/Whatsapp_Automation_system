@@ -15731,41 +15731,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             </div>
                           )}
 
-                          {/* Active Plan Inclusions Card */}
-                          <div className="p-4 rounded-md border border-border/80 bg-surface-subtle/40">
-                            <div className="flex items-center gap-2 mb-3">
-                              <Sparkles className="w-4 h-4 text-accent" />
-                              <span className="text-xs font-bold text-text-primary uppercase tracking-wide">
-                                Active Plan Features & Inclusions
-                              </span>
-                            </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs text-text-secondary">
-                              <div className="flex items-center gap-2">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                                <span>AI WhatsApp Conversational Engine</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                                <span>Automated Appointment Booking</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                                <span>Google Calendar 2-Way Live Sync</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                                <span>Google Review Generation & Filter</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                                <span>Team Portals & Staff Delegation</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                                <span>24/7 Automated Follow-ups & Reminders</span>
-                              </div>
-                            </div>
-                          </div>
 
                           {/* ── 0.1 BILLING INVOICES & RECEIPTS SECTION ─────────────── */}
                           <div className="p-4 rounded-md border border-border bg-surface space-y-3 pt-4">
