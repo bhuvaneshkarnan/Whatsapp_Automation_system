@@ -2085,6 +2085,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [reviewStatusFilter, setReviewStatusFilter] = useState<string>('all');
   const [reviewSearchQuery, setReviewSearchQuery] = useState('');
   const [reviewCopied, setReviewCopied] = useState(false);
+  const [reviewServicesSaved, setReviewServicesSaved] = useState(false);
+  const [reviewTagsSaved, setReviewTagsSaved] = useState(false);
 
 
   // Customer WhatsApp Chat in Detail Drawer
@@ -15156,42 +15158,161 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <ChevronDown className="w-3.5 h-3.5 text-text-muted ml-auto transition-transform group-open:rotate-180" />
                       </summary>
                       <div className="p-2.5 pt-0 grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {/* Services */}
+                        {/* Services to Choose */}
                         <div className="p-2.5 bg-surface-subtle rounded-md border border-border space-y-1.5">
                           <div className="flex items-center justify-between">
                             <span className="text-[11px] font-semibold text-text-primary">Services to Choose</span>
                             <span className="text-[10px] text-text-muted">{services.length} options</span>
                           </div>
-                          {services.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {services.map((s, i) => <span key={i} className="px-2 py-0.5 bg-accent/10 text-accent border border-accent/20 rounded-full text-[10px] font-medium">{s}</span>)}
-                            </div>
-                          ) : (
-                            <p className="text-[10px] text-text-muted italic">No services set. Add in Settings - Profile - Taxonomy.</p>
-                          )}
+                          <div className="flex flex-wrap gap-1 min-h-[26px]">
+                            {services.length > 0 ? (
+                              services.map((s, i) => (
+                                <span key={i} className="flex items-center gap-0.5 px-2 py-0.5 bg-surface rounded-full border border-border text-[10px] text-text-primary font-medium">
+                                  {s}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const next = services.filter((_, idx) => idx !== i);
+                                      setSettingsForm({
+                                        ...settingsForm,
+                                        taxonomy: { ...(settingsForm.taxonomy || {}), requirement_presets: next },
+                                      });
+                                    }}
+                                    className="ml-1 text-text-muted hover:text-rose-500 cursor-pointer transition-colors leading-none font-bold"
+                                    title="Remove service"
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))
+                            ) : (
+                              <p className="text-[10px] text-text-muted italic">No services added yet. Add below.</p>
+                            )}
+                          </div>
+                          <div className="flex gap-1.5">
+                            <input
+                              type="text"
+                              id="rev-svc-inp"
+                              placeholder="Add service (e.g. Haircut, Consultation)..."
+                              className="flex-1 px-2 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:border-accent focus:outline-none"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  const v = (e.target as HTMLInputElement).value.trim();
+                                  if (v && !services.includes(v)) {
+                                    setSettingsForm({
+                                      ...settingsForm,
+                                      taxonomy: { ...(settingsForm.taxonomy || {}), requirement_presets: [...services, v] },
+                                    });
+                                    (e.target as HTMLInputElement).value = '';
+                                  }
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const inp = document.getElementById('rev-svc-inp') as HTMLInputElement;
+                                const v = inp?.value.trim();
+                                if (v && !services.includes(v)) {
+                                  setSettingsForm({
+                                    ...settingsForm,
+                                    taxonomy: { ...(settingsForm.taxonomy || {}), requirement_presets: [...services, v] },
+                                  });
+                                  if (inp) inp.value = '';
+                                }
+                              }}
+                              className="px-2.5 py-1 bg-surface-subtle border border-border text-text-secondary text-[11px] font-semibold rounded cursor-pointer hover:bg-border/60"
+                            >
+                              Add
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await crm.updateTenantSettings(settingsForm.slug || slug, {
+                                    taxonomy: { ...(settingsForm.taxonomy || {}), requirement_presets: services },
+                                  } as any);
+                                  setReviewServicesSaved(true);
+                                  setTimeout(() => setReviewServicesSaved(false), 2000);
+                                } catch (e) {
+                                  console.error('Failed to save services:', e);
+                                }
+                              }}
+                              className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded cursor-pointer transition-colors"
+                            >
+                              {reviewServicesSaved ? 'Saved!' : 'Save'}
+                            </button>
+                          </div>
                         </div>
+
                         {/* Experience Tags */}
                         <div className="p-2.5 bg-surface-subtle rounded-md border border-border space-y-1.5">
                           <div className="flex items-center justify-between">
                             <span className="text-[11px] font-semibold text-text-primary">Experience Tags</span>
                             <span className="text-[10px] text-text-muted">{currentTags.length} tags</span>
                           </div>
-                          <div className="flex flex-wrap gap-1">
+                          <div className="flex flex-wrap gap-1 min-h-[26px]">
                             {currentTags.map((tag, i) => (
-                              <span key={i} className="flex items-center gap-0.5 px-2 py-0.5 bg-surface rounded-full border border-border text-[10px] text-text-secondary">
+                              <span key={i} className="flex items-center gap-0.5 px-2 py-0.5 bg-surface rounded-full border border-border text-[10px] text-text-secondary font-medium">
                                 {tag}
-                                <button type="button" onClick={() => setSettingsForm({ ...settingsForm, review_experience_tags: currentTags.filter((_, idx) => idx !== i) })} className="ml-0.5 text-text-muted hover:text-rose-500 cursor-pointer transition-colors leading-none">x</button>
+                                <button
+                                  type="button"
+                                  onClick={() => setSettingsForm({ ...settingsForm, review_experience_tags: currentTags.filter((_, idx) => idx !== i) })}
+                                  className="ml-1 text-text-muted hover:text-rose-500 cursor-pointer transition-colors leading-none font-bold"
+                                  title="Remove tag"
+                                >
+                                  ×
+                                </button>
                               </span>
                             ))}
                           </div>
                           <div className="flex gap-1.5">
-                            <input type="text" id="rev-tag-inp" placeholder="Add tag..."
+                            <input
+                              type="text"
+                              id="rev-tag-inp"
+                              placeholder="Add tag..."
                               className="flex-1 px-2 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:border-accent focus:outline-none"
-                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const v = (e.target as HTMLInputElement).value.trim(); if (v && !currentTags.includes(v)) { setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] }); (e.target as HTMLInputElement).value = ''; } } }} />
-                            <button type="button" onClick={() => { const inp = document.getElementById('rev-tag-inp') as HTMLInputElement; const v = inp?.value.trim(); if (v && !currentTags.includes(v)) { setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] }); if (inp) inp.value = ''; } }}
-                              className="px-2.5 py-1 bg-surface-subtle border border-border text-text-secondary text-[11px] font-semibold rounded cursor-pointer hover:bg-border/60">Add</button>
-                            <button type="button" onClick={async () => { try { await crm.updateTenantSettings(settingsForm.slug || slug, { review_experience_tags: currentTags } as any); } catch(e){} }}
-                              className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded cursor-pointer">Save</button>
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  const v = (e.target as HTMLInputElement).value.trim();
+                                  if (v && !currentTags.includes(v)) {
+                                    setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] });
+                                    (e.target as HTMLInputElement).value = '';
+                                  }
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const inp = document.getElementById('rev-tag-inp') as HTMLInputElement;
+                                const v = inp?.value.trim();
+                                if (v && !currentTags.includes(v)) {
+                                  setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] });
+                                  if (inp) inp.value = '';
+                                }
+                              }}
+                              className="px-2.5 py-1 bg-surface-subtle border border-border text-text-secondary text-[11px] font-semibold rounded cursor-pointer hover:bg-border/60"
+                            >
+                              Add
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await crm.updateTenantSettings(settingsForm.slug || slug, { review_experience_tags: currentTags } as any);
+                                  setReviewTagsSaved(true);
+                                  setTimeout(() => setReviewTagsSaved(false), 2000);
+                                } catch (e) {
+                                  console.error('Failed to save tags:', e);
+                                }
+                              }}
+                              className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded cursor-pointer transition-colors"
+                            >
+                              {reviewTagsSaved ? 'Saved!' : 'Save'}
+                            </button>
                           </div>
                         </div>
                       </div>
