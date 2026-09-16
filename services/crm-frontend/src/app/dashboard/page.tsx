@@ -275,6 +275,155 @@ function getTemplateBodyText(tpl: any): string {
   return tpl.body || tpl.description || `[Template: ${tpl.name}]`;
 }
 
+function buildAutoTemplateVariables(
+  tpl: any,
+  conv: Conversation | null,
+  customer: Customer | null,
+  currentUser: any,
+  settings: any
+): Record<string, string> {
+  const initialValues: Record<string, string> = {};
+  if (!tpl) return initialValues;
+
+  const custName = (customer?.name || conv?.contact_name || conv?.name || '').trim();
+  const custPhone = (customer?.phone || conv?.contact_phone || conv?.phone || '').trim();
+  const staffName = (
+    currentUser?.display_name ||
+    currentUser?.name ||
+    settings?.admin_name ||
+    conv?.assigned_staff_name ||
+    customer?.preferred_doctor ||
+    'Our Team'
+  ).trim();
+  const bizName = (settings?.name || settings?.business_name || 'Boldlabs').trim();
+  const srvName = (
+    customer?.interested_services?.[0] ||
+    customer?.health_concern ||
+    conv?.health_concern ||
+    conv?.last_visit_service ||
+    'Consultation'
+  ).trim();
+  const fDate = customer?.followup_date || new Date(Date.now() + 86400000).toISOString().split('T')[0];
+  const fTime = customer?.followup_time || '10:00 AM';
+  const gmbLink = (settings?.gmb_review_link || 'https://g.page/r/review').trim();
+
+  // Template-specific intelligent variable mapping
+  if (tpl.name === 'client_followup_checkin') {
+    initialValues['1'] = custName || 'there';
+    initialValues['2'] = staffName;
+    initialValues['3'] = bizName;
+  } else if (tpl.name === 'utility_general_update') {
+    initialValues['1'] = custName || 'there';
+    initialValues['2'] = bizName;
+    initialValues['3'] = srvName;
+  } else if (
+    tpl.name === 'booking_confirmationn' ||
+    tpl.name === 'booking_reschedule_confirmation' ||
+    tpl.name === 'cancellation_confirmation'
+  ) {
+    initialValues['1'] = custName || 'there';
+    initialValues['2'] = srvName;
+    initialValues['3'] = fDate;
+    initialValues['4'] = fTime;
+  } else if (tpl.name === 'appointment_ramainder') {
+    initialValues['1'] = custName || 'there';
+    initialValues['2'] = srvName;
+    initialValues['3'] = fTime;
+  } else if (tpl.name === 'reschedule_nudge') {
+    initialValues['1'] = custName || 'there';
+    initialValues['2'] = srvName;
+  } else if (tpl.name === 'review_request') {
+    initialValues['1'] = custName || 'there';
+    initialValues['2'] = srvName;
+    initialValues['3'] = gmbLink;
+  } else if (
+    tpl.name === 'admin_notification' ||
+    tpl.name === 'admin_reschedule_notice' ||
+    tpl.name === 'admin_cancellation_notice'
+  ) {
+    initialValues['1'] = custName || 'Customer';
+    initialValues['2'] = custPhone;
+    initialValues['3'] = srvName;
+    initialValues['4'] = fDate;
+    initialValues['5'] = fTime;
+  } else if (tpl.name === 'admin_human_request') {
+    initialValues['1'] = custName || 'Customer';
+    initialValues['2'] = custPhone;
+    initialValues['3'] = conv?.last_message || 'Assistance requested';
+  } else if (tpl.name === 'admin_daily_digest') {
+    initialValues['1'] = '1';
+    initialValues['2'] = new Date().toLocaleDateString('en-GB');
+  } else {
+    // General fallback for any custom or new template
+    if (custName) initialValues['1'] = custName;
+    if (staffName) initialValues['2'] = staffName;
+    if (bizName) initialValues['3'] = bizName;
+    if (fDate) initialValues['4'] = fDate;
+    if (fTime) initialValues['5'] = fTime;
+  }
+
+  return initialValues;
+}
+
+function getTemplateVarLabel(tplName: string, idx: number): string {
+  const name = (tplName || '').toLowerCase();
+  if (name === 'client_followup_checkin') {
+    if (idx === 1) return '(Customer Name)';
+    if (idx === 2) return '(Sender / Staff Name)';
+    if (idx === 3) return '(Clinic / Business Name)';
+  } else if (name === 'utility_general_update') {
+    if (idx === 1) return '(Customer Name)';
+    if (idx === 2) return '(Clinic / Business Name)';
+    if (idx === 3) return '(Service / Topic)';
+  } else if (name.includes('booking_') || name.includes('cancellation_')) {
+    if (idx === 1) return '(Customer Name)';
+    if (idx === 2) return '(Service Name)';
+    if (idx === 3) return '(Appointment Date)';
+    if (idx === 4) return '(Appointment Time)';
+  } else if (name === 'appointment_ramainder') {
+    if (idx === 1) return '(Customer Name)';
+    if (idx === 2) return '(Service Name)';
+    if (idx === 3) return '(Appointment Time)';
+  } else if (name === 'reschedule_nudge') {
+    if (idx === 1) return '(Customer Name)';
+    if (idx === 2) return '(Service Name)';
+  } else if (name === 'review_request') {
+    if (idx === 1) return '(Customer Name)';
+    if (idx === 2) return '(Service Name)';
+    if (idx === 3) return '(Review Link)';
+  } else if (name.startsWith('admin_')) {
+    if (idx === 1) return '(Customer Name)';
+    if (idx === 2) return '(Phone Number)';
+    if (idx === 3) return '(Service / Topic)';
+    if (idx === 4) return '(Date)';
+    if (idx === 5) return '(Time)';
+  }
+  if (idx === 1) return '(Customer Name)';
+  if (idx === 2) return '(Sender / Staff Name)';
+  if (idx === 3) return '(Clinic / Business Name)';
+  if (idx === 4) return '(Date)';
+  if (idx === 5) return '(Time)';
+  return '';
+}
+
+function getTemplateVarPlaceholder(tplName: string, idx: number): string {
+  const name = (tplName || '').toLowerCase();
+  if (name === 'client_followup_checkin') {
+    if (idx === 1) return 'e.g. Rahul Sharma';
+    if (idx === 2) return 'e.g. Dr. Jane or Our Team';
+    if (idx === 3) return 'e.g. Boldlabs';
+  } else if (name === 'utility_general_update') {
+    if (idx === 1) return 'e.g. Rahul Sharma';
+    if (idx === 2) return 'e.g. Boldlabs';
+    if (idx === 3) return 'e.g. Consultation';
+  } else if (name === 'review_request') {
+    if (idx === 1) return 'e.g. Rahul Sharma';
+    if (idx === 2) return 'e.g. Consultation';
+    if (idx === 3) return 'https://g.page/r/...';
+  }
+  return `Value for {{${idx}}}`;
+}
+
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -4017,6 +4166,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             variables_count: t.variables_count || 0,
           }))
         );
+        return list;
       } else {
         const fallback = [
           {
@@ -4030,9 +4180,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         ];
         setMarketingTemplates(fallback);
         setCustomTemplates(fallback.map(t => ({ id: t.id, name: t.name, label: t.label, variables_count: t.variables_count })));
+        return fallback;
       }
     } catch (err) {
       console.warn('Failed to load marketing templates:', err);
+      return [];
     } finally {
       setLoadingTemplates(false);
     }
@@ -5811,27 +5963,42 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   async function openChatTemplatePicker() {
     setShowTemplateModal(true);
     setTemplateSearchQuery('');
-    setSelectedChatTemplate(null);
-    setTemplateVariableValues({});
-    if (marketingTemplates.length === 0) {
-      await loadMarketingTemplates();
+    let tplList = marketingTemplates;
+    if (!tplList || tplList.length === 0) {
+      tplList = (await loadMarketingTemplates()) || [];
+    }
+    if (tplList && tplList.length > 0) {
+      const defaultTpl = tplList.find((t: any) => t.name === 'client_followup_checkin') || tplList[0];
+      handleSelectTemplate(defaultTpl);
+    } else {
+      setSelectedChatTemplate(null);
+      setTemplateVariableValues({});
     }
   }
 
   function handleSelectTemplate(tpl: any) {
+    if (!tpl) return;
     const fullBody = getTemplateBodyText(tpl);
     const enriched = { ...tpl, body: fullBody };
     setSelectedChatTemplate(enriched);
-    const initialValues: Record<string, string> = {};
-    const custName = (selectedConv?.contact_name || selectedConv?.name || '').trim();
-    if (custName) {
-      initialValues['1'] = custName;
-    }
-    if (tpl.name === 'client_followup_checkin' || tpl.name === 'utility_general_update') {
-      if (!initialValues['1']) initialValues['1'] = custName || 'there';
-      initialValues['2'] = (currentUser?.name || settingsForm.admin_name || 'Our Team').trim();
-      initialValues['3'] = (settingsForm.name || 'Boldlabs').trim();
-    }
+
+    // Correlate selected conversation with customers table by phone last 10 digits
+    const convDigits = (selectedConv?.contact_phone || selectedConv?.phone || '').replace(/\D/g, '');
+    const convLast10 = convDigits.length >= 10 ? convDigits.slice(-10) : convDigits;
+    const matchingCust = convLast10
+      ? customers.find((c) => {
+          const cDigits = (c.phone || '').replace(/\D/g, '');
+          return cDigits.length >= 10 && cDigits.slice(-10) === convLast10;
+        })
+      : null;
+
+    const initialValues = buildAutoTemplateVariables(
+      enriched,
+      selectedConv,
+      matchingCust || null,
+      user,
+      settingsForm
+    );
     setTemplateVariableValues(initialValues);
   }
 
@@ -20637,27 +20804,28 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider block">
                                   Template Variables
                                 </label>
-                                <span className="text-[10px] text-text-muted">Updates live in preview below</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                                    <Check className="w-3 h-3 stroke-[2.5]" /> Auto-fetched from chat
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSelectTemplate(selectedChatTemplate)}
+                                    title="Re-populate details from conversation"
+                                    className="text-[10px] text-text-muted hover:text-accent flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-surface hover:bg-surface-subtle transition-colors cursor-pointer"
+                                  >
+                                    <RefreshCw className="w-2.5 h-2.5" /> Re-fetch
+                                  </button>
+                                </div>
                               </div>
                               {Array.from({ length: effectiveVarCount }, (_, i) => i + 1).map((idx) => (
                                 <div key={idx} className="space-y-1">
                                   <label className="text-[10px] text-text-muted block font-medium">
-                                    Variable {"{{"}{idx}{"}}"} {
-                                      idx === 1 ? '(Customer Name)' : 
-                                      idx === 2 ? '(Sender / Staff Name)' : 
-                                      idx === 3 ? '(Clinic / Business Name)' : 
-                                      idx === 4 ? '(Date)' : 
-                                      idx === 5 ? '(Time)' : ''
-                                    }
+                                    Variable {"{{"}{idx}{"}}"} {getTemplateVarLabel(selectedChatTemplate.name, idx)}
                                   </label>
                                   <input
                                     type="text"
-                                    placeholder={
-                                      idx === 1 ? 'e.g. Rahul Sharma' : 
-                                      idx === 2 ? 'e.g. Dr. Jane or Our Team' : 
-                                      idx === 3 ? 'e.g. Boldlabs' : 
-                                      `Value for {{${idx}}}`
-                                    }
+                                    placeholder={getTemplateVarPlaceholder(selectedChatTemplate.name, idx)}
                                     value={templateVariableValues[String(idx)] ?? ''}
                                     onChange={(e) =>
                                       setTemplateVariableValues((prev) => ({
