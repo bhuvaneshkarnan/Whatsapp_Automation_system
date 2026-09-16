@@ -5571,30 +5571,32 @@ async def get_client_billing_invoices(
             """,
             tenant_id
         )
-        t_row = await conn.fetchrow("SELECT name, slug, created_at, settings FROM tenants WHERE id = $1::uuid", tenant_id)
+        t_row = await conn.fetchrow("SELECT name, slug, created_at, settings, subscription_status FROM tenants WHERE id = $1::uuid", tenant_id)
         if not rows and t_row:
-            # Provide initial verified invoice record if table is currently empty for active tenant
-            s_dict = t_row["settings"] if t_row and t_row["settings"] else {}
-            if isinstance(s_dict, str):
-                try: s_dict = json.loads(s_dict)
-                except Exception: s_dict = {}
-            base_amount = float(s_dict.get("monthly_price") or 3499.0)
-            c_date = t_row["created_at"] or datetime.datetime.now(datetime.timezone.utc)
-            auto_inv_id = f"INV-{c_date.strftime('%Y%m%d')}-{t_row['slug'][:4].upper()}"
-            return [
-                {
-                    "id": auto_inv_id,
-                    "razorpay_invoice_id": auto_inv_id,
-                    "razorpay_payment_id": f"pay_{t_row['slug']}_active",
-                    "razorpay_subscription_id": f"sub_{t_row['slug']}",
-                    "amount": base_amount,
-                    "currency": "INR",
-                    "status": "paid",
-                    "invoice_pdf_url": "",
-                    "created_at": c_date.isoformat(),
-                    "paid_at": c_date.isoformat(),
-                }
-            ]
+            # Only provide initial verified invoice record if the tenant's subscription is actually active!
+            if t_row.get("subscription_status") == "active":
+                s_dict = t_row["settings"] if t_row and t_row["settings"] else {}
+                if isinstance(s_dict, str):
+                    try: s_dict = json.loads(s_dict)
+                    except Exception: s_dict = {}
+                base_amount = float(s_dict.get("monthly_price") or 3499.0)
+                c_date = t_row["created_at"] or datetime.datetime.now(datetime.timezone.utc)
+                auto_inv_id = f"INV-{c_date.strftime('%Y%m%d')}-{t_row['slug'][:4].upper()}"
+                return [
+                    {
+                        "id": auto_inv_id,
+                        "razorpay_invoice_id": auto_inv_id,
+                        "razorpay_payment_id": f"pay_{t_row['slug']}_active",
+                        "razorpay_subscription_id": f"sub_{t_row['slug']}",
+                        "amount": base_amount,
+                        "currency": "INR",
+                        "status": "paid",
+                        "invoice_pdf_url": "",
+                        "created_at": c_date.isoformat(),
+                        "paid_at": c_date.isoformat(),
+                    }
+                ]
+            return []
 
         return [
             {
