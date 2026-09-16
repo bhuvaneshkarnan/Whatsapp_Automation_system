@@ -15416,7 +15416,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* Subtabs Bar - Horizontally Scrollable Strip on Mobile */}
                 <div className="flex gap-1 border-b border-border pb-3 overflow-x-auto no-scrollbar flex-nowrap shrink-0 max-w-full">
                   {[
-                    { id: 'billing', label: '💳 Subscription & Payments', icon: CreditCard },
+                    { id: 'billing', label: 'Subscription & Payments', icon: CreditCard },
                     { id: 'branding', label: 'Profile & Branding', icon: Building2 },
                     { id: 'calendar', label: 'Google Calendar & Scheduling', icon: CalendarDays },
                     { id: 'notifications', label: 'Alert Channels', icon: Bell },
