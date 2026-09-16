@@ -813,6 +813,7 @@ export default function SuperAdminClients() {
     template_admin_cancellation_notice: 'admin_cancellation_notice',
     template_reschedule_confirmation: 'booking_reschedule_confirmation',
     template_admin_reschedule_notice: 'admin_reschedule_notice',
+    template_admin_appointment_reminder: 'admin_appointment_reminder',
     template_client_followup: 'client_followup_checkin',
   };
 
@@ -2608,6 +2609,7 @@ export default function SuperAdminClients() {
                           { key: 'template_admin_cancellation_notice', label: '10. Admin Cancellation Notice', value: dbTenantSettings.template_admin_cancellation_notice || 'admin_cancellation_notice', defaultName: 'admin_cancellation_notice' },
                           { key: 'template_admin_human_request', label: '11. Admin Human Takeover Alert', value: dbTenantSettings.template_admin_human_request || 'admin_human_request', defaultName: 'admin_human_request' },
                           { key: 'template_admin_daily_digest', label: '12. Daily Admin Performance Digest', value: dbTenantSettings.template_admin_daily_digest || 'admin_daily_digest', defaultName: 'admin_daily_digest' },
+                          { key: 'template_admin_appointment_reminder', label: '13. Admin Upcoming Appointment Reminder (30m)', value: dbTenantSettings.template_admin_appointment_reminder || 'admin_appointment_reminder', defaultName: 'admin_appointment_reminder' },
                         ]
                           .filter(item => !dbSearchQuery || item.label.toLowerCase().includes(dbSearchQuery.toLowerCase()) || String(item.value).toLowerCase().includes(dbSearchQuery.toLowerCase()))
                           .map((item) => (
@@ -3772,6 +3774,12 @@ export default function SuperAdminClients() {
                               defaultName: 'admin_daily_digest',
                               label: '12. Daily morning digest',
                               desc: '8:00 AM daily schedule overview.',
+                            },
+                            {
+                              key: 'template_admin_appointment_reminder',
+                              defaultName: 'admin_appointment_reminder',
+                              label: '13. Admin 30m appointment reminder',
+                              desc: '30 minutes before appointment alert.',
                             },
                           ].map((item) => (
                             <div key={item.key} className="space-y-1">

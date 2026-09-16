@@ -3682,6 +3682,13 @@ async def create_booking(
                        VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
                     tenant_id, booking_id, remind_2h
                 )
+            remind_admin_30m = st_dt - timedelta(minutes=30)
+            if remind_admin_30m > now_dt:
+                await conn.execute(
+                    """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                       VALUES (gen_random_uuid(), $1::uuid, 'admin_reminder', $2::uuid, $3, 'pending', now())""",
+                    tenant_id, booking_id, remind_admin_30m
+                )
             logger.info("scheduled_reminder_jobs_queued", booking_id=booking_id)
         except Exception as e_job:
             logger.warning("scheduled_jobs_queue_failed", error=str(e_job))
@@ -4257,6 +4264,13 @@ async def update_booking_status(
                            SET scheduled_at = $1, status = 'pending'
                            WHERE booking_id = $2::uuid AND job_type = 'reminder'""",
                         new_reminder_time, booking_id
+                    )
+                    new_admin_reminder_time = booking["start_time"] - timedelta(minutes=30)
+                    await conn.execute(
+                        """UPDATE scheduled_jobs
+                           SET scheduled_at = $1, status = 'pending'
+                           WHERE booking_id = $2::uuid AND job_type = 'admin_reminder'""",
+                        new_admin_reminder_time, booking_id
                     )
                 except Exception as e_rem:
                     logger.warning("reminder_job_reschedule_failed", error=str(e_rem))
@@ -5397,6 +5411,7 @@ class TenantSettingsUpdate(BaseModel):
     template_reschedule_nudge: Optional[str] = None
     template_review_request: Optional[str] = None
     template_admin_daily_digest: Optional[str] = None
+    template_admin_appointment_reminder: Optional[str] = None
     template_client_followup: Optional[str] = None
     google_review_link: Optional[str] = None
     enable_auto_review: Optional[bool] = None
@@ -5596,6 +5611,7 @@ async def get_tenant_settings(
         "template_reschedule_nudge": wa_data.get("template_reschedule_nudge") or tenant_settings.get("template_reschedule_nudge", "reschedule_nudge"),
         "template_review_request": wa_data.get("template_review_request") if wa_data.get("template_review_request") is not None else tenant_settings.get("template_review_request", ""),
         "template_admin_daily_digest": wa_data.get("template_admin_daily_digest") or tenant_settings.get("template_admin_daily_digest", "admin_daily_digest"),
+        "template_admin_appointment_reminder": wa_data.get("template_admin_appointment_reminder") or tenant_settings.get("template_admin_appointment_reminder", "admin_appointment_reminder"),
         "template_client_followup": wa_data.get("template_client_followup") or tenant_settings.get("template_client_followup", "client_followup_checkin"),
         "google_review_link": tenant_settings.get("google_review_link", wa_data.get("google_review_link", "")),
         "enable_auto_review": tenant_settings.get("enable_auto_review", True) if tenant_settings.get("enable_auto_review") is not None else True,
@@ -5928,6 +5944,7 @@ async def update_tenant_settings(
         if payload.template_reschedule_nudge is not None: cur_settings["template_reschedule_nudge"] = payload.template_reschedule_nudge.strip()
         if payload.template_review_request is not None: cur_settings["template_review_request"] = payload.template_review_request.strip()
         if payload.template_admin_daily_digest is not None: cur_settings["template_admin_daily_digest"] = payload.template_admin_daily_digest.strip()
+        if payload.template_admin_appointment_reminder is not None: cur_settings["template_admin_appointment_reminder"] = payload.template_admin_appointment_reminder.strip()
         if payload.template_client_followup is not None: cur_settings["template_client_followup"] = payload.template_client_followup.strip()
         if payload.allow_text_fallback is not None: cur_settings["allow_text_fallback"] = payload.allow_text_fallback
         if payload.disable_template_text_fallback is not None: cur_settings["disable_template_text_fallback"] = payload.disable_template_text_fallback
@@ -5972,6 +5989,7 @@ async def update_tenant_settings(
         if payload.template_reschedule_nudge is not None: wa_data["template_reschedule_nudge"] = payload.template_reschedule_nudge.strip()
         if payload.template_review_request is not None: wa_data["template_review_request"] = payload.template_review_request.strip()
         if payload.template_admin_daily_digest is not None: wa_data["template_admin_daily_digest"] = payload.template_admin_daily_digest.strip()
+        if payload.template_admin_appointment_reminder is not None: wa_data["template_admin_appointment_reminder"] = payload.template_admin_appointment_reminder.strip()
         if payload.template_client_followup is not None: wa_data["template_client_followup"] = payload.template_client_followup.strip()
         if payload.google_review_link is not None: wa_data["google_review_link"] = payload.google_review_link.strip()
         if payload.primary_model_provider is not None: wa_data["primary_model_provider"] = payload.primary_model_provider.strip()
@@ -6877,6 +6895,7 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
             "template_admin_cancellation_notice": payload.template_admin_cancellation_notice.strip() if payload.template_admin_cancellation_notice else "admin_cancellation_notice",
             "template_admin_human_request": payload.template_admin_human_request.strip() if payload.template_admin_human_request else "admin_human_request",
             "template_admin_daily_digest": "admin_daily_digest",
+            "template_admin_appointment_reminder": "admin_appointment_reminder",
             "template_client_followup_checkin": "client_followup_checkin",
             "taxonomy": {
                 "staff_label": "Doctor / Consultant" if ind == "clinic" else "Staff Member",
@@ -9350,6 +9369,24 @@ def build_industry_template_specs(industry: str = "clinic") -> dict:
                 }
             ]
         },
+        "admin_appointment_reminder": {
+            "name": "admin_appointment_reminder",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "Admin Upcoming Appointment Reminder",
+            "description": "Dispatched to admin/staff phone 30 minutes before scheduled appointment",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": f"Upcoming appointment reminder.\n\nYour {service_noun} with {{{{1}}}} is scheduled for today at {{{{2}}}}.\n\nDetails:\n• Customer: {{{{1}}}}\n• Phone: {{{{3}}}}\n• Service: {{{{4}}}}\n• Time: {{{{2}}}}\n\nPlease be prepared for your session.",
+                    "example": {
+                        "body_text": [
+                            ["John", "10:30 AM", "919876543210", service_example]
+                        ]
+                    }
+                }
+            ]
+        },
         "client_followup_checkin": {
             "name": "client_followup_checkin",
             "category": "UTILITY",
@@ -9767,6 +9804,7 @@ async def execute_meta_template_sync(tenant_id: str, pool) -> dict:
         "template_admin_cancellation_notice": "admin_cancellation_notice",
         "template_admin_human_request": "admin_human_request",
         "template_admin_daily_digest": "admin_daily_digest",
+        "template_admin_appointment_reminder": "admin_appointment_reminder",
         "template_client_followup_checkin": "client_followup_checkin",
         "template_utility_general_update": "utility_general_update",
     }
@@ -10642,6 +10680,13 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                     """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
                        VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
                     tenant_id, booking_id, remind_2h
+                )
+            remind_admin_30m = st_dt - timedelta(minutes=30)
+            if remind_admin_30m > now_dt:
+                await conn.execute(
+                    """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                       VALUES (gen_random_uuid(), $1::uuid, 'admin_reminder', $2::uuid, $3, 'pending', now())""",
+                    tenant_id, booking_id, remind_admin_30m
                 )
             pass
         except Exception as e_job:

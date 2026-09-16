@@ -4745,6 +4745,7 @@ class CoreWorker:
                  AND sj.scheduled_at <= now()
                  AND (
                    (sj.job_type = 'reminder' AND b.status = 'confirmed')
+                   OR (sj.job_type = 'admin_reminder' AND b.status = 'confirmed')
                    OR (sj.job_type = 'review_request' AND b.status IN ('completed', 'attended'))
                    OR (sj.job_type = 'post_treatment_followup' AND b.status IN ('completed', 'attended'))
                    OR (sj.job_type = 'reschedule_nudge' AND b.status IN ('no_show', 'no-show'))
@@ -4795,6 +4796,16 @@ class CoreWorker:
                                     job["id"]
                                 )
                                 continue
+
+                elif job_type == "admin_reminder":
+                    lock_admin = f"dedup:wa_admin_reminder:{booking_id}"
+                    if not await self.redis.set(lock_admin, "1", ex=14400, nx=True):
+                        logger.info("scheduled_admin_reminder_skipped_lock_held", booking_id=booking_id)
+                        await self.db_pool.execute(
+                            "UPDATE scheduled_jobs SET status = 'skipped_duplicate', sent_at = now() WHERE id = $1",
+                            job["id"]
+                        )
+                        continue
 
                 creds = dict(job["wa_creds"]) if isinstance(job["wa_creds"], dict) else json.loads(job["wa_creds"])
                 t_st = job["tenant_settings"] if job.get("tenant_settings") else {}
@@ -4853,6 +4864,80 @@ class CoreWorker:
                         logger.info("scheduled_reminder_template_sent", template=template_name, to=job["phone"])
                     except Exception as te:
                         logger.warning("scheduled_reminder_template_failed_fallback_text", error=str(te))
+
+                # 1b. Admin Reminder job: Send upcoming appointment reminder to Owner/Admin WhatsApp
+                elif job_type == "admin_reminder" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+                    admin_phone = (creds.get("admin_whatsapp_number") or t_st.get("admin_whatsapp_number") or "").strip()
+                    clean_admin_phone = re.sub(r'[^0-9]', '', admin_phone)
+                    if not clean_admin_phone or len(clean_admin_phone) < 10:
+                        logger.info("admin_reminder_skipped_no_phone", booking_id=booking_id)
+                        await self.db_pool.execute(
+                            "UPDATE scheduled_jobs SET status = 'skipped_no_admin_phone', sent_at = now() WHERE id = $1",
+                            job["id"]
+                        )
+                        continue
+
+                    template_name = (
+                        creds.get("template_admin_appointment_reminder") or
+                        t_st.get("template_admin_appointment_reminder") or
+                        "admin_appointment_reminder"
+                    )
+                    components = [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": name},
+                                {"type": "text", "text": time_str},
+                                {"type": "text", "text": job["phone"]},
+                                {"type": "text", "text": service},
+                            ]
+                        }
+                    ]
+                    try:
+                        await send_template(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=clean_admin_phone,
+                            template_name=template_name,
+                            language_code="en",
+                            components=components,
+                        )
+                        sent_via_template = True
+                        logger.info("scheduled_admin_reminder_template_sent", template=template_name, to=clean_admin_phone)
+                    except Exception as te:
+                        logger.warning("scheduled_admin_reminder_template_failed_fallback", error=str(te))
+                        # Fallback to approved admin_notification (5 params: name, phone, service, date, time)
+                        try:
+                            fallback_tpl = (
+                                creds.get("template_admin_notification") or
+                                t_st.get("template_admin_notification") or
+                                "admin_notification"
+                            )
+                            fb_components = [
+                                {
+                                    "type": "body",
+                                    "parameters": [
+                                        {"type": "text", "text": name},
+                                        {"type": "text", "text": job["phone"]},
+                                        {"type": "text", "text": service},
+                                        {"type": "text", "text": date_str},
+                                        {"type": "text", "text": time_str},
+                                    ]
+                                }
+                            ]
+                            await send_template(
+                                phone_number_id=creds["phone_number_id"],
+                                access_token=creds["access_token"],
+                                to=clean_admin_phone,
+                                template_name=fallback_tpl,
+                                language_code="en",
+                                components=fb_components,
+                            )
+                            sent_via_template = True
+                            template_name = fallback_tpl
+                            logger.info("scheduled_admin_reminder_fallback_template_sent", template=fallback_tpl, to=clean_admin_phone)
+                        except Exception as fe:
+                            logger.warning("scheduled_admin_reminder_fallback_failed", error=str(fe))
 
                 # 2. Review Request job: Send approved review_request template
                 elif job_type == "review_request" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
@@ -4980,7 +5065,7 @@ class CoreWorker:
                         booking_id
                     )
 
-                if job.get("contact_id") and job.get("tenant_id"):
+                if job.get("contact_id") and job.get("tenant_id") and job_type != "admin_reminder":
                     conv_row = await self.db_pool.fetchrow(
                         "SELECT id FROM conversations WHERE contact_id = $1 AND tenant_id = $2 LIMIT 1",
                         job["contact_id"], job["tenant_id"]
