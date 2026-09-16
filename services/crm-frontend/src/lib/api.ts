@@ -723,6 +723,13 @@ export const crm = {
     );
   },
 
+  getInvoices: (targetTenantId?: string) => {
+    const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
+    return request<Invoice[]>(`/api/v1/crm/settings/invoices${qs}`, {
+      headers: targetTenantId ? { 'X-Tenant-ID': targetTenantId } : undefined,
+    });
+  },
+
   resolveTenantBySlug: (slug: string) =>
     request<{ id: string; name: string; slug: string; plan?: string; is_active?: boolean }>(
       `/api/v1/crm/tenants/resolve/${encodeURIComponent(slug)}`
