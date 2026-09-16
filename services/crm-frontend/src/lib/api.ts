@@ -1154,7 +1154,6 @@ export interface TenantSettingsResponse {
   next_charge_at?: string;
   last_payment_status?: string;
   last_charge_at?: string;
-  gmb_review_url?: string;
 }
 
 export interface CustomerReview {

@@ -5498,6 +5498,10 @@ async def get_tenant_settings(
         "max_concurrent_bookings": tenant_settings.get("max_concurrent_bookings", 1),
 
         # Razorpay Subscription & Organization Lifecycle
+        "plan": tenant.get("plan") or "pro",
+        "monthly_price": float(tenant_settings.get("monthly_price") or (999.0 if (tenant.get("plan") or "").lower() == "starter" else (9999.0 if (tenant.get("plan") or "").lower() == "enterprise" else 3499.0))),
+        "currency": tenant_settings.get("currency", "INR"),
+        "currency_symbol": tenant_settings.get("currency_symbol") or "₹",
         "org_lifecycle_stage": tenant.get("org_lifecycle_stage") or "setup",
         "subscription_status": tenant.get("subscription_status") or "not_started",
         "razorpay_customer_id": tenant.get("razorpay_customer_id") or "",

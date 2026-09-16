@@ -2468,6 +2468,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     slot_booking_mode: 'single',
     max_concurrent_bookings: 1,
     notification_email: '',
+    plan: 'pro',
+    monthly_price: 3499,
     review_experience_tags: [] as string[],
   });
 
@@ -15338,14 +15340,33 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
                         </div>
 
-                        {/* Clean 3 Box Grid */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          {/* Box 1: Plan Status */}
+                        {/* Clean 4 Box Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          {/* Box 1: Monthly Fee */}
+                          <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
+                                Monthly Fee
+                              </span>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 uppercase tracking-wide">
+                                {settingsForm.plan === 'full_suite' ? 'Full Suite' : settingsForm.plan === 'automation_only' ? 'Automation' : settingsForm.plan === 'review_only' ? 'Reviews' : (settingsForm.plan ? settingsForm.plan.replace('_', ' ').toUpperCase() : 'PRO')}
+                              </span>
+                            </div>
+                            <div className="flex items-baseline gap-1.5 pt-0.5">
+                              <span className="text-xl font-bold tracking-tight text-text-primary">
+                                {settingsForm.currency_symbol || '₹'}{(Number(settingsForm.monthly_price) || 3499).toLocaleString('en-IN')}
+                              </span>
+                              <span className="text-xs text-text-muted font-medium">/ month</span>
+                            </div>
+                            <span className="text-[10px] text-text-muted block">Billed monthly per active tenant</span>
+                          </div>
+
+                          {/* Box 2: Plan Status */}
                           <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
                             <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
                               Subscription Status
                             </span>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 pt-1">
                               <span className={`w-2.5 h-2.5 rounded-full ${
                                 settingsForm.subscription_status === 'payment_failed' ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'
                               }`} />
@@ -15353,25 +15374,64 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 {settingsForm.subscription_status === 'payment_failed' ? 'Payment Due' : (settingsForm.subscription_status || 'Active')}
                               </span>
                             </div>
+                            <span className="text-[10px] text-text-muted block">Platform license verified</span>
                           </div>
 
-                          {/* Box 2: Next Renewal Date */}
+                          {/* Box 3: Next Renewal Date */}
                           <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
                             <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
                               Next Renewal Date
                             </span>
-                            <div className="text-sm font-bold font-mono text-accent">
+                            <div className="text-sm font-bold font-mono text-accent pt-1">
                               {settingsForm.next_charge_at ? new Date(settingsForm.next_charge_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Monthly Cycle'}
                             </div>
+                            <span className="text-[10px] text-text-muted block">Auto-renews on schedule</span>
                           </div>
 
-                          {/* Box 3: Subscription Ref ID */}
+                          {/* Box 4: Subscription Ref ID */}
                           <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
                             <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
                               Subscription Ref ID
                             </span>
-                            <div className="text-xs font-mono font-semibold text-text-primary truncate">
+                            <div className="text-xs font-mono font-semibold text-text-primary truncate pt-1.5" title={settingsForm.razorpay_subscription_id || `sub_${settingsForm.slug || 'tenant'}`}>
                               {settingsForm.razorpay_subscription_id || `sub_${settingsForm.slug || 'tenant'}`}
+                            </div>
+                            <span className="text-[10px] text-text-muted block truncate">Dedicated CRM workspace</span>
+                          </div>
+                        </div>
+
+                        {/* Active Plan Inclusions Card */}
+                        <div className="mt-4 p-4 rounded-md border border-border/80 bg-surface-subtle/40">
+                          <div className="flex items-center gap-2 mb-3">
+                            <Sparkles className="w-4 h-4 text-accent" />
+                            <span className="text-xs font-bold text-text-primary uppercase tracking-wide">
+                              Active Plan Features & Inclusions
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs text-text-secondary">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                              <span>AI WhatsApp Conversational Engine</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                              <span>Automated Appointment Booking</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                              <span>Google Calendar 2-Way Live Sync</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                              <span>Google Review Generation & Filter</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                              <span>Team Portals & Staff Delegation</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                              <span>24/7 Automated Follow-ups & Reminders</span>
                             </div>
                           </div>
                         </div>
