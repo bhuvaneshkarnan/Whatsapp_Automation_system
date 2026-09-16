@@ -2412,8 +2412,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [billingInvoices, setBillingInvoices] = useState<Invoice[]>([]);
   const [loadingBillingInvoices, setLoadingBillingInvoices] = useState(false);
-  const [selectedInvoiceModal, setSelectedInvoiceModal] = useState<Invoice | null>(null);
   const [copiedPaymentUrl, setCopiedPaymentUrl] = useState(false);
+  const [initiatingPayment, setInitiatingPayment] = useState(false);
+  const [initiatePaymentError, setInitiatePaymentError] = useState('');
+  const [showCustomLinkInput, setShowCustomLinkInput] = useState(false);
+  const [customPaymentUrlInput, setCustomPaymentUrlInput] = useState('');
+  const [savingCustomLink, setSavingCustomLink] = useState(false);
 
   const [settingsForm, setSettingsForm] = useState<TenantSettingsUpdate & {
     webhook_url?: string;
@@ -5203,6 +5207,54 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       ]);
     } finally {
       setLoadingBillingInvoices(false);
+    }
+  }
+
+  async function handleInitiatePayment(forceNew = false) {
+    setInitiatingPayment(true);
+    setInitiatePaymentError('');
+    try {
+      const res = await crm.initiatePayment(forceNew);
+      if (res && res.short_url) {
+        setSettingsForm((prev) => ({
+          ...prev,
+          razorpay_short_url: res.short_url,
+          razorpay_subscription_id: res.subscription_id || prev.razorpay_subscription_id,
+        }));
+        if (typeof window !== 'undefined') {
+          window.open(res.short_url, '_blank', 'noopener,noreferrer');
+        }
+      } else {
+        setInitiatePaymentError(res?.message || 'Could not generate payment link.');
+      }
+    } catch (err: any) {
+      console.error('Failed to initiate payment:', err);
+      const msg = err?.message || 'Failed to connect to Razorpay. Please verify server keys or paste custom link directly.';
+      setInitiatePaymentError(msg);
+    } finally {
+      setInitiatingPayment(false);
+    }
+  }
+
+  async function handleSaveCustomPaymentLink() {
+    if (!customPaymentUrlInput.trim()) return;
+    setSavingCustomLink(true);
+    setInitiatePaymentError('');
+    try {
+      const res = await crm.setPaymentLink(customPaymentUrlInput.trim());
+      if (res && res.short_url) {
+        setSettingsForm((prev) => ({
+          ...prev,
+          razorpay_short_url: res.short_url,
+        }));
+        setShowCustomLinkInput(false);
+        setCustomPaymentUrlInput('');
+      }
+    } catch (err: any) {
+      console.error('Failed to save custom payment link:', err);
+      setInitiatePaymentError(err?.message || 'Failed to update payment link.');
+    } finally {
+      setSavingCustomLink(false);
     }
   }
 
@@ -15353,8 +15405,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                   {/* ── 0. SUBSCRIPTION & SYSTEM BILLING ─────────────────────── */}
                   {settingsTab === 'billing' && (() => {
-                    const effectiveSlug = settingsForm.slug || activeSlug || (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') || 'boldlabs';
-                    const activePaymentUrl = settingsForm.razorpay_short_url || `https://rzp.io/l/${effectiveSlug}-crm`;
+                    const rawPaymentUrl = (settingsForm.razorpay_short_url || '').trim();
+                    const activePaymentUrl = rawPaymentUrl.includes('boldlabs-crm') ? '' : rawPaymentUrl;
+                    const isGenuinePaymentUrl = Boolean(activePaymentUrl && (activePaymentUrl.startsWith('https://') || activePaymentUrl.startsWith('http://')));
                     const renewalDateFormatted = (() => {
                       if (settingsForm.next_charge_at) {
                         try {
@@ -15384,36 +15437,59 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                             {/* Top Quick Actions */}
                             <div className="flex items-center gap-2 shrink-0">
-                              <a
-                                href={activePaymentUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
-                              >
-                                <span>Pay Online via Razorpay</span>
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </a>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(activePaymentUrl);
-                                  setCopiedPaymentUrl(true);
-                                  setTimeout(() => setCopiedPaymentUrl(false), 2000);
-                                }}
-                                className="px-3 py-1.5 bg-surface-subtle hover:bg-surface border border-border text-text-primary text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
-                              >
-                                {copiedPaymentUrl ? (
-                                  <>
-                                    <Check className="w-3.5 h-3.5 text-emerald-500" />
-                                    <span className="text-emerald-500 font-bold">Copied!</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="w-3.5 h-3.5 text-text-muted" />
-                                    <span>Copy Link</span>
-                                  </>
-                                )}
-                              </button>
+                              {isGenuinePaymentUrl ? (
+                                <>
+                                  <a
+                                    href={activePaymentUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <span>Pay Online via Razorpay</span>
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(activePaymentUrl);
+                                      setCopiedPaymentUrl(true);
+                                      setTimeout(() => setCopiedPaymentUrl(false), 2000);
+                                    }}
+                                    className="px-3 py-1.5 bg-surface-subtle hover:bg-surface border border-border text-text-primary text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
+                                  >
+                                    {copiedPaymentUrl ? (
+                                      <>
+                                        <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                        <span className="text-emerald-500 font-bold">Copied!</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy className="w-3.5 h-3.5 text-text-muted" />
+                                        <span>Copy Link</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={initiatingPayment}
+                                  onClick={() => handleInitiatePayment(false)}
+                                  className="px-3.5 py-1.5 bg-accent hover:bg-accent/90 text-white text-xs font-bold rounded-md shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                                >
+                                  {initiatingPayment ? (
+                                    <>
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                      <span>Connecting to Razorpay...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CreditCard className="w-3.5 h-3.5" />
+                                      <span>Initiate Payment</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
                             </div>
                           </div>
 
@@ -15467,55 +15543,151 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
 
                           {/* Direct Payment Link Card */}
-                          <div className="p-4 rounded-md border border-border/80 bg-surface-subtle/30 space-y-2.5">
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                              <div>
-                                <h5 className="text-xs font-bold text-text-primary flex items-center gap-1.5">
-                                  <CreditCard className="w-3.5 h-3.5 text-accent" />
-                                  <span>Direct Payment Link</span>
-                                </h5>
-                                <p className="text-[11px] text-text-muted mt-0.5">
-                                  Use or share this official Razorpay link to pay your subscription with UPI, Cards, Net Banking, or Wallets.
-                                </p>
+                          {isGenuinePaymentUrl ? (
+                            <div className="p-4 rounded-md border border-emerald-500/30 bg-emerald-500/5 space-y-2.5">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h5 className="text-xs font-bold text-text-primary flex items-center gap-1.5">
+                                      <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
+                                      <span>Direct Payment Link (Razorpay)</span>
+                                    </h5>
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                      Active & Verified
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-text-muted mt-0.5">
+                                    Official Razorpay checkout link attached strictly to this workspace. Pay with UPI, Cards, Net Banking, or Wallets.
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <a
+                                    href={activePaymentUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                                  >
+                                    <span>Open Payment Link</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(activePaymentUrl);
+                                      setCopiedPaymentUrl(true);
+                                      setTimeout(() => setCopiedPaymentUrl(false), 2000);
+                                    }}
+                                    className="px-3 py-1.5 bg-surface hover:bg-surface-subtle border border-border text-text-primary text-xs font-semibold rounded flex items-center gap-1.5 transition-colors cursor-pointer"
+                                  >
+                                    {copiedPaymentUrl ? (
+                                      <>
+                                        <Check className="w-3 h-3 text-emerald-500" />
+                                        <span className="text-emerald-500 font-bold">Copied!</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy className="w-3 h-3 text-text-muted" />
+                                        <span>Copy</span>
+                                      </>
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={initiatingPayment}
+                                    onClick={() => handleInitiatePayment(true)}
+                                    title="Regenerate a new payment link from Razorpay"
+                                    className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle border border-border text-text-muted hover:text-text-primary text-xs font-medium rounded flex items-center gap-1 transition-colors cursor-pointer"
+                                  >
+                                    <RefreshCw className={`w-3 h-3 ${initiatingPayment ? 'animate-spin' : ''}`} />
+                                    <span>Regenerate</span>
+                                  </button>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <a
-                                  href={activePaymentUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                                >
-                                  <span>Open Payment Link</span>
-                                  <ExternalLink className="w-3 h-3" />
-                                </a>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(activePaymentUrl);
-                                    setCopiedPaymentUrl(true);
-                                    setTimeout(() => setCopiedPaymentUrl(false), 2000);
-                                  }}
-                                  className="px-3 py-1.5 bg-surface hover:bg-surface-subtle border border-border text-text-primary text-xs font-semibold rounded flex items-center gap-1.5 transition-colors cursor-pointer"
-                                >
-                                  {copiedPaymentUrl ? (
-                                    <>
-                                      <Check className="w-3 h-3 text-emerald-500" />
-                                      <span className="text-emerald-500 font-bold">Copied!</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Copy className="w-3 h-3 text-text-muted" />
-                                      <span>Copy</span>
-                                    </>
-                                  )}
-                                </button>
+                              <div className="flex items-center gap-2 p-2 rounded bg-surface border border-border text-xs font-mono text-text-secondary truncate">
+                                <span className="text-text-muted select-none text-[11px]">PAYMENT URL:</span>
+                                <span className="truncate flex-1 text-emerald-600 select-all font-semibold">{activePaymentUrl}</span>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2 p-2 rounded bg-surface border border-border text-xs font-mono text-text-secondary truncate">
-                              <span className="text-text-muted select-none text-[11px]">PAYMENT URL:</span>
-                              <span className="truncate flex-1 text-accent select-all font-semibold">{activePaymentUrl}</span>
+                          ) : (
+                            <div className="p-4 rounded-md border border-border bg-surface-subtle/50 space-y-3">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h5 className="text-xs font-bold text-text-primary flex items-center gap-1.5">
+                                      <CreditCard className="w-3.5 h-3.5 text-accent" />
+                                      <span>Payment Link Pending Initiation</span>
+                                    </h5>
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                                      Ready to Initiate
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-text-muted mt-0.5">
+                                    No live Razorpay checkout link is currently attached to this workspace. Click Initiate Payment to generate an authentic link, or paste your custom Razorpay link below.
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    disabled={initiatingPayment}
+                                    onClick={() => handleInitiatePayment(false)}
+                                    className="px-3.5 py-1.5 bg-accent hover:bg-accent/90 text-white text-xs font-bold rounded shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
+                                  >
+                                    {initiatingPayment ? (
+                                      <>
+                                        <RefreshCw className="w-3 h-3 animate-spin" />
+                                        <span>Connecting to Razorpay...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <CreditCard className="w-3 h-3" />
+                                        <span>Initiate Payment & Generate Link</span>
+                                      </>
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowCustomLinkInput(!showCustomLinkInput)}
+                                    className="px-3 py-1.5 bg-surface hover:bg-surface-subtle border border-border text-text-primary text-xs font-semibold rounded flex items-center gap-1 transition-colors cursor-pointer"
+                                  >
+                                    <span>{showCustomLinkInput ? 'Hide' : 'Paste Link'}</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {initiatePaymentError && (
+                                <div className="p-2.5 rounded bg-rose-500/10 border border-rose-500/20 text-xs text-rose-600 font-medium">
+                                  {initiatePaymentError}
+                                </div>
+                              )}
+
+                              {showCustomLinkInput && (
+                                <div className="pt-2 border-t border-border flex flex-col sm:flex-row items-center gap-2">
+                                  <input
+                                    type="url"
+                                    value={customPaymentUrlInput}
+                                    onChange={(e) => setCustomPaymentUrlInput(e.target.value)}
+                                    placeholder="https://rzp.io/l/... or https://pages.razorpay.com/..."
+                                    className="flex-1 w-full px-3 py-1.5 text-xs bg-surface border border-border rounded focus:outline-none focus:ring-1 focus:ring-accent font-mono"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={savingCustomLink || !customPaymentUrlInput.trim()}
+                                    onClick={handleSaveCustomPaymentLink}
+                                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+                                  >
+                                    {savingCustomLink ? (
+                                      <>
+                                        <RefreshCw className="w-3 h-3 animate-spin" />
+                                        <span>Saving...</span>
+                                      </>
+                                    ) : (
+                                      <span>Attach Link</span>
+                                    )}
+                                  </button>
+                                </div>
+                              )}
                             </div>
-                          </div>
+                          )}
 
                           {/* Active Plan Inclusions Card */}
                           <div className="p-4 rounded-md border border-border/80 bg-surface-subtle/40">

@@ -33,7 +33,13 @@ validate_razorpay_config()
 BASE_URL = "https://api.razorpay.com/v1"
 
 def get_auth() -> tuple:
-    return (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
+    k_id = os.getenv("RAZORPAY_KEY_ID") or RAZORPAY_KEY_ID
+    k_sec = os.getenv("RAZORPAY_KEY_SECRET") or RAZORPAY_KEY_SECRET
+    return (k_id, k_sec)
+
+def is_configured() -> bool:
+    k_id, k_sec = get_auth()
+    return bool(k_id and k_sec)
 
 def verify_webhook_signature(raw_body: bytes, signature: str, secret: Optional[str] = None) -> bool:
     """
@@ -140,6 +146,8 @@ async def create_payment_link(
     tenant_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Create a standard Razorpay Payment Link (checkout page) for an organization."""
+    if not is_configured():
+        raise ValueError("Razorpay API credentials (RAZORPAY_KEY_ID & RAZORPAY_KEY_SECRET) are not configured on the server.")
     payload: Dict[str, Any] = {
         "amount": amount,
         "currency": currency,

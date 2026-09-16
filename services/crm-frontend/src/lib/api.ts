@@ -730,6 +730,33 @@ export const crm = {
     });
   },
 
+  initiatePayment: (forceNew = false, targetTenantId?: string) => {
+    const qs = `?force_new=${forceNew ? 'true' : 'false'}${targetTenantId ? `&target_tenant_id=${encodeURIComponent(targetTenantId)}` : ''}`;
+    return request<{
+      status: string;
+      short_url?: string;
+      subscription_id?: string;
+      amount?: number;
+      message?: string;
+    }>(`/api/v1/crm/tenant/billing/initiate-payment${qs}`, {
+      method: 'POST',
+      headers: targetTenantId ? { 'X-Tenant-ID': targetTenantId } : undefined,
+    });
+  },
+
+  setPaymentLink: (paymentUrl: string, targetTenantId?: string) => {
+    const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
+    return request<{
+      status: string;
+      short_url: string;
+      message?: string;
+    }>(`/api/v1/crm/tenant/billing/set-payment-link${qs}`, {
+      method: 'POST',
+      headers: targetTenantId ? { 'X-Tenant-ID': targetTenantId } : undefined,
+      body: JSON.stringify({ payment_url: paymentUrl }),
+    });
+  },
+
   resolveTenantBySlug: (slug: string) =>
     request<{ id: string; name: string; slug: string; plan?: string; is_active?: boolean }>(
       `/api/v1/crm/tenants/resolve/${encodeURIComponent(slug)}`
