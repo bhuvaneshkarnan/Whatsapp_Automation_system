@@ -2397,7 +2397,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
 
   const activeSlug = (routeSlug || (params?.slug as string) || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : '') || '').toLowerCase();
-  const isMindBodyRecovery = activeSlug.includes('mindbody') || activeSlug.includes('mind_body') || activeSlug.includes('mindbodyrecovery') || (user?.tenant_slug || '').toLowerCase().includes('mindbody');
 
   // Customers State
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -3059,6 +3058,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') ||
     ''
   ).toLowerCase().trim();
+
+  const isMindBodyRecovery =
+    activeSlug.includes('mindbody') ||
+    activeSlug.includes('mind_body') ||
+    activeSlug.includes('mindbodyrecovery') ||
+    currentEffectiveSlug.includes('mindbody') ||
+    (user?.tenant_slug || '').toLowerCase().includes('mindbody') ||
+    (settingsForm?.slug || '').toLowerCase().includes('mindbody') ||
+    (settingsForm?.name || '').toLowerCase().includes('mind body') ||
+    (settingsForm?.name || '').toLowerCase().includes('mindbody');
 
   const isClinicTenant = currentEffectiveSlug === 'mindbodyrecovery' || settingsForm?.dashboard_variant === 'clinic';
 
@@ -12194,6 +12203,33 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             ))}
                                           </select>
                                         </div>
+
+                                        {/* Mind Body Recovery ONLY: Call Button below Status / Outcome */}
+                                        {isMindBodyRecovery && (
+                                          <div className="pt-0.5">
+                                            {cust.phone ? (
+                                              <a
+                                                href={`tel:${cust.phone.replace(/[^0-9+]/g, '')}`}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="w-full h-7 px-2 rounded-md text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-2xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer group"
+                                                title={`Call ${cust.name || 'Patient'}: ${cust.phone}`}
+                                              >
+                                                <PhoneCall className="w-3 h-3 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform shrink-0" />
+                                                <span className="truncate">Call</span>
+                                              </a>
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                disabled
+                                                className="w-full h-7 px-2 rounded-md text-[11px] font-semibold bg-surface-subtle text-text-muted border border-border/60 shadow-2xs flex items-center justify-center gap-1.5 opacity-60 cursor-not-allowed"
+                                                title="No phone number available"
+                                              >
+                                                <PhoneCall className="w-3 h-3 text-text-muted shrink-0" />
+                                                <span>Call</span>
+                                              </button>
+                                            )}
+                                          </div>
+                                        )}
                                       </div>
                                     </td>
 
