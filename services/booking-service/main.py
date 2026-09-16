@@ -125,6 +125,8 @@ async def create_booking(
     tenant_id: str = Depends(get_tenant_id)
 ):
     """Creates a booking in 'pending' state scoped to authenticated tenant."""
+    if payload.end_time <= payload.start_time:
+        raise HTTPException(status_code=400, detail="end_time must be strictly after start_time")
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
             """INSERT INTO bookings
@@ -192,7 +194,7 @@ async def update_booking_status(
 
     # 5. Sync with Google Calendar (async fire-and-forget for now)
     if payload.status in ("confirmed", "rescheduled", "cancelled"):
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             try:
                 headers = {"Authorization": authorization} if authorization else {}
                 await client.post(

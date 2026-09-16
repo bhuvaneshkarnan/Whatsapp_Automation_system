@@ -588,10 +588,10 @@ export const crm = {
       }
     ),
 
-  conversations: (status?: string, limit = 50) =>
+  conversations: (status?: string, limit = 500) =>
     crm.getConversations(status, limit),
 
-  getConversations: async (status?: string, limit = 50): Promise<Conversation[]> => {
+  getConversations: async (status?: string, limit = 500): Promise<Conversation[]> => {
     try {
       const raw = await request<any[]>(
         `/api/v1/crm/conversations${status ? `?status=${status}&limit=${limit}` : `?limit=${limit}`}`

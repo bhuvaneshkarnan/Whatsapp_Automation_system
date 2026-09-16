@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
@@ -131,7 +132,10 @@ async def sync_calendar(
             logger.warning("no_calendar_creds", tenant_id=effective_tenant_id)
             return {"status": "skipped", "reason": "no_credentials"}
 
-        cred_data = json.loads(cred_row["credential_data"]) if isinstance(cred_row["credential_data"], str) else cred_row["credential_data"]
+        try:
+            cred_data = json.loads(cred_row["credential_data"]) if isinstance(cred_row["credential_data"], str) else (cred_row["credential_data"] or {})
+        except Exception:
+            cred_data = {}
 
         # 2. Get booking details
         booking = await conn.fetchrow(
@@ -163,7 +167,7 @@ async def sync_calendar(
         if status == "cancelled":
             if event_id:
                 try:
-                    service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+                    await asyncio.to_thread(lambda: service.events().delete(calendarId=calendar_id, eventId=event_id).execute())
                     await conn.execute("UPDATE bookings SET google_event_id = NULL WHERE id = $1::uuid AND tenant_id = $2::uuid", req.booking_id, effective_tenant_id)
                 except Exception as e:
                     logger.error("calendar_delete_failed", error=str(e))
@@ -179,10 +183,10 @@ async def sync_calendar(
 
         try:
             if event_id:
-                event = service.events().update(calendarId=calendar_id, eventId=event_id, body=event_body).execute()
+                event = await asyncio.to_thread(lambda: service.events().update(calendarId=calendar_id, eventId=event_id, body=event_body).execute())
                 action = "updated"
             else:
-                event = service.events().insert(calendarId=calendar_id, body=event_body).execute()
+                event = await asyncio.to_thread(lambda: service.events().insert(calendarId=calendar_id, body=event_body).execute())
                 action = "created"
                 await conn.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid", event['id'], req.booking_id, effective_tenant_id)
             

@@ -4895,37 +4895,79 @@ async def list_conversations(
     tenant_id: str = Depends(get_tenant_id),
     caller: dict = Depends(get_caller_context),
     status: Optional[str] = None,
-    limit: int = Query(50, le=100),
+    limit: int = Query(200, le=1000),
     offset: int = 0
 ):
     async with db_pool.acquire() as conn:
+        # Auto-ensure all contacts have a conversation record
+        try:
+            await conn.execute("""
+                INSERT INTO conversations (id, tenant_id, contact_id, status, last_message_at, created_at, updated_at)
+                SELECT gen_random_uuid(), c.tenant_id, c.id, 'bot', c.created_at, c.created_at, now()
+                FROM contacts c
+                WHERE c.tenant_id = $1::uuid
+                  AND NOT EXISTS (
+                      SELECT 1 FROM conversations cv WHERE cv.contact_id = c.id AND cv.tenant_id = c.tenant_id
+                  )
+            """, tenant_id)
+        except Exception as e:
+            logger.warning("conversation_sync_from_contacts_failed", error=str(e))
+
         query = """
             SELECT c.id, c.status, c.last_message_at, c.unread_count, c.assigned_to,
                    ct.name, ct.phone,
                    u.display_name as assigned_staff_name, u.email as assigned_staff_email,
-                   (SELECT COALESCE(
-                       NULLIF(TRIM(m.body), ''),
-                       CASE 
-                           WHEN m.content_type = 'image' THEN '📷 [Photo]'
-                           WHEN m.content_type = 'video' THEN '🎥 [Video]'
-                           WHEN m.content_type = 'document' THEN '📄 [Document]'
-                           WHEN m.content_type = 'audio' THEN '🎵 [Audio]'
-                           WHEN m.content_type = 'sticker' THEN '🏷️ [Sticker]'
-                           WHEN m.content_type = 'location' THEN '📍 [Location]'
-                           WHEN m.template_name IS NOT NULL AND m.template_name != '' THEN '📋 [Template]'
-                           ELSE '[Message]'
-                       END
-                   ) FROM messages m WHERE m.conversation_id = c.id AND m.tenant_id = c.tenant_id ORDER BY m.created_at DESC LIMIT 1) as last_message,
-                   (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id AND m.tenant_id = c.tenant_id AND m.direction = 'inbound') as last_inbound_at,
-                   (SELECT COUNT(*) FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS completed_bookings_count,
-                   (SELECT MAX(b.start_time) FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')) AS last_visit_date,
-                   (SELECT b.service FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended') ORDER BY b.start_time DESC LIMIT 1) AS last_visit_service,
-                   (SELECT b.staff_member FROM bookings b WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended') ORDER BY b.start_time DESC LIMIT 1) AS last_visit_doctor,
-                   (SELECT cust.preferred_doctor FROM customers cust WHERE cust.tenant_id = c.tenant_id AND (cust.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10)) LIMIT 1) AS preferred_doctor,
-                   (SELECT cust.health_concern FROM customers cust WHERE cust.tenant_id = c.tenant_id AND (cust.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10)) LIMIT 1) AS health_concern
+                   lm.last_message,
+                   lib.last_inbound_at,
+                   COALESCE(bk.completed_bookings_count, 0) AS completed_bookings_count,
+                   bk.last_visit_date,
+                   bk.last_visit_service,
+                   bk.last_visit_doctor,
+                   cust_info.preferred_doctor,
+                   cust_info.health_concern
             FROM conversations c
             JOIN contacts ct ON ct.id = c.contact_id AND ct.tenant_id = c.tenant_id
             LEFT JOIN users u ON u.id = c.assigned_to AND u.tenant_id = c.tenant_id
+            LEFT JOIN LATERAL (
+                SELECT 
+                    COALESCE(
+                        NULLIF(TRIM(m.body), ''),
+                        CASE 
+                            WHEN m.content_type = 'image' THEN '📷 [Photo]'
+                            WHEN m.content_type = 'video' THEN '🎥 [Video]'
+                            WHEN m.content_type = 'document' THEN '📄 [Document]'
+                            WHEN m.content_type = 'audio' THEN '🎵 [Audio]'
+                            WHEN m.content_type = 'sticker' THEN '🏷️ [Sticker]'
+                            WHEN m.content_type = 'location' THEN '📍 [Location]'
+                            WHEN m.template_name IS NOT NULL AND m.template_name != '' THEN '📋 [Template]'
+                            ELSE '[Message]'
+                        END
+                    ) AS last_message
+                FROM messages m 
+                WHERE m.conversation_id = c.id AND m.tenant_id = c.tenant_id 
+                ORDER BY m.created_at DESC 
+                LIMIT 1
+            ) lm ON true
+            LEFT JOIN LATERAL (
+                SELECT MAX(m.created_at) AS last_inbound_at
+                FROM messages m 
+                WHERE m.conversation_id = c.id AND m.tenant_id = c.tenant_id AND m.direction = 'inbound'
+            ) lib ON true
+            LEFT JOIN LATERAL (
+                SELECT 
+                    COUNT(*) AS completed_bookings_count,
+                    MAX(b.start_time) AS last_visit_date,
+                    (ARRAY_AGG(b.service ORDER BY b.start_time DESC))[1] AS last_visit_service,
+                    (ARRAY_AGG(b.staff_member ORDER BY b.start_time DESC))[1] AS last_visit_doctor
+                FROM bookings b 
+                WHERE b.contact_id = c.contact_id AND b.tenant_id = c.tenant_id AND (b.status = 'completed' OR b.status = 'attended')
+            ) bk ON true
+            LEFT JOIN LATERAL (
+                SELECT cust.preferred_doctor, cust.health_concern 
+                FROM customers cust 
+                WHERE cust.tenant_id = c.tenant_id AND (cust.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cust.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10)) 
+                LIMIT 1
+            ) cust_info ON true
             WHERE c.tenant_id = $1::uuid
         """
         args = [tenant_id]
@@ -5846,13 +5888,13 @@ async def get_tenant_settings(
                 # Dynamically calculate next monthly renewal anniversary
                 (lambda: (
                     (lambda now, b_day: (
-                        (datetime.datetime(now.year, now.month, min(b_day, 28), tzinfo=datetime.timezone.utc)
-                         if datetime.datetime(now.year, now.month, min(b_day, 28), tzinfo=datetime.timezone.utc) > now
-                         else (datetime.datetime(now.year + 1, 1, min(b_day, 28), tzinfo=datetime.timezone.utc)
+                        (datetime(now.year, now.month, min(b_day, 28), tzinfo=timezone.utc)
+                         if datetime(now.year, now.month, min(b_day, 28), tzinfo=timezone.utc) > now
+                         else (datetime(now.year + 1, 1, min(b_day, 28), tzinfo=timezone.utc)
                                if now.month == 12
-                               else datetime.datetime(now.year, now.month + 1, min(b_day, 28), tzinfo=datetime.timezone.utc)))
+                               else datetime(now.year, now.month + 1, min(b_day, 28), tzinfo=timezone.utc)))
                     ).isoformat())
-                    (datetime.datetime.now(datetime.timezone.utc), int(tenant_settings.get("billing_cycle_day") or (tenant["created_at"].day if tenant.get("created_at") else 30) or 30))
+                    (datetime.now(timezone.utc), int(tenant_settings.get("billing_cycle_day") or (tenant["created_at"].day if tenant.get("created_at") else 30) or 30))
                 ))()
             )
         ),
@@ -5886,7 +5928,7 @@ async def get_client_billing_invoices(
                     try: s_dict = json.loads(s_dict)
                     except Exception: s_dict = {}
                 base_amount = float(s_dict.get("monthly_price") or 3499.0)
-                c_date = t_row["created_at"] or datetime.datetime.now(datetime.timezone.utc)
+                c_date = t_row["created_at"] or datetime.now(timezone.utc)
                 auto_inv_id = f"INV-{c_date.strftime('%Y%m%d')}-{t_row['slug'][:4].upper()}"
                 return [
                     {
