@@ -380,12 +380,6 @@ export default function ReviewClient() {
             </form>
           )}
         </div>
-
-        {/* Minimal Trust Footer */}
-        <div className="py-3 px-5 border-t border-border bg-surface-subtle/50 flex items-center justify-center gap-1.5 text-[11px] text-text-muted">
-          <ShieldCheck className="w-3.5 h-3.5 text-accent" />
-          <span>Verified Feedback Portal · {businessName}</span>
-        </div>
       </div>
     </div>
   );
