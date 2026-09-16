@@ -15355,7 +15355,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   {settingsTab === 'billing' && (() => {
                     const effectiveSlug = settingsForm.slug || activeSlug || (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') || 'boldlabs';
                     const activePaymentUrl = settingsForm.razorpay_short_url || `https://rzp.io/l/${effectiveSlug}-crm`;
-                    const effectiveSubId = settingsForm.razorpay_subscription_id || `sub_${effectiveSlug}`;
                     const renewalDateFormatted = (() => {
                       if (settingsForm.next_charge_at) {
                         try {
@@ -15418,8 +15417,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             </div>
                           </div>
 
-                          {/* Clean 4 Box Grid */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          {/* Clean 3 Box Grid */}
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                             {/* Box 1: Monthly Fee */}
                             <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
                               <div className="flex items-center justify-between">
@@ -15464,17 +15463,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 {renewalDateFormatted}
                               </div>
                               <span className="text-[10px] text-text-muted block">Auto-renews on schedule</span>
-                            </div>
-
-                            {/* Box 4: Subscription Ref ID */}
-                            <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
-                              <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
-                                Subscription Ref ID
-                              </span>
-                              <div className="text-xs font-mono font-semibold text-text-primary truncate pt-1.5" title={effectiveSubId}>
-                                {effectiveSubId}
-                              </div>
-                              <span className="text-[10px] text-text-muted block truncate">Dedicated CRM workspace</span>
                             </div>
                           </div>
 
