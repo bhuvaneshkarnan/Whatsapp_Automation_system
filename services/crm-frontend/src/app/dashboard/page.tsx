@@ -15061,17 +15061,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {/* TAB: REVIEWS & GMB FEEDBACK HUB                                            */}
             {/* ========================================================================= */}
             {activeNav === 'reviews' && (
-              <div className="flex-1 flex flex-col overflow-y-auto space-y-3 pr-1 pb-20">
+              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto space-y-3 pr-1 pb-20">
 
-                {/* ── HEADER ROW ──────────────────────────────────────────── */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
-                  <div>
-                    <h2 className="text-sm font-bold text-text-primary flex items-center gap-1.5">
-                      <Star className="w-4 h-4 text-amber-500 fill-amber-400 stroke-[1.5]" />
-                      Customer Reviews & GMB Hub
-                    </h2>
-                  </div>
+                {/* ── COMPACT HEADER + URL TOOLBAR ─────────────────────── */}
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <h2 className="text-sm font-bold text-text-primary flex items-center gap-1.5 shrink-0">
+                    <Star className="w-4 h-4 text-amber-500 fill-amber-400 stroke-[1.5]" />
+                    Customer Reviews & GMB Hub
+                  </h2>
                   <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="hidden sm:block px-2 py-1 bg-surface-subtle border border-border rounded text-[10px] font-mono text-text-muted truncate max-w-[220px] select-all">
+                      {typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `/${settingsForm.slug || 'tenant'}/review`}
+                    </div>
                     <button
                       type="button"
                       onClick={() => {
@@ -15080,138 +15081,60 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         setReviewCopied(true);
                         setTimeout(() => setReviewCopied(false), 2000);
                       }}
-                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-md transition-colors flex items-center gap-1.5 cursor-pointer"
+                      className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] rounded-md transition-colors flex items-center gap-1 cursor-pointer"
                     >
-                      {reviewCopied ? <><CheckCircle2 className="w-3.5 h-3.5 stroke-[2]" /><span>Copied!</span></> : <><Copy className="w-3.5 h-3.5 stroke-[2]" /><span>Copy Link</span></>}
+                      {reviewCopied ? <><CheckCircle2 className="w-3 h-3 stroke-[2]" /><span>Copied!</span></> : <><Copy className="w-3 h-3 stroke-[2]" /><span>Copy</span></>}
                     </button>
                     <a href={typeof window !== 'undefined' ? `/${settingsForm.slug || 'tenant'}/review` : '#'} target="_blank" rel="noopener noreferrer"
-                      className="p-1.5 text-text-muted hover:text-text-primary bg-surface hover:bg-surface-subtle rounded-md border border-border transition-colors" title="Open review page">
+                      className="p-1 text-text-muted hover:text-text-primary bg-surface hover:bg-surface-subtle rounded-md border border-border transition-colors" title="Open review page">
                       <ArrowUpRight className="w-3.5 h-3.5" />
                     </a>
-                  </div>
-                </div>
-
-                {/* ── URL + QR + STATS — single compact row ──────────────── */}
-                <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3">
-                  {/* Left: URL bar */}
-                  <div className="bg-surface rounded-lg border border-border p-3 space-y-2">
-                    <div className="flex items-center gap-1.5 text-[11px] font-semibold text-text-primary">
-                      <Globe className="w-3.5 h-3.5 text-accent shrink-0" />
-                      Public Review Collector URL
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 px-2.5 py-1.5 bg-surface-subtle border border-border rounded text-[11px] font-mono text-text-primary select-all truncate">
-                        {typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `/${settingsForm.slug || 'tenant'}/review`}
-                      </div>
-                    </div>
-                    <p className="text-[10px] text-text-muted">Share on WhatsApp or print the QR below for your shop counter</p>
-                  </div>
-
-                  {/* Right: QR compact */}
-                  {(() => {
-                    const pubUrl = typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `https://crm.goboldlabs.com/${settingsForm.slug || 'tenant'}/review`;
-                    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pubUrl)}`;
-                    return (
-                      <div className="bg-surface rounded-lg border border-border p-3 flex items-center gap-3 lg:flex-col lg:items-center lg:w-36">
-                        <img src={qrApiUrl} alt="QR" className="w-16 h-16 lg:w-20 lg:h-20 rounded border border-border p-0.5 bg-white shrink-0" />
-                        <div className="flex flex-col lg:flex-col gap-1.5 w-full">
-                          <a href={qrApiUrl} download={`QR-${settingsForm.slug || 'shop'}.png`} target="_blank" rel="noopener noreferrer"
-                            className="py-1 px-2 bg-surface-subtle hover:bg-border/60 text-text-primary border border-border rounded text-[10px] font-semibold text-center cursor-pointer">
-                            Download QR
-                          </a>
-                          <button type="button" onClick={() => {
-                            const w = window.open('', '_blank');
-                            if (w) { w.document.write(`<html><head><title>QR – ${settingsForm.name || 'Shop'}</title></head><body style="text-align:center;font-family:sans-serif;padding:40px;"><h2>${settingsForm.name || 'Leave Us A Review'}</h2><p>Scan to share your feedback!</p><img src="${qrApiUrl}" style="width:240px;height:240px;margin:16px 0;" /><p style="color:#888;font-size:12px;">Thank you for visiting! ⭐</p></body></html>`); w.document.close(); w.print(); }
-                          }} className="py-1 px-2 bg-accent hover:opacity-90 text-white rounded text-[10px] font-bold cursor-pointer text-center transition-opacity">
-                            Print Poster
+                    {(() => {
+                      const pubUrl = typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `https://crm.goboldlabs.com/${settingsForm.slug || 'tenant'}/review`;
+                      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pubUrl)}`;
+                      return (
+                        <div className="relative group">
+                          <button type="button" className="p-1 text-text-muted hover:text-text-primary bg-surface hover:bg-surface-subtle rounded-md border border-border transition-colors cursor-pointer" title="QR Code">
+                            <Globe className="w-3.5 h-3.5" />
                           </button>
+                          <div className="absolute right-0 top-full mt-1 z-50 bg-surface border border-border rounded-lg shadow-lg p-3 hidden group-hover:flex flex-col items-center gap-2 w-44">
+                            <img src={qrApiUrl} alt="QR" className="w-24 h-24 rounded border border-border p-0.5 bg-white" />
+                            <a href={qrApiUrl} download={`QR-${settingsForm.slug || 'shop'}.png`} target="_blank" rel="noopener noreferrer"
+                              className="w-full py-1 bg-surface-subtle hover:bg-border/60 text-text-primary border border-border rounded text-[10px] font-semibold text-center cursor-pointer">
+                              Download QR
+                            </a>
+                            <button type="button" onClick={() => {
+                              const w = window.open('', '_blank');
+                              if (w) { w.document.write(`<html><head><title>QR – ${settingsForm.name || 'Shop'}</title></head><body style="text-align:center;font-family:sans-serif;padding:40px;"><h2>${settingsForm.name || 'Leave Us A Review'}</h2><p>Scan to share your feedback!</p><img src="${qrApiUrl}" style="width:240px;height:240px;margin:16px 0;" /><p style="color:#888;font-size:12px;">Thank you for visiting! ⭐</p></body></html>`); w.document.close(); w.print(); }
+                            }} className="w-full py-1 bg-accent hover:opacity-90 text-white rounded text-[10px] font-bold cursor-pointer text-center transition-opacity">
+                              Print Poster
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })()}
+                      );
+                    })()}
+                  </div>
                 </div>
 
-                {/* ── 4 STAT CHIPS ─────────────────────────────────────────── */}
+                {/* ── COMPACT STAT CHIPS (inline row) ──────────────────────── */}
                 {(() => {
                   const total = customerReviews.length;
                   const avg = total > 0 ? (customerReviews.reduce((s, r) => s + (r.rating || 0), 0) / total).toFixed(1) : '0.0';
                   const gmbCount = customerReviews.filter(r => (r.rating || 0) >= 4).length;
                   const privateCount = customerReviews.filter(r => (r.rating || 0) <= 3).length;
                   return (
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {[
-                        { label: 'Total Feedback', value: total, sub: 'All services', color: 'text-text-primary' },
-                        { label: 'Avg Rating', value: avg + '★', sub: 'Overall', color: 'text-amber-500' },
-                        { label: 'GMB (4–5★)', value: gmbCount, sub: 'Auto-redirected', color: 'text-emerald-600' },
-                        { label: 'Private (1–3★)', value: privateCount, sub: 'Internal only', color: 'text-rose-600' },
-                      ].map(({ label, value, sub, color }) => (
-                        <div key={label} className="bg-surface p-3 rounded-lg border border-border">
-                          <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wide block">{label}</span>
-                          <div className={`text-xl font-bold mt-0.5 ${color}`}>{value}</div>
-                          <p className="text-[10px] text-text-muted mt-0.5">{sub}</p>
+                        { label: 'Total', value: total, color: 'text-text-primary' },
+                        { label: 'Avg', value: avg + '★', color: 'text-amber-500' },
+                        { label: 'GMB 4-5★', value: gmbCount, color: 'text-emerald-600' },
+                        { label: 'Private 1-3★', value: privateCount, color: 'text-rose-600' },
+                      ].map(({ label, value, color }) => (
+                        <div key={label} className="flex items-center gap-1.5 bg-surface px-2.5 py-1.5 rounded-md border border-border">
+                          <span className="text-[10px] font-medium text-text-muted uppercase">{label}</span>
+                          <span className={`text-sm font-bold ${color}`}>{value}</span>
                         </div>
                       ))}
-                    </div>
-                  );
-                })()}
-
-                {/* ── CONFIGURE REVIEW PAGE ────────────────────────────────── */}
-                {(() => {
-                  const defaultTags = ['Friendly & Caring Staff','Clean & Hygienic Space','Quick & Prompt Service','Detailed Explanation','Great Results & Treatment','Value for Money','Comfortable & Relaxing','Easy Booking & Response'];
-                  const currentTags: string[] = (settingsForm.review_experience_tags && (settingsForm.review_experience_tags as string[]).length > 0)
-                    ? settingsForm.review_experience_tags as string[]
-                    : defaultTags;
-                  const services: string[] = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                    ? settingsForm.taxonomy.requirement_presets : [];
-                  return (
-                    <div className="bg-surface rounded-lg border border-border p-3 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <Tag className="w-3.5 h-3.5 text-violet-500 shrink-0" />
-                        <span className="text-xs font-bold text-text-primary">Configure Review Page</span>
-                        <span className="text-[10px] text-text-muted">— what customers see when they open your review link</span>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {/* Services */}
-                        <div className="p-2.5 bg-surface-subtle rounded-md border border-border space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-semibold text-text-primary">Services to Choose</span>
-                            <span className="text-[10px] text-text-muted">{services.length} options</span>
-                          </div>
-                          {services.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {services.map((s, i) => <span key={i} className="px-2 py-0.5 bg-accent/10 text-accent border border-accent/20 rounded-full text-[10px] font-medium">{s}</span>)}
-                            </div>
-                          ) : (
-                            <p className="text-[10px] text-text-muted italic">No services set. Add them in Settings → Profile → Taxonomy.</p>
-                          )}
-                        </div>
-
-                        {/* Experience Tags */}
-                        <div className="p-2.5 bg-surface-subtle rounded-md border border-border space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-semibold text-text-primary">Experience Tags</span>
-                            <span className="text-[10px] text-text-muted">{currentTags.length} tags</span>
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {currentTags.map((tag, i) => (
-                              <span key={i} className="flex items-center gap-0.5 px-2 py-0.5 bg-surface rounded-full border border-border text-[10px] text-text-secondary">
-                                {tag}
-                                <button type="button" onClick={() => setSettingsForm({ ...settingsForm, review_experience_tags: currentTags.filter((_, idx) => idx !== i) })} className="ml-0.5 text-text-muted hover:text-rose-500 cursor-pointer transition-colors leading-none">×</button>
-                              </span>
-                            ))}
-                          </div>
-                          <div className="flex gap-1.5">
-                            <input type="text" id="rev-tag-inp" placeholder="Add tag…"
-                              className="flex-1 px-2 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:border-accent focus:outline-none"
-                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const v = (e.target as HTMLInputElement).value.trim(); if (v && !currentTags.includes(v)) { setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] }); (e.target as HTMLInputElement).value = ''; } } }} />
-                            <button type="button" onClick={() => { const inp = document.getElementById('rev-tag-inp') as HTMLInputElement; const v = inp?.value.trim(); if (v && !currentTags.includes(v)) { setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] }); if (inp) inp.value = ''; } }}
-                              className="px-2.5 py-1 bg-surface-subtle border border-border text-text-secondary text-[11px] font-semibold rounded cursor-pointer hover:bg-border/60">Add</button>
-                            <button type="button" onClick={async () => { try { await crm.updateTenantSettings(settingsForm.slug || slug, { review_experience_tags: currentTags } as any); } catch(e){} }}
-                              className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded cursor-pointer">Save</button>
-                          </div>
-                        </div>
-                      </div>
                     </div>
                   );
                 })()}
@@ -15253,7 +15176,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     }
                     if (reviewSearchQuery.trim()) {
                       const q = reviewSearchQuery.toLowerCase();
-                      if (!(r.customer_name || '').toLowerCase().includes(q) && !(r.customer_phone || '').toLowerCase().includes(q) && !(r.review_text || '').toLowerCase().includes(q) && !(r.notes || '').toLowerCase().includes(q)) return false;
+                      if (!(r.customer_name || '').toLowerCase().includes(q) && !(r.customer_phone || '').toLowerCase().includes(q) && !(r.generated_review_text || '').toLowerCase().includes(q) && !(r.experience_notes || '').toLowerCase().includes(q)) return false;
                     }
                     return true;
                   });
@@ -15299,11 +15222,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </span>
                                   </td>
                                   <td className="px-3 py-2.5 whitespace-nowrap">
-                                    <span className="px-1.5 py-0.5 bg-surface-subtle rounded border border-border text-[10px] text-text-secondary">{rev.service_type || 'General'}</span>
+                                    <span className="px-1.5 py-0.5 bg-surface-subtle rounded border border-border text-[10px] text-text-secondary">{rev.service_name || 'General'}</span>
                                   </td>
                                   <td className="px-3 py-2.5 max-w-xs">
-                                    {rev.review_text && <p className="text-xs text-text-primary italic leading-snug">"{rev.review_text}"</p>}
-                                    {rev.notes && <p className="text-[10px] text-rose-700 mt-0.5"><strong>Note: </strong>{rev.notes}</p>}
+                                    {rev.generated_review_text && <p className="text-xs text-text-primary italic leading-snug">"{rev.generated_review_text}"</p>}
+                                    {rev.experience_notes && <p className="text-[10px] text-rose-700 mt-0.5"><strong>Note: </strong>{rev.experience_notes}</p>}
                                   </td>
                                   <td className="px-3 py-2.5 whitespace-nowrap font-mono text-[10px] text-text-muted">
                                     {rev.created_at ? new Date(rev.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : 'Recent'}
@@ -15341,8 +15264,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${isHigh?'bg-emerald-50 text-emerald-700':'bg-rose-50 text-rose-700'}`}>{isHigh?'→ GMB':'Private'}</span>
                                 </div>
                               </div>
-                              {rev.review_text && <p className="text-xs italic text-text-primary">"{rev.review_text}"</p>}
-                              {rev.notes && <p className="text-[10px] text-rose-700"><strong>Note: </strong>{rev.notes}</p>}
+                              {rev.generated_review_text && <p className="text-xs italic text-text-primary">"{rev.generated_review_text}"</p>}
+                              {rev.experience_notes && <p className="text-[10px] text-rose-700"><strong>Note: </strong>{rev.experience_notes}</p>}
                               <div className="flex items-center justify-between">
                                 <span className="text-[10px] text-text-muted font-mono">{rev.created_at ? new Date(rev.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : 'Recent'}</span>
                                 <div className="flex gap-1.5">
