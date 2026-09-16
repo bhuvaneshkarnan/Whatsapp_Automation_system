@@ -9111,14 +9111,14 @@ def build_industry_template_specs(industry: str = "clinic") -> dict:
         },
         "reschedule_nudge": {
             "name": "reschedule_nudge",
-            "category": "MARKETING",
+            "category": "UTILITY",
             "language": "en",
             "label": "Missed Appointment Reschedule Notice",
-            "description": "Sent when client misses appointment to re-book",
+            "description": "Transactional appointment update sent when client misses scheduled time",
             "components": [
                 {
                     "type": "BODY",
-                    "text": f"Hi {{{{1}}}}, we missed you for your {{{{2}}}} appointment today. No worries, life happens! Whenever you're ready, simply reply to this message and we'll get you rescheduled right away.\n\nLooking forward to seeing you soon!",
+                    "text": f"Hi {{{{1}}}}, this is an update regarding your {{{{2}}}} {service_noun} today. We noticed you could not make it for your scheduled time. Whenever you are ready, simply reply to this message to update your schedule.",
                     "example": {
                         "body_text": [
                             ["John", service_example]
@@ -9246,17 +9246,35 @@ def build_industry_template_specs(industry: str = "clinic") -> dict:
         },
         "client_followup_checkin": {
             "name": "client_followup_checkin",
-            "category": "MARKETING",
+            "category": "UTILITY",
             "language": "en",
-            "label": "24h Customer Re-engagement Follow-up",
-            "description": "Auto-sent to re-open the WhatsApp 24h conversation window when customer messaging window expires",
+            "label": "24h Customer Service Follow-up",
+            "description": "Transactional service update to follow up with customer at lowest Meta utility rate",
             "components": [
                 {
                     "type": "BODY",
-                    "text": "Hi {{1}}, this is {{2}} from {{3}}. It has been a while since we last connected. Just wanted to check in and see how you have been. Happy to help whenever you are ready.",
+                    "text": "Hi {{1}}, this is {{2}} from {{3}} with an update regarding your service inquiry. Please let us know if you need any assistance or have questions.",
                     "example": {
                         "body_text": [
                             ["John", "Bhuvanesh", "Boldlabs"]
+                        ]
+                    }
+                }
+            ]
+        },
+        "utility_general_update": {
+            "name": "utility_general_update",
+            "category": "UTILITY",
+            "language": "en",
+            "label": "General Account & Service Update",
+            "description": "General transactional utility notification for customer service updates at lowest Meta rate",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": "Hello {{1}}, this is a service update from {{2}} regarding your {{3}}. Please reply to this message if you require assistance.",
+                    "example": {
+                        "body_text": [
+                            ["John", "Boldlabs", "account status"]
                         ]
                     }
                 }
@@ -9644,6 +9662,7 @@ async def execute_meta_template_sync(tenant_id: str, pool) -> dict:
         "template_admin_human_request": "admin_human_request",
         "template_admin_daily_digest": "admin_daily_digest",
         "template_client_followup_checkin": "client_followup_checkin",
+        "template_utility_general_update": "utility_general_update",
     }
     for k, v in all_templates_map.items():
         t_settings[k] = v

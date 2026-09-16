@@ -250,6 +250,31 @@ const TIMEZONE_LIST = [
 
 
 
+const KNOWN_TEMPLATE_BODIES: Record<string, string> = {
+  client_followup_checkin: "Hi {{1}}, this is {{2}} from {{3}} with an update regarding your service inquiry. Please let us know if you need any assistance or have questions.",
+  booking_confirmationn: "Hello {{1}},\n\nYour appointment is confirmed.\nService: {{2}}\nDate: {{3}}\nTime: {{4}}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you.",
+  booking_reschedule_confirmation: "Hello {{1}}, Your {{2}} appointment has been rescheduled to {{3}} at {{4}}.\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you.",
+  cancellation_confirmation: "Hello {{1}},\n\nYour {{2}} appointment on {{3}} at {{4}} has been cancelled as requested.\n\nWhenever you would like to book again, just message us here.",
+  appointment_ramainder: "Hi {{1}}, quick reminder that your {{2}} appointment is coming up today at {{3}}.\nSee you shortly, reply here if you need to reschedule.",
+  reschedule_nudge: "Hi {{1}}, this is an update regarding your {{2}} appointment today. We noticed you could not make it for your scheduled time. Whenever you are ready, simply reply to this message to update your schedule.",
+  review_request: "Hi {{1}}, thank you for visiting us for your {{2}}!\n\nWe would really appreciate it if you could take a minute to share your experience with a quick Google review.\nLink: {{3}}\nThank you!",
+  admin_notification: "New appointment booked.\n\nCustomer Name: {{1}}\nPhone: {{2}}\nService: {{3}}\nDate: {{4}}\nTime: {{5}}",
+  admin_reschedule_notice: "Appointment Rescheduled Notice\n\nCustomer: {{1}}\nPhone: {{2}}\nService: {{3}}\nDate: {{4}}\nTime: {{5}}",
+  admin_cancellation_notice: "Appointment Cancellation Notice\n\nCustomer: {{1}}\nPhone: {{2}}\nService: {{3}}\nDate: {{4}}\nTime: {{5}}",
+  admin_human_request: "A customer wants to talk to you directly.\n\nName: {{1}}\nPhone: {{2}}\nReason: {{3}}",
+  admin_daily_digest: "Good morning!\nYou have {{1}} appointment(s) booked for today, {{2}}.",
+  utility_general_update: "Hello {{1}}, this is a service update from {{2}} regarding your {{3}}. Please reply to this message if you require assistance.",
+  hello_world: "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message using Cloud API. Thank you for choosing us!",
+};
+
+function getTemplateBodyText(tpl: any): string {
+  if (!tpl) return '';
+  const known = KNOWN_TEMPLATE_BODIES[tpl.name];
+  if (tpl.body && tpl.body.includes('{{')) return tpl.body;
+  if (known) return known;
+  return tpl.body || tpl.description || `[Template: ${tpl.name}]`;
+}
+
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -2303,6 +2328,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [selectedChatTemplate, setSelectedChatTemplate] = useState<any | null>(null);
   const [templateVariableValues, setTemplateVariableValues] = useState<Record<string, string>>({});
   const [templateSearchQuery, setTemplateSearchQuery] = useState('');
+  const [templateCategoryFilter, setTemplateCategoryFilter] = useState<'all' | 'UTILITY' | 'MARKETING'>('all');
   const [sendingChatTemplate, setSendingChatTemplate] = useState(false);
 
   // Repeat Client Meta Template State
@@ -3952,16 +3978,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         if (statusRes && statusRes.summary) {
           setMetaStatusData(statusRes);
           if (Array.isArray(statusRes.templates) && statusRes.templates.length > 0) {
-            const metaMapped = statusRes.templates.map((mt: any) => ({
-              id: mt.meta_id || mt.name,
-              name: mt.name,
-              label: mt.label || mt.name,
-              category: mt.category || 'UTILITY',
-              status: mt.status || 'APPROVED',
-              language: mt.language || 'en',
-              body: mt.description || mt.body || `[Approved Meta Template: ${mt.name}]`,
-              variables_count: mt.variables_count || 0,
-            }));
+            const metaMapped = statusRes.templates.map((mt: any) => {
+              const bodyText = (mt.body && mt.body.includes('{{'))
+                ? mt.body
+                : (KNOWN_TEMPLATE_BODIES[mt.name] || mt.body || mt.description || `[Approved Meta Template: ${mt.name}]`);
+              return {
+                id: mt.meta_id || mt.name,
+                name: mt.name,
+                label: mt.label || mt.name,
+                description: mt.description || '',
+                category: mt.category || 'UTILITY',
+                status: mt.status || 'APPROVED',
+                language: mt.language || 'en',
+                body: bodyText,
+                variables_count: mt.variables_count || (bodyText.match(/\{\{(\d+)\}\}/g) || []).length,
+              };
+            });
             const merged = [...metaMapped];
             if (Array.isArray(list)) {
               for (const custom of list) {
@@ -5775,14 +5807,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   }
 
   function handleSelectTemplate(tpl: any) {
-    setSelectedChatTemplate(tpl);
+    const fullBody = getTemplateBodyText(tpl);
+    const enriched = { ...tpl, body: fullBody };
+    setSelectedChatTemplate(enriched);
     const initialValues: Record<string, string> = {};
     const custName = (selectedConv?.contact_name || selectedConv?.name || '').trim();
     if (custName) {
       initialValues['1'] = custName;
     }
-    if (tpl.name === 'client_followup_checkin') {
-      if (!initialValues['1']) initialValues['1'] = 'there';
+    if (tpl.name === 'client_followup_checkin' || tpl.name === 'utility_general_update') {
+      if (!initialValues['1']) initialValues['1'] = custName || 'there';
       initialValues['2'] = (currentUser?.name || settingsForm.admin_name || 'Our Team').trim();
       initialValues['3'] = (settingsForm.name || 'Boldlabs').trim();
     }
@@ -5793,13 +5827,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (!selectedConv || !selectedChatTemplate || sendingChatTemplate) return;
     setSendingChatTemplate(true);
     try {
-      const varCount = selectedChatTemplate.variables_count || 0;
+      const templateBody = getTemplateBodyText(selectedChatTemplate);
+      const varMatches = templateBody.match(/\{\{(\d+)\}\}/g) || [];
+      const varCount = Math.max(
+        selectedChatTemplate.variables_count || 0,
+        varMatches.reduce((max: number, m: string) => {
+          const num = parseInt(m.replace(/[{}]/g, ''), 10);
+          return num > max ? num : max;
+        }, 0)
+      );
       const params: string[] = [];
       for (let i = 1; i <= varCount; i++) {
         params.push(templateVariableValues[String(i)] || '');
       }
 
-      let resolvedBody = selectedChatTemplate.body || `[Template: ${selectedChatTemplate.name}]`;
+      let resolvedBody = templateBody || `[Template: ${selectedChatTemplate.name}]`;
       params.forEach((val, idx) => {
         resolvedBody = resolvedBody.replace(new RegExp(`\\{\\{${idx + 1}\\}\\}`, 'g'), val);
       });
@@ -20313,7 +20355,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border min-h-[400px]">
                 {/* Column 1: Search & Template List */}
                 <div className="flex flex-col h-full overflow-hidden bg-surface-subtle/30">
-                  <div className="p-3 border-b border-border">
+                  <div className="p-3 border-b border-border space-y-2">
                     <div className="relative">
                       <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
                       <input
@@ -20324,6 +20366,47 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         className="w-full pl-8 pr-3 py-1.5 text-xs bg-surface border border-border rounded-md text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
                       />
                     </div>
+                    {/* Category Filter Switcher: Utility vs Marketing */}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setTemplateCategoryFilter('all')}
+                        className={`px-2 py-1 text-[10px] font-medium rounded-md transition-colors cursor-pointer ${
+                          templateCategoryFilter === 'all'
+                            ? 'bg-accent text-white font-semibold shadow-xs'
+                            : 'bg-surface border border-border text-text-muted hover:text-text-primary'
+                        }`}
+                      >
+                        All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTemplateCategoryFilter('UTILITY')}
+                        className={`px-2 py-1 text-[10px] font-medium rounded-md transition-colors cursor-pointer flex items-center gap-1 ${
+                          templateCategoryFilter === 'UTILITY'
+                            ? 'bg-emerald-600 text-white font-semibold shadow-xs'
+                            : 'bg-surface border border-border text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
+                        }`}
+                      >
+                        <span>Utility (~₹0.12)</span>
+                        <span className={`text-[9px] px-1 py-0.2 rounded font-semibold ${
+                          templateCategoryFilter === 'UTILITY' ? 'bg-emerald-700 text-white' : 'bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200'
+                        }`}>
+                          Save 85%
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTemplateCategoryFilter('MARKETING')}
+                        className={`px-2 py-1 text-[10px] font-medium rounded-md transition-colors cursor-pointer ${
+                          templateCategoryFilter === 'MARKETING'
+                            ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                            : 'bg-surface border border-border text-text-muted hover:text-text-primary'
+                        }`}
+                      >
+                        Marketing (~₹0.78)
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
@@ -20332,159 +20415,219 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-accent border-t-transparent animate-spin mr-2" />
                         Loading templates...
                       </div>
-                    ) : marketingTemplates.filter((t) =>
-                        !templateSearchQuery.trim() ||
-                        t.name.toLowerCase().includes(templateSearchQuery.toLowerCase()) ||
-                        (t.body && t.body.toLowerCase().includes(templateSearchQuery.toLowerCase()))
-                      ).length === 0 ? (
-                      <div className="p-6 text-center text-xs text-text-muted">
-                        No approved templates found.
-                      </div>
-                    ) : (
-                      marketingTemplates
-                        .filter((t) =>
+                    ) : (() => {
+                      const filteredList = marketingTemplates.filter((t) => {
+                        const matchesSearch =
                           !templateSearchQuery.trim() ||
                           t.name.toLowerCase().includes(templateSearchQuery.toLowerCase()) ||
-                          (t.body && t.body.toLowerCase().includes(templateSearchQuery.toLowerCase()))
-                        )
-                        .map((tpl) => {
-                          const isSelected = selectedChatTemplate?.name === tpl.name;
-                          return (
-                            <button
-                              key={tpl.id || tpl.name}
-                              type="button"
-                              onClick={() => handleSelectTemplate(tpl)}
-                              className={`w-full text-left p-2.5 rounded-md border transition-all cursor-pointer flex flex-col gap-1 ${
-                                isSelected
-                                  ? 'bg-accent/10 border-accent text-accent shadow-xs'
-                                  : 'bg-surface hover:bg-surface-subtle/70 border-border text-text-primary'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-1">
-                                <span className="font-semibold text-xs truncate">{tpl.label || tpl.name}</span>
-                                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-surface-subtle border border-border uppercase font-mono tracking-wider text-text-muted shrink-0">
-                                  {tpl.category || 'UTILITY'}
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-text-muted line-clamp-2 leading-relaxed">
-                                {tpl.body || tpl.name}
-                              </p>
-                              <div className="flex items-center gap-2 text-[10px] text-text-muted mt-0.5">
-                                <span>{tpl.variables_count || 0} variable{tpl.variables_count !== 1 ? 's' : ''}</span>
-                                {tpl.language && (
-                                  <>
-                                    <span>•</span>
-                                    <span className="uppercase font-mono">{tpl.language}</span>
-                                  </>
-                                )}
-                              </div>
-                            </button>
-                          );
-                        })
-                    )}
+                          ((t.label || '').toLowerCase().includes(templateSearchQuery.toLowerCase())) ||
+                          ((t.body || '').toLowerCase().includes(templateSearchQuery.toLowerCase())) ||
+                          ((t.description || '').toLowerCase().includes(templateSearchQuery.toLowerCase()));
+                        const matchesCat =
+                          templateCategoryFilter === 'all' ||
+                          (t.category || '').toUpperCase() === templateCategoryFilter;
+                        return matchesSearch && matchesCat;
+                      });
+
+                      if (filteredList.length === 0) {
+                        return (
+                          <div className="p-6 text-center text-xs text-text-muted">
+                            No {templateCategoryFilter !== 'all' ? templateCategoryFilter : ''} templates found.
+                          </div>
+                        );
+                      }
+
+                      return filteredList.map((tpl) => {
+                        const isSelected = selectedChatTemplate?.name === tpl.name;
+                        const isUtility = (tpl.category || '').toUpperCase() === 'UTILITY';
+                        const bodyDisplay = tpl.description || getTemplateBodyText(tpl) || tpl.name;
+                        const vCount = tpl.variables_count || (getTemplateBodyText(tpl).match(/\{\{(\d+)\}\}/g) || []).length;
+                        return (
+                          <button
+                            key={tpl.id || tpl.name}
+                            type="button"
+                            onClick={() => handleSelectTemplate(tpl)}
+                            className={`w-full text-left p-2.5 rounded-md border transition-all cursor-pointer flex flex-col gap-1 ${
+                              isSelected
+                                ? 'bg-accent/10 border-accent text-accent shadow-xs'
+                                : 'bg-surface hover:bg-surface-subtle/70 border-border text-text-primary'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-semibold text-xs truncate">{tpl.label || tpl.name}</span>
+                              <span
+                                className={`text-[9px] px-1.5 py-0.5 rounded-full border uppercase font-mono tracking-wider shrink-0 ${
+                                  isUtility
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 text-emerald-700 dark:text-emerald-300 font-semibold'
+                                    : 'bg-surface-subtle border-border text-text-muted'
+                                }`}
+                              >
+                                {tpl.category || 'UTILITY'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-text-muted line-clamp-2 leading-relaxed">
+                              {bodyDisplay}
+                            </p>
+                            <div className="flex items-center gap-2 text-[10px] text-text-muted mt-0.5">
+                              <span>{vCount} variable{vCount !== 1 ? 's' : ''}</span>
+                              {isUtility && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">~₹0.12 / msg</span>
+                                </>
+                              )}
+                              {tpl.language && (
+                                <>
+                                  <span>•</span>
+                                  <span className="uppercase font-mono">{tpl.language}</span>
+                                </>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      });
+                    })()}
                   </div>
                 </div>
 
                 {/* Column 2: Parameters Form & Live Preview */}
                 <div className="flex flex-col h-full overflow-y-auto p-4 bg-surface">
-                  {selectedChatTemplate ? (
-                    <div className="space-y-4 flex-1 flex flex-col justify-between">
-                      <div className="space-y-4">
-                        <div>
-                          <div className="flex items-center justify-between">
-                            <h4 className="text-xs font-semibold text-text-primary">{selectedChatTemplate.label || selectedChatTemplate.name}</h4>
-                            <span className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-xs border border-emerald-200">
-                              APPROVED
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-text-muted font-mono mt-0.5">{selectedChatTemplate.name}</p>
-                        </div>
+                  {selectedChatTemplate ? (() => {
+                    const templateBody = getTemplateBodyText(selectedChatTemplate);
+                    const varMatches = templateBody.match(/\{\{(\d+)\}\}/g) || [];
+                    const effectiveVarCount = Math.max(
+                      selectedChatTemplate.variables_count || 0,
+                      varMatches.reduce((max: number, m: string) => {
+                        const num = parseInt(m.replace(/[{}]/g, ''), 10);
+                        return num > max ? num : max;
+                      }, 0)
+                    );
+                    const isUtility = (selectedChatTemplate.category || '').toUpperCase() === 'UTILITY';
 
-                        {/* Variable Inputs */}
-                        {(selectedChatTemplate.variables_count || 0) > 0 && (
-                          <div className="space-y-2.5 pt-2 border-t border-border">
-                            <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider block">
-                              Template Variables
-                            </label>
-                            {Array.from({ length: selectedChatTemplate.variables_count || 0 }, (_, i) => i + 1).map((idx) => (
-                              <div key={idx} className="space-y-1">
-                                <label className="text-[10px] text-text-muted block font-medium">
-                                  Variable {"{{"}{idx}{"}}"} {idx === 1 ? '(Customer Name)' : (idx === 2 ? '(Sender / Staff Name)' : (idx === 3 ? '(Clinic / Business Name)' : ''))}
-                                </label>
-                                <input
-                                  type="text"
-                                  placeholder={idx === 1 ? 'e.g. Rahul Sharma' : (idx === 2 ? 'e.g. Dr. Jane or Our Team' : (idx === 3 ? 'e.g. Boldlabs' : `Value for {{${idx}}}`))}
-                                  value={templateVariableValues[String(idx)] || ''}
-                                  onChange={(e) =>
-                                    setTemplateVariableValues((prev) => ({
-                                      ...prev,
-                                      [String(idx)]: e.target.value,
-                                    }))
-                                  }
-                                  className="w-full px-2.5 py-1.5 text-xs bg-surface-subtle border border-border rounded-md text-text-primary focus:outline-none focus:border-accent"
-                                />
+                    return (
+                      <div className="space-y-4 flex-1 flex flex-col justify-between">
+                        <div className="space-y-4">
+                          <div>
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-xs font-semibold text-text-primary">{selectedChatTemplate.label || selectedChatTemplate.name}</h4>
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-xs border uppercase font-semibold ${
+                                  isUtility
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200'
+                                    : 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200'
+                                }`}>
+                                  {selectedChatTemplate.category || 'UTILITY'}
+                                </span>
+                                <span className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-xs border border-emerald-200">
+                                  APPROVED
+                                </span>
                               </div>
-                            ))}
+                            </div>
+                            <p className="text-[10px] text-text-muted font-mono mt-0.5">{selectedChatTemplate.name}</p>
                           </div>
-                        )}
 
-                        {/* Live WhatsApp Bubble Preview */}
-                        <div className="pt-2 border-t border-border space-y-1.5">
-                          <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider block">
-                            Live Message Preview
-                          </label>
-                          <div className="p-3 bg-[#efeae2] dark:bg-zinc-900 rounded-lg border border-border/80 flex flex-col items-end">
-                            <div className="bg-white dark:bg-emerald-950 text-text-primary rounded-xl rounded-tr-xs p-3 text-xs shadow-xs max-w-[95%] space-y-1">
-                              <p className="whitespace-pre-wrap leading-relaxed">
-                                {(() => {
-                                  let text = selectedChatTemplate.body || `[Template: ${selectedChatTemplate.name}]`;
-                                  const count = selectedChatTemplate.variables_count || 0;
-                                  for (let i = 1; i <= count; i++) {
-                                    const val = templateVariableValues[String(i)];
-                                    text = text.replace(new RegExp(`\\{\\{${i}\\}\\}`, 'g'), val && val.trim() ? val : `{{${i}}}`);
-                                  }
-                                  return text;
-                                })()}
-                              </p>
-                              <div className="flex items-center justify-end gap-1 text-[9px] text-text-muted font-mono pt-1">
-                                <span>Now</span>
-                                <CheckCheck className="w-3 h-3 text-emerald-500" />
+                          {/* Variable Inputs */}
+                          {effectiveVarCount > 0 && (
+                            <div className="space-y-2.5 pt-2 border-t border-border">
+                              <div className="flex items-center justify-between">
+                                <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider block">
+                                  Template Variables
+                                </label>
+                                <span className="text-[10px] text-text-muted">Updates live in preview below</span>
+                              </div>
+                              {Array.from({ length: effectiveVarCount }, (_, i) => i + 1).map((idx) => (
+                                <div key={idx} className="space-y-1">
+                                  <label className="text-[10px] text-text-muted block font-medium">
+                                    Variable {"{{"}{idx}{"}}"} {
+                                      idx === 1 ? '(Customer Name)' : 
+                                      idx === 2 ? '(Sender / Staff Name)' : 
+                                      idx === 3 ? '(Clinic / Business Name)' : 
+                                      idx === 4 ? '(Date)' : 
+                                      idx === 5 ? '(Time)' : ''
+                                    }
+                                  </label>
+                                  <input
+                                    type="text"
+                                    placeholder={
+                                      idx === 1 ? 'e.g. Rahul Sharma' : 
+                                      idx === 2 ? 'e.g. Dr. Jane or Our Team' : 
+                                      idx === 3 ? 'e.g. Boldlabs' : 
+                                      `Value for {{${idx}}}`
+                                    }
+                                    value={templateVariableValues[String(idx)] ?? ''}
+                                    onChange={(e) =>
+                                      setTemplateVariableValues((prev) => ({
+                                        ...prev,
+                                        [String(idx)]: e.target.value,
+                                      }))
+                                    }
+                                    className="w-full px-2.5 py-1.5 text-xs bg-surface-subtle border border-border rounded-md text-text-primary focus:outline-none focus:border-accent"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Live WhatsApp Bubble Preview */}
+                          <div className="pt-2 border-t border-border space-y-1.5">
+                            <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider block">
+                              Live Message Preview
+                            </label>
+                            <div className="p-3 bg-[#efeae2] dark:bg-zinc-900 rounded-lg border border-border/80 flex flex-col items-end">
+                              <div className="bg-white dark:bg-emerald-950 text-text-primary rounded-xl rounded-tr-xs p-3 text-xs shadow-xs max-w-[95%] space-y-1">
+                                <p className="whitespace-pre-wrap leading-relaxed">
+                                  {(() => {
+                                    let text = templateBody;
+                                    for (let i = 1; i <= effectiveVarCount; i++) {
+                                      const val = templateVariableValues[String(i)];
+                                      text = text.replace(
+                                        new RegExp(`\\{\\{${i}\\}\\}`, 'g'),
+                                        val !== undefined && val.trim() !== '' ? val.trim() : `{{${i}}}`
+                                      );
+                                    }
+                                    return text;
+                                  })()}
+                                </p>
+                                <div className="flex items-center justify-end gap-1 text-[9px] text-text-muted font-mono pt-1">
+                                  <span>Now</span>
+                                  <CheckCheck className="w-3 h-3 text-emerald-500" />
+                                </div>
                               </div>
                             </div>
                           </div>
                         </div>
-                      </div>
 
-                      {/* Modal Actions */}
-                      <div className="pt-4 border-t border-border flex items-center justify-end gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => setShowTemplateModal(false)}
-                          className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-surface-subtle rounded-md cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          disabled={sendingChatTemplate}
-                          onClick={handleSendSelectedTemplate}
-                          className="px-4 py-1.5 text-xs font-semibold bg-accent hover:bg-accent-hover text-white rounded-md shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                          {sendingChatTemplate ? (
-                            <>
-                              <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                              <span>Sending...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Send className="w-3.5 h-3.5 stroke-[2]" />
-                              <span>Send Template</span>
-                            </>
-                          )}
-                        </button>
+                        {/* Modal Actions */}
+                        <div className="pt-4 border-t border-border flex items-center justify-end gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setShowTemplateModal(false)}
+                            className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-surface-subtle rounded-md cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={sendingChatTemplate}
+                            onClick={handleSendSelectedTemplate}
+                            className="px-4 py-1.5 text-xs font-semibold bg-accent hover:bg-accent-hover text-white rounded-md shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {sendingChatTemplate ? (
+                              <>
+                                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                <span>Sending...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Send className="w-3.5 h-3.5 stroke-[2]" />
+                                <span>Send Template</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
+                    );
+                  })() : (
                     <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-text-muted space-y-2">
                       <FileText className="w-8 h-8 text-text-muted/50 stroke-[1.5]" />
                       <p className="text-xs">Select a template from the list on the left to preview and edit variables.</p>
