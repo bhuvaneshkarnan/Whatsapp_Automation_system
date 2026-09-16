@@ -5983,6 +5983,13 @@ async def update_tenant_settings(
         else:
             await conn.execute("INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'whatsapp', $3::jsonb, true)", wa_cred_id, tenant_id, json.dumps(wa_data))
 
+        # Auto-provision Meta templates if WABA credentials are present or updated
+        if wa_data.get("waba_id") and wa_data.get("access_token"):
+            try:
+                asyncio.create_task(execute_meta_template_sync(tenant_id, db_pool))
+            except Exception as _st_err:
+                logger.warning("meta_template_sync_on_update_warn", tenant_id=tenant_id, error=str(_st_err))
+
         # 3. Update Model API Keys
         if payload.gemini_api_key is not None and payload.gemini_api_key.strip():
             g_row = await conn.fetchrow("SELECT id FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'gemini'", tenant_id)
