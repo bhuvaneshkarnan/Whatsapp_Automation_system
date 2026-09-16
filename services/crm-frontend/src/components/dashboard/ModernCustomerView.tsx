@@ -125,6 +125,35 @@ function formatDateFriendlyPreview(dateStr: string | null): string | null {
   }
 }
 
+// Helpers to parse and format follow-up time (12-hour AM/PM)
+function parseFollowupTime(str: string) {
+  const raw = (str || '').trim();
+  const match = raw.match(/^(\d{1,2})(?::(\d{1,2}))?\s*(AM|PM)?$/i);
+  let h = 10;
+  let m = 0;
+  let p: 'AM' | 'PM' = 'AM';
+  if (match) {
+    let parsedH = parseInt(match[1], 10);
+    m = match[2] ? parseInt(match[2], 10) : 0;
+    if (match[3]) {
+      p = match[3].toUpperCase() === 'PM' ? 'PM' : 'AM';
+    } else if (parsedH >= 12) {
+      p = 'PM';
+      if (parsedH > 12) parsedH -= 12;
+    }
+    if (parsedH === 0) parsedH = 12;
+    h = Math.min(Math.max(1, parsedH), 12);
+    m = Math.min(Math.max(0, m), 59);
+  }
+  return { hour: h, minute: m, period: p };
+}
+
+function formatFollowupTime(hour: number, minute: number, period: 'AM' | 'PM'): string {
+  const hStr = String(hour).padStart(2, '0');
+  const mStr = String(minute).padStart(2, '0');
+  return `${hStr}:${mStr} ${period}`;
+}
+
 // Clean Minimalist Shopify-Style Follow-up Scheduler Popover with Direct Typing
 function FollowupSchedulerPopover({
   currentDate,
@@ -146,6 +175,11 @@ function FollowupSchedulerPopover({
 
   const parsedDate = parseFlexibleDate(dateInput);
   const friendlyPreview = formatDateFriendlyPreview(parsedDate);
+  const parsedTime = parseFollowupTime(timeInput);
+
+  const minuteOptions = Array.from(
+    new Set(['00', '15', '30', '45', String(parsedTime.minute).padStart(2, '0')])
+  ).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
 
   const handleSave = () => {
     if (!parsedDate) {
@@ -176,7 +210,7 @@ function FollowupSchedulerPopover({
         }}
       />
       <div
-        className="absolute left-0 top-full mt-1.5 z-40 w-72 bg-surface border border-border rounded-md shadow-xl p-3 text-xs space-y-3 animate-in fade-in zoom-in-95 duration-100 font-sans"
+        className="absolute left-0 top-full mt-1.5 z-40 w-80 bg-surface border border-border rounded-md shadow-xl p-3.5 text-xs space-y-3 animate-in fade-in zoom-in-95 duration-100 font-sans"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
@@ -263,36 +297,108 @@ function FollowupSchedulerPopover({
             )}
           </div>
 
-          {/* Time Input - Fully Editable Type */}
+          {/* Time Selection Section */}
           <div>
-            <label className="text-[10px] font-bold uppercase text-text-muted tracking-wider block mb-1">
-              Type Time
-            </label>
-            <div className="relative flex items-center">
-              <input
-                type="text"
-                value={timeInput}
-                onChange={(e) => setTimeInput(e.target.value)}
-                placeholder="e.g. 10:00 AM, 02:30 PM, 14:00"
-                list="followup-time-suggestions"
-                className="w-full pl-2.5 pr-8 py-1.5 text-xs bg-surface-subtle border border-border rounded text-text-primary focus:outline-none focus:bg-surface focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all font-mono"
-              />
-              <Clock className="w-3.5 h-3.5 text-text-muted absolute right-2.5 pointer-events-none stroke-[1.8]" />
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[10px] font-bold uppercase text-text-muted tracking-wider block">
+                Time
+              </label>
+              <span className="text-[11px] font-bold text-accent font-mono">
+                {timeInput}
+              </span>
             </div>
-            <datalist id="followup-time-suggestions">
-              <option value="09:00 AM" />
-              <option value="10:00 AM" />
-              <option value="11:00 AM" />
-              <option value="12:00 PM" />
-              <option value="01:00 PM" />
-              <option value="02:00 PM" />
-              <option value="03:00 PM" />
-              <option value="04:00 PM" />
-              <option value="05:00 PM" />
-              <option value="06:00 PM" />
-              <option value="07:00 PM" />
-              <option value="08:00 PM" />
-            </datalist>
+
+            {/* Interactive Hour : Minute + AM/PM Segmented Control */}
+            <div className="flex items-center gap-1.5">
+              {/* Hour Dropdown */}
+              <div className="relative flex-1">
+                <select
+                  value={String(parsedTime.hour).padStart(2, '0')}
+                  onChange={(e) => {
+                    const newH = parseInt(e.target.value, 10);
+                    setTimeInput(formatFollowupTime(newH, parsedTime.minute, parsedTime.period));
+                  }}
+                  className="w-full px-2 py-1.5 text-xs bg-surface-subtle border border-border rounded text-text-primary focus:outline-none focus:border-accent font-mono cursor-pointer transition-colors"
+                >
+                  {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((h) => (
+                    <option key={h} value={h}>{h} hr</option>
+                  ))}
+                </select>
+              </div>
+
+              <span className="text-xs font-bold text-text-muted font-mono">:</span>
+
+              {/* Minute Dropdown */}
+              <div className="relative flex-1">
+                <select
+                  value={String(parsedTime.minute).padStart(2, '0')}
+                  onChange={(e) => {
+                    const newM = parseInt(e.target.value, 10);
+                    setTimeInput(formatFollowupTime(parsedTime.hour, newM, parsedTime.period));
+                  }}
+                  className="w-full px-2 py-1.5 text-xs bg-surface-subtle border border-border rounded text-text-primary focus:outline-none focus:border-accent font-mono cursor-pointer transition-colors"
+                >
+                  {minuteOptions.map((m) => (
+                    <option key={m} value={m}>{m} min</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Segmented AM / PM Switch */}
+              <div className="flex border border-border rounded overflow-hidden text-xs font-bold shrink-0 bg-surface shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setTimeInput(formatFollowupTime(parsedTime.hour, parsedTime.minute, 'AM'))}
+                  className={`px-2.5 py-1.5 transition-all cursor-pointer select-none ${
+                    parsedTime.period === 'AM'
+                      ? 'bg-accent text-white font-bold shadow-xs'
+                      : 'text-text-muted hover:text-text-primary hover:bg-surface-subtle'
+                  }`}
+                  title="Switch to Morning (AM)"
+                >
+                  AM
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTimeInput(formatFollowupTime(parsedTime.hour, parsedTime.minute, 'PM'))}
+                  className={`px-2.5 py-1.5 transition-all cursor-pointer select-none ${
+                    parsedTime.period === 'PM'
+                      ? 'bg-accent text-white font-bold shadow-xs'
+                      : 'text-text-muted hover:text-text-primary hover:bg-surface-subtle'
+                  }`}
+                  title="Switch to Afternoon / Evening (PM)"
+                >
+                  PM
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Time Preset Chips */}
+            <div className="flex items-center gap-1 flex-wrap pt-2">
+              {[
+                '10:00 AM',
+                '11:30 AM',
+                '02:00 PM',
+                '04:30 PM',
+                '06:00 PM',
+              ].map((preset) => {
+                const isSelected = timeInput.trim().toUpperCase() === preset;
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setTimeInput(preset)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-accent/15 text-accent border-accent/40 font-semibold'
+                        : 'bg-surface-subtle hover:bg-surface text-text-secondary border-border/80 hover:border-border-strong'
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 

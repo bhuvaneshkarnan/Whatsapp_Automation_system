@@ -1584,42 +1584,63 @@ function FollowupTimeInput({
   const isSmall = size === 'sm';
 
   return (
-    <div className="flex items-center gap-1.5">
-      <input
-        type="text"
-        value={value || ''}
-        onChange={handleRawChange}
-        onBlur={handleBlur}
-        placeholder={placeholder}
-        className={`flex-1 min-w-0 ${
-          isSmall ? 'px-2 py-1 text-xs' : 'px-2.5 py-1.5 text-xs'
-        } bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent font-mono`}
-      />
-      <div className="flex border border-border rounded-sm overflow-hidden text-[10px] font-semibold tracking-wider shrink-0 bg-surface">
-        <button
-          type="button"
-          onClick={() => handlePeriodToggle('AM')}
-          className={`px-2 py-1 transition-all cursor-pointer select-none ${
-            parsed.period === 'AM'
-              ? 'bg-accent text-white font-bold shadow-xs'
-              : 'text-text-muted hover:text-text-primary hover:bg-surface-subtle'
-          }`}
-          title="Switch to Morning (AM)"
-        >
-          AM
-        </button>
-        <button
-          type="button"
-          onClick={() => handlePeriodToggle('PM')}
-          className={`px-2 py-1 transition-all cursor-pointer select-none ${
-            parsed.period === 'PM'
-              ? 'bg-accent text-white font-bold shadow-xs'
-              : 'text-text-muted hover:text-text-primary hover:bg-surface-subtle'
-          }`}
-          title="Switch to Evening (PM)"
-        >
-          PM
-        </button>
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5">
+        <input
+          type="text"
+          value={value || ''}
+          onChange={handleRawChange}
+          onBlur={handleBlur}
+          placeholder={placeholder}
+          className={`flex-1 min-w-0 ${
+            isSmall ? 'px-2 py-1 text-xs' : 'px-2.5 py-1.5 text-xs'
+          } bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent font-mono`}
+        />
+        <div className="flex border border-border rounded-sm overflow-hidden text-[10px] font-semibold tracking-wider shrink-0 bg-surface">
+          <button
+            type="button"
+            onClick={() => handlePeriodToggle('AM')}
+            className={`px-2 py-1 transition-all cursor-pointer select-none ${
+              parsed.period === 'AM'
+                ? 'bg-accent text-white font-bold shadow-xs'
+                : 'text-text-muted hover:text-text-primary hover:bg-surface-subtle'
+            }`}
+            title="Switch to Morning (AM)"
+          >
+            AM
+          </button>
+          <button
+            type="button"
+            onClick={() => handlePeriodToggle('PM')}
+            className={`px-2 py-1 transition-all cursor-pointer select-none ${
+              parsed.period === 'PM'
+                ? 'bg-accent text-white font-bold shadow-xs'
+                : 'text-text-muted hover:text-text-primary hover:bg-surface-subtle'
+            }`}
+            title="Switch to Evening (PM)"
+          >
+            PM
+          </button>
+        </div>
+      </div>
+      <div className="flex items-center gap-1 flex-wrap">
+        {['10:00 AM', '11:30 AM', '02:00 PM', '04:30 PM', '06:00 PM'].map((preset) => {
+          const isSelected = (value || '').trim().toUpperCase() === preset;
+          return (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => onChange(preset)}
+              className={`px-1.5 py-0.5 rounded text-[9px] font-medium border transition-colors cursor-pointer ${
+                isSelected
+                  ? 'bg-accent/15 text-accent border-accent/40 font-semibold'
+                  : 'bg-surface-subtle hover:bg-surface text-text-secondary border-border/80 hover:border-border-strong'
+              }`}
+            >
+              {preset}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
