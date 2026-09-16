@@ -2426,6 +2426,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     admin_email?: string;
   }>({
     name: '',
+    slug: '',
     admin_name: '',
     admin_email: '',
     logo_url: '',
@@ -15352,7 +15353,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                   {/* ── 0. SUBSCRIPTION & SYSTEM BILLING ─────────────────────── */}
                   {settingsTab === 'billing' && (() => {
-                    const activePaymentUrl = settingsForm.razorpay_short_url || `https://rzp.io/l/${settingsForm.slug || 'boldlabs'}-crm`;
+                    const effectiveSlug = settingsForm.slug || activeSlug || (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') || 'boldlabs';
+                    const activePaymentUrl = settingsForm.razorpay_short_url || `https://rzp.io/l/${effectiveSlug}-crm`;
+                    const effectiveSubId = settingsForm.razorpay_subscription_id || `sub_${effectiveSlug}`;
                     const renewalDateFormatted = (() => {
                       if (settingsForm.next_charge_at) {
                         try {
@@ -15468,8 +15471,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
                                 Subscription Ref ID
                               </span>
-                              <div className="text-xs font-mono font-semibold text-text-primary truncate pt-1.5" title={settingsForm.razorpay_subscription_id || `sub_${settingsForm.slug || 'tenant'}`}>
-                                {settingsForm.razorpay_subscription_id || `sub_${settingsForm.slug || 'tenant'}`}
+                              <div className="text-xs font-mono font-semibold text-text-primary truncate pt-1.5" title={effectiveSubId}>
+                                {effectiveSubId}
                               </div>
                               <span className="text-[10px] text-text-muted block truncate">Dedicated CRM workspace</span>
                             </div>

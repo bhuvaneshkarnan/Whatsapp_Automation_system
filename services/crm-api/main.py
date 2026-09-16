@@ -5311,7 +5311,16 @@ async def get_tenant_settings(
     if target_tenant_id and caller_role == "super_admin":
         tenant_id = target_tenant_id
     async with db_pool.acquire() as conn:
-        tenant = await conn.fetchrow("SELECT id, name, slug, plan, is_active, settings FROM tenants WHERE id = $1::uuid", tenant_id)
+        tenant = await conn.fetchrow(
+            """
+            SELECT id, name, slug, plan, is_active, settings,
+                   subscription_status, org_lifecycle_stage,
+                   razorpay_customer_id, razorpay_subscription_id, razorpay_short_url,
+                   next_charge_at, last_payment_status, last_charge_at, created_at
+            FROM tenants WHERE id = $1::uuid
+            """,
+            tenant_id
+        )
         if not tenant:
             raise HTTPException(404, "Tenant not found")
 
