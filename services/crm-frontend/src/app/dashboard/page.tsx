@@ -15897,8 +15897,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
                   </div>
                 )}
-                  );
-                })()}
 
               </div>
             )}
