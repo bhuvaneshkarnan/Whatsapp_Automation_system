@@ -3612,6 +3612,11 @@ async def create_booking(
         max_concurrent = int(s_data.get("max_concurrent_bookings", 1)) if isinstance(s_data, dict) else 1
 
         async with conn.transaction():
+            # Transactional advisory lock: serializes concurrent booking requests for the same tenant/staff on this day,
+            # eliminating phantom reads where two simultaneous requests see an empty slot and both insert.
+            slot_lock_key = f"{tenant_id}:{staff or 'general'}:{st_dt.date().isoformat()}"
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", slot_lock_key)
+
             if slot_booking_mode != "multiple":
                 conflict = await conn.fetchrow(
                     """SELECT id, service, start_time, end_time FROM bookings
@@ -3915,12 +3920,17 @@ class BookingPricePayload(BaseModel):
     price: float
 
 @app.patch("/bookings/{booking_id}/price")
+@app.patch("/api/v1/crm/bookings/{booking_id}/price")
 async def update_booking_price(
     booking_id: str,
     payload: BookingPricePayload,
-    tenant_id: str = Depends(get_tenant_id)
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
 ):
     """Update price / fee for an existing booking."""
+    if caller.get("role") not in ("admin", "super_admin", "owner"):
+        raise HTTPException(403, "Access denied: Only administrators or owners can modify booking prices.")
+
     async with db_pool.acquire() as conn:
         booking = await conn.fetchrow(
             "SELECT id FROM bookings WHERE id = $1::uuid AND tenant_id = $2::uuid",
@@ -5353,45 +5363,7 @@ async def send_direct_whatsapp(
         return await send_manual_message(conv_id, msg_payload, tenant_id)
 
 
-class AssignConversationPayload(BaseModel):
-    assigned_to: Optional[str] = None
 
-@app.patch("/conversations/{conv_id}/assign")
-@app.patch("/api/v1/crm/conversations/{conv_id}/assign")
-async def assign_conversation(
-    conv_id: str,
-    payload: AssignConversationPayload,
-    tenant_id: str = Depends(get_tenant_id)
-):
-    """Assign or unassign a WhatsApp conversation to an organization staff member."""
-    async with db_pool.acquire() as conn:
-        staff_name = None
-        assign_val = None
-        if payload.assigned_to and payload.assigned_to.strip():
-            user_row = await conn.fetchrow(
-                "SELECT id, display_name, email FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid",
-                payload.assigned_to.strip(), tenant_id
-            )
-            if not user_row:
-                raise HTTPException(404, "Staff member not found in your organization")
-            staff_name = user_row["display_name"] or user_row["email"]
-            assign_val = user_row["id"]
-
-        res = await conn.execute(
-            """UPDATE conversations
-               SET assigned_to = $1, updated_at = now()
-               WHERE id = $2::uuid AND tenant_id = $3::uuid""",
-            assign_val, conv_id, tenant_id
-        )
-        if res == "UPDATE 0":
-            raise HTTPException(404, "Conversation not found")
-
-    return {
-        "status": "ok",
-        "conversation_id": conv_id,
-        "assigned_to": str(assign_val) if assign_val else None,
-        "assigned_staff_name": staff_name
-    }
 
 
 @app.delete("/conversations/{conv_id}")
@@ -5465,10 +5437,12 @@ class ConvStatusUpdate(BaseModel):
     status: str
 
 @app.patch("/conversations/{conv_id}/status")
+@app.patch("/api/v1/crm/conversations/{conv_id}/status")
 async def update_conversation_status(
     conv_id: str,
     payload: ConvStatusUpdate,
-    tenant_id: str = Depends(get_tenant_id)
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
 ):
     """Update conversation status between 'bot' (AI on) and 'human' (manual human takeover)."""
     raw_st = payload.status.lower().strip()
@@ -5494,6 +5468,7 @@ async def assign_conversation(
     conv_id: str,
     payload: AssignConversationRequest,
     tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
 ):
     """Assign or unassign a conversation to a staff member in this organization."""
     async with db_pool.acquire() as conn:
@@ -5534,11 +5509,16 @@ class ToggleAllPayload(BaseModel):
     ai_enabled: bool
 
 @app.patch("/conversations/toggle-all")
+@app.patch("/api/v1/crm/conversations/toggle-all")
 async def toggle_all_conversations_ai(
     payload: ToggleAllPayload,
-    tenant_id: str = Depends(get_tenant_id)
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
 ):
     """Turn AI auto-reply ON or OFF for all conversations belonging to this tenant."""
+    if caller.get("role") not in ("admin", "super_admin", "owner"):
+        raise HTTPException(403, "Access denied: Only administrators or owners can toggle organization-wide AI settings.")
+
     new_status = "bot" if payload.ai_enabled else "human"
     async with db_pool.acquire() as conn:
         await conn.execute(
@@ -11478,7 +11458,7 @@ async def list_customer_reviews(
         params = [tenant_id]
         idx = 2
 
-        if rating:
+        if rating is not None:
             conditions.append(f"rating = ${idx}")
             params.append(rating)
             idx += 1
@@ -11492,15 +11472,14 @@ async def list_customer_reviews(
             idx += 1
 
         where_clause = " WHERE " + " AND ".join(conditions)
-        query = f"SELECT id::text, tenant_id::text, customer_name, customer_phone, service_name, rating, experience_notes, generated_review_text, destination, status, created_at::text, COALESCE(google_review_id, '') AS google_review_id, COALESCE(reviewer_photo_url, '') AS reviewer_photo_url, COALESCE(owner_reply_text, '') AS owner_reply_text, owner_replied_at::text, COALESCE(source, 'direct_collector') AS source FROM customer_reviews {where_clause} ORDER BY created_at DESC LIMIT ${idx} OFFSET ${idx+1}"
-        params.extend([limit, offset])
+        count = await conn.fetchval(f"SELECT COUNT(*) FROM customer_reviews {where_clause}", *params)
 
-        rows = await conn.fetch(query, *params)
-        count = await conn.fetchval(f"SELECT COUNT(*) FROM customer_reviews {where_clause}", *params[:idx-1])
+        query = f"SELECT id::text, tenant_id::text, customer_name, customer_phone, service_name, rating, experience_notes, generated_review_text, destination, status, created_at::text, COALESCE(google_review_id, '') AS google_review_id, COALESCE(reviewer_photo_url, '') AS reviewer_photo_url, COALESCE(owner_reply_text, '') AS owner_reply_text, owner_replied_at::text, COALESCE(source, 'direct_collector') AS source FROM customer_reviews {where_clause} ORDER BY created_at DESC LIMIT ${idx} OFFSET ${idx+1}"
+        rows = await conn.fetch(query, *params, limit, offset)
 
         return {
             "reviews": [dict(r) for r in rows],
-            "total": count
+            "total": count or 0
         }
 
 

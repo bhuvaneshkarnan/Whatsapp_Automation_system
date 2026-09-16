@@ -13,9 +13,9 @@ from pydantic import BaseModel
 
 logger = structlog.get_logger("auth-service")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://platform_user:devpassword@localhost:5432/whatsapp_platform")
-JWT_SECRET = os.getenv("JWT_SECRET", "18d73e947ecf30719ab9a2c4e919fc892f36e5c74207429b4a9e82f5ad0e5e7f")
-if not os.getenv("JWT_SECRET"):
-    logger.warning("jwt_secret_unset_using_fallback", warning="JWT_SECRET is not set in environment! Using default fallback secret key.")
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError("CRITICAL: JWT_SECRET environment variable is not set. A secure secret key is required.")
 ALGORITHM = "HS256"
 
 import bcrypt
@@ -27,8 +27,6 @@ db_pool: asyncpg.Pool
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db_pool
-    if not os.getenv("JWT_SECRET"):
-        logger.warning("jwt_secret_unset_startup_warning", warning="CRITICAL: JWT_SECRET environment variable is not set. Using hardcoded fallback secret.")
     db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=2)
     yield
     await db_pool.close()

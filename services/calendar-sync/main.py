@@ -14,7 +14,9 @@ from pydantic import BaseModel
 
 logger = structlog.get_logger("calendar-sync")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://platform_user:devpassword@localhost:5432/whatsapp_platform")
-JWT_SECRET = os.getenv("JWT_SECRET", "18d73e947ecf30719ab9a2c4e919fc892f36e5c74207429b4a9e82f5ad0e5e7f")
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError("CRITICAL: JWT_SECRET environment variable is not set. A secure secret key is required.")
 ALGORITHM = "HS256"
 
 # ── Tenant Authentication Dependency ──────────────────────────────────────────
