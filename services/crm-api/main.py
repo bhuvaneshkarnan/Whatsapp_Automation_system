@@ -214,6 +214,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_uniq ON customers(tenan
                         RAISE NOTICE 'Could not update users_role_check constraint: %', SQLERRM;
                 END $do$;
 
+                DO $do$
+                BEGIN
+                    ALTER TABLE scheduled_jobs DROP CONSTRAINT IF EXISTS scheduled_jobs_job_type_check;
+                    ALTER TABLE scheduled_jobs ADD CONSTRAINT scheduled_jobs_job_type_check CHECK (job_type = ANY (ARRAY['reminder'::text, 'admin_reminder'::text, 'review_request'::text, 'reschedule_nudge'::text, 'post_treatment_followup'::text]));
+                    ALTER TABLE scheduled_jobs DROP CONSTRAINT IF EXISTS scheduled_jobs_status_check;
+                    ALTER TABLE scheduled_jobs ADD CONSTRAINT scheduled_jobs_status_check CHECK (status = ANY (ARRAY['pending'::text, 'sent'::text, 'failed'::text, 'cancelled'::text, 'skipped_no_admin_phone'::text, 'skipped_duplicate'::text, 'skipped_already_sent'::text]));
+                EXCEPTION
+                    WHEN others THEN NULL;
+                END $do$;
+
                 -- Ensure all contacts have a corresponding record in customers table
                 INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, created_at, updated_at)
                 SELECT gen_random_uuid(), c.tenant_id, REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), COALESCE(c.name, c.wa_profile_name, 'Customer'), 'new', 'warm', c.created_at, now()
