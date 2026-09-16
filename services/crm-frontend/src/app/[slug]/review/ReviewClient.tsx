@@ -295,8 +295,8 @@ export default function ReviewClient() {
                   ))}
                 </div>
                 <p className={`text-xs font-bold ${rating >= 4 ? 'text-amber-600' : 'text-text-secondary'}`}>
-                  {rating === 5 ? '⭐ Exceptional! (5/5)' :
-                   rating === 4 ? '⭐ Great Service (4/5)' :
+                  {rating === 5 ? 'Exceptional! (5/5)' :
+                   rating === 4 ? 'Great Service (4/5)' :
                    rating === 3 ? 'Neutral / Fair (3/5)' :
                    rating === 2 ? 'Needs Improvement (2/5)' : 'Unsatisfactory (1/5)'}
                 </p>

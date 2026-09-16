@@ -7438,7 +7438,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           </div>
         </div>
 
-        {/* Segmented Tab Header: [💬 WhatsApp Chat] and [📋 Profile & Notes] */}
+        {/* Segmented Tab Header: [WhatsApp Chat] and [Profile & Notes] */}
         <div className="flex items-center border-b border-border bg-surface px-3 pt-2 gap-2 shrink-0">
           <button
             type="button"
@@ -9416,8 +9416,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         <option value="pending" disabled hidden={isAttended || isNoShow}>
                                           Set Status...
                                         </option>
-                                        <option value="attended">✓ Attended</option>
-                                        <option value="no_show">✕ No-Show</option>
+                                        <option value="attended">Attended</option>
+                                        <option value="no_show">No-Show</option>
                                       </select>
 
                                       <button
@@ -10728,7 +10728,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs shadow-2xs border ${avatarColor}`}>
                                 {initial}
                               </div>
-                              {/* Avatar Dot: 🟢 Green = AI Active, 🟡 Amber = Human Mode */}
+                              {/* Avatar Dot: Green = AI Active, Amber = Human Mode */}
                               <span
                                 className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-surface ${
                                   conv.ai_enabled !== false
@@ -15105,7 +15105,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             </a>
                             <button type="button" onClick={() => {
                               const w = window.open('', '_blank');
-                              if (w) { w.document.write(`<html><head><title>QR – ${settingsForm.name || 'Shop'}</title></head><body style="text-align:center;font-family:sans-serif;padding:40px;"><h2>${settingsForm.name || 'Leave Us A Review'}</h2><p>Scan to share your feedback!</p><img src="${qrApiUrl}" style="width:240px;height:240px;margin:16px 0;" /><p style="color:#888;font-size:12px;">Thank you for visiting! ⭐</p></body></html>`); w.document.close(); w.print(); }
+                              if (w) { w.document.write(`<html><head><title>QR - ${settingsForm.name || 'Shop'}</title></head><body style="text-align:center;font-family:sans-serif;padding:40px;"><h2>${settingsForm.name || 'Leave Us A Review'}</h2><p>Scan to share your feedback!</p><img src="${qrApiUrl}" style="width:240px;height:240px;margin:16px 0;" /><p style="color:#888;font-size:12px;">Thank you for visiting!</p></body></html>`); w.document.close(); w.print(); }
                             }} className="w-full py-1 bg-accent hover:opacity-90 text-white rounded text-[10px] font-bold cursor-pointer text-center transition-opacity">
                               Print Poster
                             </button>
@@ -15126,9 +15126,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <div className="flex flex-wrap gap-2">
                       {[
                         { label: 'Total', value: total, color: 'text-text-primary' },
-                        { label: 'Avg', value: avg + '★', color: 'text-amber-500' },
-                        { label: 'GMB 4-5★', value: gmbCount, color: 'text-emerald-600' },
-                        { label: 'Private 1-3★', value: privateCount, color: 'text-rose-600' },
+                        { label: 'Avg', value: avg, color: 'text-amber-500' },
+                        { label: 'GMB 4-5', value: gmbCount, color: 'text-emerald-600' },
+                        { label: 'Private 1-3', value: privateCount, color: 'text-rose-600' },
                       ].map(({ label, value, color }) => (
                         <div key={label} className="flex items-center gap-1.5 bg-surface px-2.5 py-1.5 rounded-md border border-border">
                           <span className="text-[10px] font-medium text-text-muted uppercase">{label}</span>
@@ -15139,21 +15139,86 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   );
                 })()}
 
+                {/* ── CONFIGURE REVIEW PAGE (collapsible) ─────────────────── */}
+                {(() => {
+                  const defaultTags = ['Friendly & Caring Staff','Clean & Hygienic Space','Quick & Prompt Service','Detailed Explanation','Great Results & Treatment','Value for Money','Comfortable & Relaxing','Easy Booking & Response'];
+                  const currentTags: string[] = (settingsForm.review_experience_tags && (settingsForm.review_experience_tags as string[]).length > 0)
+                    ? settingsForm.review_experience_tags as string[]
+                    : defaultTags;
+                  const services: string[] = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                    ? settingsForm.taxonomy.requirement_presets : [];
+                  return (
+                    <details className="bg-surface rounded-lg border border-border group">
+                      <summary className="flex items-center gap-2 p-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+                        <Tag className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                        <span className="text-xs font-bold text-text-primary">Configure Review Page</span>
+                        <span className="text-[10px] text-text-muted hidden sm:inline">— services & experience tags customers see</span>
+                        <ChevronDown className="w-3.5 h-3.5 text-text-muted ml-auto transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="p-2.5 pt-0 grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {/* Services */}
+                        <div className="p-2.5 bg-surface-subtle rounded-md border border-border space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-semibold text-text-primary">Services to Choose</span>
+                            <span className="text-[10px] text-text-muted">{services.length} options</span>
+                          </div>
+                          {services.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {services.map((s, i) => <span key={i} className="px-2 py-0.5 bg-accent/10 text-accent border border-accent/20 rounded-full text-[10px] font-medium">{s}</span>)}
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-text-muted italic">No services set. Add in Settings - Profile - Taxonomy.</p>
+                          )}
+                        </div>
+                        {/* Experience Tags */}
+                        <div className="p-2.5 bg-surface-subtle rounded-md border border-border space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-semibold text-text-primary">Experience Tags</span>
+                            <span className="text-[10px] text-text-muted">{currentTags.length} tags</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {currentTags.map((tag, i) => (
+                              <span key={i} className="flex items-center gap-0.5 px-2 py-0.5 bg-surface rounded-full border border-border text-[10px] text-text-secondary">
+                                {tag}
+                                <button type="button" onClick={() => setSettingsForm({ ...settingsForm, review_experience_tags: currentTags.filter((_, idx) => idx !== i) })} className="ml-0.5 text-text-muted hover:text-rose-500 cursor-pointer transition-colors leading-none">x</button>
+                              </span>
+                            ))}
+                          </div>
+                          <div className="flex gap-1.5">
+                            <input type="text" id="rev-tag-inp" placeholder="Add tag..."
+                              className="flex-1 px-2 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:border-accent focus:outline-none"
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const v = (e.target as HTMLInputElement).value.trim(); if (v && !currentTags.includes(v)) { setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] }); (e.target as HTMLInputElement).value = ''; } } }} />
+                            <button type="button" onClick={() => { const inp = document.getElementById('rev-tag-inp') as HTMLInputElement; const v = inp?.value.trim(); if (v && !currentTags.includes(v)) { setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] }); if (inp) inp.value = ''; } }}
+                              className="px-2.5 py-1 bg-surface-subtle border border-border text-text-secondary text-[11px] font-semibold rounded cursor-pointer hover:bg-border/60">Add</button>
+                            <button type="button" onClick={async () => { try { await crm.updateTenantSettings(settingsForm.slug || slug, { review_experience_tags: currentTags } as any); } catch(e){} }}
+                              className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded cursor-pointer">Save</button>
+                          </div>
+                        </div>
+                      </div>
+                    </details>
+                  );
+                })()}
+
                 {/* ── FILTER BAR ───────────────────────────────────────────── */}
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                   <div className="flex items-center gap-1 overflow-x-auto">
                     <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0">
                       {(['all', 5, 4, 3, 2, 1] as const).map((s) => (
                         <button key={String(s)} type="button" onClick={() => setReviewRatingFilter(s)}
-                          className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors cursor-pointer ${reviewRatingFilter === s ? 'bg-amber-500 text-slate-950' : 'text-text-secondary hover:text-text-primary'}`}>
-                          {s === 'all' ? 'All' : `${s}★`}
+                          className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors cursor-pointer flex items-center gap-1 ${reviewRatingFilter === s ? 'bg-amber-500 text-slate-950 font-bold' : 'text-text-secondary hover:text-text-primary'}`}>
+                          {s === 'all' ? 'All' : (
+                            <>
+                              <span>{s}</span>
+                              <Star className="w-2.5 h-2.5 fill-current" />
+                            </>
+                          )}
                         </button>
                       ))}
                     </div>
                     <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0">
                       {(['all', 'new', 'acknowledged', 'resolved'] as const).map((st) => (
                         <button key={st} type="button" onClick={() => setReviewStatusFilter(st)}
-                          className={`px-2 py-0.5 rounded text-[11px] font-semibold capitalize transition-colors cursor-pointer ${reviewStatusFilter === st ? 'bg-accent text-white font-bold' : 'text-text-secondary hover:text-text-primary'}`}>
+                          className={`px-2.5 py-1 rounded text-[11px] font-semibold capitalize transition-colors cursor-pointer ${reviewStatusFilter === st ? 'bg-accent text-white font-bold' : 'text-text-secondary hover:text-text-primary'}`}>
                           {st === 'all' ? 'All' : st === 'new' ? 'Pending' : st.charAt(0).toUpperCase() + st.slice(1)}
                         </button>
                       ))}
@@ -15161,7 +15226,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                   <div className="relative sm:ml-auto w-full sm:w-48">
                     <Search className="w-3 h-3 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input type="text" placeholder="Search…" value={reviewSearchQuery} onChange={(e) => setReviewSearchQuery(e.target.value)}
+                    <input type="text" placeholder="Search..." value={reviewSearchQuery} onChange={(e) => setReviewSearchQuery(e.target.value)}
                       className="w-full pl-7 pr-3 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:outline-none focus:border-accent" />
                   </div>
                 </div>
@@ -15184,7 +15249,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   const empty = (
                     <div className="py-10 flex flex-col items-center gap-2 text-text-muted text-xs text-center">
                       <Star className="w-7 h-7 text-text-muted/30 stroke-[1]" />
-                      <p className="font-medium">{loadingReviews ? 'Loading reviews…' : 'No reviews yet'}</p>
+                      <p className="font-medium">{loadingReviews ? 'Loading reviews...' : 'No reviews yet'}</p>
                       {!loadingReviews && <p className="text-[10px] max-w-xs">Share your review link or QR code to start collecting feedback.</p>}
                     </div>
                   );
@@ -15216,9 +15281,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     {rev.customer_phone && <p className="text-[10px] font-mono text-text-muted">{rev.customer_phone}</p>}
                                   </td>
                                   <td className="px-3 py-2.5 whitespace-nowrap">
-                                    <div className="flex items-center gap-0.5">{Array.from({length:5}).map((_,i)=><Star key={i} className={`w-2.5 h-2.5 ${i<(rev.rating||0)?'fill-amber-400 text-amber-500':'text-border'}`}/>)}<span className="ml-1 font-bold text-xs text-text-primary">{rev.rating}★</span></div>
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium mt-0.5 inline-block ${isHigh ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
-                                      {isHigh ? '→ GMB' : 'Private'}
+                                    <div className="flex items-center gap-0.5">{Array.from({length:5}).map((_,i)=><Star key={i} className={`w-2.5 h-2.5 ${i<(rev.rating||0)?'fill-amber-400 text-amber-500':'text-border'}`}/>)}<span className="ml-1 font-bold text-xs text-text-primary">{rev.rating}</span></div>
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium mt-0.5 inline-block ${isHigh ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                                      {isHigh ? 'Google Review' : 'Private Feedback'}
                                     </span>
                                   </td>
                                   <td className="px-3 py-2.5 whitespace-nowrap">
@@ -15237,7 +15302,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         className={`px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer ${rev.status==='acknowledged'?'bg-blue-100 text-blue-800 border border-blue-300':'bg-surface-subtle text-text-secondary border border-border hover:bg-border/60'}`}>Ack</button>
                                       <button type="button" onClick={() => handleUpdateReviewStatus(rev.id, 'resolved')}
                                         className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer ${rev.status==='resolved'?'bg-emerald-600 text-white':'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'}`}>
-                                        {rev.status==='resolved'?'✓ Done':'Resolve'}
+                                        {rev.status==='resolved'?'Done':'Resolve'}
                                       </button>
                                     </div>
                                   </td>
@@ -15261,7 +15326,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 </div>
                                 <div className="flex items-center gap-0.5 shrink-0">
                                   {Array.from({length:5}).map((_,i)=><Star key={i} className={`w-2.5 h-2.5 ${i<(rev.rating||0)?'fill-amber-400 text-amber-500':'text-border'}`}/>)}
-                                  <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${isHigh?'bg-emerald-50 text-emerald-700':'bg-rose-50 text-rose-700'}`}>{isHigh?'→ GMB':'Private'}</span>
+                                  <span className={`ml-1.5 text-[10px] px-2 py-0.5 rounded-full font-medium ${isHigh?'bg-emerald-50 text-emerald-700':'bg-rose-50 text-rose-700'}`}>{isHigh?'Google Review':'Private Feedback'}</span>
                                 </div>
                               </div>
                               {rev.generated_review_text && <p className="text-xs italic text-text-primary">"{rev.generated_review_text}"</p>}
@@ -15270,7 +15335,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 <span className="text-[10px] text-text-muted font-mono">{rev.created_at ? new Date(rev.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : 'Recent'}</span>
                                 <div className="flex gap-1.5">
                                   <button type="button" onClick={() => handleUpdateReviewStatus(rev.id,'acknowledged')} className={`px-2 py-1 rounded text-[10px] font-semibold cursor-pointer border ${rev.status==='acknowledged'?'bg-blue-100 text-blue-800 border-blue-300':'bg-surface-subtle text-text-secondary border-border'}`}>Ack</button>
-                                  <button type="button" onClick={() => handleUpdateReviewStatus(rev.id,'resolved')} className={`px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer ${rev.status==='resolved'?'bg-emerald-600 text-white':'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>{rev.status==='resolved'?'✓ Done':'Resolve'}</button>
+                                  <button type="button" onClick={() => handleUpdateReviewStatus(rev.id,'resolved')} className={`px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer ${rev.status==='resolved'?'bg-emerald-600 text-white':'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>{rev.status==='resolved'?'Done':'Resolve'}</button>
                                 </div>
                               </div>
                             </div>
@@ -15859,9 +15924,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
                         <p className="text-xs text-text-muted leading-relaxed">
                           {settingsForm.enable_auto_review !== false ? (
-                            <span className="text-status-success font-medium">✓ Enabled: </span>
+                            <span className="text-status-success font-medium">Enabled: </span>
                           ) : (
-                            <span className="text-text-muted font-medium">✕ Disabled: </span>
+                            <span className="text-text-muted font-medium">Disabled: </span>
                           )}
                           Send an automated Google Review request template on WhatsApp after an appointment is marked as Attended. When changing status, you will also be prompted with the choice to send or skip for each client.
                         </p>
@@ -15880,7 +15945,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 className="w-full px-3 py-2 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent transition-colors duration-150"
                               />
                               <p className="text-[10px] text-text-muted">
-                                Paste your Google Business review link here. Used by the public AI review collector page (<strong>/{settingsForm.slug || 'slug'}/review</strong>) — 4–5★ reviews are auto-copied and redirected here. Also sent in WhatsApp post-service review nudges with the customer's name pre-filled.
+                                Paste your Google Business review link here. Used by the public AI review collector page (<strong>/{settingsForm.slug || 'slug'}/review</strong>) — 4-5 star reviews are auto-copied and redirected here. Also sent in WhatsApp post-service review nudges with the customer's name pre-filled.
                               </p>
                             </div>
                           </div>
@@ -18580,7 +18645,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         ? 'bg-rose-100 text-rose-800 border-rose-300'
                         : 'bg-emerald-100 text-emerald-800 border-emerald-300'
                     }`}>
-                      {settingsForm.subscription_status === 'payment_failed' ? '⚠️ Payment Overdue' : (settingsForm.subscription_status || 'Active')}
+                      {settingsForm.subscription_status === 'payment_failed' ? 'Payment Overdue' : (settingsForm.subscription_status || 'Active')}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
@@ -18946,7 +19011,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </p>
                         <div className="flex items-center justify-end gap-1 text-[9px] text-gray-400 mt-1">
                           <span>10:42 AM</span>
-                          <span className="text-emerald-500 font-bold">✓✓</span>
+                          <CheckCheck className="w-3 h-3 text-emerald-500 stroke-[2.5]" />
                         </div>
                       </div>
                     </div>
