@@ -12125,6 +12125,18 @@ async def sync_google_reviews(tenant_id: str = Depends(get_tenant_id)):
                                     "UPDATE tenant_credentials SET credential_data = $1::jsonb WHERE tenant_id = $2::uuid AND provider = 'google_business'",
                                     json.dumps(cdata), tenant_id
                                 )
+                elif acc_resp.status_code == 429:
+                    logger.warning("gmb_account_quota_zero", body=acc_resp.text)
+                    raise HTTPException(
+                        400,
+                        "Google API Quota Limit: The 'My Business Account Management API' has a quota limit of 0 in your Google Cloud Project. Please enable the 'Google My Business API' and request quota access in Google Cloud Console."
+                    )
+                elif acc_resp.status_code == 403:
+                    logger.warning("gmb_account_permission_denied", body=acc_resp.text)
+                    raise HTTPException(
+                        403,
+                        "Google API Permission Denied: The Google My Business API is disabled in your Google Cloud Project. Please enable it in Google Cloud Console."
+                    )
 
         if not account_name or not location_name:
             raise HTTPException(400, "Google Business location could not be found. Please ensure your Google account manages a verified Business Profile.")
