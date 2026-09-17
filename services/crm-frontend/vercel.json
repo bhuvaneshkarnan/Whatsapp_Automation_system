@@ -10,8 +10,12 @@
       "destination": "http://168.138.172.197/webhooks/:path*"
     },
     {
+      "source": "/:slug/review",
+      "destination": "/:slug/review"
+    },
+    {
       "source": "/:slug/book",
-      "destination": "/dashboard/book"
+      "destination": "/:slug/book"
     },
     {
       "source": "/:slug((?!api|webhooks|_next|dashboard|login|bhuvanesh|admin|favicon).*)",

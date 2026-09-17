@@ -17,8 +17,8 @@ import {
   Edit3,
 } from 'lucide-react';
 
-function cleanClientReview(text: string): string {
-  if (!text) return '';
+function cleanClientReview(text: any): string {
+  if (!text || typeof text !== 'string') return '';
   return text
     .replace(/["“”`]/g, '')
     .replace(/[-—–]/g, ' ')
@@ -184,7 +184,6 @@ export default function ReviewClient() {
 
     setFormError('');
     setSubmitting(true);
-    setRedirectCancelled(false);
 
     const cleanNotes = [
       selectedTags.join(', '),
@@ -195,7 +194,7 @@ export default function ReviewClient() {
 
     try {
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Review generation timeout')), 5000)
+        setTimeout(() => reject(new Error('Review generation timeout')), 6000)
       );
 
       const res = await Promise.race([
@@ -211,23 +210,29 @@ export default function ReviewClient() {
       ]) as any;
 
       const effectiveGmbUrl =
-        res.gmb_review_url ||
+        res?.gmb_review_url ||
         settings?.gmb_review_url ||
         `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(businessName)}`;
 
-      const cleanText = cleanClientReview(res.generated_review_text);
-      setEditedReviewText(cleanText);
+      const cleanText = cleanClientReview(res?.generated_review_text);
+      const finalText = cleanText || cleanClientReview(
+        rating >= 4
+          ? `Really happy with the ${serviceName || 'service'} at ${businessName}. Everything was smooth, professional, and very well taken care of. Will definitely be returning again.`
+          : `Customer feedback regarding ${serviceName || 'service'}: ${cleanNotes || 'Service review.'}`
+      );
+
+      setEditedReviewText(finalText);
 
       setResult({
-        destination: res.destination,
-        generated_review_text: cleanText,
+        destination: res?.destination || (rating >= 4 ? 'gmb' : 'crm_internal'),
+        generated_review_text: finalText,
         gmb_review_url: effectiveGmbUrl,
         copied: false,
       });
 
       // Background non-blocking clipboard copy
-      if (res.destination === 'gmb' && typeof window !== 'undefined' && navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(cleanText)
+      if ((res?.destination === 'gmb' || rating >= 4) && typeof window !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(finalText)
           .then(() => setResult((prev) => (prev ? { ...prev, copied: true } : null)))
           .catch(() => {});
       }
@@ -264,7 +269,6 @@ export default function ReviewClient() {
 
   const handleRegenerateReview = async () => {
     setRegenerating(true);
-    cancelAutoRedirect();
 
     const cleanNotes = [
       selectedTags.join(', '),
@@ -275,7 +279,7 @@ export default function ReviewClient() {
 
     try {
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Review regeneration timeout')), 8000)
+        setTimeout(() => reject(new Error('Review regeneration timeout')), 6000)
       );
 
       const res = await Promise.race([
@@ -290,22 +294,24 @@ export default function ReviewClient() {
         timeoutPromise,
       ]) as any;
 
-      const cleanText = cleanClientReview(res.generated_review_text);
-      setEditedReviewText(cleanText);
-
-      if (typeof window !== 'undefined' && navigator.clipboard) {
-        navigator.clipboard.writeText(cleanText).catch(() => {});
+      const cleanText = cleanClientReview(res?.generated_review_text);
+      if (cleanText) {
+        setEditedReviewText(cleanText);
+        if (typeof window !== 'undefined' && navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(cleanText).catch(() => {});
+        }
+        setResult((prev) =>
+          prev
+            ? {
+                ...prev,
+                generated_review_text: cleanText,
+                copied: true,
+              }
+            : null
+        );
+      } else {
+        throw new Error('Empty review text returned');
       }
-
-      setResult((prev) =>
-        prev
-          ? {
-              ...prev,
-              generated_review_text: cleanText,
-              copied: true,
-            }
-          : null
-      );
     } catch (err) {
       console.error('Failed to regenerate review, using local generator:', err);
       const fallbackVariations = [
@@ -317,7 +323,7 @@ export default function ReviewClient() {
         fallbackVariations[Math.floor(Math.random() * fallbackVariations.length)] + (cleanNotes ? ` Special mention for ${cleanNotes}.` : '')
       );
       setEditedReviewText(freshFallback);
-      if (typeof window !== 'undefined' && navigator.clipboard) {
+      if (typeof window !== 'undefined' && navigator.clipboard?.writeText) {
         navigator.clipboard.writeText(freshFallback).catch(() => {});
       }
       setResult((prev) =>
@@ -443,7 +449,6 @@ export default function ReviewClient() {
                           <button
                             type="button"
                             onClick={() => {
-                              cancelAutoRedirect();
                               setIsEditing(true);
                             }}
                             className="inline-flex items-center gap-1 text-text-muted hover:text-text-primary font-medium cursor-pointer transition-colors"
@@ -718,11 +723,15 @@ export default function ReviewClient() {
                     disabled={submitting}
                     className="w-full py-3.5 bg-accent hover:bg-accent-hover active:scale-[0.99] disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <GoogleIcon className="w-4 h-4 fill-white" />
+                    {submitting ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    ) : (
+                      <GoogleIcon className="w-4 h-4 fill-white" />
+                    )}
                     <span>
                       {submitting ? 'Generating AI Review...' : 'Post Review on Google'}
                     </span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    {!submitting && <ArrowRight className="w-3.5 h-3.5" />}
                   </button>
                 ) : (
                   <button
@@ -730,7 +739,11 @@ export default function ReviewClient() {
                     disabled={submitting}
                     className="w-full py-3.5 bg-text-primary hover:bg-text-body active:scale-[0.99] disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <ShieldCheck className="w-4 h-4" />
+                    {submitting ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    ) : (
+                      <ShieldCheck className="w-4 h-4" />
+                    )}
                     <span>
                       {submitting ? 'Submitting Feedback...' : 'Submit Private Feedback'}
                     </span>

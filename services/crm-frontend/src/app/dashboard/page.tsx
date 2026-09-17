@@ -13091,7 +13091,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       {/* Customer Detail Drawer in Database View */}
                       {renderCustomerDetailDrawer()}
-                      )}
                     </div>
                   </div>
                 )}
