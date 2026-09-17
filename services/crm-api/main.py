@@ -17,8 +17,8 @@ from zoneinfo import ZoneInfo
 import asyncpg
 import httpx
 import structlog
-from fastapi import FastAPI, Depends, HTTPException, Query, Header, BackgroundTasks, Request
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI, Depends, HTTPException, Query, Header, BackgroundTasks, Request, File, UploadFile, Form, Response
+from fastapi.responses import RedirectResponse, FileResponse
 from pydantic import BaseModel
 
 try:
@@ -47,6 +47,63 @@ def safe_json_loads(val: Any, default: Any = None) -> Any:
         except Exception:
             return default if default is not None else {}
     return default if default is not None else {}
+
+
+KNOWN_TEMPLATES_EXPANSION: Dict[str, str] = {
+    "booking_confirmationn": "Hello {0},\n\nYour appointment is confirmed.\nService: {1}\nDate: {2}\nTime: {3}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you.",
+    "booking_reschedule_confirmation": "Hello {0}, Your {1} appointment has been rescheduled to {2} at {3}.\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you.",
+    "cancellation_confirmation": "Hello {0},\n\nYour {1} appointment on {2} at {3} has been cancelled as requested.\n\nWhenever you would like to book again, just message us here.",
+    "appointment_ramainder": "Hi {0}, quick reminder that your {1} appointment is coming up today at {2}.\nSee you shortly, reply here if you need to reschedule.",
+    "reschedule_nudge": "Hi {0}, this is an update regarding your {1} appointment today. We noticed you could not make it for your scheduled time. Whenever you are ready, simply reply to this message to update your schedule.",
+    "client_followup_checkin": "Hi {0}, this is {1} from {2} with an update regarding your service inquiry. Please let us know if you need any assistance or have questions.",
+    "review_request": "Hi {0}, thank you for visiting us for your {1}!\n\nWe would really appreciate it if you could take a minute to share your experience with a quick Google review.\nLink: {2}\nThank you!",
+    "admin_notification": "New appointment booked.\n\nCustomer Name: {0}\nPhone: {1}\nService: {2}\nDate: {3}\nTime: {4}",
+    "utility_general_update": "Hello {0}, this is a service update from {1} regarding your {2}. Please reply to this message if you require assistance.",
+}
+
+def expand_template_body(template_name: Optional[str], template_params: Any, fallback_body: Optional[str] = None) -> str:
+    """Format human-readable text for WhatsApp templates from parameters."""
+    if not template_name:
+        return fallback_body or "[Template Message]"
+    
+    params_list = []
+    if isinstance(template_params, str):
+        try:
+            template_params = json.loads(template_params)
+        except Exception:
+            template_params = []
+    
+    if isinstance(template_params, list):
+        for item in template_params:
+            if isinstance(item, dict) and "parameters" in item:
+                for sub in item.get("parameters", []):
+                    if isinstance(sub, dict):
+                        params_list.append(str(sub.get("text", "")))
+                    else:
+                        params_list.append(str(sub))
+            elif isinstance(item, dict) and "text" in item:
+                params_list.append(str(item.get("text", "")))
+            else:
+                params_list.append(str(item))
+    elif isinstance(template_params, dict):
+        params_list = [str(v) for v in template_params.values()]
+
+    pattern = KNOWN_TEMPLATES_EXPANSION.get(template_name)
+    if pattern:
+        try:
+            text = pattern
+            for idx, p in enumerate(params_list):
+                text = text.replace(f"{{{idx}}}", p)
+            text = re.sub(r'\{\d+\}', '—', text)
+            return text
+        except Exception:
+            pass
+
+    if fallback_body and not fallback_body.startswith("[Template:"):
+        return fallback_body
+    if params_list:
+        return f"[{template_name}]: {', '.join(params_list)}"
+    return fallback_body or f"[Template: {template_name}]"
 
 db_pool: asyncpg.Pool
 
@@ -3760,6 +3817,7 @@ async def create_booking(
                     ]
                 }
             }
+            template_wamid = None
             try:
                 import httpx
                 async with httpx.AsyncClient(timeout=10.0) as client:
@@ -3767,14 +3825,16 @@ async def create_booking(
                     logger.info("manual_booking_template_response", status=res.status_code, template=tpl_name, body=res.text)
                     if res.status_code in (200, 201):
                         template_sent = True
-                        logger.info("manual_booking_wa_template_dispatched", template=tpl_name, phone=clean_wa_phone)
+                        template_wamid = res.json().get("messages", [{}])[0].get("id")
+                        logger.info("manual_booking_wa_template_dispatched", template=tpl_name, phone=clean_wa_phone, wa_id=template_wamid)
                     elif "132000" in res.text or "132001" in res.text or "does not exist in" in res.text:
                         # Try language retry en_US
                         payload_tpl["template"]["language"] = {"code": "en_US"}
                         res_retry = await client.post(url, headers=headers, json=payload_tpl)
                         if res_retry.status_code in (200, 201):
                             template_sent = True
-                            logger.info("manual_booking_wa_template_retry_succeeded", template=tpl_name, phone=clean_wa_phone)
+                            template_wamid = res_retry.json().get("messages", [{}])[0].get("id")
+                            logger.info("manual_booking_wa_template_retry_succeeded", template=tpl_name, phone=clean_wa_phone, wa_id=template_wamid)
             except Exception as e:
                 logger.error("manual_booking_wa_template_error", error=str(e))
 
@@ -3786,9 +3846,9 @@ async def create_booking(
         if template_sent:
             msg_id = str(uuid.uuid4())
             await conn.execute(
-                """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
-                   VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, $5, $6::jsonb, 'sent', false)""",
-                msg_id, conv_id, tenant_id, f"[Template: {tpl_name}]", tpl_name, json.dumps(tpl_params or [])
+                """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
+                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'template', $5, $6, $7::jsonb, 'sent', false)""",
+                msg_id, conv_id, tenant_id, template_wamid, confirmation_msg, tpl_name, json.dumps(tpl_params or [])
             )
             await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
 
@@ -3797,19 +3857,22 @@ async def create_booking(
 
         if full_location and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
             loc_msg = f"*Location & Directions:*\n{full_location}"
+            location_wamid = None
             try:
                 import httpx
                 async with httpx.AsyncClient(timeout=8.0) as client:
-                    await client.post(
+                    loc_res = await client.post(
                         f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages",
                         headers={"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"},
                         json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": loc_msg}}
                     )
+                    if loc_res.status_code in (200, 201):
+                        location_wamid = loc_res.json().get("messages", [{}])[0].get("id")
                 loc_id = str(uuid.uuid4())
                 await conn.execute(
-                    """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
-                       VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
-                    loc_id, conv_id, tenant_id, loc_msg
+                    """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, status, ai_used_fallback)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'text', $5, 'sent', false)""",
+                    loc_id, conv_id, tenant_id, location_wamid, loc_msg
                 )
                 await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
             except Exception as e:
@@ -4000,6 +4063,7 @@ async def dispatch_automated_status_whatsapp(
 
             # Dispatch via Meta Graph API
             template_sent = False
+            dispatched_wamid = None
             if creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
                 import httpx
                 headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
@@ -4030,7 +4094,8 @@ async def dispatch_automated_status_whatsapp(
                             logger.info("meta_template_api_response", status=res.status_code, template=template_name, text=res.text)
                             if res.status_code in (200, 201):
                                 template_sent = True
-                                logger.info("automated_status_template_dispatched", template=template_name, phone=clean_phone)
+                                dispatched_wamid = res.json().get("messages", [{}])[0].get("id")
+                                logger.info("automated_status_template_dispatched", template=template_name, phone=clean_phone, wa_id=dispatched_wamid)
                             elif "132000" in res.text or "132001" in res.text or "does not exist in" in res.text:
                                 # Try with en_US if en fails
                                 payload["template"]["language"] = {"code": "en_US"}
@@ -4038,7 +4103,8 @@ async def dispatch_automated_status_whatsapp(
                                 logger.info("meta_template_retry_lang_response", status=res_retry_lang.status_code, text=res_retry_lang.text)
                                 if res_retry_lang.status_code in (200, 201):
                                     template_sent = True
-                                    logger.info("automated_status_template_retry_lang_succeeded", template=template_name, phone=clean_phone)
+                                    dispatched_wamid = res_retry_lang.json().get("messages", [{}])[0].get("id")
+                                    logger.info("automated_status_template_retry_lang_succeeded", template=template_name, phone=clean_phone, wa_id=dispatched_wamid)
                                 else:
                                     # Adapt parameter count dynamically if mismatch
                                     m_count = re.search(r'expected number of params \((\d+)\)', res.text) or re.search(r'expected number of params \((\d+)\)', res_retry_lang.text)
@@ -4049,7 +4115,8 @@ async def dispatch_automated_status_whatsapp(
                                         res_retry = await client.post(url, headers=headers, json=payload)
                                         if res_retry.status_code in (200, 201):
                                             template_sent = True
-                                            logger.info("automated_status_template_param_retry_succeeded", template=template_name, phone=clean_phone)
+                                            dispatched_wamid = res_retry.json().get("messages", [{}])[0].get("id")
+                                            logger.info("automated_status_template_param_retry_succeeded", template=template_name, phone=clean_phone, wa_id=dispatched_wamid)
                     except Exception as e:
                         logger.warning("template_dispatch_failed", error=str(e), template=template_name)
 
@@ -4064,6 +4131,8 @@ async def dispatch_automated_status_whatsapp(
                                     json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": text}}
                                 )
                                 logger.info("fallback_text_dispatch_response", status=res_txt.status_code, text=res_txt.text)
+                                if res_txt.status_code in (200, 201):
+                                    dispatched_wamid = res_txt.json().get("messages", [{}])[0].get("id")
                         except Exception as e:
                             logger.error("automated_wa_text_dispatch_failed", error=str(e), phone=clean_phone)
                     else:
@@ -4100,18 +4169,18 @@ async def dispatch_automated_status_whatsapp(
 
                 msg_id = str(uuid.uuid4())
                 if template_sent and template_name:
-                    logged_body = f"[Template: {template_name}]"
+                    logged_body = expand_template_body(template_name, template_params, f"[Template: {template_name}]")
                     await conn.execute(
-                        """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
-                           VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, $5, $6::jsonb, 'sent', false)""",
-                        msg_id, conv_id, tenant_id, logged_body, template_name, json.dumps(template_params or [])
+                        """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
+                           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'template', $5, $6, $7::jsonb, 'sent', false)""",
+                        msg_id, conv_id, tenant_id, dispatched_wamid, logged_body, template_name, json.dumps(template_params or [])
                     )
                     await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                 elif not template_name and allow_text_fallback and text:
                     await conn.execute(
-                        """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
-                           VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', false)""",
-                        msg_id, conv_id, tenant_id, text
+                        """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, status, ai_used_fallback)
+                           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'text', $5, 'sent', false)""",
+                        msg_id, conv_id, tenant_id, dispatched_wamid, text
                     )
                     await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
             except Exception as db_rec_err:
@@ -5107,7 +5176,7 @@ async def get_messages(
                             )
 
         rows = await conn.fetch(
-            """SELECT id, direction, content_type, body, media_url, template_name, status, created_at
+            """SELECT id, direction, content_type, body, media_url, template_name, template_params, status, wa_message_id, created_at
                FROM messages
                WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid
                ORDER BY created_at DESC LIMIT $3 OFFSET $4""",
@@ -5119,8 +5188,22 @@ async def get_messages(
         d["id"] = str(d["id"])
         if d.get("created_at") and hasattr(d["created_at"], "isoformat"):
             d["created_at"] = d["created_at"].isoformat()
+        
+        # Deserialise template_params if json string
+        tp = d.get("template_params")
+        if isinstance(tp, str):
+            try:
+                d["template_params"] = json.loads(tp)
+            except Exception:
+                d["template_params"] = []
+
         b = d.get("body")
-        if not b or not str(b).strip():
+        t_name = d.get("template_name")
+
+        # If template body is raw [Template: ...], expand into human-readable text
+        if t_name and (not b or str(b).startswith("[Template:") or str(b).startswith("📋 [Template:")):
+            d["body"] = expand_template_body(t_name, d.get("template_params"), b)
+        elif not b or not str(b).strip():
             ct = d.get("content_type")
             if ct == "image": d["body"] = "📷 [Photo]"
             elif ct == "video": d["body"] = "🎥 [Video]"
@@ -5128,7 +5211,7 @@ async def get_messages(
             elif ct == "audio": d["body"] = "🎵 [Audio]"
             elif ct == "sticker": d["body"] = "🏷️ [Sticker]"
             elif ct == "location": d["body"] = "📍 [Location]"
-            elif d.get("template_name"): d["body"] = f"📋 [Template: {d['template_name']}]"
+            elif t_name: d["body"] = expand_template_body(t_name, d.get("template_params"), f"📋 [Template: {t_name}]")
             else: d["body"] = "[Message]"
         out.append(d)
     return out
@@ -5304,7 +5387,10 @@ async def send_manual_message(
                 send_error_detail = str(e)
 
         # Insert message row
-        body_to_save = payload.body.strip() if has_body else f"[Template: {payload.template_name}]"
+        if has_template:
+            body_to_save = expand_template_body(payload.template_name, payload.template_params, payload.body.strip() if has_body else f"[Template: {payload.template_name}]")
+        else:
+            body_to_save = payload.body.strip() if has_body else "[Message]"
         content_type = "template" if has_template else "text"
         tpl_params_json = json.dumps(payload.template_params) if payload.template_params else None
 
@@ -5405,6 +5491,272 @@ async def send_direct_whatsapp(
             template_params=payload.template_params
         )
         return await send_manual_message(conv_id, msg_payload, tenant_id)
+
+
+@app.get("/media/{media_id}")
+@app.get("/api/v1/crm/media/{media_id}")
+async def get_media_proxy(
+    media_id: str,
+    tenant_id: Optional[str] = None
+):
+    """
+    Proxy WhatsApp media files securely.
+    1. Checks local cache /tmp/wa_media/{media_id}.*
+    2. If not found, resolves tenant credentials and fetches media download URL from Meta Graph API.
+    3. Downloads binary, writes to disk cache, and returns FileResponse/Response with proper Content-Type.
+    """
+    import os, mimetypes
+    from fastapi.responses import Response, FileResponse
+
+    cache_dir = "/tmp/wa_media"
+    os.makedirs(cache_dir, exist_ok=True)
+
+    # 1. Check if cached locally
+    if os.path.exists(cache_dir):
+        for fn in os.listdir(cache_dir):
+            if fn == media_id or fn.startswith(f"{media_id}."):
+                file_path = os.path.join(cache_dir, fn)
+                mime, _ = mimetypes.guess_type(file_path)
+                return FileResponse(
+                    file_path,
+                    media_type=mime or "application/octet-stream",
+                    headers={"Cache-Control": "public, max-age=604800"}
+                )
+
+    # 2. Retrieve WhatsApp access token from tenant_credentials
+    access_token = None
+    async with db_pool.acquire() as conn:
+        if tenant_id:
+            cred_row = await conn.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+                tenant_id
+            )
+            if cred_row and cred_row["credential_data"]:
+                d = json.loads(cred_row["credential_data"]) if isinstance(cred_row["credential_data"], str) else dict(cred_row["credential_data"])
+                access_token = d.get("access_token")
+
+        if not access_token:
+            msg_row = await conn.fetchrow(
+                "SELECT tenant_id FROM messages WHERE media_url LIKE $1 LIMIT 1",
+                f"%{media_id}%"
+            )
+            if msg_row:
+                cred_row = await conn.fetchrow(
+                    "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+                    msg_row["tenant_id"]
+                )
+                if cred_row and cred_row["credential_data"]:
+                    d = json.loads(cred_row["credential_data"]) if isinstance(cred_row["credential_data"], str) else dict(cred_row["credential_data"])
+                    access_token = d.get("access_token")
+
+        if not access_token:
+            cred_rows = await conn.fetch(
+                "SELECT credential_data FROM tenant_credentials WHERE provider = 'whatsapp' AND is_active = true"
+            )
+            for cr in cred_rows:
+                d = json.loads(cr["credential_data"]) if isinstance(cr["credential_data"], str) else dict(cr["credential_data"])
+                if d.get("access_token") and not str(d["access_token"]).startswith("EAAB_test"):
+                    access_token = d["access_token"]
+                    break
+
+    if not access_token:
+        raise HTTPException(404, "No active WhatsApp credentials found to fetch media.")
+
+    # 3. Query Meta Graph API to get direct download URL
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        meta_res = await client.get(
+            f"https://graph.facebook.com/v19.0/{media_id}",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        if meta_res.status_code != 200:
+            logger.error("meta_media_query_failed", media_id=media_id, status=meta_res.status_code, body=meta_res.text)
+            raise HTTPException(404, "Media not found or expired on Meta servers.")
+
+        meta_data = meta_res.json()
+        download_url = meta_data.get("url")
+        mime_type = meta_data.get("mime_type", "application/octet-stream")
+
+        if not download_url:
+            raise HTTPException(404, "Download URL missing from Meta response.")
+
+        # 4. Download binary payload
+        media_res = await client.get(
+            download_url,
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        if media_res.status_code != 200:
+            logger.error("meta_media_download_failed", media_id=media_id, status=media_res.status_code)
+            raise HTTPException(502, "Failed to download media binary from Meta.")
+
+        content = media_res.content
+
+        # 5. Cache on disk
+        ext = mimetypes.guess_extension(mime_type) or ".bin"
+        if ext == ".jpe": ext = ".jpg"
+        cached_file_path = os.path.join(cache_dir, f"{media_id}{ext}")
+        try:
+            with open(cached_file_path, "wb") as f:
+                f.write(content)
+        except Exception as cache_err:
+            logger.warning("media_cache_write_failed", error=str(cache_err))
+
+        return Response(
+            content=content,
+            media_type=mime_type,
+            headers={
+                "Cache-Control": "public, max-age=604800",
+                "Content-Disposition": f'inline; filename="{media_id}{ext}"'
+            }
+        )
+
+
+@app.post("/conversations/{conv_id}/send-media")
+@app.post("/api/v1/crm/conversations/{conv_id}/send-media")
+async def send_conversation_media(
+    conv_id: str,
+    file: UploadFile = File(...),
+    caption: Optional[str] = Form(None),
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """
+    Send outbound image, document, video, or audio attachment from CRM to WhatsApp contact.
+    1. Uploads binary to Meta WhatsApp Media endpoint (POST /{phone_number_id}/media).
+    2. Sends media message to recipient.
+    3. Persists outbound message in messages table with wa_message_id, media_url, and status.
+    4. Caches file locally in /tmp/wa_media.
+    """
+    import os, mimetypes
+
+    file_bytes = await file.read()
+    if not file_bytes or len(file_bytes) == 0:
+        raise HTTPException(400, "Uploaded file is empty.")
+
+    filename = file.filename or "attachment"
+    content_type_header = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+    # Determine media category
+    if content_type_header.startswith("image/"):
+        media_category = "image"
+    elif content_type_header.startswith("video/"):
+        media_category = "video"
+    elif content_type_header.startswith("audio/"):
+        media_category = "audio"
+    else:
+        media_category = "document"
+
+    async with db_pool.acquire() as conn:
+        conv = await conn.fetchrow(
+            """SELECT c.id, c.status, ct.name as contact_name, ct.phone, t.name as tenant_name
+               FROM conversations c
+               JOIN contacts ct ON ct.id = c.contact_id AND ct.tenant_id = c.tenant_id
+               JOIN tenants t ON t.id = c.tenant_id
+               WHERE c.id = $1::uuid AND c.tenant_id = $2::uuid""",
+            conv_id, tenant_id
+        )
+        if not conv:
+            raise HTTPException(404, "Conversation not found.")
+
+        cred_row = await conn.fetchrow(
+            """SELECT credential_data FROM tenant_credentials
+               WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true""",
+            tenant_id
+        )
+        creds = {}
+        if cred_row and cred_row["credential_data"]:
+            d = cred_row["credential_data"]
+            if isinstance(d, str):
+                try: d = json.loads(d)
+                except: d = {}
+            creds = dict(d)
+
+        phone_id = creds.get("phone_number_id")
+        access_token = creds.get("access_token")
+        if not phone_id or not access_token or str(access_token).startswith("EAAB_test"):
+            raise HTTPException(400, "WhatsApp credentials not configured or active.")
+
+        clean_phone = conv["phone"].replace("+", "").replace(" ", "").replace("-", "").strip()
+        if len(clean_phone) == 10:
+            clean_phone = f"91{clean_phone}"
+
+        # 1. Upload media binary to Meta WhatsApp Media endpoint
+        upload_url = f"https://graph.facebook.com/v19.0/{phone_id}/media"
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            files_payload = {
+                "file": (filename, file_bytes, content_type_header)
+            }
+            data_payload = {
+                "messaging_product": "whatsapp",
+                "type": content_type_header
+            }
+            up_resp = await client.post(upload_url, headers=headers, data=data_payload, files=files_payload)
+            if up_resp.status_code not in (200, 201):
+                logger.error("meta_media_upload_failed", status=up_resp.status_code, body=up_resp.text)
+                raise HTTPException(502, f"Failed to upload media to WhatsApp: {up_resp.text}")
+
+            meta_media_id = up_resp.json().get("id")
+            if not meta_media_id:
+                raise HTTPException(502, "Meta did not return a valid media ID.")
+
+            # 2. Dispatch media message to customer
+            messages_url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+            msg_payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": clean_phone,
+                "type": media_category,
+                media_category: {
+                    "id": meta_media_id
+                }
+            }
+            clean_caption = (caption or "").strip()
+            if clean_caption:
+                msg_payload[media_category]["caption"] = clean_caption
+            if media_category == "document":
+                msg_payload[media_category]["filename"] = filename
+
+            send_resp = await client.post(messages_url, headers=headers, json=msg_payload)
+            if send_resp.status_code not in (200, 201):
+                logger.error("meta_media_message_send_failed", status=send_resp.status_code, body=send_resp.text)
+                raise HTTPException(502, f"Failed to send media message on WhatsApp: {send_resp.text}")
+
+            wamid = send_resp.json().get("messages", [{}])[0].get("id")
+
+        # 3. Cache binary file locally
+        cache_dir = "/tmp/wa_media"
+        os.makedirs(cache_dir, exist_ok=True)
+        ext = os.path.splitext(filename)[1] or (mimetypes.guess_extension(content_type_header) or ".bin")
+        cached_path = os.path.join(cache_dir, f"{meta_media_id}{ext}")
+        try:
+            with open(cached_path, "wb") as f:
+                f.write(file_bytes)
+        except Exception as cache_err:
+            logger.warning("media_cache_save_warn", error=str(cache_err))
+
+        # 4. Persist outbound message in database
+        msg_id = str(uuid.uuid4())
+        media_url = f"/api/v1/crm/media/{meta_media_id}"
+        body_to_save = clean_caption if clean_caption else filename
+
+        inserted = await conn.fetchrow(
+            """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, media_url, status)
+               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', $5, $6, $7, 'sent')
+               RETURNING id, direction, content_type, body, media_url, status, created_at""",
+            msg_id, conv_id, tenant_id, wamid, media_category, body_to_save, media_url
+        )
+
+        await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+
+    return {
+        "id": str(inserted["id"]),
+        "direction": inserted["direction"],
+        "content_type": inserted["content_type"],
+        "body": inserted["body"],
+        "media_url": inserted["media_url"],
+        "status": inserted["status"],
+        "created_at": inserted["created_at"].isoformat() if inserted["created_at"] else ""
+    }
 
 
 
@@ -8930,6 +9282,7 @@ async def _dispatch_single_marketing_wa(
         url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
         msg_body_recorded = text or "Marketing announcement"
         sent_ok = False
+        wamid = None
 
         if not template_name or not template_name.strip():
             logger.error(
@@ -8962,13 +9315,15 @@ async def _dispatch_single_marketing_wa(
                 r = await client.post(url, headers=headers, json=tpl_payload)
                 if r.status_code in (200, 201):
                     sent_ok = True
-                    msg_body_recorded = f"[Template: {tpl}]"
+                    wamid = r.json().get("messages", [{}])[0].get("id")
+                    msg_body_recorded = expand_template_body(tpl, params, f"[Template: {tpl}]")
                 elif "132000" in r.text or "132001" in r.text or "does not exist in" in r.text:
                     tpl_payload["template"]["language"] = {"code": "en_US"}
                     r2 = await client.post(url, headers=headers, json=tpl_payload)
                     if r2.status_code in (200, 201):
                         sent_ok = True
-                        msg_body_recorded = f"[Template: {tpl}]"
+                        wamid = r2.json().get("messages", [{}])[0].get("id")
+                        msg_body_recorded = expand_template_body(tpl, params, f"[Template: {tpl}]")
                 else:
                     logger.error("marketing_template_dispatch_rejected", phone=clean_p, status=r.status_code, body=r.text)
         except Exception as e:
@@ -9007,9 +9362,9 @@ async def _dispatch_single_marketing_wa(
 
                 msg_id = str(uuid.uuid4())
                 await conn.execute(
-                    """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, ai_used_fallback)
-                       VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, $5, false)""",
-                    msg_id, conv_id, tenant_id, msg_body_recorded, 'sent' if sent_ok else 'failed'
+                    """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'template', $5, $6, $7::jsonb, $8, false)""",
+                    msg_id, conv_id, tenant_id, wamid, msg_body_recorded, tpl, json.dumps(params or []), 'sent' if sent_ok else 'failed'
                 )
                 await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                 await conn.execute(
@@ -11355,11 +11710,12 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
             # Record message in conversation history if template was sent
             if tpl_resp:
                 try:
-                    msg_body_record = f"[Template: {customer_tpl}]"
+                    tpl_wamid = tpl_resp.get("messages", [{}])[0].get("id") if isinstance(tpl_resp, dict) else None
+                    msg_body_record = wa_text
                     await conn.execute(
-                        """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
-                           VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'outbound', 'template', $3, $4, $5::jsonb, 'sent', false)""",
-                        conv_id, tenant_id, msg_body_record, customer_tpl, json.dumps(customer_params or [])
+                        """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
+                           VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, 'outbound', 'template', $4, $5, $6::jsonb, 'sent', false)""",
+                        conv_id, tenant_id, tpl_wamid, msg_body_record, customer_tpl, json.dumps(customer_params or [])
                     )
                     await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                 except Exception as db_msg_err:
@@ -11369,7 +11725,17 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
             full_location = (wa_creds.get("full_location_text") or t_settings.get("full_location_text") or "").strip()
             if full_location:
                 loc_msg = f"*Location & Directions:*\n{full_location}"
-                await dispatch_whatsapp_message(tenant_id, clean_phone, text=loc_msg)
+                loc_resp = await dispatch_whatsapp_message(tenant_id, clean_phone, text=loc_msg)
+                if loc_resp:
+                    try:
+                        loc_wamid = loc_resp.get("messages", [{}])[0].get("id") if isinstance(loc_resp, dict) else None
+                        await conn.execute(
+                            """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, status, ai_used_fallback)
+                               VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, 'outbound', 'text', $4, 'sent', false)""",
+                            conv_id, tenant_id, loc_wamid, loc_msg
+                        )
+                    except Exception as db_loc_err:
+                        logger.warning("public_booking_loc_msg_record_failed", error=str(db_loc_err))
 
             # 5c. Push Admin WhatsApp Alert via Meta admin_notification template
             admin_phone = (wa_creds.get("admin_whatsapp_number") or t_settings.get("admin_whatsapp_number") or "").strip()

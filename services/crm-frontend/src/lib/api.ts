@@ -333,6 +333,7 @@ export interface Message {
   content_type?: string;
   media_url?: string | null;
   template_name?: string | null;
+  template_params?: any[] | null;
   status?: string;
   created_at?: string;
   ai_generated?: boolean;
@@ -686,6 +687,31 @@ export const crm = {
         body: JSON.stringify({ body, template_name, template_params }),
       }
     ),
+
+  sendMedia: async (convId: string, file: File, caption?: string): Promise<Message> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (caption && caption.trim()) {
+      formData.append('caption', caption.trim());
+    }
+    const authHeaders = getAuthHeaders();
+    const res = await fetch(`${BASE}/api/v1/crm/conversations/${convId}/send-media`, {
+      method: 'POST',
+      headers: {
+        ...authHeaders,
+      },
+      body: formData,
+    });
+    if (!res.ok) {
+      let errText = 'Failed to send media attachment';
+      try {
+        const errJson = await res.json();
+        errText = typeof errJson.detail === 'string' ? errJson.detail : (errJson.detail?.message || JSON.stringify(errJson.detail || errJson));
+      } catch {}
+      throw new Error(errText);
+    }
+    return res.json();
+  },
 
   sendWhatsAppDirect: (phone: string, body: string, customer_id?: string, template_name?: string, template_params?: string[]) =>
     request<Message>(

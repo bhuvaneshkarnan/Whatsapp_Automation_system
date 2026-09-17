@@ -58,6 +58,8 @@ import {
   Mail,
   MapPin,
   FileText,
+  Paperclip,
+  ZoomIn,
   Copy,
   Check,
   CheckCheck,
@@ -535,19 +537,72 @@ function formatMessageDateDivider(dateStrOrObj: string | Date | null | undefined
   }
 }
 
-function getDisplayMessageBody(msg: { body?: string | null; content_type?: string | null; template_name?: string | null }): string {
-  if (msg.body && msg.body.trim()) {
-    return msg.body;
+function expandKnownTemplate(name: string, params?: any[] | null): string | null {
+  const raw = KNOWN_TEMPLATE_BODIES[name.toLowerCase()] || KNOWN_TEMPLATE_BODIES[name];
+  if (!raw) return null;
+  if (!params || !params.length) {
+    return raw.replace(/\{\{\d+\}\}/g, '...');
+  }
+  let result = raw;
+  params.forEach((val, idx) => {
+    result = result.replace(new RegExp(`\\{\\{${idx + 1}\\}\\}`, 'g'), String(val ?? ''));
+  });
+  result = result.replace(/\{\{\d+\}\}/g, '...');
+  return result;
+}
+
+function getDisplayMessageBody(msg: {
+  body?: string | null;
+  content_type?: string | null;
+  template_name?: string | null;
+  template_params?: any[] | null;
+}): string {
+  const b = msg.body;
+  const tName = msg.template_name;
+  if (tName && (!b || b.startsWith('[Template:') || b.startsWith('📋 [Template:'))) {
+    const expanded = expandKnownTemplate(tName, msg.template_params);
+    if (expanded) return expanded;
+    return `📋 Template: ${tName.replace(/_/g, ' ')}`;
+  }
+  if (b && b.trim()) {
+    return b;
   }
   const ct = msg.content_type;
-  if (ct === 'image') return '[Photo]';
-  if (ct === 'video') return '[Video]';
-  if (ct === 'document') return '[Document]';
-  if (ct === 'audio') return '[Audio]';
-  if (ct === 'sticker') return '[Sticker]';
-  if (ct === 'location') return '[Location]';
-  if (msg.template_name) return `[Template: ${msg.template_name}]`;
+  if (ct === 'image') return '📷 [Photo]';
+  if (ct === 'video') return '🎥 [Video]';
+  if (ct === 'document') return '📄 [Document]';
+  if (ct === 'audio') return '🎵 [Audio]';
+  if (ct === 'sticker') return '🏷️ [Sticker]';
+  if (ct === 'location') return '📍 [Location]';
+  if (tName) return `📋 Template: ${tName.replace(/_/g, ' ')}`;
   return '[Message]';
+}
+
+function renderMessageWithLinks(text: string, isInbound: boolean) {
+  if (!text) return null;
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+  const parts = text.split(urlRegex);
+
+  return parts.map((part, index) => {
+    if (part.match(urlRegex)) {
+      const href = part.startsWith('http') ? part : `https://${part}`;
+      return (
+        <a
+          key={index}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className={`underline font-medium break-all hover:opacity-80 transition-opacity ${
+            isInbound ? 'text-blue-600 dark:text-blue-400' : 'text-teal-100 underline decoration-teal-200'
+          }`}
+        >
+          {part}
+        </a>
+      );
+    }
+    return part;
+  });
 }
 
 function formatWhatsAppHeaderDate(dateStrOrObj: string | Date | null | undefined): string {
@@ -2488,6 +2543,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'new' | 'new_lead' | 'repeat' | 'important'>('all');
+
+  // Media Attachment & Lightbox State
+  const [selectedMediaFile, setSelectedMediaFile] = useState<File | null>(null);
+  const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
+  const [isSendingMedia, setIsSendingMedia] = useState(false);
+  const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Feature 1: Analytics & Reports State
   const [analyticsPeriod, setAnalyticsPeriod] = useState<'7d' | '30d' | '90d' | 'this_month' | 'all'>('30d');
@@ -5912,30 +5974,84 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     setTimeout(doScroll, 600);
   }
 
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 25 * 1024 * 1024) {
+      alert('File size exceeds 25MB limit.');
+      return;
+    }
+
+    setSelectedMediaFile(file);
+    if (file.type.startsWith('image/')) {
+      const preview = URL.createObjectURL(file);
+      setMediaPreviewUrl(preview);
+    } else {
+      setMediaPreviewUrl(null);
+    }
+  }
+
+  function clearSelectedMedia() {
+    if (mediaPreviewUrl) {
+      URL.revokeObjectURL(mediaPreviewUrl);
+    }
+    setSelectedMediaFile(null);
+    setMediaPreviewUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }
+
   async function handleSendMessage(e: React.FormEvent) {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedConv || sendingMessage) return;
+    if ((!newMessage.trim() && !selectedMediaFile) || !selectedConv || sendingMessage || isSendingMedia) return;
 
     const text = newMessage;
-    setNewMessage('');
-    setSendingMessage(true);
+    const mediaFile = selectedMediaFile;
 
-    try {
-      const sent = await crm.sendMessage(selectedConv.id, text);
-      setMessages((prev) => {
-        const next = [...prev, sent];
-        if (selectedConv) {
-          messagesCacheRef.current[selectedConv.id] = next;
-        }
-        return next;
-      });
-      scrollToBottom();
-      loadConversations();
-    } catch (err) {
-      console.error('Failed to send message:', err);
-      alert('Could not send WhatsApp message. Please verify your Meta credentials in Settings.');
-    } finally {
-      setSendingMessage(false);
+    // Clear inputs immediately
+    setNewMessage('');
+    clearSelectedMedia();
+
+    if (mediaFile) {
+      setIsSendingMedia(true);
+      try {
+        const sent = await crm.sendMedia(selectedConv.id, mediaFile, text.trim() || undefined);
+        setMessages((prev) => {
+          const next = [...prev, sent];
+          if (selectedConv) {
+            messagesCacheRef.current[selectedConv.id] = next;
+          }
+          return next;
+        });
+        scrollToBottom();
+        loadConversations();
+      } catch (err: any) {
+        console.error('Failed to send media:', err);
+        alert(err.message || 'Could not upload and send media. Please verify your Meta credentials in Settings.');
+      } finally {
+        setIsSendingMedia(false);
+      }
+    } else {
+      setSendingMessage(true);
+      try {
+        const sent = await crm.sendMessage(selectedConv.id, text);
+        setMessages((prev) => {
+          const next = [...prev, sent];
+          if (selectedConv) {
+            messagesCacheRef.current[selectedConv.id] = next;
+          }
+          return next;
+        });
+        scrollToBottom();
+        loadConversations();
+      } catch (err) {
+        console.error('Failed to send message:', err);
+        alert('Could not send WhatsApp message. Please verify your Meta credentials in Settings.');
+      } finally {
+        setSendingMessage(false);
+      }
     }
   }
 
@@ -7999,11 +8115,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           }`}
                         >
                           {msg.media_url && (
-                            <div className="mb-1.5 rounded-lg overflow-hidden max-w-[240px]">
-                              <img src={msg.media_url} alt="Media" className="w-full h-auto object-cover max-h-48" />
+                            <div
+                              className="mb-1.5 rounded-lg overflow-hidden max-w-[240px] cursor-pointer group/img relative"
+                              onClick={() => setLightboxImageUrl(msg.media_url || null)}
+                              title="Click to expand"
+                            >
+                              <img src={msg.media_url} alt="Media" className="w-full h-auto object-cover max-h-48 group-hover/img:scale-105 transition-transform" />
+                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 flex items-center justify-center transition-opacity">
+                                <ZoomIn className="w-5 h-5 text-white" />
+                              </div>
                             </div>
                           )}
-                          <p className="leading-relaxed whitespace-pre-wrap">{getDisplayMessageBody(msg)}</p>
+                          <p className="leading-relaxed whitespace-pre-wrap">{renderMessageWithLinks(getDisplayMessageBody(msg), isInbound)}</p>
                           <div
                             className={`text-[9px] mt-1 flex items-center justify-end gap-1 font-mono ${
                               isInbound ? 'text-text-muted' : 'text-emerald-100'
@@ -11822,18 +11945,62 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     <div
                                       className={`rounded-2xl ${isInbound ? 'rounded-tl-xs bg-surface text-text-body border border-border shadow-xs' : 'rounded-tr-xs bg-accent text-white shadow-xs'} px-3.5 py-2.5 text-xs`}
                                     >
+                                    {(msg.content_type === 'template' || msg.template_name) && (
+                                      <div className={`flex items-center gap-1 font-mono text-[10px] mb-1.5 pb-1 border-b ${
+                                        isInbound ? 'text-accent border-border/40' : 'text-teal-100 border-teal-400/30'
+                                      }`}>
+                                        <FileText className="w-3 h-3 stroke-[1.8]" />
+                                        <span className="font-semibold uppercase tracking-wider text-[9px]">WhatsApp Template</span>
+                                      </div>
+                                    )}
                                     {isVoice && (
                                       <div className="flex items-center gap-1 text-accent-light font-mono text-[10px] mb-1">
                                         <Mic className="w-3 h-3 stroke-[1.5]" />
                                         <span>Voice note</span>
                                       </div>
                                     )}
-                                    {msg.media_url && (
-                                      <div className="mb-2 rounded-lg overflow-hidden border border-border/50 max-w-xs">
-                                        <img src={msg.media_url} alt="Media attachment" className="w-full h-auto object-cover max-h-60" />
+                                    {msg.content_type === 'audio' && msg.media_url ? (
+                                      <div className="mb-2 max-w-xs">
+                                        <audio controls src={msg.media_url} className="w-full h-8" />
                                       </div>
-                                    )}
-                                    <p className="leading-relaxed whitespace-pre-wrap font-sans">{displayBody}</p>
+                                    ) : msg.content_type === 'video' && msg.media_url ? (
+                                      <div className="mb-2 rounded-lg overflow-hidden border border-border/50 max-w-xs">
+                                        <video controls src={msg.media_url} className="w-full h-auto object-cover max-h-60" />
+                                      </div>
+                                    ) : msg.content_type === 'document' && msg.media_url ? (
+                                      <a
+                                        href={msg.media_url}
+                                        download
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={`mb-2 p-2.5 rounded-lg border flex items-center gap-2.5 transition-colors ${
+                                          isInbound
+                                            ? 'bg-surface-subtle hover:bg-surface border-border text-text-primary'
+                                            : 'bg-teal-700/40 hover:bg-teal-700/60 border-teal-400/30 text-white'
+                                        }`}
+                                      >
+                                        <div className={`p-2 rounded ${isInbound ? 'bg-accent/10 text-accent' : 'bg-white/20 text-white'}`}>
+                                          <FileText className="w-4 h-4 stroke-[1.8]" />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <p className="font-medium truncate text-xs">{msg.body || 'Document'}</p>
+                                          <p className={`text-[10px] ${isInbound ? 'text-text-muted' : 'text-teal-100'}`}>Click to download</p>
+                                        </div>
+                                        <Download className="w-4 h-4 shrink-0 opacity-75" />
+                                      </a>
+                                    ) : msg.media_url ? (
+                                      <div
+                                        className="mb-2 rounded-lg overflow-hidden border border-border/50 max-w-xs cursor-pointer group/img relative"
+                                        onClick={() => setLightboxImageUrl(msg.media_url || null)}
+                                        title="Click to enlarge"
+                                      >
+                                        <img src={msg.media_url} alt="Media attachment" className="w-full h-auto object-cover max-h-60 group-hover/img:scale-105 transition-transform duration-200" />
+                                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 flex items-center justify-center transition-opacity">
+                                          <ZoomIn className="w-6 h-6 text-white drop-shadow-md" />
+                                        </div>
+                                      </div>
+                                    ) : null}
+                                    <p className="leading-relaxed whitespace-pre-wrap font-sans">{renderMessageWithLinks(displayBody, isInbound)}</p>
                                     <div
                                       className={`text-[10px] mt-1 flex items-center justify-end gap-1 font-mono ${isInbound ? 'text-text-muted' : 'text-teal-100/90'}`}
                                       title={formatFullDateTimeDetailed(msg.created_at)}
@@ -11892,30 +12059,78 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       {/* Chat Input */}
                       {canSendMessages ? (
-                        <form onSubmit={handleSendMessage} className="p-2 sm:p-3 safe-area-pb border-t border-border flex items-center gap-2 bg-surface shrink-0">
-                          <button
-                            type="button"
-                            onClick={openChatTemplatePicker}
-                            className="p-2 text-text-secondary hover:text-accent hover:bg-surface-subtle rounded-full transition-colors cursor-pointer shrink-0"
-                            title="Send pre-approved WhatsApp template"
-                          >
-                            <FileText className="w-4 h-4 stroke-[1.8]" />
-                          </button>
-                          <input
-                            type="text"
-                            placeholder="Type WhatsApp reply..."
-                            value={newMessage}
-                            onChange={(e) => setNewMessage(e.target.value)}
-                            className="flex-1 px-3.5 py-2 bg-surface-subtle border border-border rounded-full text-xs text-text-primary focus:outline-none focus:bg-white focus:border-accent font-sans transition-colors duration-150"
-                          />
-                          <button
-                            type="submit"
-                            disabled={!newMessage.trim() || sendingMessage}
-                            className="w-8 h-8 rounded-full bg-accent hover:bg-accent-hover text-white font-medium flex items-center justify-center transition-colors duration-150 cursor-pointer disabled:opacity-50 shrink-0 shadow-xs"
-                          >
-                            <Send className="w-3.5 h-3.5 stroke-[1.8]" />
-                          </button>
-                        </form>
+                        <div className="border-t border-border bg-surface shrink-0">
+                          {/* Attachment Preview Bar */}
+                          {selectedMediaFile && (
+                            <div className="px-3 py-2 bg-surface-subtle border-b border-border flex items-center justify-between gap-2 text-xs">
+                              <div className="flex items-center gap-2 min-w-0">
+                                {mediaPreviewUrl ? (
+                                  <img src={mediaPreviewUrl} alt="Preview" className="w-10 h-10 object-cover rounded border border-border shrink-0" />
+                                ) : (
+                                  <div className="w-10 h-10 rounded bg-accent/10 text-accent flex items-center justify-center shrink-0">
+                                    <FileText className="w-5 h-5" />
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <p className="font-medium text-text-primary truncate max-w-[200px] sm:max-w-xs">{selectedMediaFile.name}</p>
+                                  <p className="text-[10px] text-text-muted font-mono">{(selectedMediaFile.size / 1024).toFixed(1)} KB</p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={clearSelectedMedia}
+                                className="p-1 rounded-full hover:bg-rose-100 dark:hover:bg-rose-950/40 text-rose-600 transition-colors cursor-pointer shrink-0"
+                                title="Remove attachment"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+
+                          <form onSubmit={handleSendMessage} className="p-2 sm:p-3 safe-area-pb flex items-center gap-2">
+                            <input
+                              type="file"
+                              ref={fileInputRef}
+                              onChange={handleFileSelect}
+                              accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,audio/*,video/*"
+                              className="hidden"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              className="p-2 text-text-secondary hover:text-accent hover:bg-surface-subtle rounded-full transition-colors cursor-pointer shrink-0"
+                              title="Attach image or file"
+                            >
+                              <Paperclip className="w-4 h-4 stroke-[1.8]" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={openChatTemplatePicker}
+                              className="p-2 text-text-secondary hover:text-accent hover:bg-surface-subtle rounded-full transition-colors cursor-pointer shrink-0"
+                              title="Send pre-approved WhatsApp template"
+                            >
+                              <FileText className="w-4 h-4 stroke-[1.8]" />
+                            </button>
+                            <input
+                              type="text"
+                              placeholder={selectedMediaFile ? "Add an optional caption..." : "Type WhatsApp reply..."}
+                              value={newMessage}
+                              onChange={(e) => setNewMessage(e.target.value)}
+                              className="flex-1 px-3.5 py-2 bg-surface-subtle border border-border rounded-full text-xs text-text-primary focus:outline-none focus:bg-white focus:border-accent font-sans transition-colors duration-150"
+                            />
+                            <button
+                              type="submit"
+                              disabled={(!newMessage.trim() && !selectedMediaFile) || sendingMessage || isSendingMedia}
+                              className="w-8 h-8 rounded-full bg-accent hover:bg-accent-hover text-white font-medium flex items-center justify-center transition-colors duration-150 cursor-pointer disabled:opacity-50 shrink-0 shadow-xs"
+                            >
+                              {isSendingMedia ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Send className="w-3.5 h-3.5 stroke-[1.8]" />
+                              )}
+                            </button>
+                          </form>
+                        </div>
                       ) : (
                         <div className="p-3 border-t border-border bg-surface-subtle text-text-muted text-xs text-center flex items-center justify-center gap-2 shrink-0">
                           <Lock className="w-3.5 h-3.5 text-text-muted" />
@@ -21760,6 +21975,43 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       {renderCustomerAssignPopover()}
       {renderLeadRatePopover()}
       {renderRepeatFollowupModal()}
+
+      {/* Image Lightbox Modal */}
+      {lightboxImageUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center p-4"
+          onClick={() => setLightboxImageUrl(null)}
+        >
+          <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
+            <a
+              href={lightboxImageUrl}
+              download
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="p-2.5 rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors cursor-pointer"
+              title="Download Image"
+            >
+              <Download className="w-5 h-5 stroke-[2]" />
+            </a>
+            <button
+              type="button"
+              onClick={() => setLightboxImageUrl(null)}
+              className="p-2.5 rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors cursor-pointer"
+              title="Close"
+            >
+              <X className="w-5 h-5 stroke-[2]" />
+            </button>
+          </div>
+          <div className="max-w-4xl max-h-[85vh] overflow-hidden flex items-center justify-center p-2" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={lightboxImageUrl}
+              alt="Enlarged view"
+              className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+            />
+          </div>
+        </div>
+      )}
 
       </div>
   );

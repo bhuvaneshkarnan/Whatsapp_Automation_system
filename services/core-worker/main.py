@@ -1080,6 +1080,20 @@ class CoreWorker:
                         body_text = f"Reaction: {emoji}" if emoji else "Reaction"
 
             # ── 5. Persist inbound message ────────────────────────────────────
+            inbound_media_id = None
+            if msg_type == "image" or "image" in raw_data:
+                inbound_media_id = raw_data.get("image", {}).get("id")
+            elif msg_type == "video" or "video" in raw_data:
+                inbound_media_id = raw_data.get("video", {}).get("id")
+            elif msg_type == "document" or "document" in raw_data:
+                inbound_media_id = raw_data.get("document", {}).get("id")
+            elif msg_type in ["audio", "voice"] or "audio" in raw_data or "voice" in raw_data:
+                inbound_media_id = raw_data.get("audio", {}).get("id") or raw_data.get("voice", {}).get("id")
+            elif msg_type == "sticker" or "sticker" in raw_data:
+                inbound_media_id = raw_data.get("sticker", {}).get("id")
+
+            inbound_media_url = f"/api/v1/crm/media/{inbound_media_id}" if inbound_media_id else None
+
             safe_content_type = "interactive" if msg_type in ["button", "interactive"] else (msg_type if msg_type in ['text', 'image', 'audio', 'video', 'document', 'template', 'interactive', 'sticker', 'location', 'button'] else 'text')
             if not body_text or not body_text.strip():
                 if safe_content_type == "image": body_text = "📷 [Photo]"
@@ -1097,6 +1111,7 @@ class CoreWorker:
                 direction="inbound",
                 body=body_text,
                 content_type=safe_content_type,
+                media_url=inbound_media_url,
             )
 
             # ── 5b. Auto-detect & persist customer email if mentioned in message ───
@@ -4313,7 +4328,8 @@ class CoreWorker:
         return new_id, "bot"
 
     async def _persist_message(self, tenant_id: str, conversation_id: str,
-                                wa_message_id: str, direction: str, body: str, content_type: str):
+                                wa_message_id: str, direction: str, body: str, content_type: str,
+                                media_url: Optional[str] = None):
         clean_body = str(body).strip() if (body and str(body).strip()) else ""
         if not clean_body:
             if content_type == "image": clean_body = "📷 [Photo]"
@@ -4325,11 +4341,11 @@ class CoreWorker:
             else: clean_body = "[Message]"
 
         await self.db_pool.execute(
-            """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, status)
-               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, 'delivered')
-               ON CONFLICT (wa_message_id) DO NOTHING""",
+            """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, media_url, status)
+               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, 'delivered')
+               ON CONFLICT (wa_message_id) DO UPDATE SET media_url = COALESCE(messages.media_url, EXCLUDED.media_url)""",
             str(uuid.uuid4()), conversation_id, tenant_id, wa_message_id,
-            direction, content_type, clean_body,
+            direction, content_type, clean_body, media_url
         )
         try:
             if direction == "inbound":
@@ -4864,6 +4880,7 @@ class CoreWorker:
                     full_time_str = str(start)
 
                 sent_via_template = False
+                sent_wa_id = None
 
                 # 1. Reminder job: Send approved appointment_ramainder template
                 if job_type == "reminder" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
@@ -4883,7 +4900,7 @@ class CoreWorker:
                         }
                     ]
                     try:
-                        await send_template(
+                        sent_wa_id = await send_template(
                             phone_number_id=creds["phone_number_id"],
                             access_token=creds["access_token"],
                             to=job["phone"],
@@ -4892,7 +4909,7 @@ class CoreWorker:
                             components=components,
                         )
                         sent_via_template = True
-                        logger.info("scheduled_reminder_template_sent", template=template_name, to=job["phone"])
+                        logger.info("scheduled_reminder_template_sent", template=template_name, to=job["phone"], wa_id=sent_wa_id)
                     except Exception as te:
                         logger.warning("scheduled_reminder_template_failed_fallback_text", error=str(te))
 
@@ -4939,36 +4956,22 @@ class CoreWorker:
                         logger.warning("scheduled_admin_reminder_template_failed_fallback", error=str(te))
                         # Fallback to approved admin_notification (5 params: name, phone, service, date, time)
                         try:
-                            fallback_tpl = (
-                                creds.get("template_admin_notification") or
-                                t_st.get("template_admin_notification") or
-                                "admin_notification"
-                            )
-                            fb_components = [
-                                {
-                                    "type": "body",
-                                    "parameters": [
-                                        {"type": "text", "text": name},
-                                        {"type": "text", "text": job["phone"]},
-                                        {"type": "text", "text": service},
-                                        {"type": "text", "text": date_str},
-                                        {"type": "text", "text": time_str},
-                                    ]
-                                }
-                            ]
+                            admin_params_fb = [name, job["phone"], service, date_str, time_str]
                             await send_template(
                                 phone_number_id=creds["phone_number_id"],
                                 access_token=creds["access_token"],
                                 to=clean_admin_phone,
-                                template_name=fallback_tpl,
+                                template_name="admin_notification",
                                 language_code="en",
-                                components=fb_components,
+                                components=[{
+                                    "type": "body",
+                                    "parameters": [{"type": "text", "text": str(p)} for p in admin_params_fb]
+                                }]
                             )
                             sent_via_template = True
-                            template_name = fallback_tpl
-                            logger.info("scheduled_admin_reminder_fallback_template_sent", template=fallback_tpl, to=clean_admin_phone)
-                        except Exception as fe:
-                            logger.warning("scheduled_admin_reminder_fallback_failed", error=str(fe))
+                            logger.info("scheduled_admin_reminder_fallback_admin_notification_sent", to=clean_admin_phone)
+                        except Exception as fb_err:
+                            logger.warning("scheduled_admin_reminder_fallback_failed", error=str(fb_err))
 
                 # 2. Review Request job: Send approved review_request template
                 elif job_type == "review_request" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
@@ -4999,7 +5002,7 @@ class CoreWorker:
                         }
                     ]
                     try:
-                        await send_template(
+                        sent_wa_id = await send_template(
                             phone_number_id=creds["phone_number_id"],
                             access_token=creds["access_token"],
                             to=job["phone"],
@@ -5008,7 +5011,7 @@ class CoreWorker:
                             components=components,
                         )
                         sent_via_template = True
-                        logger.info("scheduled_review_template_sent", template=template_name, to=job["phone"])
+                        logger.info("scheduled_review_template_sent", template=template_name, to=job["phone"], wa_id=sent_wa_id)
                     except Exception as te:
                         logger.warning("scheduled_review_template_failed_skip_text_fallback", error=str(te))
 
@@ -5031,7 +5034,7 @@ class CoreWorker:
                         }
                     ]
                     try:
-                        await send_template(
+                        sent_wa_id = await send_template(
                             phone_number_id=creds["phone_number_id"],
                             access_token=creds["access_token"],
                             to=job["phone"],
@@ -5040,7 +5043,7 @@ class CoreWorker:
                             components=components,
                         )
                         sent_via_template = True
-                        logger.info("scheduled_post_treatment_followup_template_sent", template=template_name, to=job["phone"])
+                        logger.info("scheduled_post_treatment_followup_template_sent", template=template_name, to=job["phone"], wa_id=sent_wa_id)
                     except Exception as te:
                         logger.warning("scheduled_post_treatment_followup_template_failed", error=str(te))
 
@@ -5061,7 +5064,7 @@ class CoreWorker:
                         }
                     ]
                     try:
-                        await send_template(
+                        sent_wa_id = await send_template(
                             phone_number_id=creds["phone_number_id"],
                             access_token=creds["access_token"],
                             to=job["phone"],
@@ -5070,7 +5073,7 @@ class CoreWorker:
                             components=components,
                         )
                         sent_via_template = True
-                        logger.info("scheduled_reschedule_nudge_template_sent", template=template_name, to=job["phone"])
+                        logger.info("scheduled_reschedule_nudge_template_sent", template=template_name, to=job["phone"], wa_id=sent_wa_id)
                     except Exception as te:
                         logger.warning("scheduled_reschedule_nudge_template_failed_fallback_text", error=str(te))
 
@@ -5102,12 +5105,23 @@ class CoreWorker:
                         job["contact_id"], job["tenant_id"]
                     )
                     if conv_row and sent_via_template and template_name:
-                        logged_body = f"[Template: {template_name}]"
+                        if job_type == "reminder":
+                            logged_body = f"Hi {name}, quick reminder that your {service} appointment is coming up today at {time_str}.\nSee you shortly, reply here if you need to reschedule."
+                        elif job_type == "review_request":
+                            logged_body = f"Hi {name}, thank you for visiting us for your {service}!\n\nWe would really appreciate it if you could take a minute to share your experience with a quick Google review.\nLink: {review_link}\nThank you!"
+                        elif job_type == "post_treatment_followup":
+                            logged_body = f"Hi {name}, this is a friendly follow-up regarding your recent {service} visit. How are you feeling today? Please let us know if you need any assistance."
+                        elif job_type == "reschedule_nudge":
+                            logged_body = f"Hi {name}, this is an update regarding your {service} appointment today. We noticed you could not make it for your scheduled time. Whenever you are ready, simply reply to update your schedule."
+                        else:
+                            logged_body = f"[Template: {template_name}]"
+
                         await self.db_pool.execute(
-                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
-                                VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, $5, $6::jsonb, 'sent', false)""",
-                            str(uuid.uuid4()), conv_row["id"], job["tenant_id"], logged_body, template_name, json.dumps(components)
+                            """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
+                                VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'template', $5, $6, $7::jsonb, 'sent', false)""",
+                            str(uuid.uuid4()), conv_row["id"], job["tenant_id"], sent_wa_id, logged_body, template_name, json.dumps(components)
                         )
+                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_row["id"])
 
                 logger.info("scheduled_job_sent", job_id=str(job["id"]), job_type=job["job_type"])
             except Exception as e:
