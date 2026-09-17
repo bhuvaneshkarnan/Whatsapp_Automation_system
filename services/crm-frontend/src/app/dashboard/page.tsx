@@ -15920,6 +15920,37 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </button>
                 </div>
 
+                {/* ── GOOGLE REVIEW SYNC EXPLANATION BANNER ─────────────────── */}
+                <div className="p-3 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/60 rounded-xl text-xs text-blue-950 dark:text-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+                  <div className="flex items-start sm:items-center gap-2">
+                    <Globe className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5 sm:mt-0" />
+                    <p className="text-[11px] leading-relaxed">
+                      <strong>Portal vs Google Maps:</strong> Reviews submitted on your portal are copied and directed to Google Maps. To verify live posted reviews and download customer Google names/avatars, sync with your <strong>Google Business Profile</strong>.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleSyncGoogleReviews}
+                      disabled={syncingGoogleReviews}
+                      className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[11px] cursor-pointer flex items-center gap-1.5 shadow-xs transition-colors"
+                      title="Sync live reviews from Google Maps"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${syncingGoogleReviews ? 'animate-spin' : ''}`} />
+                      <span>{syncingGoogleReviews ? 'Syncing...' : 'Sync Google Reviews'}</span>
+                    </button>
+                    {!googleBusinessStatus?.connected && (
+                      <button
+                        type="button"
+                        onClick={() => setGoogleConnectModalOpen(true)}
+                        className="px-2.5 py-1 rounded-lg bg-surface border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-100/50 font-semibold text-[11px] cursor-pointer transition-colors"
+                      >
+                        Connect Google Account
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 {/* ── SUB-FILTER & SEARCH BAR ───────────────────────────────── */}
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                   <div className="flex items-center gap-1 overflow-x-auto">
@@ -16068,13 +16099,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         </div>
                                       )}
                                       <div>
-                                        <p className="font-medium text-text-primary text-xs flex items-center gap-1">
-                                          <span>{rev.customer_name || 'Anonymous'}</span>
-                                          {isGoogle && (
-                                            <span className="text-[9px] px-1.5 py-0.2 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 rounded font-semibold border border-blue-200/60">
-                                              Google
+                                        <p className="font-medium text-text-primary text-xs flex items-center gap-1.5">
+                                          <span>{rev.customer_name || 'Valued Customer'}</span>
+                                          {isGoogle ? (
+                                            <span className="text-[9px] px-1.5 py-0.2 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 rounded font-semibold border border-blue-200/60 flex items-center gap-0.5" title="Verified review on Google Business Profile">
+                                              <CheckCircle2 className="w-2.5 h-2.5 text-blue-600" />
+                                              <span>Google Verified</span>
                                             </span>
-                                          )}
+                                          ) : isHigh ? (
+                                            <span className="text-[9px] px-1.5 py-0.2 bg-amber-50 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 rounded font-semibold border border-amber-200/60 flex items-center gap-0.5" title="Generated via portal and customer directed to Google Maps">
+                                              <Sparkles className="w-2.5 h-2.5 text-amber-500" />
+                                              <span>Portal Generated</span>
+                                            </span>
+                                          ) : null}
                                         </p>
                                         {rev.customer_phone && (
                                           <a
@@ -16091,14 +16128,29 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   </td>
                                   <td className="px-3 py-2.5 whitespace-nowrap">
                                     <div className="flex items-center gap-0.5">{Array.from({length:5}).map((_,i)=><Star key={i} className={`w-2.5 h-2.5 ${i<(rev.rating||0)?'fill-amber-400 text-amber-500':'text-border'}`}/>)}<span className="ml-1 font-bold text-xs text-text-primary">{rev.rating}</span></div>
-                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium mt-0.5 inline-block ${
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium mt-0.5 inline-flex items-center gap-1 ${
                                       isGoogle
                                         ? 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300'
                                         : isHigh
-                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                        ? 'bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300'
                                         : 'bg-rose-50 text-rose-700 border border-rose-200'
-                                    }`}>
-                                      {isGoogle ? 'Google Maps' : isHigh ? 'Google Review' : 'Private Feedback'}
+                                    }`} title={isGoogle ? 'Verified review synced from Google Maps' : isHigh ? 'Customer received review text & opened Google Maps link' : 'Private internal customer feedback'}>
+                                      {isGoogle ? (
+                                        <>
+                                          <CheckCircle2 className="w-2.5 h-2.5 text-blue-600" />
+                                          <span>Verified on Google Maps</span>
+                                        </>
+                                      ) : isHigh ? (
+                                        <>
+                                          <Sparkles className="w-2.5 h-2.5 text-amber-500" />
+                                          <span>Directed to Google</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <ShieldCheck className="w-2.5 h-2.5 text-rose-600" />
+                                          <span>Private Feedback</span>
+                                        </>
+                                      )}
                                     </span>
                                   </td>
                                   <td className="px-3 py-2.5 whitespace-nowrap">
@@ -16186,11 +16238,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <div>
                                     <p className="text-xs font-semibold text-text-primary flex items-center gap-1">
                                       <span>{rev.customer_name || 'Anonymous'}</span>
-                                      {isGoogle && (
-                                        <span className="text-[9px] px-1 py-0.2 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 rounded font-semibold border border-blue-200/60">
-                                          Google
+                                      {isGoogle ? (
+                                        <span className="text-[9px] px-1.5 py-0.2 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 rounded font-semibold border border-blue-200/60 flex items-center gap-0.5">
+                                          <CheckCircle2 className="w-2.5 h-2.5 text-blue-600" />
+                                          <span>Verified</span>
                                         </span>
-                                      )}
+                                      ) : isHigh ? (
+                                        <span className="text-[9px] px-1.5 py-0.2 bg-amber-50 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 rounded font-semibold border border-amber-200/60">
+                                          Portal
+                                        </span>
+                                      ) : null}
                                     </p>
                                     {rev.customer_phone && (
                                       <a
@@ -16206,14 +16263,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 </div>
                                 <div className="flex items-center gap-0.5 shrink-0">
                                   {Array.from({length:5}).map((_,i)=><Star key={i} className={`w-2.5 h-2.5 ${i<(rev.rating||0)?'fill-amber-400 text-amber-500':'text-border'}`}/>)}
-                                  <span className={`ml-1.5 text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                                  <span className={`ml-1.5 text-[10px] px-2 py-0.5 rounded-full font-medium inline-flex items-center gap-1 ${
                                     isGoogle
                                       ? 'bg-blue-50 text-blue-700 border border-blue-200'
                                       : isHigh
-                                      ? 'bg-emerald-50 text-emerald-700'
+                                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
                                       : 'bg-rose-50 text-rose-700'
                                   }`}>
-                                    {isGoogle ? 'Google Maps' : isHigh ? 'Google Review' : 'Private Feedback'}
+                                    {isGoogle ? 'Verified on Google' : isHigh ? 'Directed to Google' : 'Private'}
                                   </span>
                                 </div>
                               </div>

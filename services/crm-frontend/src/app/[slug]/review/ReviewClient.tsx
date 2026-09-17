@@ -98,11 +98,6 @@ export default function ReviewClient() {
     copied: boolean;
   } | null>(null);
 
-  // Auto-redirect Countdown
-  const [countdown, setCountdown] = useState<number>(3);
-  const [redirectCancelled, setRedirectCancelled] = useState(false);
-  const redirectTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const urlName = searchParams.get('name');
@@ -152,43 +147,6 @@ export default function ReviewClient() {
     (settings as any)?.google_review_link ||
     `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(businessName)}`;
 
-  // Handle Auto-redirect timer when 4-5 stars result is shown
-  useEffect(() => {
-    if (result && result.destination === 'gmb' && !redirectCancelled) {
-      setCountdown(3);
-
-      countdownIntervalRef.current = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev <= 1) {
-            if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-
-      redirectTimerRef.current = setTimeout(() => {
-        if (!redirectCancelled && targetGmbUrl) {
-          try {
-            window.location.href = targetGmbUrl;
-          } catch {
-            window.open(targetGmbUrl, '_blank', 'noopener,noreferrer');
-          }
-        }
-      }, 3200);
-
-      return () => {
-        if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
-        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-      };
-    }
-  }, [result, redirectCancelled, targetGmbUrl]);
-
-  const cancelAutoRedirect = () => {
-    setRedirectCancelled(true);
-    if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
-    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-  };
 
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) =>
@@ -490,7 +448,6 @@ export default function ReviewClient() {
                     <button
                       type="button"
                       onClick={() => {
-                        cancelAutoRedirect();
                         const text = isEditing ? editedReviewText : result.generated_review_text;
                         copyReviewText(text);
                         window.open(targetGmbUrl, '_blank', 'noopener,noreferrer');
@@ -501,38 +458,13 @@ export default function ReviewClient() {
                       <span>Open Google Maps & Paste Review</span>
                       <ExternalLink className="w-3.5 h-3.5 text-white/80" />
                     </button>
-
-                    {/* Auto-redirect progress bar */}
-                    {!redirectCancelled && countdown > 0 ? (
-                      <div className="p-2.5 bg-surface-subtle border border-border rounded-lg text-center space-y-1.5">
-                        <div className="flex items-center justify-between text-[11px] text-text-muted font-medium">
-                          <span>Opening Google Maps automatically in {countdown}s...</span>
-                          <button
-                            type="button"
-                            onClick={cancelAutoRedirect}
-                            className="text-text-secondary hover:text-text-primary text-[10px] underline cursor-pointer"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                        <div className="w-full h-1 bg-border rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-[#1a73e8] transition-all duration-1000 ease-linear rounded-full"
-                            style={{ width: `${(countdown / 3) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
 
                   {/* Minimal reset / back link */}
                   <div className="pt-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        cancelAutoRedirect();
-                        setResult(null);
-                      }}
+                      onClick={() => setResult(null)}
                       className="text-xs text-text-muted hover:text-text-primary underline cursor-pointer"
                     >
                       Submit another response
