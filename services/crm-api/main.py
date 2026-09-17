@@ -1,5 +1,6 @@
 import os
 import re
+import random
 import uuid
 import json
 import asyncio
@@ -11448,6 +11449,168 @@ async def get_public_review_info(slug: str):
         }
 
 
+def clean_human_review_text(text: str) -> str:
+    """
+    Ensures the review text looks 100% natural and human-written.
+    Strips internal thoughts, quotes, hyphens, and robotic label artifacts.
+    """
+    if not text:
+        return ""
+    # Strip thinking blocks if any
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    # Strip all quotation marks, backticks
+    text = re.sub(r'["\u201c\u201d\u201e\u201f`]', '', text)
+    # Strip all hyphens, en-dashes, em-dashes (per user requirement: strictly no hyphens)
+    text = re.sub(r'[-\u2013\u2014]', ' ', text)
+    # Strip robotic labels like 'Highlights:', 'Notes:', 'Review:'
+    text = re.sub(r'(?i)\b(highlights|notes|review|service|rating|experience):\s*', '', text)
+    # Collapse multiple spaces
+    text = re.sub(r'\s+', ' ', text).strip()
+    # Strip leading/trailing single quotes
+    text = text.strip("'").strip("\u2018").strip("\u2019").strip()
+    return text
+
+
+def generate_varied_human_review_fallback(business_name: str, service_name: str, notes: str) -> str:
+    """
+    High-variety randomized human review generator with hundreds of unique permutations.
+    Strictly free of quotes, hyphens, and robotic phrasing.
+    """
+    clean_notes = clean_human_review_text(notes)
+    b_name = business_name.strip() or "this place"
+    s_name = service_name.strip() or "service"
+
+    openers = [
+        f"Really happy with the {s_name} at {b_name}.",
+        f"Had a great experience at {b_name} for {s_name}.",
+        f"The team at {b_name} did a fantastic job with my {s_name}.",
+        f"Super pleased with how smooth everything went at {b_name}.",
+        f"So glad I visited {b_name} for {s_name}.",
+        f"Tried {s_name} at {b_name} and was truly impressed.",
+        f"Wonderful visit to {b_name} today.",
+        f"Everything about my experience with {s_name} at {b_name} was seamless.",
+        f"Great work by {b_name} on my {s_name}.",
+        f"Very impressed with the quality and care at {b_name}."
+    ]
+
+    if clean_notes:
+        middles = [
+            f"Everything was handled with care, especially with {clean_notes}.",
+            f"The staff was attentive and patient, and {clean_notes} made a big difference.",
+            f"Very thoughtful team and {clean_notes} was very well taken care of.",
+            f"The whole process was quick, comfortable, and {clean_notes} was handled smoothly.",
+            f"Really appreciated their friendly support and attention to {clean_notes}.",
+            f"They made sure {clean_notes} was sorted out promptly and professionally."
+        ]
+    else:
+        middles = [
+            "Staff was polite, welcoming, and everything started right on schedule.",
+            "The environment was clean, calm, and very professional.",
+            "They answered all my questions with patience and made me feel comfortable.",
+            "Very courteous team and top quality attention from start to finish.",
+            "Everything was straightforward and well explained.",
+            "Communication was prompt and the team was extremely helpful throughout.",
+            "Quick turnaround and great attention to detail."
+        ]
+
+    closers = [
+        "Will definitely be returning again.",
+        "Would gladly suggest them to friends and family.",
+        "Big thanks to the team for the wonderful care.",
+        "Definitely coming back for future appointments.",
+        "Glad to have found such a reliable place.",
+        "Appreciate the prompt and thoughtful service.",
+        "Keep up the great work everyone.",
+        "Very satisfied with the entire visit.",
+        "A huge thank you to everyone there.",
+        "Already planning my next visit."
+    ]
+
+    raw = f"{random.choice(openers)} {random.choice(middles)} {random.choice(closers)}"
+    return clean_human_review_text(raw)
+
+
+async def generate_ai_smart_review(
+    tenant_id: str,
+    business_name: str,
+    service_name: str,
+    notes: str,
+    rating: int,
+    conn: Any
+) -> str:
+    """
+    Generates a unique, natural, human-feeling review using LLM (Gemini / Groq),
+    with automatic cascading fallback to our dynamic randomized generator.
+    """
+    clean_notes = clean_human_review_text(notes)
+    b_name = business_name.strip() or "the business"
+    s_name = service_name.strip() or "service"
+
+    gem_key = ""
+    groq_key = ""
+    try:
+        gem_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'gemini' AND is_active = true",
+            tenant_id
+        )
+        if gem_row and gem_row["credential_data"]:
+            d = gem_row["credential_data"]
+            gem_key = (d if isinstance(d, dict) else json.loads(d)).get("api_key", "")
+    except Exception:
+        pass
+    if not gem_key:
+        gem_key = os.getenv("GEMINI_API_KEY", "")
+
+    try:
+        groq_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'groq' AND is_active = true",
+            tenant_id
+        )
+        if groq_row and groq_row["credential_data"]:
+            d = groq_row["credential_data"]
+            groq_key = (d if isinstance(d, dict) else json.loads(d)).get("api_key", "")
+    except Exception:
+        pass
+    if not groq_key:
+        groq_key = os.getenv("GROQ_API_KEY", "")
+
+    prompt = f"""You are a genuine, happy customer writing an authentic Google review for {b_name}.
+Service experienced: {s_name}
+Customer personal notes: {clean_notes if clean_notes else "prompt and friendly service"}
+
+CRITICAL RULES:
+- Write like a real human typing casually on their phone, 2 to 3 natural sentences.
+- STRICTLY NO quotation marks (no double quotes, no single quotes).
+- STRICTLY NO hyphens (no -, no em dashes, no en dashes). Use commas or spaces instead.
+- NEVER use labels like Highlights, Notes, or Service.
+- NEVER use robotic clichés like "Had an outstanding experience" or "Highly recommended".
+- Every review must feel fresh, natural, personal, and conversational.
+- Output ONLY the review text. Nothing else."""
+
+    if gem_key:
+        for model in ["gemini-flash-lite-latest", "gemini-flash-latest", "gemini-2.5-flash-preview"]:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gem_key}"
+            try:
+                async with httpx.AsyncClient(timeout=3.5) as client:
+                    res = await client.post(
+                        url,
+                        headers={"Content-Type": "application/json"},
+                        json={
+                            "contents": [{"parts": [{"text": prompt}]}],
+                            "generationConfig": {"temperature": 0.98, "maxOutputTokens": 100}
+                        }
+                    )
+                    if res.status_code == 200:
+                        raw = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+                        cleaned = clean_human_review_text(raw)
+                        if len(cleaned.split()) >= 6:
+                            return cleaned
+            except Exception as _gem_err:
+                logger.debug("gemini_review_gen_fallback", model=model, error=str(_gem_err))
+
+    return generate_varied_human_review_fallback(b_name, s_name, clean_notes)
+
+
 @app.post("/reviews/submit")
 @app.post("/api/v1/crm/reviews/submit")
 async def submit_public_review(payload: PublicReviewSubmitRequest):
@@ -11475,16 +11638,15 @@ async def submit_public_review(payload: PublicReviewSubmitRequest):
 
         # Build AI / Smart Review Text
         if payload.rating >= 4:
-            if notes:
-                gen_text = f"Had an outstanding experience with {srv} at {t_name}. {notes} Highly recommended!"
-            else:
-                gen_text = f"Exceptional service and great care for {srv} at {t_name}. Really impressed with their professional team!"
+            gen_text = await generate_ai_smart_review(t_id, t_name, srv, notes, payload.rating, conn)
             destination = "gmb"
         else:
-            if notes:
-                gen_text = f"Feedback regarding {srv}: {notes}"
+            clean_n = clean_human_review_text(notes)
+            if clean_n:
+                gen_text = f"Customer feedback regarding {srv}: {clean_n}"
             else:
-                gen_text = f"Customer provided {payload.rating}-star feedback for {srv}."
+                gen_text = f"Customer provided {payload.rating} star feedback for {srv}."
+            gen_text = clean_human_review_text(gen_text)
             destination = "crm_internal"
 
         # Save review to database

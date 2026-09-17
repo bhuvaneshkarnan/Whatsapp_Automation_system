@@ -13,7 +13,19 @@ import {
   RefreshCw,
   Heart,
   ThumbsUp,
+  Sparkles,
+  Edit3,
 } from 'lucide-react';
+
+function cleanClientReview(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/["“”`]/g, '')
+    .replace(/[-—–]/g, ' ')
+    .replace(/\b(highlights|notes|review|service):\s*/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 const DEFAULT_EXPERIENCE_TAGS = [
   'Friendly & Caring Staff',
@@ -75,6 +87,9 @@ export default function ReviewClient() {
 
   // Result State
   const [submitting, setSubmitting] = useState(false);
+  const [editedReviewText, setEditedReviewText] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [result, setResult] = useState<{
     destination: 'gmb' | 'crm_internal';
     generated_review_text: string;
@@ -194,16 +209,16 @@ export default function ReviewClient() {
     }
   };
 
-  const handleGenerateAndSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGenerateAndSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (rating < 1) return;
 
     setSubmitting(true);
     setRedirectCancelled(false);
 
-    const combinedNotes = [
-      selectedTags.length > 0 ? `Highlights: ${selectedTags.join(', ')}` : '',
-      notes.trim() ? `Notes: ${notes.trim()}` : '',
+    const cleanNotes = [
+      selectedTags.join(', '),
+      notes.trim(),
     ]
       .filter(Boolean)
       .join('. ');
@@ -215,7 +230,7 @@ export default function ReviewClient() {
         customer_phone: customerPhone,
         service_name: serviceName,
         rating,
-        experience_notes: combinedNotes,
+        experience_notes: cleanNotes,
       });
 
       const effectiveGmbUrl =
@@ -223,11 +238,14 @@ export default function ReviewClient() {
         settings?.gmb_review_url ||
         `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(businessName)}`;
 
+      const cleanText = cleanClientReview(res.generated_review_text);
+      setEditedReviewText(cleanText);
+
       let copied = false;
       if (res.destination === 'gmb') {
         if (typeof window !== 'undefined' && navigator.clipboard) {
           try {
-            await navigator.clipboard.writeText(res.generated_review_text);
+            await navigator.clipboard.writeText(cleanText);
             copied = true;
           } catch (e) {
             console.warn('Clipboard write failed:', e);
@@ -237,17 +255,18 @@ export default function ReviewClient() {
 
       setResult({
         destination: res.destination,
-        generated_review_text: res.generated_review_text,
+        generated_review_text: cleanText,
         gmb_review_url: effectiveGmbUrl,
         copied,
       });
     } catch (err) {
       console.error('Failed to submit review:', err);
       // Fallback local review generation if network error occurs
-      const fallbackText =
+      const fallbackText = cleanClientReview(
         rating >= 4
-          ? `Exceptional service and great experience for ${serviceName || 'service'} at ${businessName}. ${combinedNotes ? combinedNotes + ' ' : ''}Highly recommended!`
-          : `Feedback regarding ${serviceName || 'service'}: ${combinedNotes || 'Service review.'}`;
+          ? `Really happy with the ${serviceName || 'service'} at ${businessName}. Everything was smooth, professional, and very well taken care of. Will definitely be returning again.`
+          : `Customer feedback regarding ${serviceName || 'service'}: ${cleanNotes || 'Service review.'}`
+      );
 
       const fallbackGmb = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(businessName)}`;
 
@@ -255,6 +274,7 @@ export default function ReviewClient() {
         navigator.clipboard.writeText(fallbackText).catch(() => null);
       }
 
+      setEditedReviewText(fallbackText);
       setResult({
         destination: rating >= 4 ? 'gmb' : 'crm_internal',
         generated_review_text: fallbackText,
@@ -263,6 +283,50 @@ export default function ReviewClient() {
       });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleRegenerateReview = async () => {
+    setRegenerating(true);
+    cancelAutoRedirect();
+
+    const cleanNotes = [
+      selectedTags.join(', '),
+      notes.trim(),
+    ]
+      .filter(Boolean)
+      .join('. ');
+
+    try {
+      const res = await crm.submitPublicReview({
+        tenant_slug: slugParam,
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        service_name: serviceName,
+        rating,
+        experience_notes: cleanNotes,
+      });
+
+      const cleanText = cleanClientReview(res.generated_review_text);
+      setEditedReviewText(cleanText);
+
+      if (typeof window !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(cleanText).catch(() => {});
+      }
+
+      setResult((prev) =>
+        prev
+          ? {
+              ...prev,
+              generated_review_text: cleanText,
+              copied: true,
+            }
+          : null
+      );
+    } catch (err) {
+      console.error('Failed to regenerate review:', err);
+    } finally {
+      setRegenerating(false);
     }
   };
 
@@ -315,40 +379,116 @@ export default function ReviewClient() {
                     </p>
                   </div>
 
-                  {/* Generated Review Quote Box */}
-                  <div className="p-4 bg-surface-subtle/50 rounded-xl border-y border-r border-border border-l-3 border-accent text-left text-xs font-sans text-text-primary space-y-2.5 shadow-2xs">
-                    <p className="italic leading-relaxed text-text-body select-all font-serif text-[13px]">
-                      "{result.generated_review_text}"
-                    </p>
-                    <div className="flex items-center justify-between text-[11px] text-text-muted border-t border-border/80 pt-2.5">
-                      <span className="flex items-center gap-1.5 font-semibold text-emerald-600">
-                        <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-                        {result.copied ? 'Copied to Clipboard!' : 'Ready to Paste on Google'}
+                  {/* Generated Review Box (Clean & Minimal Dashboard Style, No Quotes) */}
+                  <div className="p-4 bg-surface-subtle/60 rounded-xl border border-border text-left text-xs font-sans text-text-primary space-y-3 shadow-2xs">
+                    <div className="flex items-center justify-between text-[11px] pb-2 border-b border-border/70">
+                      <span className="flex items-center gap-1.5 font-semibold text-text-secondary">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                        <span>AI Generated Human Review</span>
                       </span>
                       <button
                         type="button"
-                        onClick={() => copyReviewText(result.generated_review_text)}
-                        className="inline-flex items-center gap-1 text-accent hover:text-accent-hover font-semibold cursor-pointer transition-colors"
+                        onClick={handleRegenerateReview}
+                        disabled={regenerating}
+                        className="inline-flex items-center gap-1.5 text-accent hover:text-accent-hover font-semibold cursor-pointer transition-colors disabled:opacity-50"
+                        title="Generate another unique variation"
                       >
-                        <Copy className="w-3 h-3" />
-                        <span>Copy Again</span>
+                        <RefreshCw className={`w-3 h-3 ${regenerating ? 'animate-spin' : ''}`} />
+                        <span>{regenerating ? 'Generating...' : 'Try Another Version'}</span>
                       </button>
+                    </div>
+
+                    {isEditing ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={editedReviewText}
+                          onChange={(e) => setEditedReviewText(cleanClientReview(e.target.value))}
+                          rows={4}
+                          className="w-full text-xs font-sans p-2.5 bg-surface border border-border rounded-lg focus:outline-none focus:border-accent text-text-primary resize-none leading-relaxed"
+                          placeholder="Your customized review..."
+                        />
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsEditing(false);
+                              if (result) {
+                                setResult({ ...result, generated_review_text: editedReviewText });
+                              }
+                              copyReviewText(editedReviewText);
+                            }}
+                            className="px-2.5 py-1 text-[11px] bg-accent text-white font-medium rounded-md hover:bg-accent-hover transition-colors cursor-pointer"
+                          >
+                            Done Editing
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="leading-relaxed text-text-body select-all font-sans text-[13px] whitespace-pre-wrap">
+                        {cleanClientReview(result.generated_review_text)}
+                      </p>
+                    )}
+
+                    <div className="flex items-center justify-between text-[11px] text-text-muted border-t border-border/70 pt-2.5">
+                      <span className="flex items-center gap-1.5 font-semibold text-emerald-600">
+                        <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                        {result.copied ? 'Copied to Clipboard' : 'Ready to Paste'}
+                      </span>
+                      <div className="flex items-center gap-3">
+                        {!isEditing && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              cancelAutoRedirect();
+                              setIsEditing(true);
+                            }}
+                            className="inline-flex items-center gap-1 text-text-muted hover:text-text-primary font-medium cursor-pointer transition-colors"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                            <span>Edit</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => copyReviewText(isEditing ? editedReviewText : result.generated_review_text)}
+                          className="inline-flex items-center gap-1 text-accent hover:text-accent-hover font-semibold cursor-pointer transition-colors"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>Copy Again</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* HOW TO PASTE INSTRUCTION BANNER */}
+                  <div className="p-3 bg-emerald-50/80 border border-emerald-200/80 rounded-xl text-left flex items-start gap-2.5 shadow-2xs">
+                    <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold">
+                      ✓
+                    </div>
+                    <div className="space-y-0.5 text-emerald-950">
+                      <p className="text-xs font-semibold">Review Copied & Ready to Paste</p>
+                      <p className="text-[11px] text-emerald-800 leading-normal">
+                        When Google Maps opens, tap the review box and select <strong>Paste</strong> (or press <strong>Ctrl+V</strong>) to post it instantly.
+                      </p>
                     </div>
                   </div>
 
                   {/* PROMINENT SUBMIT / REDIRECT TO GOOGLE BUTTON */}
                   <div className="space-y-2 pt-1">
-                    <a
-                      href={targetGmbUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={cancelAutoRedirect}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        cancelAutoRedirect();
+                        const text = isEditing ? editedReviewText : result.generated_review_text;
+                        copyReviewText(text);
+                        window.open(targetGmbUrl, '_blank', 'noopener,noreferrer');
+                      }}
                       className="w-full py-3.5 px-4 bg-[#1a73e8] hover:bg-[#1557b0] active:scale-[0.99] text-white font-semibold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer"
                     >
                       <GoogleIcon className="w-4 h-4 fill-white" />
                       <span>Open Google Maps & Paste Review</span>
                       <ExternalLink className="w-3.5 h-3.5 text-white/80" />
-                    </a>
+                    </button>
 
                     {/* Auto-redirect progress bar */}
                     {!redirectCancelled && countdown > 0 ? (
