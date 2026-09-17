@@ -865,6 +865,11 @@ export const crm = {
       body: JSON.stringify({ status }),
     }),
 
+  deleteCustomerReview: (reviewId: string) =>
+    request<{ status: string; message: string; review_id: string }>(`/api/v1/crm/reviews/${reviewId}`, {
+      method: 'DELETE',
+    }),
+
   // Google Business Profile Reviews & Live Reply
   initGoogleBusinessOAuth: (clientId?: string, clientSecret?: string, source: string = 'dashboard') =>
     request<{ auth_url: string; redirect_uri: string }>('/api/v1/crm/oauth/google-business/init', {

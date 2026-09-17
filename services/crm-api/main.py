@@ -11733,6 +11733,24 @@ async def update_customer_review_status(
         return {"status": "ok", "review_id": str(row["id"]), "new_status": row["status"]}
 
 
+@app.delete("/reviews/{review_id}")
+@app.delete("/api/v1/crm/reviews/{review_id}")
+async def delete_customer_review(
+    review_id: str,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Delete a review record (e.g. test reviews or unwanted spam entries)."""
+    async with db_pool.acquire() as conn:
+        res = await conn.execute(
+            "DELETE FROM customer_reviews WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            review_id, tenant_id
+        )
+        if res == "DELETE 0":
+            raise HTTPException(status_code=404, detail="Review record not found.")
+        return {"status": "ok", "message": "Review deleted successfully.", "review_id": review_id}
+
+
+
 # ── Google Business Profile (GMB) Reviews & Live Reply API ───────────────────────
 
 GOOGLE_BUSINESS_REDIRECT_URI = os.getenv(
@@ -12132,7 +12150,7 @@ async def reply_to_google_review(
 
     async with db_pool.acquire() as conn:
         rev = await conn.fetchrow(
-            "SELECT id, google_review_id, customer_name FROM customer_reviews WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            "SELECT id, google_review_id, customer_name, customer_phone, service_name, rating FROM customer_reviews WHERE id = $1::uuid AND tenant_id = $2::uuid",
             review_id, tenant_id
         )
         if not rev:
@@ -12140,12 +12158,57 @@ async def reply_to_google_review(
 
         g_id = rev["google_review_id"]
         if not g_id:
+            # Internal private feedback (1-3 stars)
+            c_phone = (rev["customer_phone"] or "").strip()
+            wa_notified = False
+
+            if c_phone:
+                try:
+                    cred_row = await conn.fetchrow(
+                        "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+                        tenant_id
+                    )
+                    if cred_row and cred_row["credential_data"]:
+                        cdata = cred_row["credential_data"] if isinstance(cred_row["credential_data"], dict) else json.loads(cred_row["credential_data"])
+                        pn_id = cdata.get("phone_number_id")
+                        tok = cdata.get("access_token")
+                        clean_num = re.sub(r"[^0-9]", "", c_phone)
+                        if clean_num.startswith("0"):
+                            clean_num = clean_num[1:]
+                        if len(clean_num) == 10:
+                            clean_num = "91" + clean_num
+
+                        if pn_id and tok and not str(tok).startswith("EAAB_test"):
+                            t_name = await conn.fetchval("SELECT name FROM tenants WHERE id = $1::uuid", tenant_id) or "Our Team"
+                            c_name = rev["customer_name"] or "Valued Customer"
+                            wa_body = (
+                                f"Hello {c_name},\n\n"
+                                f"Thank you for sharing your feedback with {t_name}.\n\n"
+                                f"*Response from Management:*\n{comment_text}\n\n"
+                                f"We truly value your satisfaction and are committed to assisting you."
+                            )
+                            async with httpx.AsyncClient(timeout=8.0) as client:
+                                res = await client.post(
+                                    f"https://graph.facebook.com/v19.0/{pn_id}/messages",
+                                    headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
+                                    json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_num, "type": "text", "text": {"body": wa_body}}
+                                )
+                                if res.status_code in (200, 201):
+                                    wa_notified = True
+                except Exception as _wa_err:
+                    logger.warning("internal_feedback_wa_notify_failed", error=str(_wa_err))
+
             await conn.execute("""
                 UPDATE customer_reviews
                 SET owner_reply_text = $1, owner_replied_at = now(), status = 'resolved'
                 WHERE id = $2::uuid AND tenant_id = $3::uuid
             """, comment_text, review_id, tenant_id)
-            return {"status": "ok", "message": "Reply saved successfully.", "comment": comment_text}
+            return {
+                "status": "ok",
+                "message": "Reply saved and sent to customer via WhatsApp!" if wa_notified else "Reply saved to CRM record.",
+                "comment": comment_text,
+                "whatsapp_notified": wa_notified
+            }
 
         access_token, cdata = await get_google_business_access_token(conn, tenant_id)
         account_name = cdata.get("account_name")

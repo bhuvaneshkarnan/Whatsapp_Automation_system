@@ -90,6 +90,7 @@ export default function ReviewClient() {
   const [editedReviewText, setEditedReviewText] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [formError, setFormError] = useState('');
   const [result, setResult] = useState<{
     destination: 'gmb' | 'crm_internal';
     generated_review_text: string;
@@ -213,6 +214,17 @@ export default function ReviewClient() {
     if (e) e.preventDefault();
     if (rating < 1) return;
 
+    if (!customerName.trim()) {
+      setFormError('Please enter your name so we can attribute your review.');
+      return;
+    }
+
+    if (rating <= 3 && !customerPhone.trim()) {
+      setFormError('Please enter your WhatsApp/phone number so management can reach out and resolve your issue.');
+      return;
+    }
+
+    setFormError('');
     setSubmitting(true);
     setRedirectCancelled(false);
 
@@ -680,30 +692,57 @@ export default function ReviewClient() {
               {/* Customer Name & Phone */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="block text-[11px] font-medium text-text-muted">
-                    Your Name <span className="text-[10px] text-text-muted">(Optional)</span>
+                  <label className="block text-[11px] font-bold text-text-secondary flex items-center justify-between">
+                    <span>Your Name</span>
+                    <span className="text-[10px] text-rose-500 font-semibold">*Required</span>
                   </label>
                   <input
                     type="text"
+                    required
                     value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
+                    onChange={(e) => {
+                      setCustomerName(e.target.value);
+                      if (formError) setFormError('');
+                    }}
                     placeholder="e.g. John Doe"
-                    className="w-full p-2.5 text-xs bg-surface border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
+                    className={`w-full p-2.5 text-xs bg-surface border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all ${
+                      formError && !customerName.trim() ? 'border-rose-400 bg-rose-50/20' : 'border-border'
+                    }`}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="block text-[11px] font-medium text-text-muted">
-                    Phone Number <span className="text-[10px] text-text-muted">(Optional)</span>
+                  <label className="block text-[11px] font-bold text-text-secondary flex items-center justify-between">
+                    <span>WhatsApp Number</span>
+                    <span className={`text-[10px] font-semibold ${rating <= 3 ? 'text-rose-500' : 'text-text-muted'}`}>
+                      {rating <= 3 ? '*Required to Resolve' : 'Optional'}
+                    </span>
                   </label>
                   <input
                     type="tel"
                     value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    onChange={(e) => {
+                      setCustomerPhone(e.target.value);
+                      if (formError) setFormError('');
+                    }}
                     placeholder="e.g. 98765 43210"
-                    className="w-full p-2.5 text-xs bg-surface border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent font-mono"
+                    className={`w-full p-2.5 text-xs bg-surface border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent font-mono transition-all ${
+                      formError && rating <= 3 && !customerPhone.trim() ? 'border-rose-400 bg-rose-50/20' : 'border-border'
+                    }`}
                   />
                 </div>
               </div>
+
+              {/* Form Validation Error Banner */}
+              {formError && (
+                <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-left flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                  <div className="w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center shrink-0 text-[10px] font-bold">
+                    !
+                  </div>
+                  <p className="text-[11px] font-medium text-rose-700 dark:text-rose-300">
+                    {formError}
+                  </p>
+                </div>
+              )}
 
               {/* Primary Submit Button */}
               <div className="space-y-2 pt-1">
@@ -715,7 +754,7 @@ export default function ReviewClient() {
                   >
                     <GoogleIcon className="w-4 h-4 fill-white" />
                     <span>
-                      {submitting ? 'Generating Review...' : 'Post Review on Google'}
+                      {submitting ? 'Generating AI Review...' : 'Post Review on Google'}
                     </span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
