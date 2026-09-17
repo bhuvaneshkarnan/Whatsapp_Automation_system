@@ -40,6 +40,8 @@ export const metadata: Metadata = {
   },
 };
 
+import { BrandingProvider } from "@/lib/branding";
+
 export default function RootLayout({
   children,
 }: {
@@ -60,7 +62,9 @@ export default function RootLayout({
         <meta httpEquiv="Expires" content="0" />
       </head>
       <body className="bg-canvas text-text-primary min-h-screen antialiased font-sans">
-        {children}
+        <BrandingProvider>
+          {children}
+        </BrandingProvider>
       </body>
     </html>
   );

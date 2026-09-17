@@ -375,7 +375,7 @@ export default function SuperAdminClients() {
 
   // ── TENANT FULL CONFIGURATION MODAL / DRAWER STATE ──────────────────────────
   const [editingConfigTenant, setEditingConfigTenant] = useState<ClientTenant | null>(null);
-  const [configTab, setConfigTab] = useState<'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'billing' | 'team'>('ai');
+  const [configTab, setConfigTab] = useState<'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'whitelabel' | 'billing' | 'team'>('ai');
   const [configForm, setConfigForm] = useState<TenantSettingsUpdate>({});
   const [configLoading, setConfigLoading] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
@@ -981,7 +981,7 @@ export default function SuperAdminClients() {
   }
 
   // ── Open & Save Tenant Configuration ───────────────────────────────────────
-  async function handleOpenConfig(tenant: ClientTenant, initialTab: 'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'billing' | 'team' = 'ai') {
+  async function handleOpenConfig(tenant: ClientTenant, initialTab: 'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'whitelabel' | 'billing' | 'team' = 'ai') {
     setEditingConfigTenant(tenant);
     setConfigTab(initialTab);
     setConfigLoading(true);
@@ -1796,11 +1796,23 @@ export default function SuperAdminClients() {
                                   {t.name.slice(0, 2).toUpperCase()}
                                 </div>
                                 <div>
-                                  <div className="flex items-center gap-1.5">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
                                     <span className="font-semibold text-text-primary text-xs">{t.name}</span>
                                     <span className="text-[10px] font-mono text-text-muted bg-surface-subtle px-1.5 py-0.2 rounded border border-border">
                                       /{t.slug}
                                     </span>
+                                    {t.custom_domain && (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-sky-400 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.2 rounded" title={`White-Label Domain: ${t.custom_domain}`}>
+                                        <Globe className="w-2.5 h-2.5" />
+                                        {t.custom_domain}
+                                      </span>
+                                    )}
+                                    {t.sales_channel === 'partner' && (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-purple-400 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.2 rounded" title={`Partner Agency: ${t.partner_name || 'Partner'}`}>
+                                        <Users className="w-2.5 h-2.5" />
+                                        Partner ({t.partner_share_pct ?? 50}%)
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="flex items-center gap-1.5 text-[11px] text-text-muted mt-0.5">
                                     <span className="truncate max-w-[170px]" title={t.admin_email || ''}>
@@ -2063,6 +2075,12 @@ export default function SuperAdminClients() {
                                 <span className="text-[10px] font-mono text-text-muted bg-surface-subtle px-1.5 py-0.2 rounded border border-border">
                                   /{t.slug}
                                 </span>
+                                {t.custom_domain && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-sky-400 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.2 rounded" title={`White-Label: ${t.custom_domain}`}>
+                                    <Globe className="w-2.5 h-2.5" />
+                                    {t.custom_domain}
+                                  </span>
+                                )}
                               </div>
                               <p className="text-[11px] text-text-muted truncate mt-0.5" title={t.admin_email || ''}>
                                 {t.admin_email || 'No email configured'}
@@ -3353,6 +3371,7 @@ export default function SuperAdminClients() {
                 { id: 'templates', label: 'Message templates', icon: FileText },
                 { id: 'location', label: 'Branding & Localization', icon: Building2 },
                 { id: 'calendar', label: 'Google Calendar', icon: CalendarDays },
+                { id: 'whitelabel', label: 'White-Label & Domains', icon: Globe },
                 { id: 'billing', label: 'Billing & Access', icon: CreditCard },
                 { id: 'team', label: 'Team & Permissions', icon: Users },
               ].map((tab) => {
@@ -4736,6 +4755,346 @@ export default function SuperAdminClients() {
                             )}
                           </div>
                         )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── WHITE-LABEL & CUSTOM DOMAINS ─────────────────────────── */}
+                  {configTab === 'whitelabel' && (
+                    <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
+                      <div className="flex items-center justify-between pb-2 border-b border-border">
+                        <div>
+                          <h4 className="font-semibold text-xs text-text-primary flex items-center gap-1.5">
+                            <Globe className="w-3.5 h-3.5 text-accent" />
+                            <span>White-Label & Custom Domain Engine</span>
+                          </h4>
+                          <p className="text-xs text-text-muted">
+                            Point your partner company's domain directly to this CRM portal with custom brand logo, primary colors, and complete visual isolation.
+                          </p>
+                        </div>
+                        {configForm.custom_domain && (
+                          <a
+                            href={`https://${configForm.custom_domain}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-sm text-xs font-medium text-sky-400 hover:text-sky-300 bg-sky-500/10 border border-sky-500/20 transition-colors"
+                          >
+                            <span>Visit Domain</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+
+                      {/* 1. Custom Domain Input & DNS Setup Instructions */}
+                      <div className="space-y-3 p-4 bg-surface-subtle border border-border rounded-md">
+                        <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">
+                          1. Domain Mapping & DNS Records
+                        </label>
+                        <p className="text-xs text-text-muted">
+                          Enter the full subdomain or root domain where your partner's clients will access their dashboard.
+                        </p>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-medium text-text-secondary mb-1">
+                              Custom Domain (FQDN)
+                            </label>
+                            <input
+                              type="text"
+                              value={configForm.custom_domain || ''}
+                              onChange={(e) => setConfigForm({ ...configForm, custom_domain: e.target.value.toLowerCase().trim() })}
+                              placeholder="e.g. crm.partnercompany.com"
+                              className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent"
+                            />
+                            <p className="text-[10px] text-text-muted mt-0.5">
+                              Do not include https:// or slashes.
+                            </p>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-medium text-text-secondary mb-1">
+                              Organization Slug (Backend Routing Key)
+                            </label>
+                            <div className="px-2.5 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono text-text-muted flex items-center justify-between">
+                              <span>/{editingConfigTenant.slug}</span>
+                              <span className="text-[10px] bg-emerald-500/10 text-emerald-500 px-1.5 py-0.2 rounded font-sans">Active</span>
+                            </div>
+                            <p className="text-[10px] text-text-muted mt-0.5">
+                              This organization can also be accessed via default domain: crm.goboldlabs.com/{editingConfigTenant.slug}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Interactive DNS Setup Instructions */}
+                        <div className="mt-3 p-3.5 bg-sky-950/20 border border-sky-500/30 rounded-md space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-sky-400 flex items-center gap-1.5">
+                              <Globe className="w-3.5 h-3.5" />
+                              <span>Required DNS Record for Partner's Registrar</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard('cname.vercel-dns.com', 'cname_target')}
+                              className="text-xs font-medium text-sky-400 hover:text-sky-300 flex items-center gap-1 cursor-pointer"
+                            >
+                              {copiedField === 'cname_target' ? <Check className="w-3.5 h-3.5 stroke-[1.5]" /> : <Copy className="w-3.5 h-3.5 stroke-[1.5]" />}
+                              <span>{copiedField === 'cname_target' ? 'Copied' : 'Copy Target'}</span>
+                            </button>
+                          </div>
+                          <p className="text-[11px] text-slate-300 leading-relaxed">
+                            Have the partner add this single CNAME record at their DNS host (Cloudflare, GoDaddy, Hostinger, Route53, Namecheap):
+                          </p>
+
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-[11px] border border-sky-500/20 rounded bg-slate-900/60">
+                              <thead>
+                                <tr className="border-b border-sky-500/20 text-slate-400 text-[10px] uppercase font-mono">
+                                  <th className="py-1 px-2.5">Type</th>
+                                  <th className="py-1 px-2.5">Name / Host</th>
+                                  <th className="py-1 px-2.5">Target / Value</th>
+                                  <th className="py-1 px-2.5">TTL / Proxy</th>
+                                </tr>
+                              </thead>
+                              <tbody className="font-mono text-slate-200">
+                                <tr>
+                                  <td className="py-1 px-2.5 font-bold text-sky-400">CNAME</td>
+                                  <td className="py-1 px-2.5">
+                                    {configForm.custom_domain && configForm.custom_domain.includes('.')
+                                      ? configForm.custom_domain.split('.')[0]
+                                      : 'crm'}
+                                  </td>
+                                  <td className="py-1 px-2.5 text-emerald-400">cname.vercel-dns.com</td>
+                                  <td className="py-1 px-2.5 text-slate-400">DNS Only (Auto / 60s)</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+
+                          <p className="text-[10px] text-slate-400">
+                            SSL: Vercel automatically manages and renews trusted HTTPS/SSL certificates at zero extra cost.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 2. Visual Identity & Brand Styling */}
+                      <div className="space-y-3 p-4 bg-surface-subtle border border-border rounded-md">
+                        <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">
+                          2. Brand Identity & Theme Styling
+                        </label>
+                        <p className="text-xs text-text-muted">
+                          Customize how the portal looks and feels when accessed through this partner's custom domain.
+                        </p>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[11px] font-medium text-text-secondary mb-1">
+                              Brand Display Name
+                            </label>
+                            <input
+                              type="text"
+                              value={configForm.brand_name || ''}
+                              onChange={(e) => setConfigForm({ ...configForm, brand_name: e.target.value })}
+                              placeholder={`e.g. ${editingConfigTenant.name} CRM`}
+                              className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-accent"
+                            />
+                            <p className="text-[10px] text-text-muted mt-0.5">
+                              Replaces "Boldlabs CRM" on the login page and page titles.
+                            </p>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-medium text-text-secondary mb-1">
+                              Favicon URL (.ico or .png)
+                            </label>
+                            <input
+                              type="text"
+                              value={configForm.brand_favicon_url || ''}
+                              onChange={(e) => setConfigForm({ ...configForm, brand_favicon_url: e.target.value })}
+                              placeholder="https://.../favicon.ico"
+                              className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-accent"
+                            />
+                            <p className="text-[10px] text-text-muted mt-0.5">
+                              Browser tab icon. Leave blank for default platform icon.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Logo URL with Live Preview */}
+                        <div>
+                          <label className="block text-[11px] font-medium text-text-secondary mb-1">
+                            Brand Logo URL
+                          </label>
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                            <input
+                              type="text"
+                              value={configForm.brand_logo_url || ''}
+                              onChange={(e) => setConfigForm({ ...configForm, brand_logo_url: e.target.value })}
+                              placeholder="https://.../partner-logo.png"
+                              className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-accent"
+                            />
+                            {configForm.brand_logo_url ? (
+                              <div className="h-10 px-3 bg-slate-900 border border-border rounded flex items-center justify-center shrink-0">
+                                <img
+                                  src={configForm.brand_logo_url}
+                                  alt="Logo Preview"
+                                  className="h-7 max-w-[120px] object-contain"
+                                  onError={(e) => {
+                                    (e.target as HTMLElement).style.display = 'none';
+                                  }}
+                                />
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-text-muted whitespace-nowrap">No logo preview</span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-text-muted mt-0.5">
+                            Recommended: PNG or SVG with transparent background, height around 48px.
+                          </p>
+                        </div>
+
+                        {/* Theme Primary / Accent Color */}
+                        <div className="p-3 bg-white rounded border border-border space-y-2">
+                          <label className="block text-[11px] font-medium text-text-secondary">
+                            Primary Theme / Accent Color
+                          </label>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <input
+                              type="color"
+                              value={configForm.brand_primary_color || '#059669'}
+                              onChange={(e) => setConfigForm({ ...configForm, brand_primary_color: e.target.value })}
+                              className="w-9 h-9 rounded border border-border cursor-pointer p-0.5"
+                            />
+                            <input
+                              type="text"
+                              value={configForm.brand_primary_color || '#059669'}
+                              onChange={(e) => setConfigForm({ ...configForm, brand_primary_color: e.target.value })}
+                              placeholder="#059669"
+                              className="w-28 px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary uppercase"
+                            />
+
+                            {/* Color presets */}
+                            <div className="flex items-center gap-1.5">
+                              {[
+                                { name: 'Emerald (Boldlabs)', hex: '#059669' },
+                                { name: 'Royal Blue', hex: '#2563eb' },
+                                { name: 'Indigo', hex: '#4f46e5' },
+                                { name: 'Purple', hex: '#7c3aed' },
+                                { name: 'Amber', hex: '#d97706' },
+                                { name: 'Rose', hex: '#e11d48' },
+                                { name: 'Slate Dark', hex: '#334155' },
+                              ].map((preset) => (
+                                <button
+                                  key={preset.hex}
+                                  type="button"
+                                  onClick={() => setConfigForm({ ...configForm, brand_primary_color: preset.hex })}
+                                  style={{ backgroundColor: preset.hex }}
+                                  className="w-5 h-5 rounded-full border border-black/10 hover:scale-110 transition-transform cursor-pointer shadow-xs"
+                                  title={preset.name}
+                                />
+                              ))}
+                            </div>
+
+                            {/* Live button sample */}
+                            <div className="ml-auto">
+                              <button
+                                type="button"
+                                style={{ backgroundColor: configForm.brand_primary_color || '#059669' }}
+                                className="px-3.5 py-1.5 text-white font-medium text-xs rounded-sm shadow-xs flex items-center gap-1.5 pointer-events-none"
+                              >
+                                <span>Preview Button</span>
+                                <ArrowRight className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Support Email and Phone */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-medium text-text-secondary mb-1">
+                              Partner Support Email
+                            </label>
+                            <input
+                              type="email"
+                              value={configForm.brand_support_email || ''}
+                              onChange={(e) => setConfigForm({ ...configForm, brand_support_email: e.target.value })}
+                              placeholder="support@partnercompany.com"
+                              className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-accent"
+                            />
+                            <p className="text-[10px] text-text-muted mt-0.5">
+                              Shown on login footers and automated client emails.
+                            </p>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-medium text-text-secondary mb-1">
+                              Partner Support WhatsApp / Phone
+                            </label>
+                            <input
+                              type="text"
+                              value={configForm.brand_support_phone || ''}
+                              onChange={(e) => setConfigForm({ ...configForm, brand_support_phone: e.target.value })}
+                              placeholder="+91 99999 99999"
+                              className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-accent"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. Security Isolation & Platform Shield */}
+                      <div className="p-4 bg-surface-subtle border border-border rounded-md space-y-3">
+                        <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">
+                          3. Security & Super Admin Isolation Guard
+                        </label>
+
+                        <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={configForm.hide_platform_branding ?? true}
+                            onChange={(e) => setConfigForm({ ...configForm, hide_platform_branding: e.target.checked })}
+                            className="w-4 h-4 rounded border-border text-accent focus:ring-accent accent-accent mt-0.5 cursor-pointer"
+                          />
+                          <div className="text-xs space-y-1">
+                            <span className="font-semibold text-text-primary">
+                              Enforce Total Platform Shield (Recommended)
+                            </span>
+                            <p className="text-text-muted leading-relaxed">
+                              When enabled, all references to Boldlabs are removed from login pages. The master Super Admin doorway (<code className="font-mono text-amber-500">/bhuvanesh</code>) is completely blocked on this custom domain, automatically redirecting any visitor straight to the partner's login page.
+                            </p>
+                          </div>
+                        </label>
+                      </div>
+
+                      {/* 4. Commercial & Revenue Partner Connection */}
+                      <div className="p-4 bg-purple-950/20 border border-purple-500/30 rounded-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <span className="text-xs font-semibold text-purple-400 flex items-center gap-1.5">
+                            <Users className="w-3.5 h-3.5" />
+                            <span>Commercial Sales Channel & Revenue Split</span>
+                          </span>
+                          <p className="text-xs text-slate-300">
+                            Channel:{' '}
+                            <strong className="text-white">
+                              {editingConfigTenant.sales_channel === 'partner'
+                                ? `Partner Agency (${editingConfigTenant.partner_name || 'Unspecified'})`
+                                : 'Direct Sales'}
+                            </strong>{' '}
+                            &bull; Split:{' '}
+                            <strong className="text-white">
+                              {editingConfigTenant.sales_channel === 'partner'
+                                ? `${editingConfigTenant.partner_share_pct ?? 50}% Partner / ${editingConfigTenant.owner_share_pct ?? 50}% Platform`
+                                : '100% Platform'}
+                            </strong>
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setConfigTab('billing')}
+                          className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-sm text-xs font-medium transition-colors shrink-0 cursor-pointer shadow-xs flex items-center gap-1"
+                        >
+                          <CreditCard className="w-3.5 h-3.5" />
+                          <span>Configure in Billing</span>
+                        </button>
                       </div>
                     </div>
                   )}

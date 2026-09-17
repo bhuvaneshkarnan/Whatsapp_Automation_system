@@ -5664,6 +5664,22 @@ class TenantSettingsUpdate(BaseModel):
     target_tenant_id: Optional[str] = None
     tenant_id: Optional[str] = None
 
+    # White-label & Custom Domain
+    custom_domain: Optional[str] = None
+    brand_name: Optional[str] = None
+    brand_logo_url: Optional[str] = None
+    brand_favicon_url: Optional[str] = None
+    brand_primary_color: Optional[str] = None
+    brand_support_email: Optional[str] = None
+    brand_support_phone: Optional[str] = None
+    hide_platform_branding: Optional[bool] = None
+
+    # Partner & Revenue Sharing
+    sales_channel: Optional[str] = None
+    partner_name: Optional[str] = None
+    partner_share_pct: Optional[float] = None
+    owner_share_pct: Optional[float] = None
+
     model_config = {"extra": "allow"}
 
 
@@ -5906,6 +5922,20 @@ async def get_tenant_settings(
         ),
         "last_payment_status": tenant.get("last_payment_status") or "paid",
         "last_charge_at": tenant["last_charge_at"].isoformat() if tenant.get("last_charge_at") else (tenant["created_at"].isoformat() if tenant.get("created_at") else None),
+
+        # White-Label & Partner Settings
+        "custom_domain": tenant_settings.get("custom_domain") or "",
+        "brand_name": tenant_settings.get("brand_name") or tenant["name"],
+        "brand_logo_url": tenant_settings.get("brand_logo_url") or logo_url or "",
+        "brand_favicon_url": tenant_settings.get("brand_favicon_url") or "",
+        "brand_primary_color": tenant_settings.get("brand_primary_color") or "#059669",
+        "brand_support_email": tenant_settings.get("brand_support_email") or "",
+        "brand_support_phone": tenant_settings.get("brand_support_phone") or "",
+        "hide_platform_branding": tenant_settings.get("hide_platform_branding", False),
+        "sales_channel": tenant_settings.get("sales_channel", "direct"),
+        "partner_name": tenant_settings.get("partner_name", ""),
+        "partner_share_pct": float(tenant_settings.get("partner_share_pct") or 0.0),
+        "owner_share_pct": float(tenant_settings.get("owner_share_pct") or 100.0),
     }
 
 
@@ -6110,6 +6140,103 @@ async def set_tenant_payment_link(
         }
 
 
+@app.get("/public/branding")
+@app.get("/api/public/branding")
+@app.get("/api/v1/crm/public/branding")
+async def get_public_branding(domain: Optional[str] = Query(None), slug: Optional[str] = Query(None)):
+    """
+    Public metadata endpoint for dynamic white-label theme injection and brand identity.
+    Resolves branding by custom domain or tenant slug.
+    Falls back to default Boldlabs platform identity if domain is default or unmatched.
+    """
+    default_branding = {
+        "is_whitelabel": False,
+        "brand_name": "Boldlabs CRM",
+        "brand_logo_url": "",
+        "brand_favicon_url": "/favicon.ico",
+        "brand_primary_color": "#059669",
+        "brand_support_email": "support@goboldlabs.com",
+        "brand_support_phone": "+91 99999 99999",
+        "hide_platform_branding": False,
+        "custom_domain": None,
+        "tenant_id": None,
+        "tenant_slug": None,
+        "tenant_name": "Boldlabs",
+    }
+
+    clean_domain = ""
+    if domain:
+        clean_domain = domain.strip().lower()
+        clean_domain = re.sub(r"^https?://", "", clean_domain)
+        clean_domain = clean_domain.split(":")[0].split("/")[0].strip()
+
+    clean_slug = slug.strip().lower() if slug else ""
+
+    # Known platform defaults that use standard Boldlabs branding
+    if (not clean_domain or clean_domain in ("crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197")) and not clean_slug:
+        return default_branding
+
+    async with db_pool.acquire() as conn:
+        tenant = None
+        if clean_domain and clean_domain not in ("crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197"):
+            alt_domain = clean_domain[4:] if clean_domain.startswith("www.") else f"www.{clean_domain}"
+            tenant = await conn.fetchrow(
+                """
+                SELECT id, name, slug, settings
+                FROM tenants
+                WHERE LOWER(TRIM(COALESCE(settings->>'custom_domain', ''))) = $1
+                   OR LOWER(TRIM(COALESCE(settings->>'custom_domain', ''))) = $2
+                LIMIT 1
+                """,
+                clean_domain,
+                alt_domain
+            )
+
+        if not tenant and clean_slug:
+            tenant = await conn.fetchrow(
+                """
+                SELECT id, name, slug, settings
+                FROM tenants
+                WHERE LOWER(slug) = $1
+                LIMIT 1
+                """,
+                clean_slug
+            )
+
+    if not tenant:
+        return default_branding
+
+    s = tenant["settings"] if tenant and tenant["settings"] else {}
+    if isinstance(s, str):
+        try:
+            s = json.loads(s)
+        except Exception:
+            s = {}
+
+    c_dom = (s.get("custom_domain") or "").strip().lower()
+    b_name = (s.get("brand_name") or tenant["name"] or "").strip()
+    b_logo = (s.get("brand_logo_url") or s.get("logo_url") or "").strip()
+    b_fav = (s.get("brand_favicon_url") or "").strip()
+    b_color = (s.get("brand_primary_color") or "#059669").strip()
+    b_email = (s.get("brand_support_email") or "").strip()
+    b_phone = (s.get("brand_support_phone") or "").strip()
+    hide_platform = bool(s.get("hide_platform_branding", True if c_dom else False))
+
+    return {
+        "is_whitelabel": bool(c_dom),
+        "brand_name": b_name,
+        "brand_logo_url": b_logo,
+        "brand_favicon_url": b_fav or "/favicon.ico",
+        "brand_primary_color": b_color,
+        "brand_support_email": b_email,
+        "brand_support_phone": b_phone,
+        "hide_platform_branding": hide_platform,
+        "custom_domain": c_dom or clean_domain or None,
+        "tenant_id": str(tenant["id"]),
+        "tenant_slug": tenant["slug"],
+        "tenant_name": tenant["name"],
+    }
+
 
 @app.put("/settings")
 @app.patch("/settings")
@@ -6196,6 +6323,32 @@ async def update_tenant_settings(
             await conn.execute("UPDATE tenants SET razorpay_short_url = $1 WHERE id = $2::uuid", payload.razorpay_short_url.strip(), tenant_id)
         if getattr(payload, "monthly_price", None) is not None:
             cur_settings["monthly_price"] = float(payload.monthly_price)
+
+        # White-Label & Partner Settings persistence
+        if payload.custom_domain is not None:
+            cur_settings["custom_domain"] = payload.custom_domain.strip().lower()
+        if payload.brand_name is not None:
+            cur_settings["brand_name"] = payload.brand_name.strip()
+        if payload.brand_logo_url is not None:
+            cur_settings["brand_logo_url"] = payload.brand_logo_url.strip()
+        if payload.brand_favicon_url is not None:
+            cur_settings["brand_favicon_url"] = payload.brand_favicon_url.strip()
+        if payload.brand_primary_color is not None:
+            cur_settings["brand_primary_color"] = payload.brand_primary_color.strip()
+        if payload.brand_support_email is not None:
+            cur_settings["brand_support_email"] = payload.brand_support_email.strip()
+        if payload.brand_support_phone is not None:
+            cur_settings["brand_support_phone"] = payload.brand_support_phone.strip()
+        if payload.hide_platform_branding is not None:
+            cur_settings["hide_platform_branding"] = bool(payload.hide_platform_branding)
+        if getattr(payload, "sales_channel", None) is not None:
+            cur_settings["sales_channel"] = payload.sales_channel.strip()
+        if getattr(payload, "partner_name", None) is not None:
+            cur_settings["partner_name"] = payload.partner_name.strip()
+        if getattr(payload, "partner_share_pct", None) is not None:
+            cur_settings["partner_share_pct"] = float(payload.partner_share_pct)
+        if getattr(payload, "owner_share_pct", None) is not None:
+            cur_settings["owner_share_pct"] = float(payload.owner_share_pct)
 
         await conn.execute(
             "UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid",
@@ -7016,6 +7169,12 @@ async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
             "last_charge_at": r["last_charge_at"].isoformat() if r["last_charge_at"] else None,
             "next_renewal_date": next_renewal,
             "billing_method": "Razorpay Auto-Debit",
+            "custom_domain": (cfg.get("custom_domain") or "").strip().lower(),
+            "brand_name": (cfg.get("brand_name") or "").strip(),
+            "partner_name": (cfg.get("partner_name") or "").strip(),
+            "sales_channel": (cfg.get("sales_channel") or "direct").strip(),
+            "partner_share_pct": float(cfg.get("partner_share_pct") or 0.0),
+            "owner_share_pct": float(cfg.get("owner_share_pct") or 100.0),
         })
     return result
 
@@ -7341,6 +7500,20 @@ async def get_admin_tenant_details(tenant_id: str, admin_user: dict = Depends(ve
             "system_prompt": ai_cfg["system_prompt"] if ai_cfg else "",
             "temperature": float(ai_cfg["temperature"]) if ai_cfg else 0.3,
             "max_tokens": int(ai_cfg["max_tokens"]) if ai_cfg else 500,
+        },
+        "whitelabel": {
+            "custom_domain": t_settings.get("custom_domain", ""),
+            "brand_name": t_settings.get("brand_name", "") or tenant["name"],
+            "brand_logo_url": t_settings.get("brand_logo_url", ""),
+            "brand_favicon_url": t_settings.get("brand_favicon_url", ""),
+            "brand_primary_color": t_settings.get("brand_primary_color", "#059669"),
+            "brand_support_email": t_settings.get("brand_support_email", ""),
+            "brand_support_phone": t_settings.get("brand_support_phone", ""),
+            "hide_platform_branding": t_settings.get("hide_platform_branding", False),
+            "sales_channel": t_settings.get("sales_channel", "direct"),
+            "partner_name": t_settings.get("partner_name", ""),
+            "partner_share_pct": float(t_settings.get("partner_share_pct") or 0.0),
+            "owner_share_pct": float(t_settings.get("owner_share_pct") or 100.0),
         }
     }
 

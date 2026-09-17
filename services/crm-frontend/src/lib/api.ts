@@ -206,13 +206,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ── Auth (/api/v1/auth) ───────────────────────────────────────────────────────
 export const auth = {
-  login: async (email: string, password: string, rememberMe: boolean = false) => {
+  login: async (email: string, password: string, rememberMe: boolean = false, tenantSlug?: string, domain?: string) => {
     // OAuth2 form-encoded login
     const body = new URLSearchParams({ 
       username: email, 
       password,
       remember_me: rememberMe.toString()
     });
+    if (tenantSlug) body.set('tenant_slug', tenantSlug);
+    if (domain) body.set('domain', domain);
     const res = await fetch(`${BASE}/api/v1/auth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -1238,6 +1240,16 @@ export interface TenantSettingsResponse {
   next_charge_at?: string;
   last_payment_status?: string;
   last_charge_at?: string;
+
+  // White-label & Custom Domain
+  custom_domain?: string;
+  brand_name?: string;
+  brand_logo_url?: string;
+  brand_favicon_url?: string;
+  brand_primary_color?: string;
+  brand_support_email?: string;
+  brand_support_phone?: string;
+  hide_platform_branding?: boolean;
 }
 
 export interface CustomerReview {
@@ -1270,6 +1282,44 @@ export interface GoogleBusinessStatus {
 }
 
 export type TenantSettingsUpdate = Partial<TenantSettingsResponse>;
+
+export interface PublicBrandingResponse {
+  is_whitelabel: boolean;
+  brand_name: string;
+  brand_logo_url?: string;
+  brand_favicon_url?: string;
+  brand_primary_color: string;
+  brand_support_email?: string;
+  brand_support_phone?: string;
+  hide_platform_branding: boolean;
+  custom_domain?: string | null;
+  tenant_id?: string | null;
+  tenant_slug?: string | null;
+  tenant_name?: string | null;
+}
+
+export const getPublicBranding = async (domain?: string, slug?: string): Promise<PublicBrandingResponse> => {
+  const params = new URLSearchParams();
+  if (domain) params.set('domain', domain);
+  if (slug) params.set('slug', slug);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  try {
+    const res = await fetch(`${BASE}/api/v1/crm/public/branding${qs}`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {}
+  return {
+    is_whitelabel: false,
+    brand_name: 'Boldlabs CRM',
+    brand_logo_url: '',
+    brand_favicon_url: '/favicon.ico',
+    brand_primary_color: '#059669',
+    brand_support_email: 'support@goboldlabs.com',
+    brand_support_phone: '+91 99999 99999',
+    hide_platform_branding: false,
+  };
+};
 
 // ── Super Admin (/api/v1/crm/admin) ───────────────────────────────────────────
 export interface Invoice {
@@ -1312,6 +1362,12 @@ export interface ClientTenant {
   next_renewal_date?: string;
   billing_method?: string;
   admin_whatsapp_number?: string;
+  custom_domain?: string;
+  brand_name?: string;
+  partner_name?: string;
+  sales_channel?: string;
+  partner_share_pct?: number;
+  owner_share_pct?: number;
 }
 
 export interface StaffPermissions {

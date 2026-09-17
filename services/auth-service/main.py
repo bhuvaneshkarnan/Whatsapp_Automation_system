@@ -150,11 +150,15 @@ async def login_for_access_token(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     remember_me: bool = Form(False),
-    tenant_slug: Optional[str] = Form(None)
+    tenant_slug: Optional[str] = Form(None),
+    domain: Optional[str] = Form(None)
 ):
     """OAuth2 compatible token login, returns JWT."""
     username_clean = (form_data.username or "").strip().lower()
     clean_tenant_slug = tenant_slug.strip().lower() if tenant_slug and tenant_slug.strip() else None
+    clean_domain = domain.strip().lower() if domain and domain.strip() else None
+    if clean_domain in ("crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197"):
+        clean_domain = None
 
     client_ip = request.client.host if request.client else "unknown"
     rate_limit_key = f"{client_ip}:{username_clean}"
@@ -167,8 +171,19 @@ async def login_for_access_token(
                           t.slug as tenant_slug, t.name as tenant_name
                    FROM users u
                    LEFT JOIN tenants t ON u.tenant_id = t.id
-                   WHERE LOWER(TRIM(u.email)) = $1 AND LOWER(TRIM(t.slug)) = $2""",
+                   WHERE LOWER(TRIM(u.email)) = $1 
+                     AND (LOWER(TRIM(t.slug)) = $2 OR LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $2)""",
                 username_clean, clean_tenant_slug
+            )
+        elif clean_domain:
+            user = await conn.fetchrow(
+                """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
+                          t.slug as tenant_slug, t.name as tenant_name
+                   FROM users u
+                   LEFT JOIN tenants t ON u.tenant_id = t.id
+                   WHERE LOWER(TRIM(u.email)) = $1 
+                     AND LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $2""",
+                username_clean, clean_domain
             )
         else:
             users = await conn.fetch(

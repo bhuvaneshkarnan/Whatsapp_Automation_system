@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/api';
+import { isPlatformHost } from '@/lib/branding';
 import AdminClientsPage from '../../admin/clients/page';
 
 export default function BhuvaneshAdminPage() {
@@ -10,6 +11,11 @@ export default function BhuvaneshAdminPage() {
   const [authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
+    if (typeof window !== 'undefined' && !isPlatformHost(window.location.hostname)) {
+      router.replace('/login');
+      return;
+    }
+
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
     if (!token) {
       router.replace('/bhuvanesh');

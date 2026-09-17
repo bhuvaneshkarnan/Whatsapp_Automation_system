@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth, crm, registerTenantSlug } from '@/lib/api';
+import { useBranding } from '@/lib/branding';
 import {
   MessageSquare,
   Lock,
@@ -27,6 +28,7 @@ interface PaymentRequiredDetails {
 
 export default function LoginPage() {
   const router = useRouter();
+  const { branding, isCustomDomain } = useBranding();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -39,7 +41,9 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      const res = await auth.login(email, password, rememberMe);
+      const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+      const domainParam = branding.custom_domain || (isCustomDomain ? hostname : undefined);
+      const res = await auth.login(email, password, rememberMe, branding.tenant_slug || undefined, domainParam);
       localStorage.setItem('auth_token', res.access_token);
       if (res.tenant_id) {
         localStorage.setItem('tenant_id', res.tenant_id);
@@ -139,7 +143,7 @@ export default function LoginPage() {
               Subscription Payment Required
             </h1>
             <p className="text-xs text-text-muted mt-1">
-              {paymentRequired.org_name ? `Organization: ${paymentRequired.org_name}` : 'Boldlabs CRM'}
+              {paymentRequired.org_name ? `Organization: ${paymentRequired.org_name}` : (branding.brand_name || 'Boldlabs CRM')}
             </p>
           </div>
 
@@ -192,7 +196,7 @@ export default function LoginPage() {
 
           {/* Footer */}
           <p className="text-center text-xs text-text-muted mt-6">
-            Need assistance? Contact support at support@boldlabs.ai
+            Need assistance? Contact support at {branding.brand_support_email || 'support@boldlabs.ai'}
           </p>
         </div>
       </div>
@@ -204,11 +208,27 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Brand */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-10 h-10 rounded-sm bg-accent text-white mb-3">
-            <MessageSquare className="w-5 h-5 stroke-[1.5]" />
-          </div>
+          {branding.brand_logo_url ? (
+            <div className="flex items-center justify-center mb-3">
+              <img
+                src={branding.brand_logo_url}
+                alt={branding.brand_name || 'Logo'}
+                className="h-12 max-w-[200px] object-contain"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+            </div>
+          ) : (
+            <div
+              className="inline-flex items-center justify-center w-10 h-10 rounded-sm bg-accent text-white mb-3 shadow-sm"
+              style={branding.brand_primary_color ? { backgroundColor: branding.brand_primary_color } : undefined}
+            >
+              <MessageSquare className="w-5 h-5 stroke-[1.5]" />
+            </div>
+          )}
           <h1 className="text-xl font-semibold text-text-primary">
-            Boldlabs CRM
+            {branding.brand_name || 'Boldlabs CRM'}
           </h1>
           <p className="text-xs text-text-muted mt-1">
             Sign in to access your business inbox and bookings
@@ -278,7 +298,8 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2 px-4 bg-accent hover:bg-accent-hover text-white font-medium text-sm rounded-sm transition-colors duration-150 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+              style={branding.brand_primary_color ? { backgroundColor: branding.brand_primary_color } : undefined}
+              className="w-full py-2 px-4 bg-accent hover:bg-accent-hover text-white font-medium text-sm rounded-sm transition-colors duration-150 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-sm"
             >
               {loading ? (
                 <>
@@ -297,15 +318,25 @@ export default function LoginPage() {
 
         {/* Footer */}
         <div className="text-center mt-5 space-y-2">
-          <a
-            href="/bhuvanesh"
-            className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-accent transition-colors"
-          >
-            <span>Platform Super Admin Portal</span>
-            <ArrowRight className="w-3 h-3 stroke-[1.5]" />
-          </a>
+          {!branding.hide_platform_branding && !isCustomDomain && (
+            <a
+              href="/bhuvanesh"
+              className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-accent transition-colors"
+            >
+              <span>Platform Super Admin Portal</span>
+              <ArrowRight className="w-3 h-3 stroke-[1.5]" />
+            </a>
+          )}
+          {branding.brand_support_email && (
+            <p className="text-center text-xs text-text-muted">
+              Need support?{' '}
+              <a href={`mailto:${branding.brand_support_email}`} className="text-accent hover:underline">
+                {branding.brand_support_email}
+              </a>
+            </p>
+          )}
           <p className="text-center text-xs text-text-muted">
-            &copy; {new Date().getFullYear()} Boldlabs CRM. All rights reserved.
+            &copy; {new Date().getFullYear()} {branding.brand_name || 'Boldlabs CRM'}. All rights reserved.
           </p>
         </div>
       </div>

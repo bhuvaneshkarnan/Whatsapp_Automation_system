@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/api';
+import { isPlatformHost } from '@/lib/branding';
 import AdminClientsPage from '../admin/clients/page';
 import { ShieldCheck, Lock, Mail, ArrowRight, ArrowLeft, AlertCircle, Loader2 } from 'lucide-react';
 
@@ -19,6 +20,11 @@ export default function BhuvaneshAdminPortalPage() {
   const [loginError, setLoginError] = useState('');
 
   useEffect(() => {
+    if (typeof window !== 'undefined' && !isPlatformHost(window.location.hostname)) {
+      router.replace('/login');
+      return;
+    }
+
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
     if (!token) {
       setCheckingAuth(false);
