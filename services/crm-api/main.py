@@ -5675,8 +5675,8 @@ async def get_tenant_settings(
 ):
     """Retrieve full settings for the currently logged-in tenant / client."""
     caller_role = caller.get("role") if isinstance(caller, dict) else "admin"
-    if target_tenant_id and caller_role == "super_admin":
-        tenant_id = target_tenant_id
+    if isinstance(target_tenant_id, str) and target_tenant_id.strip() and caller_role == "super_admin":
+        tenant_id = target_tenant_id.strip()
     async with db_pool.acquire() as conn:
         tenant = await conn.fetchrow(
             """
@@ -6124,9 +6124,15 @@ async def update_tenant_settings(
     if caller_role not in ("admin", "owner", "super_admin"):
         raise HTTPException(status_code=403, detail="Admin privileges required to update settings.")
     if caller_role == "super_admin":
-        target_id = target_tenant_id or payload.target_tenant_id or payload.tenant_id
-        if target_id:
-            tenant_id = target_id.strip()
+        eff_target = None
+        if isinstance(target_tenant_id, str) and target_tenant_id.strip():
+            eff_target = target_tenant_id.strip()
+        elif payload and payload.target_tenant_id and isinstance(payload.target_tenant_id, str) and payload.target_tenant_id.strip():
+            eff_target = payload.target_tenant_id.strip()
+        elif payload and payload.tenant_id and isinstance(payload.tenant_id, str) and payload.tenant_id.strip():
+            eff_target = payload.tenant_id.strip()
+        if eff_target:
+            tenant_id = eff_target
     async with db_pool.acquire() as conn:
         # 1. Update tenant table settings & branding
         if payload.name:
@@ -6594,7 +6600,7 @@ async def admin_disconnect_google_oauth(
     admin_user: dict = Depends(verify_super_admin)
 ):
     """Super Admin disconnects Google Calendar sync for a specific client organization."""
-    return await disconnect_google_calendar(tenant_id=target_tenant_id)
+    return await disconnect_google_calendar(tenant_id=target_tenant_id, caller={"role": "super_admin"})
 
 
 @app.get("/calendar/live-availability")
@@ -7393,14 +7399,14 @@ async def reset_admin_tenant_password(tenant_id: str, payload: PasswordReset, ad
 @app.get("/admin/tenants/{tenant_id}/settings")
 async def get_admin_tenant_settings(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
     """Retrieve full settings for a specific client organization as Super Admin."""
-    return await get_tenant_settings(tenant_id, caller={"role": "super_admin"})
+    return await get_tenant_settings(tenant_id=tenant_id, target_tenant_id=tenant_id, caller={"role": "super_admin"})
 
 
 @app.put("/admin/tenants/{tenant_id}/settings")
 @app.patch("/admin/tenants/{tenant_id}/settings")
 async def update_admin_tenant_settings(tenant_id: str, payload: TenantSettingsUpdate, admin_user: dict = Depends(verify_super_admin)):
     """Update all settings & credentials for a specific client organization directly from Super Admin."""
-    return await update_tenant_settings(payload, tenant_id, caller={"role": "super_admin"})
+    return await update_tenant_settings(payload=payload, tenant_id=tenant_id, target_tenant_id=tenant_id, caller={"role": "super_admin"})
 
 
 
