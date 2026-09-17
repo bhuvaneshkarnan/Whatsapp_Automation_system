@@ -6912,14 +6912,9 @@ async def get_admin_global_rules(admin_user: dict = Depends(verify_super_admin))
         tenants_with_rules = await conn.fetchval("SELECT count(*) FROM ai_config WHERE strict_rules IS NOT NULL AND length(strict_rules) > 10") or 0
         gcal_connected_count = await conn.fetchval("SELECT count(*) FROM tenant_credentials WHERE provider = 'google_calendar' AND is_active = true") or 0
         
-        # Pull global opening/closing defaults from the first tenant if configured
-        first_tenant_st = await conn.fetchval("SELECT settings FROM tenants WHERE settings IS NOT NULL LIMIT 1")
+        # Standard platform operating hours defaults
         default_open = "09:00"
         default_close = "20:00"
-        if first_tenant_st:
-            st = safe_json_loads(first_tenant_st)
-            if st.get("opening_time"): default_open = st.get("opening_time").strip()
-            if st.get("closing_time"): default_close = st.get("closing_time").strip()
 
         return {
             "status": "active",
@@ -7285,7 +7280,7 @@ async def get_admin_tenant_details(tenant_id: str, admin_user: dict = Depends(ve
         if not tenant:
             raise HTTPException(404, "Client not found")
 
-        admin_user = await conn.fetchrow("SELECT email, role, display_name FROM users WHERE tenant_id = $1::uuid AND role = 'admin' LIMIT 1", tenant_id)
+        tenant_admin_user = await conn.fetchrow("SELECT email, role, display_name FROM users WHERE tenant_id = $1::uuid AND role = 'admin' LIMIT 1", tenant_id)
         creds = await conn.fetchrow("SELECT credential_data, is_active FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' LIMIT 1", tenant_id)
         gemini_creds = await conn.fetchrow("SELECT credential_data, is_active FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'gemini' LIMIT 1", tenant_id)
         groq_creds = await conn.fetchrow("SELECT credential_data, is_active FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'groq' LIMIT 1", tenant_id)
@@ -7296,7 +7291,7 @@ async def get_admin_tenant_details(tenant_id: str, admin_user: dict = Depends(ve
         if isinstance(t_settings, str):
             try: t_settings = json.loads(t_settings)
             except: t_settings = {}
-        admin_display = admin_user["display_name"] if admin_user and admin_user["display_name"] else t_settings.get("admin_name", "")
+        admin_display = tenant_admin_user["display_name"] if tenant_admin_user and tenant_admin_user["display_name"] else t_settings.get("admin_name", "")
 
         cred_data = {}
         if creds and creds["credential_data"]:
@@ -7318,7 +7313,7 @@ async def get_admin_tenant_details(tenant_id: str, admin_user: dict = Depends(ve
         "plan": tenant["plan"],
         "created_at": tenant["created_at"].isoformat() if tenant["created_at"] else "",
         "admin_name": admin_display,
-        "admin_email": admin_user["email"] if admin_user else "",
+        "admin_email": tenant_admin_user["email"] if tenant_admin_user else "",
         "webhook_url": f"http://168.138.172.197/webhooks/whatsapp/{tenant['slug']}",
         "credentials": {
             "phone_number_id": cred_data.get("phone_number_id", ""),
@@ -7330,7 +7325,7 @@ async def get_admin_tenant_details(tenant_id: str, admin_user: dict = Depends(ve
             "has_opencode_key": has_opencode_key,
             "full_location_text": cred_data.get("full_location_text", ""),
             "admin_whatsapp_number": cred_data.get("admin_whatsapp_number", ""),
-            "template_booking_confirmation": cred_data.get("template_booking_confirmation", "booking_confirmationn"),
+            "template_booking_confirmation": cred_data.get("template_booking_confirmation", "booking_confirmation"),
             "template_admin_notification": cred_data.get("template_admin_notification", "admin_notification"),
             "template_admin_human_request": cred_data.get("template_admin_human_request", "admin_human_request"),
             "template_cancellation_confirmation": cred_data.get("template_cancellation_confirmation", "cancellation_confirmation"),
@@ -7452,6 +7447,7 @@ async def delete_admin_tenant(tenant_id: str, admin_user: dict = Depends(verify_
             await conn.execute("DELETE FROM customer_notes WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM tasks WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM customers WHERE tenant_id = $1::uuid", tenant_id)
+            await conn.execute("DELETE FROM customer_reviews WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM contacts WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM push_subscriptions WHERE tenant_id = $1::uuid", tenant_id)
             await conn.execute("DELETE FROM notifications WHERE tenant_id = $1::uuid", tenant_id)
@@ -7480,18 +7476,27 @@ class PaymentReminderRequest(BaseModel):
 async def get_platform_admin_stats(admin_user: dict = Depends(verify_super_admin)):
     """Retrieve global multi-tenant platform metrics, MRR and health status."""
     async with db_pool.acquire() as conn:
-        tenants = await conn.fetch("SELECT id, name, plan, is_active, created_at FROM tenants")
+        tenants = await conn.fetch("SELECT id, name, plan, is_active, settings, created_at FROM tenants")
         total_msgs = await conn.fetchval("SELECT COUNT(*) FROM messages") or 0
         total_convs = await conn.fetchval("SELECT COUNT(*) FROM conversations") or 0
         total_bookings = await conn.fetchval("SELECT COUNT(*) FROM bookings") or 0
         
-        # Calculate estimated MRR based on plans
-        plan_prices = {
+        # Calculate MRR using per-tenant monthly_price from settings, falling back to plan defaults
+        plan_defaults = {
             "starter": 999.0,
             "pro": 3499.0,
             "enterprise": 9999.0
         }
-        total_mrr = sum(plan_prices.get((t["plan"] or "pro").lower(), 3499.0) for t in tenants if t["is_active"])
+        total_mrr = 0.0
+        for t in tenants:
+            if not t["is_active"]:
+                continue
+            t_cfg = t["settings"] or {}
+            if isinstance(t_cfg, str):
+                try: t_cfg = json.loads(t_cfg)
+                except: t_cfg = {}
+            price = float(t_cfg.get("monthly_price", 0)) if isinstance(t_cfg, dict) and t_cfg.get("monthly_price") else plan_defaults.get((t["plan"] or "pro").lower(), 3499.0)
+            total_mrr += price
         
     return {
         "total_tenants": len(tenants),

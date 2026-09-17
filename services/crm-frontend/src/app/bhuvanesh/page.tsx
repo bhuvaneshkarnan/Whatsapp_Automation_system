@@ -25,13 +25,9 @@ export default function BhuvaneshAdminPortalPage() {
       return;
     }
 
-    fetch('/api/v1/auth/users/me', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error('Unauthorized');
-        const user = await res.json();
-        if (user.role === 'super_admin') {
+    auth.me()
+      .then((user) => {
+        if (user && user.role === 'super_admin') {
           setAdminUser(user);
         } else {
           setAdminUser(null);

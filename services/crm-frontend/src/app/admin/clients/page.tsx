@@ -67,6 +67,7 @@ import {
 import {
   admin,
   crm,
+  auth,
   ClientTenant,
   ClientCreatedResponse,
   PlatformStats,
@@ -571,11 +572,11 @@ export default function SuperAdminClients() {
     e.preventDefault();
     if (!editingConfigTenant) return;
     if (!staffForm.email.trim()) {
-      alert('Email address is required.');
+      setStaffError('Email address is required.');
       return;
     }
     if (!editingStaff && !staffForm.password.trim()) {
-      alert('Password is required when creating a new staff credential.');
+      setStaffError('Password is required when creating a new staff credential.');
       return;
     }
     setStaffSaving(true);
@@ -601,6 +602,8 @@ export default function SuperAdminClients() {
       setShowStaffModal(false);
       setEditingStaff(null);
       await loadTenantStaff(editingConfigTenant.id);
+      setActionSuccessNotice('Staff credentials updated successfully.');
+      setTimeout(() => setActionSuccessNotice(null), 3000);
     } catch (err: any) {
       setStaffError(err?.message || 'Failed to save staff credentials.');
     } finally {
@@ -617,8 +620,10 @@ export default function SuperAdminClients() {
     try {
       await admin.deleteStaff(editingConfigTenant.id, userId);
       await loadTenantStaff(editingConfigTenant.id);
+      setActionSuccessNotice('Staff member removed successfully.');
+      setTimeout(() => setActionSuccessNotice(null), 3000);
     } catch (err: any) {
-      alert(err?.message || 'Failed to delete staff member');
+      setStaffError(err?.message || 'Failed to delete staff member');
     } finally {
       setStaffLoading(false);
     }
@@ -658,7 +663,7 @@ export default function SuperAdminClients() {
         admin.getTenantSettings(tenantId).then(setConfigForm).catch(() => {});
       }
     } catch (err: any) {
-      alert(`Failed to sync Meta templates: ${err?.message || err}`);
+      triggerErrorNotice(`Failed to sync Meta templates: ${err?.message || err}`);
     } finally {
       setIsSyncingMetaTemplates(false);
     }
@@ -761,6 +766,12 @@ export default function SuperAdminClients() {
   const [createdClient, setCreatedClient] = useState<(ClientCreatedResponse & { password?: string }) | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [actionSuccessNotice, setActionSuccessNotice] = useState<string | null>(null);
+  const [actionErrorNotice, setActionErrorNotice] = useState<string | null>(null);
+
+  function triggerErrorNotice(msg: string) {
+    setActionErrorNotice(msg);
+    setTimeout(() => setActionErrorNotice(null), 6000);
+  }
 
   // Password reset modal state
   const [resetTenantId, setResetTenantId] = useState<string | null>(null);
@@ -806,7 +817,7 @@ export default function SuperAdminClients() {
     services_text: '',
     full_location_text: '',
     admin_whatsapp_number: '',
-    template_booking_confirmation: 'booking_confirmationn',
+    template_booking_confirmation: 'booking_confirmation',
     template_admin_notification: 'admin_notification',
     template_admin_human_request: 'admin_human_request',
     template_cancellation_confirmation: 'cancellation_confirmation',
@@ -828,13 +839,8 @@ export default function SuperAdminClients() {
       return;
     }
 
-    // Verify token and verify super_admin role against auth service
-    fetch('/api/v1/auth/users/me', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error('Unauthorized');
-        const user = await res.json();
+    auth.me()
+      .then((user) => {
         if (user.role !== 'super_admin') {
           router.replace('/dashboard');
           return;
@@ -844,7 +850,8 @@ export default function SuperAdminClients() {
         if (saved) setSuperAdminPhone(saved);
         loadData();
       })
-      .catch(() => {
+      .catch((err) => {
+        console.warn('Super admin session verification failed:', err);
         router.replace('/bhuvanesh');
       });
   }, []);
@@ -907,9 +914,10 @@ export default function SuperAdminClients() {
       );
       setActionSuccessNotice(`Tenant status updated to ${updated.status.toUpperCase()}`);
       setTimeout(() => setActionSuccessNotice(null), 3000);
-      admin.getStats().then(setStats).catch(() => {});
+      admin.getStats().then(setStats).catch((statErr) => console.warn('Failed to refresh stats:', statErr));
     } catch (err) {
       console.error('Failed to toggle status:', err);
+      triggerErrorNotice(err instanceof Error ? err.message : 'Failed to update tenant status');
     } finally {
       setTogglingId(null);
     }
@@ -1122,7 +1130,7 @@ export default function SuperAdminClients() {
       setEditingBillingTenant(null);
       loadData();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to save billing.');
+      triggerErrorNotice(err instanceof Error ? err.message : 'Failed to save billing.');
     } finally {
       setSavingBilling(false);
     }
@@ -1149,7 +1157,7 @@ export default function SuperAdminClients() {
       setActionSuccessNotice(`Billing link updated for ${tenant.name}! Live checkout is ready.`);
       setTimeout(() => setActionSuccessNotice(null), 5000);
     } catch (err: any) {
-      alert(`Failed to activate billing: ${err?.message || err}`);
+      triggerErrorNotice(`Failed to activate billing: ${err?.message || err}`);
     } finally {
       setActivatingBillingId(null);
     }
@@ -1174,7 +1182,7 @@ export default function SuperAdminClients() {
       setActionSuccessNotice(`Synced with Razorpay: ${res.subscription_status.toUpperCase()} (${res.invoices_synced} invoices updated)`);
       setTimeout(() => setActionSuccessNotice(null), 5000);
     } catch (err: any) {
-      alert(`Sync failed: ${err?.message || err}`);
+      triggerErrorNotice(`Sync failed: ${err?.message || err}`);
     } finally {
       setSyncingBillingId(null);
     }
@@ -1187,7 +1195,7 @@ export default function SuperAdminClients() {
       const invs = await admin.getInvoices(tenant.id);
       setTenantInvoices(invs);
     } catch (err: any) {
-      alert(`Failed to load invoices: ${err?.message || err}`);
+      triggerErrorNotice(`Failed to load invoices: ${err?.message || err}`);
     } finally {
       setLoadingInvoices(false);
     }
@@ -1209,7 +1217,7 @@ export default function SuperAdminClients() {
       setDeleteTenantTarget(null);
       loadData();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to delete organization.');
+      triggerErrorNotice(err instanceof Error ? err.message : 'Failed to delete organization.');
     } finally {
       setDeletingTenant(false);
     }
@@ -1228,7 +1236,7 @@ export default function SuperAdminClients() {
         setAlertTenant(null);
       }, 3000);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to dispatch alert to Super Admin.');
+      triggerErrorNotice(err instanceof Error ? err.message : 'Failed to dispatch alert to Super Admin.');
     } finally {
       setSendingAdminAlert(false);
     }
@@ -1425,6 +1433,18 @@ export default function SuperAdminClients() {
               <span>{actionSuccessNotice || alertSuccessNotice}</span>
             </span>
             <button onClick={() => { setActionSuccessNotice(null); setAlertSuccessNotice(null); }} className="hover:opacity-75 cursor-pointer">
+              <X className="w-3 h-3 stroke-[1.5]" />
+            </button>
+          </div>
+        )}
+
+        {actionErrorNotice && (
+          <div className="bg-status-error-bg border-b border-status-error-border px-6 py-2 text-xs text-status-error flex items-center justify-between font-medium shrink-0 animate-in fade-in duration-200">
+            <span className="flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 stroke-[1.5]" />
+              <span>{actionErrorNotice}</span>
+            </span>
+            <button onClick={() => setActionErrorNotice(null)} className="hover:opacity-75 cursor-pointer">
               <X className="w-3 h-3 stroke-[1.5]" />
             </button>
           </div>
@@ -5265,7 +5285,7 @@ export default function SuperAdminClients() {
                       onClick={() => {
                         const cleanPhone = clientPaymentPhone.replace(/\D/g, '');
                         if (!cleanPhone) {
-                          alert('Please enter the client personal WhatsApp phone number above.');
+                          triggerErrorNotice('Please enter the client personal WhatsApp phone number above.');
                           return;
                         }
                         const priceStr = (activePaymentModalTenant.monthly_price || 3499).toLocaleString();
