@@ -1370,6 +1370,24 @@ export interface ClientTenant {
   owner_share_pct?: number;
 }
 
+export interface PartnerAgencyTemplate {
+  id?: string;
+  partner_name: string;
+  partner_share_pct: number;
+  owner_share_pct: number;
+  custom_domain?: string;
+  brand_name?: string;
+  brand_logo_url?: string;
+  brand_favicon_url?: string;
+  brand_primary_color?: string;
+  brand_support_email?: string;
+  brand_support_phone?: string;
+  hide_platform_branding?: boolean;
+  is_default?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface StaffPermissions {
   can_view_inbox?: boolean;
   can_send_messages?: boolean;
@@ -1619,6 +1637,21 @@ export const admin = {
     request<{ status: string }>(`/api/v1/crm/admin/tenants/${tenantId}/oauth/google/disconnect`, {
       method: 'POST',
     }),
+  getPartnerTemplates: () =>
+    request<PartnerAgencyTemplate[]>('/api/v1/crm/admin/partner-templates'),
+  savePartnerTemplate: (data: PartnerAgencyTemplate) =>
+    request<{ status: string; message: string; template: PartnerAgencyTemplate }>(
+      '/api/v1/crm/admin/partner-templates',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    ),
+  deletePartnerTemplate: (partnerName: string) =>
+    request<{ status: string; deleted_partner: string }>(
+      `/api/v1/crm/admin/partner-templates/${encodeURIComponent(partnerName)}`,
+      { method: 'DELETE' }
+    ),
   getGlobalRules: () =>
     request<GlobalRulesResponse>('/api/v1/crm/admin/global-rules'),
   syncGlobalRules: (data?: { strict_rules?: string; opening_time?: string; closing_time?: string } | string) => {

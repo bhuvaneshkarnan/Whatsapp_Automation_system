@@ -83,6 +83,7 @@ import {
   GlobalRulesResponse,
   LiveCalendarAvailabilityResponse,
   LiveCalendarSlot,
+  PartnerAgencyTemplate,
 } from '@/lib/api';
 
 
@@ -356,6 +357,25 @@ export default function SuperAdminClients() {
   const [selectedPartnerFilter, setSelectedPartnerFilter] = useState<string>('all');
   const [isAddingNewPartner, setIsAddingNewPartner] = useState(false);
   const [newPartnerNameInput, setNewPartnerNameInput] = useState('');
+
+  // ── PARTNER AGENCY TEMPLATES (Reusable White-Label Presets) ──
+  const [partnerTemplates, setPartnerTemplates] = useState<PartnerAgencyTemplate[]>([]);
+  const [showPartnerTemplateModal, setShowPartnerTemplateModal] = useState(false);
+  const [savingPartnerTemplate, setSavingPartnerTemplate] = useState(false);
+  const [partnerTemplateForm, setPartnerTemplateForm] = useState<PartnerAgencyTemplate>({
+    partner_name: '',
+    partner_share_pct: 50,
+    owner_share_pct: 50,
+    custom_domain: '',
+    brand_name: '',
+    brand_logo_url: '',
+    brand_favicon_url: '',
+    brand_primary_color: '#7C3AED',
+    brand_support_email: '',
+    brand_support_phone: '',
+    hide_platform_branding: true,
+    is_default: true,
+  });
 
   const [showWebhooksRegistry, setShowWebhooksRegistry] = useState(false);
   const [oauthConnecting, setOauthConnecting] = useState(false);
@@ -891,9 +911,10 @@ export default function SuperAdminClients() {
     setLoading(true);
     setError('');
     try {
-      const [tenantsData, statsData] = await Promise.allSettled([
+      const [tenantsData, statsData, templatesData] = await Promise.allSettled([
         admin.listTenants(),
         admin.getStats(),
+        admin.getPartnerTemplates(),
       ]);
 
       if (tenantsData.status === 'fulfilled') {
@@ -904,6 +925,10 @@ export default function SuperAdminClients() {
 
       if (statsData.status === 'fulfilled') {
         setStats(statsData.value);
+      }
+
+      if (templatesData.status === 'fulfilled') {
+        setPartnerTemplates(templatesData.value);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to load client tenants.';
@@ -970,8 +995,29 @@ export default function SuperAdminClients() {
         owner_share_pct: clientPayload.owner_share_pct,
       });
 
-      // If custom_domain or brand_name was specified during onboarding, persist it!
-      if (formData.custom_domain || formData.brand_name) {
+      // If partnered, automatically apply white-label branding from the matching partner agency template
+      if (isPartner && finalPartnerName) {
+        const matchingTpl = partnerTemplates.find(
+          (t) => t.partner_name.toLowerCase() === finalPartnerName.toLowerCase()
+        ) || partnerTemplates.find((t) => t.is_default) || null;
+
+        const brandingUpdates: Record<string, any> = {
+          custom_domain: (formData.custom_domain || matchingTpl?.custom_domain || '').trim().toLowerCase(),
+          brand_name: (formData.brand_name || matchingTpl?.brand_name || formData.name || '').trim(),
+        };
+        if (matchingTpl?.brand_logo_url) brandingUpdates.brand_logo_url = matchingTpl.brand_logo_url;
+        if (matchingTpl?.brand_favicon_url) brandingUpdates.brand_favicon_url = matchingTpl.brand_favicon_url;
+        if (matchingTpl?.brand_primary_color) brandingUpdates.brand_primary_color = matchingTpl.brand_primary_color;
+        if (matchingTpl?.brand_support_email) brandingUpdates.brand_support_email = matchingTpl.brand_support_email;
+        if (matchingTpl?.brand_support_phone) brandingUpdates.brand_support_phone = matchingTpl.brand_support_phone;
+        if (typeof matchingTpl?.hide_platform_branding === 'boolean') {
+          brandingUpdates.hide_platform_branding = matchingTpl.hide_platform_branding;
+        }
+
+        await admin.updateTenantSettings(res.id, brandingUpdates).catch((err) =>
+          console.warn('Failed to apply partner template branding:', err)
+        );
+      } else if (formData.custom_domain || formData.brand_name) {
         await admin.updateTenantSettings(res.id, {
           custom_domain: (formData.custom_domain || '').trim().toLowerCase(),
           brand_name: (formData.brand_name || formData.name || '').trim(),
@@ -1312,12 +1358,20 @@ export default function SuperAdminClients() {
   const partnerTenants = tenants.filter((t) => t.sales_channel === 'partner');
 
   const existingPartners = Array.from(
-    new Set(
-      partnerTenants
+    new Set([
+      ...partnerTenants
         .map((t) => t.partner_name?.trim())
-        .filter((name): name is string => Boolean(name))
-    )
+        .filter((name): name is string => Boolean(name)),
+      ...partnerTemplates
+        .map((t) => t.partner_name?.trim())
+        .filter((name): name is string => Boolean(name)),
+    ])
   ).sort();
+
+  const defaultPartnerTemplate =
+    partnerTemplates.find((t) => t.is_default) ||
+    partnerTemplates[0] ||
+    null;
 
   const directMRR = directTenants.reduce((acc, t) => {
     if (t.status !== 'active') return acc;
@@ -1347,11 +1401,31 @@ export default function SuperAdminClients() {
   function handleOpenCreateModal(overrideChannel?: 'direct' | 'partner') {
     const channel = overrideChannel || (activeOrgTab === 'partnered' ? 'partner' : 'direct');
     let defaultPartner = '';
+    let defaultSplitPartner = 50;
+    let defaultSplitOwner = 50;
+    let defaultCustomDomain = '';
+    let defaultBrandName = '';
+
     if (channel === 'partner') {
       if (selectedPartnerFilter && selectedPartnerFilter !== 'all') {
         defaultPartner = selectedPartnerFilter;
+      } else if (defaultPartnerTemplate) {
+        defaultPartner = defaultPartnerTemplate.partner_name;
       } else if (existingPartners.length > 0) {
         defaultPartner = existingPartners[0];
+      }
+
+      // Lookup matching template
+      const matchingTpl =
+        partnerTemplates.find((t) => t.partner_name.toLowerCase() === defaultPartner.toLowerCase()) ||
+        defaultPartnerTemplate;
+
+      if (matchingTpl) {
+        defaultPartner = matchingTpl.partner_name;
+        defaultSplitPartner = matchingTpl.partner_share_pct ?? 50;
+        defaultSplitOwner = matchingTpl.owner_share_pct ?? 50;
+        defaultCustomDomain = matchingTpl.custom_domain || '';
+        defaultBrandName = matchingTpl.brand_name || matchingTpl.partner_name || '';
       }
     }
 
@@ -1359,15 +1433,84 @@ export default function SuperAdminClients() {
       ...initialFormData,
       sales_channel: channel,
       partner_name: defaultPartner,
-      partner_share_pct: channel === 'partner' ? 50 : 0,
-      owner_share_pct: channel === 'partner' ? 50 : 100,
-      custom_domain: '',
-      brand_name: '',
+      partner_share_pct: channel === 'partner' ? defaultSplitPartner : 0,
+      owner_share_pct: channel === 'partner' ? defaultSplitOwner : 100,
+      custom_domain: channel === 'partner' ? defaultCustomDomain : '',
+      brand_name: channel === 'partner' ? defaultBrandName : '',
     });
-    setIsAddingNewPartner(channel === 'partner' && existingPartners.length === 0);
+    setIsAddingNewPartner(channel === 'partner' && !defaultPartner && existingPartners.length === 0);
     setNewPartnerNameInput('');
     setFormError('');
     setShowCreateModal(true);
+  }
+
+  function handleOpenPartnerTemplateModal(templateToEdit?: PartnerAgencyTemplate) {
+    if (templateToEdit) {
+      setPartnerTemplateForm({ ...templateToEdit });
+    } else {
+      const defaultTpl = partnerTemplates.find((t) => t.is_default) || partnerTemplates[0];
+      if (defaultTpl) {
+        setPartnerTemplateForm({ ...defaultTpl });
+      } else {
+        setPartnerTemplateForm({
+          partner_name: '',
+          partner_share_pct: 50,
+          owner_share_pct: 50,
+          custom_domain: '',
+          brand_name: '',
+          brand_logo_url: '',
+          brand_favicon_url: '',
+          brand_primary_color: '#7C3AED',
+          brand_support_email: '',
+          brand_support_phone: '',
+          hide_platform_branding: true,
+          is_default: true,
+        });
+      }
+    }
+    setShowPartnerTemplateModal(true);
+  }
+
+  async function handleSavePartnerTemplate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!partnerTemplateForm.partner_name?.trim()) {
+      triggerErrorNotice('Partner Agency Name is required.');
+      return;
+    }
+    setSavingPartnerTemplate(true);
+    try {
+      const payload: PartnerAgencyTemplate = {
+        ...partnerTemplateForm,
+        partner_name: partnerTemplateForm.partner_name.trim(),
+        custom_domain: (partnerTemplateForm.custom_domain || '').trim().toLowerCase(),
+        brand_name: (partnerTemplateForm.brand_name || partnerTemplateForm.partner_name).trim(),
+      };
+      await admin.savePartnerTemplate(payload);
+      const updated = await admin.getPartnerTemplates();
+      setPartnerTemplates(updated);
+      setActionSuccessNotice(`Partner template "${payload.partner_name}" saved successfully!`);
+      setTimeout(() => setActionSuccessNotice(null), 4000);
+      setShowPartnerTemplateModal(false);
+    } catch (err: unknown) {
+      console.error('Failed to save partner template:', err);
+      triggerErrorNotice(err instanceof Error ? err.message : 'Failed to save partner template.');
+    } finally {
+      setSavingPartnerTemplate(false);
+    }
+  }
+
+  async function handleDeletePartnerTemplate(partnerName: string) {
+    if (!confirm(`Are you sure you want to delete the template for "${partnerName}"?`)) return;
+    try {
+      await admin.deletePartnerTemplate(partnerName);
+      const updated = await admin.getPartnerTemplates();
+      setPartnerTemplates(updated);
+      setActionSuccessNotice(`Template "${partnerName}" deleted.`);
+      setTimeout(() => setActionSuccessNotice(null), 3000);
+    } catch (err: unknown) {
+      console.error('Failed to delete template:', err);
+      triggerErrorNotice(err instanceof Error ? err.message : 'Failed to delete template.');
+    }
   }
 
   const filteredTenants = tenants.filter((t) => {
@@ -1942,6 +2085,21 @@ export default function SuperAdminClients() {
                         <Plus className="w-2.5 h-2.5" />
                         <span>+ Add Partner Agency</span>
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPartnerTemplateModal()}
+                        className="px-2.5 py-0.5 rounded text-[11px] font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/40 hover:bg-purple-200 dark:hover:bg-purple-900/60 border border-purple-300 dark:border-purple-700 transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                        title="Configure reusable white-label preset template (domain, branding, revenue split)"
+                      >
+                        <SlidersHorizontal className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                        <span>Partner Preset Template</span>
+                        {partnerTemplates.length > 0 && (
+                          <span className="bg-purple-600 text-white text-[9px] px-1 rounded-full font-mono">
+                            {partnerTemplates.length}
+                          </span>
+                        )}
+                      </button>
                     </div>
 
                     {/* Partner Revenue Split Strip */}
@@ -1959,6 +2117,59 @@ export default function SuperAdminClients() {
                       </span>
                     </div>
                   </div>
+
+                  {/* Active Partner White-Label Preset Ribbon */}
+                  {defaultPartnerTemplate ? (
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-2.5 py-1.5 bg-white dark:bg-surface rounded border border-purple-500/20 text-xs shadow-2xs">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="inline-flex items-center gap-1 text-purple-700 dark:text-purple-400 font-semibold text-[11px] uppercase tracking-wide">
+                          <Sparkles className="w-3 h-3 text-purple-500" />
+                          Active Preset:
+                        </span>
+                        <span className="font-semibold text-text-primary">{defaultPartnerTemplate.partner_name}</span>
+                        <span className="text-text-muted">&bull;</span>
+                        <span className="font-mono text-[11px] text-purple-700 dark:text-purple-300 flex items-center gap-1">
+                          <Globe className="w-3 h-3" />
+                          {defaultPartnerTemplate.custom_domain || 'No custom domain'}
+                        </span>
+                        <span className="text-text-muted">&bull;</span>
+                        <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400">
+                          {defaultPartnerTemplate.partner_share_pct}% Partner / {defaultPartnerTemplate.owner_share_pct}% Boldlabs
+                        </span>
+                        {defaultPartnerTemplate.brand_primary_color && (
+                          <span className="inline-flex items-center gap-1">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full border border-black/20"
+                              style={{ backgroundColor: defaultPartnerTemplate.brand_primary_color }}
+                            />
+                            <span className="text-[10px] font-mono text-text-muted">{defaultPartnerTemplate.brand_primary_color}</span>
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPartnerTemplateModal(defaultPartnerTemplate)}
+                        className="text-[11px] font-semibold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer flex items-center gap-0.5 shrink-0"
+                      >
+                        <span>Edit Preset</span>
+                        <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between px-2.5 py-1.5 bg-white dark:bg-surface rounded border border-purple-500/20 text-xs">
+                      <span className="text-text-muted flex items-center gap-1.5">
+                        <Sparkles className="w-3 h-3 text-purple-500" />
+                        No reusable partner preset configured yet. Set one up to auto-fill branding & domain when onboarding.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPartnerTemplateModal()}
+                        className="text-[11px] font-semibold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+                      >
+                        + Create Partner Preset
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -5865,14 +6076,17 @@ export default function SuperAdminClients() {
                 <button
                   type="button"
                   onClick={() => {
+                    const defaultTpl = defaultPartnerTemplate || partnerTemplates[0];
                     setFormData((prev) => ({
                       ...prev,
                       sales_channel: 'partner',
-                      partner_name: prev.partner_name || (existingPartners[0] || ''),
-                      partner_share_pct: 50,
-                      owner_share_pct: 50,
+                      partner_name: prev.partner_name || defaultTpl?.partner_name || (existingPartners[0] || ''),
+                      partner_share_pct: defaultTpl ? defaultTpl.partner_share_pct : 50,
+                      owner_share_pct: defaultTpl ? defaultTpl.owner_share_pct : 50,
+                      custom_domain: prev.custom_domain || defaultTpl?.custom_domain || '',
+                      brand_name: prev.brand_name || defaultTpl?.brand_name || '',
                     }));
-                    if (existingPartners.length === 0) {
+                    if (existingPartners.length === 0 && !defaultTpl) {
                       setIsAddingNewPartner(true);
                     }
                   }}
@@ -6039,15 +6253,31 @@ export default function SuperAdminClients() {
                               setIsAddingNewPartner(true);
                               setNewPartnerNameInput('');
                             } else {
-                              setFormData({ ...formData, partner_name: e.target.value });
+                              const selectedName = e.target.value;
+                              const matchingTpl = partnerTemplates.find(
+                                (t) => t.partner_name.toLowerCase() === selectedName.toLowerCase()
+                              );
+                              setFormData((prev) => ({
+                                ...prev,
+                                partner_name: selectedName,
+                                partner_share_pct: matchingTpl ? matchingTpl.partner_share_pct : prev.partner_share_pct,
+                                owner_share_pct: matchingTpl ? matchingTpl.owner_share_pct : prev.owner_share_pct,
+                                custom_domain: matchingTpl?.custom_domain || prev.custom_domain,
+                                brand_name: matchingTpl?.brand_name || prev.brand_name,
+                              }));
                             }
                           }}
                           className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-medium text-text-primary focus:border-accent cursor-pointer"
                         >
                           <option value="" disabled>Select partner agency...</option>
-                          {existingPartners.map((p) => (
-                            <option key={p} value={p}>{p}</option>
-                          ))}
+                          {existingPartners.map((p) => {
+                            const hasTpl = partnerTemplates.some((t) => t.partner_name.toLowerCase() === p.toLowerCase());
+                            return (
+                              <option key={p} value={p}>
+                                {p} {hasTpl ? '⚡ (Preset Template Available)' : ''}
+                              </option>
+                            );
+                          })}
                           <option value="__add_new__">+ Add new partner agency...</option>
                         </select>
                       </div>
@@ -6072,6 +6302,35 @@ export default function SuperAdminClients() {
                         </p>
                       </div>
                     )}
+
+                    {/* Applied Template Indicator */}
+                    {(() => {
+                      const curName = (isAddingNewPartner ? newPartnerNameInput : formData.partner_name || '').trim();
+                      const activeTpl = partnerTemplates.find(
+                        (t) => t.partner_name.toLowerCase() === curName.toLowerCase()
+                      ) || (partnerTemplates.length === 1 ? partnerTemplates[0] : null);
+
+                      if (activeTpl) {
+                        return (
+                          <div className="flex items-center justify-between px-2.5 py-1.5 bg-purple-500/10 rounded border border-purple-500/20 text-xs">
+                            <div className="flex items-center gap-1.5 text-purple-900 dark:text-purple-200">
+                              <Sparkles className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                              <span>
+                                Preset Applied: <strong>{activeTpl.partner_name}</strong> (Domain: <code>{activeTpl.custom_domain || 'Platform default'}</code> • {activeTpl.partner_share_pct}/{activeTpl.owner_share_pct} Split)
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenPartnerTemplateModal(activeTpl)}
+                              className="text-[11px] font-semibold text-purple-700 dark:text-purple-300 hover:underline cursor-pointer shrink-0 ml-2"
+                            >
+                              Edit Preset
+                            </button>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
 
                     {/* Revenue Split */}
                     <div className="grid grid-cols-2 gap-3 pt-1">
@@ -7046,6 +7305,378 @@ export default function SuperAdminClients() {
                   {staffSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   <span>{editingStaff ? 'Save Changes' : 'Create Staff / Sales Account'}</span>
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          PARTNER AGENCY TEMPLATE & WHITE-LABEL PRESET MODAL
+          ══════════════════════════════════════════════════════════════════════════ */}
+      {showPartnerTemplateModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in duration-150 overflow-y-auto">
+          <div className="bg-surface border border-border rounded-lg shadow-xl w-full max-w-2xl my-auto overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-border flex items-center justify-between bg-purple-500/5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-md bg-purple-600/10 border border-purple-500/20 flex items-center justify-center text-purple-600">
+                  <SlidersHorizontal className="w-4 h-4 stroke-[2]" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
+                    <span>Partner Agency Template & White-Label Preset</span>
+                    {partnerTemplateForm.is_default && (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-600 text-white">
+                        Default Preset
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    Save brand assets, custom domain, and rev-share splits. Auto-fills on every new client onboarded under this partner.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPartnerTemplateModal(false)}
+                className="text-text-muted hover:text-text-primary p-1.5 rounded-sm hover:bg-surface-subtle transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Template Quick Switcher (If multiple templates exist) */}
+            {partnerTemplates.length > 0 && (
+              <div className="px-5 py-2.5 bg-surface-subtle border-b border-border flex items-center justify-between gap-2 overflow-x-auto">
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">
+                    Saved Presets:
+                  </span>
+                  {partnerTemplates.map((tpl) => {
+                    const isSelected = partnerTemplateForm.partner_name.toLowerCase() === tpl.partner_name.toLowerCase();
+                    return (
+                      <button
+                        key={tpl.partner_name}
+                        type="button"
+                        onClick={() => setPartnerTemplateForm({ ...tpl })}
+                        className={`px-2 py-1 rounded text-xs font-medium cursor-pointer transition-colors border flex items-center gap-1 ${
+                          isSelected
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-2xs'
+                            : 'bg-surface hover:bg-white text-text-secondary border-border'
+                        }`}
+                      >
+                        <span>{tpl.partner_name}</span>
+                        {tpl.is_default && <span className="text-[9px] bg-white/20 px-1 rounded">Default</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPartnerTemplateForm({
+                      partner_name: '',
+                      partner_share_pct: 50,
+                      owner_share_pct: 50,
+                      custom_domain: '',
+                      brand_name: '',
+                      brand_logo_url: '',
+                      brand_favicon_url: '',
+                      brand_primary_color: '#7C3AED',
+                      brand_support_email: '',
+                      brand_support_phone: '',
+                      hide_platform_branding: true,
+                      is_default: partnerTemplates.length === 0,
+                    })
+                  }
+                  className="text-xs font-semibold text-purple-600 hover:text-purple-700 hover:underline cursor-pointer shrink-0"
+                >
+                  + Add Another Partner
+                </button>
+              </div>
+            )}
+
+            {/* Body Form */}
+            <form onSubmit={handleSavePartnerTemplate} className="p-5 overflow-y-auto safari-scroll space-y-4 flex-1 text-xs">
+              {/* Partner Name & Default Toggle */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-text-primary mb-1">
+                    Partner Agency Name <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Apex Marketing Group"
+                    value={partnerTemplateForm.partner_name}
+                    onChange={(e) => setPartnerTemplateForm({ ...partnerTemplateForm, partner_name: e.target.value })}
+                    className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-purple-600 transition-colors"
+                  />
+                  <p className="text-[10px] text-text-muted mt-0.5">
+                    Clients onboarded under this agency name will automatically inherit this template's branding.
+                  </p>
+                </div>
+
+                <div className="flex flex-col justify-between p-2.5 bg-purple-500/5 rounded border border-purple-500/20">
+                  <span className="text-xs font-medium text-text-primary">Default Template</span>
+                  <label className="flex items-center gap-2 cursor-pointer mt-1">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(partnerTemplateForm.is_default)}
+                      onChange={(e) => setPartnerTemplateForm({ ...partnerTemplateForm, is_default: e.target.checked })}
+                      className="rounded border-border text-purple-600 focus:ring-purple-500 cursor-pointer"
+                    />
+                    <span className="text-[11px] text-text-secondary">Pre-fill by default</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Revenue Split */}
+              <div className="p-3.5 bg-purple-500/5 rounded-md border border-purple-500/20 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                    <DollarSign className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Default Revenue Share Split</span>
+                  </label>
+                  <span className="text-[10px] text-purple-700 dark:text-purple-300 font-medium">Must total 100%</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-text-secondary mb-1">
+                      Partner Agency Share (%)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      required
+                      value={partnerTemplateForm.partner_share_pct}
+                      onChange={(e) => {
+                        const val = Math.max(0, Math.min(100, Number(e.target.value)));
+                        setPartnerTemplateForm({
+                          ...partnerTemplateForm,
+                          partner_share_pct: val,
+                          owner_share_pct: 100 - val,
+                        });
+                      }}
+                      className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-purple-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-text-secondary mb-1">
+                      Your Share (Boldlabs %)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      required
+                      value={partnerTemplateForm.owner_share_pct}
+                      onChange={(e) => {
+                        const val = Math.max(0, Math.min(100, Number(e.target.value)));
+                        setPartnerTemplateForm({
+                          ...partnerTemplateForm,
+                          owner_share_pct: val,
+                          partner_share_pct: 100 - val,
+                        });
+                      }}
+                      className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-purple-600"
+                    />
+                  </div>
+                </div>
+
+                {/* Real-time Math Preview */}
+                <div className="p-2 bg-white rounded border border-purple-500/20 text-[11px] font-mono flex items-center justify-between text-text-secondary">
+                  <span>Example on ₹3,499/mo Pro Plan:</span>
+                  <span className="text-purple-700 dark:text-purple-300 font-semibold">
+                    Partner: ₹{(3499 * (partnerTemplateForm.partner_share_pct / 100)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  </span>
+                  <span className="text-emerald-700 dark:text-emerald-300 font-semibold">
+                    Boldlabs Net: ₹{(3499 * (partnerTemplateForm.owner_share_pct / 100)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+              </div>
+
+              {/* White-Label Custom Domain */}
+              <div className="p-3.5 bg-sky-500/5 rounded-md border border-sky-500/20 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5 text-sky-500" />
+                    <span>White-Label Custom Domain</span>
+                  </label>
+                  <span className="text-[10px] text-sky-600 font-mono">DNS CNAME Setup</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. crm.partneragency.com"
+                  value={partnerTemplateForm.custom_domain || ''}
+                  onChange={(e) =>
+                    setPartnerTemplateForm({ ...partnerTemplateForm, custom_domain: e.target.value.toLowerCase().trim() })
+                  }
+                  className="w-full px-3 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-sky-500"
+                />
+                <div className="p-2 bg-sky-500/10 rounded text-[11px] text-sky-800 dark:text-sky-300 flex items-start gap-1.5">
+                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    Partner points their DNS: <strong>Type CNAME</strong>, Host <code>crm</code> (or subdomain), Value <code>cname.vercel-dns.com</code>. Their clients can log in directly at this URL without seeing Boldlabs.
+                  </span>
+                </div>
+              </div>
+
+              {/* Brand Identity & Visual Styling */}
+              <div className="p-3.5 bg-surface-subtle rounded-md border border-border space-y-3">
+                <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Brand Identity & Visual Styling</span>
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary mb-1">
+                      Brand Display Name
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Apex Health CRM"
+                      value={partnerTemplateForm.brand_name || ''}
+                      onChange={(e) => setPartnerTemplateForm({ ...partnerTemplateForm, brand_name: e.target.value })}
+                      className="w-full px-3 py-1.5 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-purple-600"
+                    />
+                    <p className="text-[10px] text-text-muted mt-0.5">Replaces "Boldlabs" in header, titles, and portal.</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary mb-1">
+                      Primary Brand Color
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={partnerTemplateForm.brand_primary_color || '#7C3AED'}
+                        onChange={(e) => setPartnerTemplateForm({ ...partnerTemplateForm, brand_primary_color: e.target.value })}
+                        className="w-8 h-8 rounded border border-border cursor-pointer p-0.5 bg-white"
+                      />
+                      <input
+                        type="text"
+                        placeholder="#7C3AED"
+                        value={partnerTemplateForm.brand_primary_color || '#7C3AED'}
+                        onChange={(e) => setPartnerTemplateForm({ ...partnerTemplateForm, brand_primary_color: e.target.value })}
+                        className="flex-1 px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-purple-600 uppercase"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary mb-1">
+                      Header Logo Image URL
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://partneragency.com/logo.png"
+                      value={partnerTemplateForm.brand_logo_url || ''}
+                      onChange={(e) => setPartnerTemplateForm({ ...partnerTemplateForm, brand_logo_url: e.target.value.trim() })}
+                      className="w-full px-3 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-purple-600"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary mb-1">
+                      Favicon Image URL
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://partneragency.com/favicon.ico"
+                      value={partnerTemplateForm.brand_favicon_url || ''}
+                      onChange={(e) => setPartnerTemplateForm({ ...partnerTemplateForm, brand_favicon_url: e.target.value.trim() })}
+                      className="w-full px-3 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-purple-600"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-border flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-medium text-text-primary">Hide Platform Branding</span>
+                    <p className="text-[10px] text-text-muted">Hides "Powered by Boldlabs" in footer and portal metadata.</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(partnerTemplateForm.hide_platform_branding)}
+                    onChange={(e) => setPartnerTemplateForm({ ...partnerTemplateForm, hide_platform_branding: e.target.checked })}
+                    className="rounded border-border text-purple-600 focus:ring-purple-500 cursor-pointer w-4 h-4"
+                  />
+                </div>
+              </div>
+
+              {/* Support Contacts */}
+              <div className="p-3.5 bg-surface-subtle rounded-md border border-border space-y-3">
+                <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-text-secondary" />
+                  <span>Partner Support Contacts (Shown to Clients)</span>
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary mb-1">
+                      Support Email
+                    </label>
+                    <input
+                      type="email"
+                      placeholder="support@partneragency.com"
+                      value={partnerTemplateForm.brand_support_email || ''}
+                      onChange={(e) => setPartnerTemplateForm({ ...partnerTemplateForm, brand_support_email: e.target.value.trim() })}
+                      className="w-full px-3 py-1.5 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-purple-600"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary mb-1">
+                      Support WhatsApp / Phone
+                    </label>
+                    <input
+                      type="tel"
+                      placeholder="+91 98765 43210"
+                      value={partnerTemplateForm.brand_support_phone || ''}
+                      onChange={(e) => setPartnerTemplateForm({ ...partnerTemplateForm, brand_support_phone: e.target.value.trim() })}
+                      className="w-full px-3 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-purple-600"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions Footer */}
+              <div className="sticky bottom-0 bg-surface/95 backdrop-blur-xs border-t border-border -mx-5 -mb-5 p-4 flex items-center justify-between gap-2 z-10 shadow-lg mt-4">
+                {partnerTemplates.some((t) => t.partner_name.toLowerCase() === partnerTemplateForm.partner_name.toLowerCase()) ? (
+                  <button
+                    type="button"
+                    onClick={() => handleDeletePartnerTemplate(partnerTemplateForm.partner_name)}
+                    className="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded border border-rose-200 transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Preset</span>
+                  </button>
+                ) : <div />}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPartnerTemplateModal(false)}
+                    className="px-3.5 py-1.5 text-xs text-text-muted hover:text-text-primary border border-border rounded transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingPartnerTemplate}
+                    className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold text-xs rounded transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  >
+                    {savingPartnerTemplate && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                    <span>Save Partner Preset</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>

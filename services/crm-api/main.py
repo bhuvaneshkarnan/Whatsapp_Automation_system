@@ -7111,6 +7111,173 @@ async def sync_admin_global_rules(
     }
 
 
+class PartnerTemplatePayload(BaseModel):
+    partner_name: str
+    partner_share_pct: Optional[float] = 50.0
+    owner_share_pct: Optional[float] = 50.0
+    custom_domain: Optional[str] = ""
+    brand_name: Optional[str] = ""
+    brand_logo_url: Optional[str] = ""
+    brand_favicon_url: Optional[str] = ""
+    brand_primary_color: Optional[str] = "#7C3AED"
+    brand_support_email: Optional[str] = ""
+    brand_support_phone: Optional[str] = ""
+    hide_platform_branding: Optional[bool] = True
+    is_default: Optional[bool] = True
+
+
+@app.get("/admin/partner-templates")
+@app.get("/api/v1/crm/admin/partner-templates")
+async def list_partner_templates(admin_user: dict = Depends(verify_super_admin)):
+    """Retrieve all configured partner agency white-label templates."""
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS partner_agency_templates (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                partner_name TEXT NOT NULL UNIQUE,
+                partner_share_pct NUMERIC DEFAULT 50,
+                owner_share_pct NUMERIC DEFAULT 50,
+                custom_domain TEXT,
+                brand_name TEXT,
+                brand_logo_url TEXT,
+                brand_favicon_url TEXT,
+                brand_primary_color TEXT DEFAULT '#7C3AED',
+                brand_support_email TEXT,
+                brand_support_phone TEXT,
+                hide_platform_branding BOOLEAN DEFAULT true,
+                is_default BOOLEAN DEFAULT true,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ DEFAULT now()
+            )
+        """)
+        rows = await conn.fetch(
+            "SELECT * FROM partner_agency_templates ORDER BY is_default DESC, updated_at DESC"
+        )
+    return [
+        {
+            "id": str(r["id"]),
+            "partner_name": r["partner_name"],
+            "partner_share_pct": float(r["partner_share_pct"] or 50.0),
+            "owner_share_pct": float(r["owner_share_pct"] or 50.0),
+            "custom_domain": r["custom_domain"] or "",
+            "brand_name": r["brand_name"] or "",
+            "brand_logo_url": r["brand_logo_url"] or "",
+            "brand_favicon_url": r["brand_favicon_url"] or "",
+            "brand_primary_color": r["brand_primary_color"] or "#7C3AED",
+            "brand_support_email": r["brand_support_email"] or "",
+            "brand_support_phone": r["brand_support_phone"] or "",
+            "hide_platform_branding": bool(r["hide_platform_branding"]),
+            "is_default": bool(r["is_default"]),
+            "created_at": r["created_at"].isoformat() if r["created_at"] else "",
+            "updated_at": r["updated_at"].isoformat() if r["updated_at"] else "",
+        }
+        for r in rows
+    ]
+
+
+@app.post("/admin/partner-templates")
+@app.post("/api/v1/crm/admin/partner-templates")
+async def save_partner_template(payload: PartnerTemplatePayload, admin_user: dict = Depends(verify_super_admin)):
+    """Save or update a partner agency's reusable white-label preset."""
+    p_name = payload.partner_name.strip()
+    if not p_name:
+        raise HTTPException(400, "Partner agency name is required")
+        
+    c_domain = (payload.custom_domain or "").strip().lower()
+    b_name = (payload.brand_name or p_name).strip()
+    
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS partner_agency_templates (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                partner_name TEXT NOT NULL UNIQUE,
+                partner_share_pct NUMERIC DEFAULT 50,
+                owner_share_pct NUMERIC DEFAULT 50,
+                custom_domain TEXT,
+                brand_name TEXT,
+                brand_logo_url TEXT,
+                brand_favicon_url TEXT,
+                brand_primary_color TEXT DEFAULT '#7C3AED',
+                brand_support_email TEXT,
+                brand_support_phone TEXT,
+                hide_platform_branding BOOLEAN DEFAULT true,
+                is_default BOOLEAN DEFAULT true,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ DEFAULT now()
+            )
+        """)
+        
+        # If is_default is true, unmark previous default
+        if payload.is_default:
+            await conn.execute("UPDATE partner_agency_templates SET is_default = false WHERE partner_name != $1", p_name)
+            
+        row = await conn.fetchrow(
+            """
+            INSERT INTO partner_agency_templates (
+                partner_name, partner_share_pct, owner_share_pct, custom_domain, brand_name,
+                brand_logo_url, brand_favicon_url, brand_primary_color, brand_support_email,
+                brand_support_phone, hide_platform_branding, is_default, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
+            ON CONFLICT (partner_name) DO UPDATE SET
+                partner_share_pct = EXCLUDED.partner_share_pct,
+                owner_share_pct = EXCLUDED.owner_share_pct,
+                custom_domain = EXCLUDED.custom_domain,
+                brand_name = EXCLUDED.brand_name,
+                brand_logo_url = EXCLUDED.brand_logo_url,
+                brand_favicon_url = EXCLUDED.brand_favicon_url,
+                brand_primary_color = EXCLUDED.brand_primary_color,
+                brand_support_email = EXCLUDED.brand_support_email,
+                brand_support_phone = EXCLUDED.brand_support_phone,
+                hide_platform_branding = EXCLUDED.hide_platform_branding,
+                is_default = EXCLUDED.is_default,
+                updated_at = now()
+            RETURNING *
+            """,
+            p_name,
+            float(payload.partner_share_pct or 50.0),
+            float(payload.owner_share_pct or 50.0),
+            c_domain,
+            b_name,
+            (payload.brand_logo_url or "").strip(),
+            (payload.brand_favicon_url or "").strip(),
+            (payload.brand_primary_color or "#7C3AED").strip(),
+            (payload.brand_support_email or "").strip(),
+            (payload.brand_support_phone or "").strip(),
+            bool(payload.hide_platform_branding),
+            bool(payload.is_default),
+        )
+        
+    return {
+        "status": "success",
+        "message": f"Partner agency template '{p_name}' saved successfully",
+        "template": {
+            "id": str(row["id"]),
+            "partner_name": row["partner_name"],
+            "partner_share_pct": float(row["partner_share_pct"] or 50.0),
+            "owner_share_pct": float(row["owner_share_pct"] or 50.0),
+            "custom_domain": row["custom_domain"] or "",
+            "brand_name": row["brand_name"] or "",
+            "brand_logo_url": row["brand_logo_url"] or "",
+            "brand_favicon_url": row["brand_favicon_url"] or "",
+            "brand_primary_color": row["brand_primary_color"] or "#7C3AED",
+            "brand_support_email": row["brand_support_email"] or "",
+            "brand_support_phone": row["brand_support_phone"] or "",
+            "hide_platform_branding": bool(row["hide_platform_branding"]),
+            "is_default": bool(row["is_default"]),
+        }
+    }
+
+
+@app.delete("/admin/partner-templates/{partner_name}")
+@app.delete("/api/v1/crm/admin/partner-templates/{partner_name}")
+async def delete_partner_template(partner_name: str, admin_user: dict = Depends(verify_super_admin)):
+    """Delete a partner agency template."""
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM partner_agency_templates WHERE partner_name = $1", partner_name)
+    return {"status": "success", "deleted_partner": partner_name}
+
+
 @app.get("/admin/tenants")
 async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
     """List all client tenants with metadata, stats, billing, and primary admin email."""
