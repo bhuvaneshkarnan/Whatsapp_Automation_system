@@ -5420,6 +5420,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     setSettingsError('');
     try {
       const data = await crm.getSettings();
+      if (data) {
+        const effGmb = (data.gmb_review_url || data.google_review_link || '').trim();
+        data.gmb_review_url = effGmb;
+        data.google_review_link = effGmb;
+      }
       setSettingsForm(data);
       if (typeof window !== 'undefined') {
         const slug = data?.slug || localStorage.getItem('tenant_slug');
@@ -5641,8 +5646,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         methodology: settingsForm.methodology,
         strict_rules: settingsForm.strict_rules,
         objection_handling: settingsForm.objection_handling,
-        google_review_link: settingsForm.google_review_link,
-        gmb_review_url: settingsForm.gmb_review_url,
+        google_review_link: (settingsForm.gmb_review_url || settingsForm.google_review_link || '').trim(),
+        gmb_review_url: (settingsForm.gmb_review_url || settingsForm.google_review_link || '').trim(),
         enable_auto_review: settingsForm.enable_auto_review,
         template_booking_confirmation: settingsForm.template_booking_confirmation,
         template_reschedule_confirmation: settingsForm.template_reschedule_confirmation,
@@ -5665,6 +5670,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         google_client_secret: settingsForm.google_client_secret,
         google_calendar_id: settingsForm.google_calendar_id,
       };
+      if (settingsForm.razorpay_short_url) payload.razorpay_short_url = settingsForm.razorpay_short_url;
+      if (settingsForm.monthly_price !== undefined && settingsForm.monthly_price !== null) payload.monthly_price = Number(settingsForm.monthly_price);
       if (settingsForm.meta_phone_id) payload.meta_phone_id = settingsForm.meta_phone_id;
       if (settingsForm.meta_waba_id) payload.meta_waba_id = settingsForm.meta_waba_id;
       if (settingsForm.meta_access_token) payload.meta_access_token = settingsForm.meta_access_token;
@@ -5680,7 +5687,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         setUser((prev) => (prev ? { ...prev, display_name: payload.admin_name } : null));
       }
       if (updated && updated.name !== undefined) {
-        setSettingsForm((prev) => ({ ...prev, ...updated }));
+        const effGmb = (updated.gmb_review_url || updated.google_review_link || payload.gmb_review_url || '').trim();
+        setSettingsForm((prev) => ({ ...prev, ...updated, gmb_review_url: effGmb, google_review_link: effGmb }));
         if (typeof window !== 'undefined') {
           const slug = updated.slug || settingsForm.slug || localStorage.getItem('tenant_slug');
           if (slug) {
@@ -16485,7 +16493,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   })}
                 </div>
 
-                <form onSubmit={handleSaveSettings} className="space-y-6">
+                <form onSubmit={handleSaveSettings} noValidate className="space-y-6">
 
                   {/* ── 0. SUBSCRIPTION & SYSTEM BILLING ─────────────────────── */}
                   {settingsTab === 'billing' && (() => {
@@ -16991,13 +16999,38 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
                                 <span>Google / GMB Review Link</span>
                               </label>
-                              <input
-                                type="text"
-                                placeholder="https://g.page/r/your-gmb-review-link/review"
-                                value={settingsForm.gmb_review_url || settingsForm.google_review_link || ''}
-                                onChange={(e) => setSettingsForm({ ...settingsForm, gmb_review_url: e.target.value, google_review_link: e.target.value })}
-                                className="w-full px-3 py-2 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent transition-colors duration-150"
-                              />
+                              <div className="flex gap-2 items-center">
+                                <input
+                                  type="text"
+                                  placeholder="https://g.page/r/your-gmb-review-link/review"
+                                  value={settingsForm.gmb_review_url || settingsForm.google_review_link || ''}
+                                  onChange={(e) => setSettingsForm({ ...settingsForm, gmb_review_url: e.target.value, google_review_link: e.target.value })}
+                                  className="flex-1 min-w-0 px-3 py-2 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent transition-colors duration-150"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleSaveSettings(e)}
+                                  disabled={settingsSaving}
+                                  className="px-3.5 py-2 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 disabled:opacity-50 shadow-2xs"
+                                >
+                                  {settingsSaving ? (
+                                    <>
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
+                                      <span>Saving...</span>
+                                    </>
+                                  ) : settingsSaved ? (
+                                    <>
+                                      <Check className="w-3.5 h-3.5 stroke-[1.5] text-emerald-300" />
+                                      <span>Saved!</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Check className="w-3.5 h-3.5 stroke-[1.5]" />
+                                      <span>Save Link</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
                               <p className="text-[10px] text-text-muted">
                                 Paste your Google Business review link here. Used by the public AI review collector page (<strong>/{settingsForm.slug || 'slug'}/review</strong>) — 4-5 star reviews are auto-copied and redirected here. Also sent in WhatsApp post-service review nudges with the customer's name pre-filled.
                               </p>
@@ -18469,6 +18502,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <div className="pt-2 flex items-center gap-3">
                       <button
                         type="submit"
+                        onClick={(e) => handleSaveSettings(e)}
                         disabled={settingsSaving}
                         className="px-4 py-2 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-2 disabled:opacity-50"
                       >
@@ -18476,6 +18510,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <>
                             <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
                             <span>Saving preferences...</span>
+                          </>
+                        ) : settingsSaved ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 stroke-[1.5] text-emerald-300" />
+                            <span>Saved Preferences!</span>
                           </>
                         ) : (
                           <>

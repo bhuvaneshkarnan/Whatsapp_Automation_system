@@ -5658,8 +5658,12 @@ class TenantSettingsUpdate(BaseModel):
     closing_time: Optional[str] = None
     slot_booking_mode: Optional[str] = None
     max_concurrent_bookings: Optional[int] = None
+    razorpay_short_url: Optional[str] = None
+    monthly_price: Optional[float] = None
     target_tenant_id: Optional[str] = None
     tenant_id: Optional[str] = None
+
+    model_config = {"extra": "allow"}
 
 
 @app.get("/settings")
@@ -5841,7 +5845,7 @@ async def get_tenant_settings(
         "template_admin_daily_digest": wa_data.get("template_admin_daily_digest") or tenant_settings.get("template_admin_daily_digest", "admin_daily_digest"),
         "template_admin_appointment_reminder": wa_data.get("template_admin_appointment_reminder") or tenant_settings.get("template_admin_appointment_reminder", "admin_appointment_reminder"),
         "template_client_followup": wa_data.get("template_client_followup") or tenant_settings.get("template_client_followup", "client_followup_checkin"),
-        "google_review_link": tenant_settings.get("google_review_link", wa_data.get("google_review_link", "")),
+        "google_review_link": (tenant_settings.get("gmb_review_url") or tenant_settings.get("google_review_link") or wa_data.get("google_review_link") or wa_data.get("gmb_review_url") or "").strip(),
         "enable_auto_review": tenant_settings.get("enable_auto_review", True) if tenant_settings.get("enable_auto_review") is not None else True,
         "allow_text_fallback": tenant_settings.get("allow_text_fallback", False) if tenant_settings.get("allow_text_fallback") is not None else False,
         "disable_template_text_fallback": tenant_settings.get("disable_template_text_fallback", True) if tenant_settings.get("disable_template_text_fallback") is not None else True,
@@ -5865,7 +5869,7 @@ async def get_tenant_settings(
         }),
         "opening_time": tenant_settings.get("opening_time", "09:00"),
         "closing_time": tenant_settings.get("closing_time", "20:00"),
-        "gmb_review_url": tenant_settings.get("gmb_review_url", ""),
+        "gmb_review_url": (tenant_settings.get("gmb_review_url") or tenant_settings.get("google_review_link") or wa_data.get("google_review_link") or wa_data.get("gmb_review_url") or "").strip(),
         "slot_booking_mode": tenant_settings.get("slot_booking_mode", "single"),
         "max_concurrent_bookings": tenant_settings.get("max_concurrent_bookings", 1),
 
@@ -6150,6 +6154,10 @@ async def update_tenant_settings(
         if payload.notification_email is not None: cur_settings["notification_email"] = payload.notification_email.strip()
         if payload.admin_whatsapp_number is not None: cur_settings["admin_whatsapp_number"] = payload.admin_whatsapp_number.strip()
         if payload.google_review_link is not None: cur_settings["google_review_link"] = payload.google_review_link.strip()
+        effective_gmb_save = (cur_settings.get("gmb_review_url") or cur_settings.get("google_review_link") or "").strip()
+        if effective_gmb_save:
+            cur_settings["gmb_review_url"] = effective_gmb_save
+            cur_settings["google_review_link"] = effective_gmb_save
         if payload.enable_auto_review is not None: cur_settings["enable_auto_review"] = payload.enable_auto_review
         if payload.full_location_text is not None: cur_settings["full_location_text"] = payload.full_location_text.strip()
         if payload.industry is not None: cur_settings["industry"] = payload.industry.strip()
@@ -6176,10 +6184,10 @@ async def update_tenant_settings(
         if payload.template_client_followup is not None: cur_settings["template_client_followup"] = payload.template_client_followup.strip()
         if payload.allow_text_fallback is not None: cur_settings["allow_text_fallback"] = payload.allow_text_fallback
         if payload.disable_template_text_fallback is not None: cur_settings["disable_template_text_fallback"] = payload.disable_template_text_fallback
-        if payload.razorpay_short_url is not None:
+        if getattr(payload, "razorpay_short_url", None) is not None:
             cur_settings["razorpay_short_url"] = payload.razorpay_short_url.strip()
             await conn.execute("UPDATE tenants SET razorpay_short_url = $1 WHERE id = $2::uuid", payload.razorpay_short_url.strip(), tenant_id)
-        if payload.monthly_price is not None:
+        if getattr(payload, "monthly_price", None) is not None:
             cur_settings["monthly_price"] = float(payload.monthly_price)
 
         await conn.execute(
@@ -6218,8 +6226,10 @@ async def update_tenant_settings(
         if payload.template_review_request is not None: wa_data["template_review_request"] = payload.template_review_request.strip()
         if payload.template_admin_daily_digest is not None: wa_data["template_admin_daily_digest"] = payload.template_admin_daily_digest.strip()
         if payload.template_admin_appointment_reminder is not None: wa_data["template_admin_appointment_reminder"] = payload.template_admin_appointment_reminder.strip()
-        if payload.template_client_followup is not None: wa_data["template_client_followup"] = payload.template_client_followup.strip()
-        if payload.google_review_link is not None: wa_data["google_review_link"] = payload.google_review_link.strip()
+        if getattr(payload, "google_review_link", None) is not None or getattr(payload, "gmb_review_url", None) is not None:
+            eff_gmb = (getattr(payload, "gmb_review_url", None) or getattr(payload, "google_review_link", None) or "").strip()
+            wa_data["google_review_link"] = eff_gmb
+            wa_data["gmb_review_url"] = eff_gmb
         if payload.primary_model_provider is not None: wa_data["primary_model_provider"] = payload.primary_model_provider.strip()
         if payload.allow_text_fallback is not None: wa_data["allow_text_fallback"] = payload.allow_text_fallback
         if payload.disable_template_text_fallback is not None: wa_data["disable_template_text_fallback"] = payload.disable_template_text_fallback
