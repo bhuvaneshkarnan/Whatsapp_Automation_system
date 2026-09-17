@@ -195,7 +195,7 @@ export default function ReviewClient() {
 
     try {
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Review generation timeout')), 8000)
+        setTimeout(() => reject(new Error('Review generation timeout')), 5000)
       );
 
       const res = await Promise.race([
@@ -218,24 +218,19 @@ export default function ReviewClient() {
       const cleanText = cleanClientReview(res.generated_review_text);
       setEditedReviewText(cleanText);
 
-      let copied = false;
-      if (res.destination === 'gmb') {
-        if (typeof window !== 'undefined' && navigator.clipboard) {
-          try {
-            await navigator.clipboard.writeText(cleanText);
-            copied = true;
-          } catch (e) {
-            console.warn('Clipboard write failed:', e);
-          }
-        }
-      }
-
       setResult({
         destination: res.destination,
         generated_review_text: cleanText,
         gmb_review_url: effectiveGmbUrl,
-        copied,
+        copied: false,
       });
+
+      // Background non-blocking clipboard copy
+      if (res.destination === 'gmb' && typeof window !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(cleanText)
+          .then(() => setResult((prev) => (prev ? { ...prev, copied: true } : null)))
+          .catch(() => {});
+      }
     } catch (err) {
       console.error('Review generation fallback:', err);
       // Fallback local review generation if network error or timeout occurs
@@ -249,21 +244,19 @@ export default function ReviewClient() {
         settings?.gmb_review_url ||
         `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(businessName)}`;
 
-      let fallbackCopied = false;
-      if (rating >= 4 && typeof window !== 'undefined' && navigator.clipboard) {
-        try {
-          await navigator.clipboard.writeText(fallbackText);
-          fallbackCopied = true;
-        } catch {}
-      }
-
       setEditedReviewText(fallbackText);
       setResult({
         destination: rating >= 4 ? 'gmb' : 'crm_internal',
         generated_review_text: fallbackText,
         gmb_review_url: fallbackGmb,
-        copied: fallbackCopied,
+        copied: false,
       });
+
+      if (rating >= 4 && typeof window !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(fallbackText)
+          .then(() => setResult((prev) => (prev ? { ...prev, copied: true } : null)))
+          .catch(() => {});
+      }
     } finally {
       setSubmitting(false);
     }
