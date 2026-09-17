@@ -194,14 +194,21 @@ export default function ReviewClient() {
       .join('. ');
 
     try {
-      const res = await crm.submitPublicReview({
-        tenant_slug: slugParam,
-        customer_name: customerName,
-        customer_phone: customerPhone,
-        service_name: serviceName,
-        rating,
-        experience_notes: cleanNotes,
-      });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Review generation timeout')), 8000)
+      );
+
+      const res = await Promise.race([
+        crm.submitPublicReview({
+          tenant_slug: slugParam,
+          customer_name: customerName,
+          customer_phone: customerPhone,
+          service_name: serviceName,
+          rating,
+          experience_notes: cleanNotes,
+        }),
+        timeoutPromise,
+      ]) as any;
 
       const effectiveGmbUrl =
         res.gmb_review_url ||
@@ -230,18 +237,24 @@ export default function ReviewClient() {
         copied,
       });
     } catch (err) {
-      console.error('Failed to submit review:', err);
-      // Fallback local review generation if network error occurs
+      console.error('Review generation fallback:', err);
+      // Fallback local review generation if network error or timeout occurs
       const fallbackText = cleanClientReview(
         rating >= 4
           ? `Really happy with the ${serviceName || 'service'} at ${businessName}. Everything was smooth, professional, and very well taken care of. Will definitely be returning again.`
           : `Customer feedback regarding ${serviceName || 'service'}: ${cleanNotes || 'Service review.'}`
       );
 
-      const fallbackGmb = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(businessName)}`;
+      const fallbackGmb =
+        settings?.gmb_review_url ||
+        `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(businessName)}`;
 
+      let fallbackCopied = false;
       if (rating >= 4 && typeof window !== 'undefined' && navigator.clipboard) {
-        navigator.clipboard.writeText(fallbackText).catch(() => null);
+        try {
+          await navigator.clipboard.writeText(fallbackText);
+          fallbackCopied = true;
+        } catch {}
       }
 
       setEditedReviewText(fallbackText);
@@ -249,7 +262,7 @@ export default function ReviewClient() {
         destination: rating >= 4 ? 'gmb' : 'crm_internal',
         generated_review_text: fallbackText,
         gmb_review_url: fallbackGmb,
-        copied: rating >= 4,
+        copied: fallbackCopied,
       });
     } finally {
       setSubmitting(false);
@@ -268,20 +281,27 @@ export default function ReviewClient() {
       .join('. ');
 
     try {
-      const res = await crm.submitPublicReview({
-        tenant_slug: slugParam,
-        customer_name: customerName,
-        customer_phone: customerPhone,
-        service_name: serviceName,
-        rating,
-        experience_notes: cleanNotes,
-      });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Review regeneration timeout')), 8000)
+      );
+
+      const res = await Promise.race([
+        crm.submitPublicReview({
+          tenant_slug: slugParam,
+          customer_name: customerName,
+          customer_phone: customerPhone,
+          service_name: serviceName,
+          rating,
+          experience_notes: cleanNotes,
+        }),
+        timeoutPromise,
+      ]) as any;
 
       const cleanText = cleanClientReview(res.generated_review_text);
       setEditedReviewText(cleanText);
 
       if (typeof window !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(cleanText).catch(() => {});
+        navigator.clipboard.writeText(cleanText).catch(() => {});
       }
 
       setResult((prev) =>
@@ -294,7 +314,28 @@ export default function ReviewClient() {
           : null
       );
     } catch (err) {
-      console.error('Failed to regenerate review:', err);
+      console.error('Failed to regenerate review, using local generator:', err);
+      const fallbackVariations = [
+        `Great experience with the ${serviceName || 'service'} at ${businessName}. The entire process was seamless and the staff was very supportive.`,
+        `Really happy with the quality of service at ${businessName}. Everything was prompt, professional, and well coordinated.`,
+        `Had a wonderful visit to ${businessName} for ${serviceName || 'service'}. Clean environment, attentive team, and smooth support throughout.`
+      ];
+      const freshFallback = cleanClientReview(
+        fallbackVariations[Math.floor(Math.random() * fallbackVariations.length)] + (cleanNotes ? ` Special mention for ${cleanNotes}.` : '')
+      );
+      setEditedReviewText(freshFallback);
+      if (typeof window !== 'undefined' && navigator.clipboard) {
+        navigator.clipboard.writeText(freshFallback).catch(() => {});
+      }
+      setResult((prev) =>
+        prev
+          ? {
+              ...prev,
+              generated_review_text: freshFallback,
+              copied: true,
+            }
+          : null
+      );
     } finally {
       setRegenerating(false);
     }

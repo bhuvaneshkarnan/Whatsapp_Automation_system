@@ -808,7 +808,7 @@ export const crm = {
     rating: number;
     experience_notes?: string;
   }) =>
-    request<{
+    publicRequest<{
       status: string;
       review_id: string;
       destination: 'gmb' | 'crm_internal';
