@@ -12,8 +12,8 @@ export function generateStaticParams() {
 export default function PublicReviewPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
-        <div className="animate-pulse text-sm font-medium text-slate-400">Loading Review Collector...</div>
+      <div className="min-h-screen bg-canvas text-text-primary flex items-center justify-center p-4">
+        <div className="animate-pulse text-xs font-medium text-text-muted">Loading Review Portal...</div>
       </div>
     }>
       <ReviewClient />

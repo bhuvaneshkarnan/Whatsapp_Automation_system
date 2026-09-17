@@ -8,6 +8,7 @@ import hmac
 import hashlib
 import base64
 import html
+import urllib.parse
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, timedelta, time, timezone
@@ -11415,7 +11416,13 @@ async def get_public_review_info(slug: str):
             'Easy Booking & Response',
         ]
         tags = cfg.get("review_experience_tags") or default_tags
-        gmb_url = cfg.get("gmb_review_url") or cfg.get("google_review_link") or ""
+        gmb_url = (cfg.get("gmb_review_url") or cfg.get("google_review_link") or "").strip()
+        if not gmb_url:
+            place_id = (cfg.get("google_place_id") or "").strip()
+            if place_id:
+                gmb_url = f"https://search.google.com/local/writereview?placeid={place_id}"
+            else:
+                gmb_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote_plus(tenant['name'])}"
 
         return {
             "status": "ok",
@@ -11444,7 +11451,13 @@ async def submit_public_review(payload: PublicReviewSubmitRequest):
         t_id = tenant["id"]
         t_name = tenant["name"]
         settings = tenant["settings"] if isinstance(tenant["settings"], dict) else json.loads(tenant["settings"] or "{}")
-        gmb_url = settings.get("gmb_review_url") or settings.get("google_review_link") or ""
+        gmb_url = (settings.get("gmb_review_url") or settings.get("google_review_link") or "").strip()
+        if not gmb_url:
+            place_id = (settings.get("google_place_id") or "").strip()
+            if place_id:
+                gmb_url = f"https://search.google.com/local/writereview?placeid={place_id}"
+            else:
+                gmb_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote_plus(t_name)}"
 
         srv = (payload.service_name or "service").strip()
         notes = (payload.experience_notes or "").strip()
