@@ -6473,6 +6473,10 @@ async def google_oauth_callback(
     if not tenant_id:
         raise HTTPException(status_code=400, detail="OAuth state missing tenant context.")
 
+    # Unified Redirect URI: if this OAuth flow was initiated for Google Business Profile, delegate seamlessly
+    if state_data.get("provider") == "google_business":
+        return await google_business_oauth_callback(code=code, state=state, error=error)
+
     is_admin = (state_data.get("source") == "admin")
     base_redir = f"{APP_BASE_URL}/admin/clients" if is_admin else f"{APP_BASE_URL}/dashboard"
     t_param = f"&tenant_id={tenant_id}" if is_admin else ""
@@ -11759,9 +11763,10 @@ async def delete_customer_review(
 
 # ── Google Business Profile (GMB) Reviews & Live Reply API ───────────────────────
 
+# Use the exact same Authorized Redirect URI as Google Calendar by default
 GOOGLE_BUSINESS_REDIRECT_URI = os.getenv(
     "GOOGLE_BUSINESS_REDIRECT_URI",
-    f"{APP_BASE_URL}/api/v1/crm/oauth/google-business/callback"
+    GOOGLE_OAUTH_REDIRECT_URI
 )
 
 class GoogleBusinessOAuthInitPayload(BaseModel):
@@ -11789,6 +11794,17 @@ async def get_google_business_access_token(conn, tenant_id: str) -> tuple[str, d
     refresh_token = data.get("refresh_token")
     client_id = data.get("client_id") or os.getenv("GOOGLE_CLIENT_ID")
     client_secret = data.get("client_secret") or os.getenv("GOOGLE_CLIENT_SECRET")
+
+    # Fallback to Google Calendar credentials if client_id / secret were not stored in google_business row
+    if not client_id or not client_secret:
+        gcal_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar'",
+            tenant_id
+        )
+        if gcal_row and gcal_row["credential_data"]:
+            gcd = safe_json_loads(gcal_row["credential_data"], {})
+            client_id = client_id or gcd.get("client_id")
+            client_secret = client_secret or gcd.get("client_secret")
 
     if not refresh_token or not client_id or not client_secret:
         raise HTTPException(status_code=400, detail="Google Business OAuth credentials incomplete.")
@@ -11832,12 +11848,39 @@ async def init_google_business_oauth(
     tenant_id: str = Depends(get_tenant_id)
 ):
     """Save Google Client ID & Secret, and generate Google OAuth authorization URL for Google Business Profile."""
-    c_id = (payload.client_id or os.getenv("GOOGLE_CLIENT_ID", "")).strip()
-    c_sec = (payload.client_secret or os.getenv("GOOGLE_CLIENT_SECRET", "")).strip()
-    if not c_id or not c_sec:
-        raise HTTPException(400, "Google Client ID and Client Secret are required.")
+    c_id = (payload.client_id or "").strip()
+    c_sec = (payload.client_secret or "").strip()
 
     async with db_pool.acquire() as conn:
+        # Fallback to existing credentials in google_business or google_calendar
+        if not c_id or not c_sec:
+            existing_row = await conn.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_business'",
+                tenant_id
+            )
+            if existing_row and existing_row["credential_data"]:
+                ex_d = safe_json_loads(existing_row["credential_data"], {})
+                c_id = c_id or (ex_d.get("client_id") or "").strip()
+                c_sec = c_sec or (ex_d.get("client_secret") or "").strip()
+
+        if not c_id or not c_sec:
+            gcal_row = await conn.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar'",
+                tenant_id
+            )
+            if gcal_row and gcal_row["credential_data"]:
+                gcd = safe_json_loads(gcal_row["credential_data"], {})
+                c_id = c_id or (gcd.get("client_id") or "").strip()
+                c_sec = c_sec or (gcd.get("client_secret") or "").strip()
+
+        if not c_id:
+            c_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+        if not c_sec:
+            c_sec = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+
+        if not c_id or not c_sec:
+            raise HTTPException(400, "Google Client ID and Client Secret are required. Please enter them or configure Google Calendar first.")
+
         row = await conn.fetchrow(
             "SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_business'",
             tenant_id
@@ -11865,6 +11908,8 @@ async def init_google_business_oauth(
     state_dict = {
         "tenant_id": tenant_id,
         "source": (payload.source or "dashboard").strip(),
+        "provider": "google_business",
+        "redirect_uri": GOOGLE_BUSINESS_REDIRECT_URI,
         "nonce": state_nonce,
         "exp": state_exp
     }
@@ -11929,6 +11974,23 @@ async def google_business_oauth_callback(
         c_id = cdata.get("client_id")
         c_sec = cdata.get("client_secret")
 
+        if not c_id or not c_sec:
+            gcal_row = await conn.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar'",
+                tenant_id
+            )
+            if gcal_row and gcal_row["credential_data"]:
+                gcd = safe_json_loads(gcal_row["credential_data"], {})
+                c_id = c_id or gcd.get("client_id")
+                c_sec = c_sec or gcd.get("client_secret")
+
+        if not c_id:
+            c_id = os.getenv("GOOGLE_CLIENT_ID", "")
+        if not c_sec:
+            c_sec = os.getenv("GOOGLE_CLIENT_SECRET", "")
+
+        eff_redirect_uri = state_data.get("redirect_uri") or GOOGLE_BUSINESS_REDIRECT_URI
+
         async with httpx.AsyncClient(timeout=15.0) as client:
             token_resp = await client.post(
                 "https://oauth2.googleapis.com/token",
@@ -11937,7 +11999,7 @@ async def google_business_oauth_callback(
                     "client_secret": c_sec,
                     "code": code,
                     "grant_type": "authorization_code",
-                    "redirect_uri": GOOGLE_BUSINESS_REDIRECT_URI,
+                    "redirect_uri": eff_redirect_uri,
                 }
             )
             if token_resp.status_code != 200:

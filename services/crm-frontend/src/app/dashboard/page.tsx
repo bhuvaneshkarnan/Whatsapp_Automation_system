@@ -2723,6 +2723,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         const err = params.get('gcal_error');
         alert(`Google Calendar connection failed: ${err}`);
         window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (params.get('gmb') === 'connected' || params.get('gmb_success') === 'true') {
+        setActionNotice('Google Business Profile connected! Live Google Maps reviews and replies are now active.');
+        setTimeout(() => setActionNotice(null), 6000);
+        window.history.replaceState({}, document.title, window.location.pathname);
+        loadGoogleBusinessStatus();
+        loadReviews(true);
+      } else if (params.get('gmb_error')) {
+        const err = params.get('gmb_error');
+        alert(`Google Business connection failed: ${err}`);
+        window.history.replaceState({}, document.title, window.location.pathname);
       }
     }
   }, []);
@@ -5586,7 +5596,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (e) e.preventDefault();
     setConnectingGoogleBusiness(true);
     try {
-      const res = await crm.initGoogleBusinessOAuth(googleClientId.trim(), googleClientSecret.trim());
+      const cId = (googleClientId || settingsForm.google_client_id || '').trim();
+      const cSec = (googleClientSecret || settingsForm.google_client_secret || '').trim();
+      const res = await crm.initGoogleBusinessOAuth(cId, cSec);
       if (res && res.auth_url) {
         window.location.href = res.auth_url;
       }
@@ -16501,11 +16513,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                         <div className="space-y-1">
                           <label className="block text-[11px] font-semibold text-text-secondary">
-                            Google Client ID <span className="text-[10px] font-normal text-text-muted">(from Google Cloud project)</span>
+                            Google Client ID <span className="text-[10px] font-normal text-text-muted">(uses Google Calendar keys if left empty)</span>
                           </label>
                           <input
                             type="text"
-                            placeholder="e.g. 123456789-abc.apps.googleusercontent.com"
+                            placeholder="e.g. 123456789-abc.apps.googleusercontent.com (or leave empty if already saved)"
                             value={googleClientId}
                             onChange={(e) => setGoogleClientId(e.target.value)}
                             className="w-full px-2.5 py-1.5 bg-surface border border-border rounded text-xs font-mono text-text-primary focus:outline-none focus:border-accent"
@@ -16514,11 +16526,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                         <div className="space-y-1">
                           <label className="block text-[11px] font-semibold text-text-secondary">
-                            Google Client Secret
+                            Google Client Secret <span className="text-[10px] font-normal text-text-muted">(uses Google Calendar keys if left empty)</span>
                           </label>
                           <input
                             type="password"
-                            placeholder="GOCSPX-..."
+                            placeholder="GOCSPX-... (or leave empty if already saved)"
                             value={googleClientSecret}
                             onChange={(e) => setGoogleClientSecret(e.target.value)}
                             className="w-full px-2.5 py-1.5 bg-surface border border-border rounded text-xs font-mono text-text-primary focus:outline-none focus:border-accent"
@@ -16526,10 +16538,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
 
                         <div className="p-2.5 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200/60 dark:border-blue-800/40 space-y-1">
-                          <span className="text-[10px] font-bold text-blue-800 dark:text-blue-300 block">Required Redirect URI:</span>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-blue-800 dark:text-blue-300 block">Required Redirect URI:</span>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard('https://crm.goboldlabs.com/api/v1/crm/oauth/google/callback', 'gmb_redirect')}
+                              className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 hover:underline flex items-center gap-1 cursor-pointer"
+                            >
+                              {copiedKey === 'gmb_redirect' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                              <span>{copiedKey === 'gmb_redirect' ? 'Copied' : 'Copy'}</span>
+                            </button>
+                          </div>
                           <code className="text-[10px] font-mono text-blue-900 dark:text-blue-200 break-all select-all block bg-white dark:bg-slate-900 p-1 rounded border border-blue-200/40">
-                            https://crm.goboldlabs.com/api/v1/crm/oauth/google-business/callback
+                            https://crm.goboldlabs.com/api/v1/crm/oauth/google/callback
                           </code>
+                          <p className="text-[9px] text-blue-700/80 dark:text-blue-300/80">
+                            Same Redirect URI as Google Calendar. No need to add extra URIs in Google Cloud Console.
+                          </p>
                         </div>
 
                         <div className="pt-2 flex items-center justify-end gap-2">
