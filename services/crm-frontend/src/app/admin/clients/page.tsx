@@ -817,7 +817,7 @@ export default function SuperAdminClients() {
     services_text: '',
     full_location_text: '',
     admin_whatsapp_number: '',
-    template_booking_confirmation: 'booking_confirmation',
+    template_booking_confirmation: 'booking_confirmationn',
     template_admin_notification: 'admin_notification',
     template_admin_human_request: 'admin_human_request',
     template_cancellation_confirmation: 'cancellation_confirmation',

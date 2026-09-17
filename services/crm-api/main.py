@@ -7325,7 +7325,7 @@ async def get_admin_tenant_details(tenant_id: str, admin_user: dict = Depends(ve
             "has_opencode_key": has_opencode_key,
             "full_location_text": cred_data.get("full_location_text", ""),
             "admin_whatsapp_number": cred_data.get("admin_whatsapp_number", ""),
-            "template_booking_confirmation": cred_data.get("template_booking_confirmation", "booking_confirmation"),
+            "template_booking_confirmation": cred_data.get("template_booking_confirmation", "booking_confirmationn"),
             "template_admin_notification": cred_data.get("template_admin_notification", "admin_notification"),
             "template_admin_human_request": cred_data.get("template_admin_human_request", "admin_human_request"),
             "template_cancellation_confirmation": cred_data.get("template_cancellation_confirmation", "cancellation_confirmation"),
