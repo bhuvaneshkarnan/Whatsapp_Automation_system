@@ -98,6 +98,7 @@ import {
   List,
   Pin,
   Trash2,
+  QrCode,
   StickyNote,
   ShieldCheck,
   CheckSquare,
@@ -2284,6 +2285,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [reviewCopied, setReviewCopied] = useState(false);
   const [reviewServicesSaved, setReviewServicesSaved] = useState(false);
   const [reviewTagsSaved, setReviewTagsSaved] = useState(false);
+  const [showReviewConfig, setShowReviewConfig] = useState(false);
 
   // Google Business Profile Reviews Integration State
   const [googleBusinessStatus, setGoogleBusinessStatus] = useState<GoogleBusinessStatus | null>(null);
@@ -15580,20 +15582,31 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {activeNav === 'reviews' && (
               <div className="flex-1 flex flex-col min-h-0 overflow-y-auto space-y-2.5 pr-1 pb-2">
 
-                {/* ── COMPACT HEADER + URL TOOLBAR ─────────────────────── */}
-                <div className="flex items-center justify-between gap-2 px-1">
-                  <h2 className="text-sm font-bold text-text-primary flex items-center gap-1.5 shrink-0">
-                    <Star className="w-4 h-4 text-amber-500 fill-amber-400 stroke-[1.5]" />
-                    Customer Reviews & GMB Hub
-                  </h2>
+                {/* ── 1. COMPACT HEADER & ACTIONS ─────────────────────── */}
+                <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-bold text-text-primary flex items-center gap-1.5 shrink-0">
+                      <Star className="w-4 h-4 text-amber-500 fill-amber-400 stroke-[1.5]" />
+                      <span>Customer Reviews</span>
+                    </h2>
+                    {customerReviews.length > 0 && (
+                      <span className="text-[11px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 px-2 py-0.5 rounded-full flex items-center gap-1 font-mono">
+                        <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-500" />
+                        <span>{(customerReviews.reduce((s, r) => s + (r.rating || 0), 0) / customerReviews.length).toFixed(1)}</span>
+                        <span className="text-text-muted">•</span>
+                        <span>{customerReviews.length} Total</span>
+                      </span>
+                    )}
+                  </div>
+
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {/* Google Business Profile Connection & Live Sync */}
+                    {/* Google Business Profile Sync / Connect */}
                     {googleBusinessStatus?.is_connected ? (
                       <button
                         type="button"
                         onClick={handleSyncGoogleReviews}
                         disabled={syncingGoogleReviews}
-                        className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 rounded-md text-[10px] font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+                        className="px-2.5 py-1 bg-surface hover:bg-surface-subtle border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 rounded-md text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
                         title="Google Business Profile connected. Click to sync latest reviews from Google Maps."
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -15604,17 +15617,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setGoogleConnectModalOpen(true)}
-                        className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border hover:border-blue-400 text-text-secondary hover:text-blue-600 rounded-md text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                        className="px-2.5 py-1 bg-surface hover:bg-surface-subtle border border-border hover:border-blue-400 text-text-secondary hover:text-blue-600 rounded-md text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
                         title="Connect Google Business Profile to sync reviews and reply live"
                       >
-                        <Globe className="w-3 h-3 text-blue-500" />
+                        <Globe className="w-3.5 h-3.5 text-blue-500" />
                         <span className="hidden sm:inline">Connect Google</span>
                       </button>
                     )}
 
-                    <div className="hidden sm:block px-2 py-1 bg-surface-subtle border border-border rounded text-[10px] font-mono text-text-muted truncate max-w-[200px] select-all">
-                      {typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `/${settingsForm.slug || 'tenant'}/review`}
-                    </div>
+                    {/* Copy Link */}
                     <button
                       type="button"
                       onClick={() => {
@@ -15623,21 +15634,32 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         setReviewCopied(true);
                         setTimeout(() => setReviewCopied(false), 2000);
                       }}
-                      className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] rounded-md transition-colors flex items-center gap-1 cursor-pointer"
+                      className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] rounded-md transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
+                      title="Copy public review link to clipboard"
                     >
-                      {reviewCopied ? <><CheckCircle2 className="w-3 h-3 stroke-[2]" /><span>Copied!</span></> : <><Copy className="w-3 h-3 stroke-[2]" /><span>Copy</span></>}
+                      {reviewCopied ? <CheckCircle2 className="w-3 h-3 stroke-[2]" /> : <Copy className="w-3 h-3 stroke-[2]" />}
+                      <span>{reviewCopied ? 'Copied!' : 'Copy Link'}</span>
                     </button>
-                    <a href={typeof window !== 'undefined' ? `/${settingsForm.slug || 'tenant'}/review` : '#'} target="_blank" rel="noopener noreferrer"
-                      className="p-1 text-text-muted hover:text-text-primary bg-surface hover:bg-surface-subtle rounded-md border border-border transition-colors" title="Open review page">
+
+                    {/* Open Portal */}
+                    <a
+                      href={typeof window !== 'undefined' ? `/${settingsForm.slug || 'tenant'}/review` : '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1 text-text-muted hover:text-text-primary bg-surface hover:bg-surface-subtle rounded-md border border-border transition-colors cursor-pointer"
+                      title="Open public review portal in new tab"
+                    >
                       <ArrowUpRight className="w-3.5 h-3.5" />
                     </a>
+
+                    {/* QR Code Popover */}
                     {(() => {
                       const pubUrl = typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `https://crm.goboldlabs.com/${settingsForm.slug || 'tenant'}/review`;
                       const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pubUrl)}`;
                       return (
                         <div className="relative group">
-                          <button type="button" className="p-1 text-text-muted hover:text-text-primary bg-surface hover:bg-surface-subtle rounded-md border border-border transition-colors cursor-pointer" title="QR Code">
-                            <Globe className="w-3.5 h-3.5" />
+                          <button type="button" className="p-1 text-text-muted hover:text-text-primary bg-surface hover:bg-surface-subtle rounded-md border border-border transition-colors cursor-pointer" title="View QR Code & Poster">
+                            <QrCode className="w-3.5 h-3.5" />
                           </button>
                           <div className="absolute right-0 top-full mt-1 z-50 bg-surface border border-border rounded-lg shadow-lg p-3 hidden group-hover:flex flex-col items-center gap-2 w-44">
                             <img src={qrApiUrl} alt="QR" className="w-24 h-24 rounded border border-border p-0.5 bg-white" />
@@ -15655,47 +15677,27 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
                       );
                     })()}
+
+                    {/* Page Config Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setShowReviewConfig((prev) => !prev)}
+                      className={`px-2 py-1 rounded-md border text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer ${
+                        showReviewConfig
+                          ? 'bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700 font-semibold'
+                          : 'bg-surface hover:bg-surface-subtle border border-border text-text-secondary'
+                      }`}
+                      title="Configure services and experience tags for customer review portal"
+                    >
+                      <Tag className="w-3 h-3 text-violet-500" />
+                      <span className="hidden sm:inline">Page Config</span>
+                      <ChevronDown className={`w-3 h-3 text-text-muted transition-transform ${showReviewConfig ? 'rotate-180' : ''}`} />
+                    </button>
                   </div>
                 </div>
 
-                {/* ── COMPACT STAT CHIPS (inline row) ──────────────────────── */}
-                {(() => {
-                  const total = customerReviews.length;
-                  const avg = total > 0 ? (customerReviews.reduce((s, r) => s + (r.rating || 0), 0) / total).toFixed(1) : '0.0';
-                  const gmbCount = customerReviews.filter(r => (r.rating || 0) >= 4).length;
-                  const privateCount = customerReviews.filter(r => (r.rating || 0) <= 3).length;
-                  return (
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        { label: 'Total', value: total, color: 'text-text-primary', tab: 'all' as const },
-                        { label: 'Avg', value: avg, color: 'text-amber-500', tab: null },
-                        { label: 'GMB 4-5', value: gmbCount, color: 'text-emerald-600', tab: 'google' as const },
-                        { label: 'Private 1-3', value: privateCount, color: 'text-rose-600', tab: 'local_store' as const },
-                      ].map(({ label, value, color, tab }) => {
-                        const isInteractive = tab !== null;
-                        const isActive = isInteractive && reviewSourceTab === tab;
-                        return (
-                          <button
-                            key={label}
-                            type="button"
-                            disabled={!isInteractive}
-                            onClick={() => { if (tab) { setReviewSourceTab(tab); setReviewRatingFilter('all'); } }}
-                            className={`flex items-center gap-1.5 bg-surface px-2.5 py-1.5 rounded-md border transition-all ${
-                              isInteractive ? 'cursor-pointer hover:border-accent' : 'cursor-default'
-                            } ${isActive ? 'border-accent shadow-2xs ring-1 ring-accent/30' : 'border-border'}`}
-                            title={isInteractive ? `Switch to ${label} reviews` : undefined}
-                          >
-                            <span className="text-[10px] font-medium text-text-muted uppercase">{label}</span>
-                            <span className={`text-sm font-bold ${color}`}>{value}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-
-                {/* ── CONFIGURE REVIEW PAGE (collapsible) ─────────────────── */}
-                {(() => {
+                {/* ── COLLAPSIBLE CONFIGURE REVIEW PAGE (Shown only when toggled) ── */}
+                {showReviewConfig && (() => {
                   const defaultTags = ['Friendly & Caring Staff','Clean & Hygienic Space','Quick & Prompt Service','Detailed Explanation','Great Results & Treatment','Value for Money','Comfortable & Relaxing','Easy Booking & Response'];
                   const currentTags: string[] = (settingsForm.review_experience_tags && (settingsForm.review_experience_tags as string[]).length > 0)
                     ? settingsForm.review_experience_tags as string[]
@@ -15703,270 +15705,223 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   const services: string[] = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
                     ? settingsForm.taxonomy.requirement_presets : [];
                   return (
-                    <details className="bg-surface rounded-lg border border-border group">
-                      <summary className="flex items-center gap-2 p-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
-                        <Tag className="w-3.5 h-3.5 text-violet-500 shrink-0" />
-                        <span className="text-xs font-bold text-text-primary">Configure Review Page</span>
-                        <span className="text-[10px] text-text-muted hidden sm:inline">— services & experience tags customers see</span>
-                        <ChevronDown className="w-3.5 h-3.5 text-text-muted ml-auto transition-transform group-open:rotate-180" />
-                      </summary>
-                      <div className="p-2.5 pt-0 grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {/* Services to Choose */}
-                        <div className="p-2.5 bg-surface-subtle rounded-md border border-border space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-semibold text-text-primary">Services to Choose</span>
-                            <span className="text-[10px] text-text-muted">{services.length} options</span>
-                          </div>
-                          <div className="flex flex-wrap gap-1 min-h-[26px]">
-                            {services.length > 0 ? (
-                              services.map((s, i) => (
-                                <span key={i} className="flex items-center gap-0.5 px-2 py-0.5 bg-surface rounded-full border border-border text-[10px] text-text-primary font-medium">
-                                  {s}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const next = services.filter((_, idx) => idx !== i);
-                                      setSettingsForm({
-                                        ...settingsForm,
-                                        taxonomy: { ...(settingsForm.taxonomy || {}), requirement_presets: next },
-                                      });
-                                    }}
-                                    className="ml-1 text-text-muted hover:text-rose-500 cursor-pointer transition-colors leading-none font-bold"
-                                    title="Remove service"
-                                  >
-                                    ×
-                                  </button>
-                                </span>
-                              ))
-                            ) : (
-                              <p className="text-[10px] text-text-muted italic">No services added yet. Add below.</p>
-                            )}
-                          </div>
-                          <div className="flex gap-1.5">
-                            <input
-                              type="text"
-                              id="rev-svc-inp"
-                              placeholder="Add service (e.g. Haircut, Consultation)..."
-                              className="flex-1 px-2 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:border-accent focus:outline-none"
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  const v = (e.target as HTMLInputElement).value.trim();
-                                  if (v && !services.includes(v)) {
+                    <div className="p-2.5 bg-surface rounded-lg border border-border grid grid-cols-1 md:grid-cols-2 gap-3 shadow-2xs animate-in fade-in duration-150">
+                      {/* Services to Choose */}
+                      <div className="p-2.5 bg-surface-subtle rounded-md border border-border space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-semibold text-text-primary">Services to Choose</span>
+                          <span className="text-[10px] text-text-muted">{services.length} options</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1 min-h-[26px]">
+                          {services.length > 0 ? (
+                            services.map((s, i) => (
+                              <span key={i} className="flex items-center gap-0.5 px-2 py-0.5 bg-surface rounded-full border border-border text-[10px] text-text-primary font-medium">
+                                {s}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = services.filter((_, idx) => idx !== i);
                                     setSettingsForm({
                                       ...settingsForm,
-                                      taxonomy: { ...(settingsForm.taxonomy || {}), requirement_presets: [...services, v] },
+                                      taxonomy: { ...(settingsForm.taxonomy || {}), requirement_presets: next },
                                     });
-                                    (e.target as HTMLInputElement).value = '';
-                                  }
-                                }
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const inp = document.getElementById('rev-svc-inp') as HTMLInputElement;
-                                const v = inp?.value.trim();
+                                  }}
+                                  className="ml-1 text-text-muted hover:text-rose-500 cursor-pointer transition-colors leading-none font-bold"
+                                  title="Remove service"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))
+                          ) : (
+                            <p className="text-[10px] text-text-muted italic">No services added yet.</p>
+                          )}
+                        </div>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            id="rev-svc-inp"
+                            placeholder="Add service..."
+                            className="flex-1 px-2 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:border-accent focus:outline-none"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const v = (e.target as HTMLInputElement).value.trim();
                                 if (v && !services.includes(v)) {
                                   setSettingsForm({
                                     ...settingsForm,
                                     taxonomy: { ...(settingsForm.taxonomy || {}), requirement_presets: [...services, v] },
                                   });
-                                  if (inp) inp.value = '';
+                                  (e.target as HTMLInputElement).value = '';
                                 }
-                              }}
-                              className="px-2.5 py-1 bg-surface-subtle border border-border text-text-secondary text-[11px] font-semibold rounded cursor-pointer hover:bg-border/60"
-                            >
-                              Add
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  await crm.updateTenantSettings(settingsForm.slug || slug, {
-                                    taxonomy: { ...(settingsForm.taxonomy || {}), requirement_presets: services },
-                                  } as any);
-                                  setReviewServicesSaved(true);
-                                  setTimeout(() => setReviewServicesSaved(false), 2000);
-                                } catch (e) {
-                                  console.error('Failed to save services:', e);
-                                }
-                              }}
-                              className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded cursor-pointer transition-colors"
-                            >
-                              {reviewServicesSaved ? 'Saved!' : 'Save'}
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Experience Tags */}
-                        <div className="p-2.5 bg-surface-subtle rounded-md border border-border space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-semibold text-text-primary">Experience Tags</span>
-                            <span className="text-[10px] text-text-muted">{currentTags.length} tags</span>
-                          </div>
-                          <div className="flex flex-wrap gap-1 min-h-[26px]">
-                            {currentTags.map((tag, i) => (
-                              <span key={i} className="flex items-center gap-0.5 px-2 py-0.5 bg-surface rounded-full border border-border text-[10px] text-text-secondary font-medium">
-                                {tag}
-                                <button
-                                  type="button"
-                                  onClick={() => setSettingsForm({ ...settingsForm, review_experience_tags: currentTags.filter((_, idx) => idx !== i) })}
-                                  className="ml-1 text-text-muted hover:text-rose-500 cursor-pointer transition-colors leading-none font-bold"
-                                  title="Remove tag"
-                                >
-                                  ×
-                                </button>
-                              </span>
-                            ))}
-                          </div>
-                          <div className="flex gap-1.5">
-                            <input
-                              type="text"
-                              id="rev-tag-inp"
-                              placeholder="Add tag..."
-                              className="flex-1 px-2 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:border-accent focus:outline-none"
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  const v = (e.target as HTMLInputElement).value.trim();
-                                  if (v && !currentTags.includes(v)) {
-                                    setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] });
-                                    (e.target as HTMLInputElement).value = '';
-                                  }
-                                }
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const inp = document.getElementById('rev-tag-inp') as HTMLInputElement;
-                                const v = inp?.value.trim();
-                                if (v && !currentTags.includes(v)) {
-                                  setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] });
-                                  if (inp) inp.value = '';
-                                }
-                              }}
-                              className="px-2.5 py-1 bg-surface-subtle border border-border text-text-secondary text-[11px] font-semibold rounded cursor-pointer hover:bg-border/60"
-                            >
-                              Add
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  await crm.updateTenantSettings(settingsForm.slug || slug, { review_experience_tags: currentTags } as any);
-                                  setReviewTagsSaved(true);
-                                  setTimeout(() => setReviewTagsSaved(false), 2000);
-                                } catch (e) {
-                                  console.error('Failed to save tags:', e);
-                                }
-                              }}
-                              className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded cursor-pointer transition-colors"
-                            >
-                              {reviewTagsSaved ? 'Saved!' : 'Save'}
-                            </button>
-                          </div>
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const inp = document.getElementById('rev-svc-inp') as HTMLInputElement;
+                              const v = inp?.value.trim();
+                              if (v && !services.includes(v)) {
+                                setSettingsForm({
+                                  ...settingsForm,
+                                  taxonomy: { ...(settingsForm.taxonomy || {}), requirement_presets: [...services, v] },
+                                });
+                                if (inp) inp.value = '';
+                              }
+                            }}
+                            className="px-2.5 py-1 bg-surface-subtle border border-border text-text-secondary text-[11px] font-semibold rounded cursor-pointer hover:bg-border/60"
+                          >
+                            Add
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await crm.updateTenantSettings(settingsForm.slug || slug, {
+                                  taxonomy: { ...(settingsForm.taxonomy || {}), requirement_presets: services },
+                                } as any);
+                                setReviewServicesSaved(true);
+                                setTimeout(() => setReviewServicesSaved(false), 2000);
+                              } catch (e) {
+                                console.error('Failed to save services:', e);
+                              }
+                            }}
+                            className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded cursor-pointer transition-colors"
+                          >
+                            {reviewServicesSaved ? 'Saved!' : 'Save'}
+                          </button>
                         </div>
                       </div>
-                    </details>
+
+                      {/* Experience Tags */}
+                      <div className="p-2.5 bg-surface-subtle rounded-md border border-border space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-semibold text-text-primary">Experience Tags</span>
+                          <span className="text-[10px] text-text-muted">{currentTags.length} tags</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1 min-h-[26px]">
+                          {currentTags.map((tag, i) => (
+                            <span key={i} className="flex items-center gap-0.5 px-2 py-0.5 bg-surface rounded-full border border-border text-[10px] text-text-secondary font-medium">
+                              {tag}
+                              <button
+                                type="button"
+                                onClick={() => setSettingsForm({ ...settingsForm, review_experience_tags: currentTags.filter((_, idx) => idx !== i) })}
+                                className="ml-1 text-text-muted hover:text-rose-500 cursor-pointer transition-colors leading-none font-bold"
+                                title="Remove tag"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            id="rev-tag-inp"
+                            placeholder="Add tag..."
+                            className="flex-1 px-2 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:border-accent focus:outline-none"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const v = (e.target as HTMLInputElement).value.trim();
+                                if (v && !currentTags.includes(v)) {
+                                  setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] });
+                                  (e.target as HTMLInputElement).value = '';
+                                }
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const inp = document.getElementById('rev-tag-inp') as HTMLInputElement;
+                              const v = inp?.value.trim();
+                              if (v && !currentTags.includes(v)) {
+                                setSettingsForm({ ...settingsForm, review_experience_tags: [...currentTags, v] });
+                                if (inp) inp.value = '';
+                              }
+                            }}
+                            className="px-2.5 py-1 bg-surface-subtle border border-border text-text-secondary text-[11px] font-semibold rounded cursor-pointer hover:bg-border/60"
+                          >
+                            Add
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await crm.updateTenantSettings(settingsForm.slug || slug, { review_experience_tags: currentTags } as any);
+                                setReviewTagsSaved(true);
+                                setTimeout(() => setReviewTagsSaved(false), 2000);
+                              } catch (e) {
+                                console.error('Failed to save tags:', e);
+                              }
+                            }}
+                            className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded cursor-pointer transition-colors"
+                          >
+                            {reviewTagsSaved ? 'Saved!' : 'Save'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   );
                 })()}
 
-                {/* ── DUAL TAB NAVIGATION (Google Reviews 4-5★ vs Local Store Reviews 1-3★) ── */}
-                <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2.5">
-                  <button
-                    type="button"
-                    onClick={() => { setReviewSourceTab('google'); setReviewRatingFilter('all'); }}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
-                      reviewSourceTab === 'google'
-                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-2xs'
-                        : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-transparent'
-                    }`}
-                  >
-                    <Globe className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <span>Google Reviews (4–5★)</span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                      reviewSourceTab === 'google'
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-surface-subtle text-text-muted border border-border'
-                    }`}>
-                      {customerReviews.filter(r => (r.rating || 0) >= 4).length}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => { setReviewSourceTab('local_store'); setReviewRatingFilter('all'); }}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
-                      reviewSourceTab === 'local_store'
-                        ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30 shadow-2xs'
-                        : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-transparent'
-                    }`}
-                  >
-                    <Building2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
-                    <span>Local Store Reviews (1–3★)</span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                      reviewSourceTab === 'local_store'
-                        ? 'bg-rose-600 text-white'
-                        : 'bg-surface-subtle text-text-muted border border-border'
-                    }`}>
-                      {customerReviews.filter(r => (r.rating || 0) <= 3).length}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => { setReviewSourceTab('all'); setReviewRatingFilter('all'); }}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
-                      reviewSourceTab === 'all'
-                        ? 'bg-surface text-text-primary border border-border shadow-2xs font-bold'
-                        : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-transparent'
-                    }`}
-                  >
-                    <span>All Reviews</span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-surface-subtle text-text-muted border border-border font-bold">
-                      {customerReviews.length}
-                    </span>
-                  </button>
-                </div>
-
-                {/* ── GOOGLE REVIEW SYNC EXPLANATION BANNER ─────────────────── */}
-                <div className="p-3 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/60 rounded-xl text-xs text-blue-950 dark:text-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
-                  <div className="flex items-start sm:items-center gap-2">
-                    <Globe className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5 sm:mt-0" />
-                    <p className="text-[11px] leading-relaxed">
-                      <strong>Portal vs Google Maps:</strong> Reviews submitted on your portal are copied and directed to Google Maps. To verify live posted reviews and download customer Google names/avatars, sync with your <strong>Google Business Profile</strong>.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleSyncGoogleReviews}
-                      disabled={syncingGoogleReviews}
-                      className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[11px] cursor-pointer flex items-center gap-1.5 shadow-xs transition-colors"
-                      title="Sync live reviews from Google Maps"
-                    >
-                      <RefreshCw className={`w-3 h-3 ${syncingGoogleReviews ? 'animate-spin' : ''}`} />
-                      <span>{syncingGoogleReviews ? 'Syncing...' : 'Sync Google Reviews'}</span>
-                    </button>
-                    {!googleBusinessStatus?.connected && (
+                {/* ── 2. UNIFIED COMPACT FILTER & SEARCH BAR ─────────────────── */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                    {/* Source Tabs: Google vs Private vs All */}
+                    <div className="flex items-center p-0.5 bg-surface rounded-md border border-border shrink-0 shadow-2xs">
                       <button
                         type="button"
-                        onClick={() => setGoogleConnectModalOpen(true)}
-                        className="px-2.5 py-1 rounded-lg bg-surface border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-100/50 font-semibold text-[11px] cursor-pointer transition-colors"
+                        onClick={() => { setReviewSourceTab('google'); setReviewRatingFilter('all'); }}
+                        className={`px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                          reviewSourceTab === 'google'
+                            ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200 font-bold border border-emerald-300 dark:border-emerald-700'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
                       >
-                        Connect Google Account
+                        <Globe className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                        <span>Google (4–5★)</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-300">
+                          {customerReviews.filter(r => (r.rating || 0) >= 4).length}
+                        </span>
                       </button>
-                    )}
-                  </div>
-                </div>
 
-                {/* ── SUB-FILTER & SEARCH BAR ───────────────────────────────── */}
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <div className="flex items-center gap-1 overflow-x-auto">
-                    {/* Dynamic star rating options based on the active tab */}
-                    <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => { setReviewSourceTab('local_store'); setReviewRatingFilter('all'); }}
+                        className={`px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                          reviewSourceTab === 'local_store'
+                            ? 'bg-rose-50 text-rose-800 dark:bg-rose-950/60 dark:text-rose-200 font-bold border border-rose-300 dark:border-rose-700'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        <Building2 className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                        <span>Private (1–3★)</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-rose-100 dark:bg-rose-900 text-rose-800 dark:text-rose-300">
+                          {customerReviews.filter(r => (r.rating || 0) <= 3).length}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setReviewSourceTab('all'); setReviewRatingFilter('all'); }}
+                        className={`px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                          reviewSourceTab === 'all'
+                            ? 'bg-surface-subtle text-text-primary font-bold border border-border'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        <span>All</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-surface-subtle text-text-muted border border-border">
+                          {customerReviews.length}
+                        </span>
+                      </button>
+                    </div>
+
+                    {/* Star Sub-Filters */}
+                    <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0 shadow-2xs">
                       {(() => {
                         const starOptions = reviewSourceTab === 'google'
                           ? (['all', 5, 4] as const)
@@ -15979,11 +15934,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             key={String(s)}
                             type="button"
                             onClick={() => setReviewRatingFilter(s)}
-                            className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors cursor-pointer flex items-center gap-0.5 ${
                               reviewRatingFilter === s ? 'bg-amber-500 text-slate-950 font-bold' : 'text-text-secondary hover:text-text-primary'
                             }`}
                           >
-                            {s === 'all' ? (reviewSourceTab === 'google' ? 'All (4-5★)' : reviewSourceTab === 'local_store' ? 'All (1-3★)' : 'All') : (
+                            {s === 'all' ? 'All★' : (
                               <>
                                 <span>{s}</span>
                                 <Star className="w-2.5 h-2.5 fill-current" />
@@ -15993,20 +15948,35 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         ));
                       })()}
                     </div>
-                    <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0">
+
+                    {/* Reply Status Filter */}
+                    <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0 shadow-2xs">
                       {(['all', 'pending', 'replied'] as const).map((st) => (
-                        <button key={st} type="button" onClick={() => setReviewStatusFilter(st)}
-                          className={`px-2.5 py-1 rounded text-[11px] font-semibold capitalize transition-colors cursor-pointer ${reviewStatusFilter === st ? 'bg-accent text-white font-bold' : 'text-text-secondary hover:text-text-primary'}`}>
-                          {st === 'all' ? 'All Reviews' : st === 'pending' ? 'Needs Reply' : 'Replied'}
+                        <button
+                          key={st}
+                          type="button"
+                          onClick={() => setReviewStatusFilter(st)}
+                          className={`px-2 py-0.5 rounded text-[10px] font-semibold capitalize transition-colors cursor-pointer ${
+                            reviewStatusFilter === st ? 'bg-accent text-white font-bold' : 'text-text-secondary hover:text-text-primary'
+                          }`}
+                        >
+                          {st === 'all' ? 'All Status' : st === 'pending' ? 'Needs Reply' : 'Replied'}
                         </button>
                       ))}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 sm:ml-auto w-full sm:w-auto">
-                    <div className="relative w-full sm:w-48">
+
+                  {/* Search & Refresh */}
+                  <div className="flex items-center gap-1.5 sm:ml-auto w-full sm:w-auto">
+                    <div className="relative w-full sm:w-44">
                       <Search className="w-3 h-3 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      <input type="text" placeholder="Search..." value={reviewSearchQuery} onChange={(e) => setReviewSearchQuery(e.target.value)}
-                        className="w-full pl-7 pr-3 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:outline-none focus:border-accent" />
+                      <input
+                        type="text"
+                        placeholder="Search reviews..."
+                        value={reviewSearchQuery}
+                        onChange={(e) => setReviewSearchQuery(e.target.value)}
+                        className="w-full pl-7 pr-3 py-1 bg-surface border border-border rounded text-[11px] text-text-primary focus:outline-none focus:border-accent"
+                      />
                     </div>
                     <button
                       type="button"
