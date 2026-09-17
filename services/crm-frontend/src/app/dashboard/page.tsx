@@ -4454,6 +4454,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               preferred_doctor: followupDoctorFilter,
               next_action: followupActionFilter,
               q: followupSearch,
+              limit: 1000,
             });
             if (isMounted && Array.isArray(fresh)) {
               setCustomers((prev) => {
@@ -4541,7 +4542,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             await crm.syncGoogleTasksCompleted().catch(() => null);
             const [bData, cData, tData] = await Promise.all([
               crm.getBookings(undefined, 500).catch(() => []),
-              crm.getCustomers({ limit: 500 }).catch(() => []),
+              crm.getCustomers({ limit: 1000 }).catch(() => []),
               crm.getTasks('all').catch(() => []),
             ]);
             if (isMounted) {
@@ -4612,7 +4613,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
       const [bData, cData, tData, gData] = await Promise.all([
         crm.getBookings(undefined, 500).catch(() => []),
-        crm.getCustomers({ limit: 500 }).catch(() => []),
+        crm.getCustomers({ limit: 1000 }).catch(() => []),
         isMindBodyRecovery ? crm.getTasks('all').catch(() => []) : Promise.resolve([]),
         crm.getLiveCalendarAvailability().catch(() => null),
       ]);
@@ -4723,6 +4724,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         health_concern: depConcern,
         next_action: followupActionFilter,
         q: followupSearch,
+        limit: 1000,
       });
       if (Array.isArray(data)) {
         if (data.length === 0 && !followupSearch.trim()) {
@@ -4787,7 +4789,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     let target = customers.find((c) => c.phone && c.phone.replace(/[^0-9]/g, '') === cleanPhone);
     if (!target) {
       try {
-        const data = await crm.getCustomers();
+        const data = await crm.getCustomers({ limit: 1000 });
         const list = Array.isArray(data) ? data : [];
         setCustomers(list);
         target = list.find((c) => c.phone && c.phone.replace(/[^0-9]/g, '') === cleanPhone);
@@ -4820,7 +4822,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         status: 'new',
       });
       setShowQuickAddCrmModal(false);
-      const freshCustomers = await crm.getCustomers();
+      const freshCustomers = await crm.getCustomers({ limit: 1000 });
       const list = Array.isArray(freshCustomers) ? freshCustomers : [];
       setCustomers(list);
       const createdRecord = list.find((c) => c.id === newCust.id);
@@ -4879,7 +4881,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         followup_time: '10:00 AM',
         initial_note: '',
       });
-      const freshCustomers = await crm.getCustomers();
+      const freshCustomers = await crm.getCustomers({ limit: 1000 });
       const list = Array.isArray(freshCustomers) ? freshCustomers : [];
       setCustomers(list);
       if (res?.id) {

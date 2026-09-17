@@ -955,7 +955,7 @@ def health():
 async def list_contacts(
     tenant_id: str = Depends(get_tenant_id),
     q: Optional[str] = None,
-    limit: int = Query(50, le=100),
+    limit: int = Query(500, le=2000),
     offset: int = 0
 ):
     """List contacts with optional trigram search on name/phone, including WhatsApp opt-in consent status."""
@@ -1097,7 +1097,7 @@ async def list_customers(
     health_concern: Optional[str] = None,
     next_action: Optional[str] = None,
     q: Optional[str] = None,
-    limit: int = Query(100, le=1000),
+    limit: int = Query(1000, le=5000),
     offset: int = 0
 ):
     """List customer follow-up records with segment filters, chat activity, and notes counts."""

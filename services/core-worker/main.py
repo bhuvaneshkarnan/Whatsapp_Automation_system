@@ -1153,16 +1153,18 @@ class CoreWorker:
             async with self.db_pool.acquire() as conn:
                 async with conn.transaction():
                     await conn.execute(
-                        "SELECT id FROM conversations WHERE id = $1::uuid FOR UPDATE",
+                        "SELECT id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid FOR UPDATE",
                         conv_id,
+                        tenant_id,
                     )
                     await conn.execute(
                         """UPDATE conversations 
                            SET last_message_at = now(), 
                                unread_count = unread_count + 1,
                                wa_context = jsonb_set(coalesce(wa_context, '{}'::jsonb), '{last_user_msg_at}', to_jsonb(now()::text))
-                           WHERE id = $1::uuid""",
+                           WHERE id = $1::uuid AND tenant_id = $2::uuid""",
                         conv_id,
+                        tenant_id,
                     )
 
             messages_processed.labels(tenant=tenant_id, status="success").inc()
@@ -1474,18 +1476,18 @@ class CoreWorker:
         text = (message_text or "").strip()
         text_lower = text.lower()
 
-        # Combine recent user messages from history for broader context
+        # Combine all user messages from history for broader context and language persistence
         recent_user_texts = [text_lower]
-        for h in (history or [])[:6]:
+        for h in (history or []):
             if h.get("role") == "user":
                 recent_user_texts.append((h.get("content") or "").lower())
         combined_user_text = " ".join(recent_user_texts)
 
-        # 1. Script Detection (Unicode Ranges)
-        has_devanagari = bool(re.search(r'[\u0900-\u097F]', text))
-        has_tamil = bool(re.search(r'[\u0B80-\u0BFF]', text))
-        has_telugu = bool(re.search(r'[\u0C00-\u0C7F]', text))
-        has_arabic = bool(re.search(r'[\u0600-\u06FF]', text))
+        # 1. Script Detection (Unicode Ranges across current message & history)
+        has_devanagari = bool(re.search(r'[\u0900-\u097F]', combined_user_text))
+        has_tamil = bool(re.search(r'[\u0B80-\u0BFF]', combined_user_text))
+        has_telugu = bool(re.search(r'[\u0C00-\u0C7F]', combined_user_text))
+        has_arabic = bool(re.search(r'[\u0600-\u06FF]', combined_user_text))
 
         if has_devanagari:
             return {
@@ -1501,8 +1503,10 @@ class CoreWorker:
                 "dialect": "tamil_script",
                 "label": "Tamil (Tamil Script)",
                 "directive": (
-                    "The customer wrote in Tamil script. "
-                    "Respond fluently and respectfully in TAMIL using Tamil script (தமிழ்)."
+                    "The customer communicated in Tamil script. "
+                    "CRITICAL: You MUST respond 100% in warm, polite, and friendly TAMIL using Tamil script (தமிழ்). "
+                    "Greet politely, answer their query directly and clearly in sentence 1, and maintain a respectful, welcoming tone. "
+                    "Do NOT sound cold, blunt, or robotic. Never reply in English."
                 )
             }
         if has_telugu:
@@ -1553,7 +1557,8 @@ class CoreWorker:
             "mudiyum", "mudiyadhu", "paakkalam", "pesalam", "pesunga", "solreenga", "solla",
             "kelunga", "keten", "pannalam", "pannunga", "solren", "illai", "vendaam", "kudu",
             "machi", "thala", "paaru", "paathuten", "sandhosham", "puriyala", "purinjidhu", "kooda",
-            "annachi", "thambi", "anna", "akka", "apram", "appuram"
+            "annachi", "thambi", "anna", "akka", "apram", "appuram", "seringa", "oknga", "ama",
+            "aama", "aamam", "valikuthu", "vali", "treatment", "fees", "kaala", "nandri", "thalaiva"
         }
         tanglish_matches = tokens_all.intersection(tanglish_words)
 
@@ -1582,11 +1587,12 @@ class CoreWorker:
                 "dialect": "tanglish",
                 "label": "Tanglish (Romanized Tamil + English)",
                 "directive": (
-                    "The customer is communicating in Tanglish (Tamil written in Romanized English alphabet, e.g. 'nalla poguthu', 'evlo cost'). "
-                    "CRITICAL: You MUST reply 100% in natural Romanized Tanglish/Tamil-English mix using the English alphabet "
-                    "(e.g. 'Super bro! Namma plan ₹3,499 per month all inclusive. Ungalukku eppo convenient ah irukkum?'). "
+                    "The customer is communicating in Tanglish (Tamil written in Romanized English alphabet, e.g. 'vanakkam', 'nalla poguthu', 'evlo cost', 'eppadi irukku'). "
+                    "CRITICAL: You MUST reply 100% in natural, warm, polite Romanized Tanglish/Tamil-English mix using the English alphabet "
+                    "(e.g. 'Vanakkam! Ungalukku eppadi help panlam? Namma treatment details pathi solren.'). "
                     "NEVER reply in pure English to a Tanglish message! "
-                    "Do NOT use Tamil script and do NOT use any hyphens (write 'business ku' not 'business-ku'). Match their friendly Tanglish cadence perfectly." + brevity_note
+                    "Do NOT use Tamil script and do NOT use any hyphens (write 'business ku' not 'business-ku'). "
+                    "Answer directly and warmly in sentence 1. Match their friendly Tanglish cadence with genuine warmth." + brevity_note
                 )
             }
 
@@ -1597,7 +1603,7 @@ class CoreWorker:
                 "label": "Hinglish (Romanized Hindi + English)",
                 "directive": (
                     "The customer is speaking in Hinglish (Hindi written in English alphabet). "
-                    "CRITICAL: You MUST reply 100% in natural Romanized Hinglish using the English alphabet "
+                    "CRITICAL: You MUST reply 100% in natural, warm, polite Romanized Hinglish using the English alphabet "
                     "(e.g. 'Sure bhai! ₹3,499 per month hai all inclusive. Kal aapke liye kaunsa time theek rahega?'). "
                     "NEVER reply in pure English to a Hinglish message! "
                     "Do NOT use Devanagari script or any hyphens. Match their friendly, natural Hinglish cadence perfectly." + brevity_note
@@ -1612,8 +1618,8 @@ class CoreWorker:
                 "directive": (
                     "The customer texts casually using informal texting slang (e.g. 'bro', 'yo', 'u', 'pls'). "
                     "CRITICAL: Mirror their relaxed, friendly, modern WhatsApp texting vibe without any hyphens. "
-                    "Talk like an authentic helpful person texting a peer on WhatsApp (e.g. 'Hey! It is ₹3,499 per month all inclusive with zero setup fees. What time works best for a quick chat?'). "
-                    "Avoid stiff corporate greetings like 'Dear Sir/Madam' or 'I would be delighted to assist'." + brevity_note
+                    "Talk like an authentic, friendly person texting on WhatsApp (e.g. 'Hey! It is ₹3,499 per month all inclusive. What time works best for a quick chat?'). "
+                    "Avoid stiff corporate greetings like 'Dear Sir/Madam' or cold robotic replies." + brevity_note
                 )
             }
 
@@ -1623,7 +1629,7 @@ class CoreWorker:
                 "label": "Formal Business English",
                 "directive": (
                     "The customer writes with formal, courteous executive business phrasing. "
-                    "CRITICAL: Mirror their professional and polished tone with articulate, respectful business English while keeping the response crisp and direct."
+                    "CRITICAL: Mirror their professional and polished tone with articulate, respectful business English while keeping the response crisp, helpful, and direct."
                 )
             }
 
@@ -1633,7 +1639,7 @@ class CoreWorker:
                 "label": "Ultra-Brief Inquiry",
                 "directive": (
                     "The customer sent an ultra-short query (1 to 4 words). "
-                    "CRITICAL BREVITY MIRRORING: Give the direct answer immediately in just 1 punchy sentence (under 15 to 20 words maximum), followed by a quick friendly question. Zero fluff."
+                    "CRITICAL BREVITY MIRRORING: Give the direct answer immediately in a warm, helpful sentence, followed by a friendly invitation. Zero fluff."
                 )
             }
 
@@ -1641,8 +1647,9 @@ class CoreWorker:
             "dialect": "standard_conversational",
             "label": "Natural Conversational English",
             "directive": (
-                "Speak in a natural, warm, and conversational WhatsApp tone. "
-                "Crisp, friendly, and direct without robotic or corporate clichés."
+                "Speak in a warm, polite, directly helpful, and friendly conversational WhatsApp tone. "
+                "Answer the customer's question directly and pleasantly in sentence 1. "
+                "Be courteous, welcoming, and natural without robotic stiffness or coldness."
             )
         }
 
@@ -1686,12 +1693,13 @@ class CoreWorker:
         opencode_key, opencode_base = await self._get_opencode_creds(tenant_id)
         primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("gemini" if gemini_key else "groq")
 
-        # 1. Retrieve full conversation history (up to last 30 messages for deep context)
+        # 1. Retrieve full conversation history (up to last 30 messages for deep context) with strict tenant isolation
         rows = await self.db_pool.fetch(
             """SELECT direction, body FROM messages
-               WHERE conversation_id = $1 AND body IS NOT NULL
+               WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid AND body IS NOT NULL
                ORDER BY created_at DESC LIMIT 30""",
             conv_id,
+            tenant_id,
         )
         def _sanitize_inbound_text(raw_text: str) -> str:
             if not raw_text:
@@ -1718,39 +1726,40 @@ class CoreWorker:
         # Clean humanized conversational WhatsApp texting format directive (Global Mandatory Rules for All Tenants)
         humanized_format_block = (
             "### ABSOLUTE GLOBAL CONVERSATION RULES (MANDATORY FOR ALL TENANTS & REPLIES):\n"
-            "1. ONLY 1 LINE REPLY (MAX 2 SHORT LINES IF NEEDED - NEVER AN ESSAY):\n"
-            "   - Reply in ONLY 1 crisp line (around 10 to 18 words total).\n"
-            "   - Only write a 2nd short line if strictly necessary to answer a two-part inquiry or confirm an appointment.\n"
-            "   - Absolutely FORBIDDEN: Long paragraphs, essays, explanations, and walls of text. Keep it effortless to read in 2 seconds.\n"
-            "   - HARD CEILING: Under 20 words total. Any response over 20 words is rejected.\n"
+            "1. NATURAL, WARM & CONVERSATIONAL WHATSAPP TEXTING (2 TO 3 CONCISE LINES):\n"
+            "   - Reply in a warm, polite, and directly helpful conversational tone (around 25 to 45 words total, 2-3 short lines).\n"
+            "   - Always answer the customer's specific inquiry directly, clearly, and friendly in Sentence 1.\n"
+            "   - Be polite and courteous. If the customer greets you, greet them warmly in return.\n"
+            "   - NEVER be cold, blunt, rude, robotic, or dismissive. Talk like a friendly, caring person representing this business on WhatsApp.\n"
+            "   - Keep it easy and fast to read. Avoid long essays, walls of text, or corporate fluff.\n"
             "2. ZERO HYPHENS, ZERO BULLETS & PURE HUMAN TEXTING FLOW:\n"
             "   - Strictly FORBIDDEN from using ANY hyphens (-), dashes (--), asterisks (*), bullet points (•), or numbered lists (1. 2. 3.).\n"
-            "   - In Tanglish or vernacular, do NOT use hyphens for word suffixes (write 'business ku' not 'business-ku', write 'pesalama' or 'pesalam a' not 'pesalam-a').\n"
+            "   - In Tanglish or vernacular, do NOT use hyphens for word suffixes (write 'business ku' not 'business-ku', write 'pesalama' not 'pesalam-a').\n"
             "   - Real humans texting on WhatsApp never write hyphenated listicles. Write in natural, flowing conversational sentences.\n"
-            "   - If mentioning multiple items, weave them into a smooth sentence with commas (e.g. 'We offer dental cleaning for ₹800 and root canal for ₹3,500').\n"
+            "   - If mentioning multiple items, weave them into a smooth sentence with commas.\n"
             "3. DEEP QUERY UNDERSTANDING & DIRECT ANSWER (100% GROUNDED IN THIS TENANT'S BUSINESS INFO):\n"
             "   - First, carefully read and clearly understand what the customer specifically asked, stated, or doubted.\n"
             "   - Answer THAT specific query directly in Line 1 using EXCLUSIVELY this business's verified factual details provided below.\n"
             "   - STRICTLY FORBIDDEN from using info, services, treatments, or pricing from any other business. Ground every fact 100% in this business's data.\n"
-            "   - If the customer asks about something not covered in this business's knowledge base, honestly state that our team can assist with that specific inquiry or offer to connect them. Never guess or hallucinate!\n"
-            "   - Absolutely FORBIDDEN from using rigid fixed templates, repetitive welcome pitches, or canned corporate slogans.\n"
-            "   - NO INTERROGATION ('DON'T ASK AND ASK'): Never interrogate the customer with sales qualification questions (e.g. 'how many leads do you get?'). Customers reach out to understand the service, not for an interrogation!\n"
-            "   - ZERO REPETITION: NEVER ask the same question repeatedly. If the customer made a casual remark ('nalla poguthu', 'going fine', 'ok'), acknowledge it naturally in sentence 1 and do NOT repeat old questions!\n"
-            "   - Strictly NO robotic phrasing, NO corporate jargon, NO support-desk openers (e.g. 'How can I assist you today?', 'Thank you for reaching out', 'Feel free to ask', 'I understand your concern', 'Certainly!').\n"
+            "   - If the customer asks about something not covered in this business's knowledge base, politely state that our team can assist with that specific inquiry. Never guess or hallucinate!\n"
+            "   - Absolutely FORBIDDEN from using rigid robotic templates or repetitive welcome pitches.\n"
+            "   - NO INTERROGATION: Never interrogate the customer with repetitive qualification questions.\n"
+            "   - ZERO REPETITION: NEVER ask the same question repeatedly. If the customer made a casual remark ('nalla poguthu', 'going fine', 'ok'), acknowledge it warmly and naturally in sentence 1!\n"
             "4. COMPLETE SERVICE DETAILS FIRST (DO NOT REVEAL PRICING AT START UNPROMPTED):\n"
-            "   - When customer asks for details or what you do: Share the COMPLETE core value and what the service/treatment does in 1-2 lines so they fully understand it before any booking.\n"
+            "   - When customer asks for details or what you do: Share the core value and what the service/treatment does in 1-2 friendly lines so they understand it before booking.\n"
             "   - Do NOT reveal pricing in initial introductions or overviews unless the customer explicitly asks for cost, price, fees, or charges.\n"
-            "   - When the customer specifically asks for price, then quote the exact price factually from business knowledge in 1 line.\n"
+            "   - When the customer specifically asks for price, quote the exact price factually from business knowledge warmly and directly.\n"
             "5. CUSTOMER-LED BOOKING (NO PREMATURE APPOINTMENT PUSHING):\n"
-            "   - Do NOT push or force appointments or calls before the customer understands what the service is and asks for it.\n"
-            "   - In Line 2, simply leave a warm, zero-pressure invitation (e.g. 'Let me know if you would like to book or know more!').\n"
-            "   - Only proceed to scheduling when the customer expresses interest to book (e.g. 'I want to book', 'can we schedule?'). Then ask what date and time works best for them.\n"
+            "   - Do NOT push or force appointments before the customer understands what the service is and expresses interest.\n"
+            "   - Leave a warm, zero-pressure invitation (e.g. 'Feel free to let me know if you would like to book an appointment or know more!').\n"
+            "   - When the customer expresses interest to book (e.g. 'I want to book', 'can we schedule?'), politely ask what date and time works best for them.\n"
             "6. AUTOMATIC LANGUAGE & DIALECT MIRRORING (MANDATORY):\n"
-            "   - Organically detect and reply in the customer's exact language and dialect (Tanglish in Tanglish, Hinglish in Hinglish, casual English in casual English, native script in native script).\n"
-            "   - If the customer writes in Tanglish (e.g. 'nalla poguthu', 'cost evlo', 'eppadi irukku'), your ENTIRE reply MUST be in natural Romanized Tanglish! NEVER reply in English to Tanglish!\n"
+            "   - Organically detect and reply in the customer's exact language and dialect (Tamil script in Tamil script, Tanglish in Tanglish, Hinglish in Hinglish, English in English).\n"
+            "   - If the customer has EVER texted in Tamil script (தமிழ்), reply 100% in polite and friendly Tamil script (தமிழ்).\n"
+            "   - If the customer texts in Tanglish (e.g. 'nalla poguthu', 'cost evlo', 'eppadi irukku'), your ENTIRE reply MUST be in natural Romanized Tanglish! NEVER reply in English to Tanglish!\n"
             "7. STRICT TENANT BUSINESS KNOWLEDGE GROUNDING:\n"
             "   - The tenant knowledge base below provides factual business information ONLY for THIS specific business (services, pricing, address, hours).\n"
-            "   - Deliver only the specific fact the customer requested in 1 natural line, adhering strictly to these Global Conversation Rules."
+            "   - Deliver the specific fact the customer requested in natural, polite lines, adhering strictly to these Global Conversation Rules."
         )
 
         # 2. Retrieve customer profile & bookings memory with strict tenant scoping
@@ -2402,16 +2411,16 @@ class CoreWorker:
 
         reinforcement_rule = (
             "### FINAL MANDATORY OVERRIDE (HIGHEST PRECEDENCE DIRECTIVE - STRICT ENFORCEMENT):\n"
-            "- STRICT 1-LINE BREVITY: Reply in ONLY 1 crisp line (around 10 to 18 words total, hard limit under 20 words). Only use a 2nd short line if strictly necessary. NEVER write an essay, paragraph, or long explanation.\n"
+            "- WARM & FRIENDLY TONE: Always reply in a warm, polite, helpful, and friendly conversational tone (around 25 to 45 words total, 2-3 short lines). Never be cold, blunt, rude, or dismissive.\n"
             "- ZERO HYPHENS & ZERO BULLETS: Never use ANY hyphens (-), dashes (--), asterisks (*), or bullet lists. Write 'business ku' instead of 'business-ku'. Text in smooth human sentences without hyphens.\n"
-            "- DEEP QUERY UNDERSTANDING & DIRECT ANSWER: First clearly comprehend what the customer specifically asked, stated, or doubted. Answer THAT exact question directly in Line 1. No fixed templates, no robotic greetings, no repetitive slogans.\n"
+            "- DEEP QUERY UNDERSTANDING & DIRECT ANSWER: First clearly comprehend what the customer specifically asked, stated, or doubted. Answer THAT exact question directly in Line 1. Acknowledge greetings and casual remarks warmly.\n"
             "- EXCLUSIVELY THIS TENANT'S BUSINESS INFO: Ground your answer 100% in THIS tenant's verified business knowledge and services below. Never invent details, never guess, and never use information from any other business or industry!\n"
-            "- COMPLETE DETAILS FIRST, NO UNPROMPTED PRICING: Share complete details of what the service or offering is in 1 line. Do NOT reveal pricing unless the customer explicitly asked about price or cost!\n"
+            "- COMPLETE DETAILS FIRST, NO UNPROMPTED PRICING: Share complete details of what the service or offering is in 1-2 lines. Do NOT reveal pricing unless the customer explicitly asked about price or cost!\n"
             "- NO INTERROGATION: Never interrogate the customer with sales qualification questions ('how many leads do you get?'). Never repeat previously asked questions.\n"
-            "- CUSTOMER-LED BOOKING: In line 2, leave a warm open invitation ('Let me know if you would like to book or know more!'). Never force appointment booking before the customer asks for it. When they ask to book, ask what day and time works best for them.\n"
-            "- ZERO REPETITION: NEVER repeat a question that was already asked in the chat history (e.g. 'how do you handle enquiries?'). Progress naturally.\n"
+            "- CUSTOMER-LED BOOKING: In line 2, leave a warm open invitation ('Feel free to let me know if you would like to book or know more!'). Never force appointment booking before the customer asks for it. When they ask to book, ask what day and time works best for them.\n"
+            "- ZERO REPETITION: NEVER repeat a question that was already asked in the chat history. Progress naturally.\n"
             f"- LANGUAGE & DIALECT MIRRORING: Strictly match customer's language and vibe ({style_profile['label']}). "
-            + ("If Hinglish/Tanglish, reply 100% in natural Romanized text without hyphens; if casual slang, stay relaxed and friendly; keep answer brief and human.\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like an authentic, helpful human texting on WhatsApp.\n")
+            + ("If Tamil script, reply 100% in warm, polite Tamil (தமிழ்)! If Hinglish/Tanglish, reply 100% in natural Romanized text without hyphens; if casual slang, stay relaxed, warm, and friendly; keep answer natural and human.\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like an authentic, warm, helpful human texting on WhatsApp.\n")
             + "- CUSTOMER-DRIVEN APPOINTMENT BOOKING: When scheduling, ask what date and time works best for them. When they provide a time, check availability and confirm. Never force rigid canned slot suggestions.\n"
             "- QUESTION SUPPRESSION: NEVER ask for any detail (name, business, concern, location, email) that is already listed in Known Facts or stated in chat history.\n"
             "- FUNNEL PROGRESSION: Always advance the conversation smoothly. Never loop or stay stuck.\n"
@@ -2446,7 +2455,7 @@ class CoreWorker:
             opencode_base_url=opencode_base,
             primary_provider=primary_provider,
             gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
-            max_tokens=65,
+            max_tokens=180,
             temperature=0.3,
             timeout_seconds=10.0,
             tenant_id=tenant_id,
@@ -5323,12 +5332,13 @@ class CoreWorker:
                         logger.debug("incomplete_followup_quiet_hours", tenant_id=tenant_id, conv_id=conv_id, local_time=now_local.strftime("%H:%M"))
                         continue
 
-                    # 2. Retrieve conversation history to identify customer's last query
+                    # 2. Retrieve conversation history to identify customer's last query with strict tenant isolation
                     msg_rows = await self.db_pool.fetch(
                         """SELECT direction, body, created_at FROM messages
-                           WHERE conversation_id = $1::uuid AND body IS NOT NULL
+                           WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid AND body IS NOT NULL
                            ORDER BY created_at ASC LIMIT 20""",
                         conv_id,
+                        tenant_id,
                     )
                     if not msg_rows:
                         continue
@@ -5365,12 +5375,12 @@ class CoreWorker:
                         "2. DIRECTLY REFERENCE THEIR LAST QUERY OR NEED:\n"
                         "   - Look at the customer's last message and conversation history.\n"
                         "   - What specific service, health symptom, software feature, price, or booking slot were they discussing?\n"
-                        "   - Craft a natural, thoughtful 1-line continuation that specifically follows up on THAT exact topic!\n"
-                        "3. STRICT 1-LINE BREVITY: Reply in ONLY 1 crisp line (around 10 to 18 words, hard maximum under 20 words).\n"
+                        "   - Craft a natural, thoughtful 1-2 line continuation that specifically follows up on THAT exact topic!\n"
+                        "3. WARM & CONCISE CONTINUATION: Reply warmly, politely, and naturally (around 20 to 35 words, 1-2 lines). Never sound blunt or pushy.\n"
                         "4. ZERO HYPHENS & ZERO BULLETS: Strictly FORBIDDEN from using ANY hyphens (-), dashes (--), asterisks (*), or bullet points (•).\n"
                         "5. STRICT TENANT BUSINESS GROUNDING: Ground your reply 100% in this business's verified knowledge and services below. Never hallucinate.\n"
                         f"6. LANGUAGE & DIALECT MIRRORING: Strictly match the customer's texting style and language ({style_profile['label']}). "
-                        + ("If they texted in Tanglish, reply 100% in natural Romanized Tanglish without hyphens!\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like a polite, caring human texting on WhatsApp.\n")
+                        + ("If Tamil script, reply 100% in warm, polite Tamil (தமிழ்)! If they texted in Tanglish, reply 100% in natural Romanized Tanglish without hyphens!\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like a polite, caring human texting on WhatsApp.\n")
                         + "7. ZERO PRESSURE / ZERO INTERROGATION: Never interrogate or push aggressively. Leave a warm, helpful open door.\n\n"
                         f"### BUSINESS KNOWLEDGE BASE & SERVICES (FACTUAL REFERENCE ONLY FOR THIS BUSINESS):\n{ai_cfg.get('system_prompt', '')}\n\n"
                         f"- Customer Name: {contact_name}\n"
@@ -5390,7 +5400,7 @@ class CoreWorker:
                         opencode_base_url=opencode_base,
                         primary_provider="gemini" if gemini_key else "groq",
                         gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
-                        max_tokens=65,
+                        max_tokens=150,
                         temperature=0.3,
                         timeout_seconds=10.0,
                         tenant_id=tenant_id,

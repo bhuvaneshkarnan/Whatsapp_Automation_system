@@ -924,7 +924,8 @@ export const crm = {
       if (filters?.health_concern && filters.health_concern !== 'all') params.set('health_concern', filters.health_concern);
       if (filters?.next_action && filters.next_action !== 'all') params.set('next_action', filters.next_action);
       if (filters?.q) params.set('q', filters.q);
-      if (filters?.limit) params.set('limit', String(filters.limit));
+      const effectiveLimit = filters?.limit ?? 1000;
+      params.set('limit', String(effectiveLimit));
       const qs = params.toString();
       const rows = await request<Customer[]>(`/api/v1/crm/customers${qs ? `?${qs}` : ''}`);
       return Array.isArray(rows) ? rows : [];
