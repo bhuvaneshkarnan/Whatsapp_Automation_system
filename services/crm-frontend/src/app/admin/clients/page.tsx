@@ -350,6 +350,13 @@ export default function SuperAdminClients() {
 
   // Navigation tabs in Super Admin (Webhooks merged directly into organizations)
   const [activeTab, setActiveTab] = useState<'organizations' | 'razorpay' | 'admin_config'>('organizations');
+  
+  // Segmented Organization Tabs: All Organizations, Mine (Direct), Partnered (White-Label)
+  const [activeOrgTab, setActiveOrgTab] = useState<'all' | 'direct' | 'partnered'>('all');
+  const [selectedPartnerFilter, setSelectedPartnerFilter] = useState<string>('all');
+  const [isAddingNewPartner, setIsAddingNewPartner] = useState(false);
+  const [newPartnerNameInput, setNewPartnerNameInput] = useState('');
+
   const [showWebhooksRegistry, setShowWebhooksRegistry] = useState(false);
   const [oauthConnecting, setOauthConnecting] = useState(false);
   const [oauthDisconnecting, setOauthDisconnecting] = useState(false);
@@ -802,6 +809,8 @@ export default function SuperAdminClients() {
     partner_name: '',
     partner_share_pct: 50,
     owner_share_pct: 50,
+    custom_domain: '',
+    brand_name: '',
     razorpay_subscription_id: '',
     meta_phone_id: '',
     meta_access_token: '',
@@ -930,25 +939,52 @@ export default function SuperAdminClients() {
     setFormSubmitting(true);
     setFormError('');
     try {
-      const res = await admin.createTenant(formData);
+      const isPartner = formData.sales_channel === 'partner';
+      const finalPartnerName = isPartner
+        ? (isAddingNewPartner ? newPartnerNameInput.trim() : formData.partner_name.trim())
+        : '';
+
+      if (isPartner && !finalPartnerName) {
+        throw new Error('Please specify or select a Partner Agency Name.');
+      }
+
+      const clientPayload = {
+        ...formData,
+        sales_channel: isPartner ? 'partner' : 'direct',
+        partner_name: finalPartnerName,
+        partner_share_pct: isPartner ? Number(formData.partner_share_pct) : 0,
+        owner_share_pct: isPartner ? Number(formData.owner_share_pct) : 100,
+      };
+
+      const res = await admin.createTenant(clientPayload);
       // Also update billing settings
       await admin.updateTenantBilling(res.id, {
-        plan: formData.plan,
-        monthly_price: Number(formData.monthly_price),
-        billing_cycle_day: Number(formData.billing_cycle_day),
-        razorpay_subscription_id: formData.razorpay_subscription_id,
-        next_renewal_date: `Day ${formData.billing_cycle_day} of every month`,
-        sales_channel: formData.sales_channel,
-        partner_name: formData.partner_name,
-        partner_share_pct: Number(formData.partner_share_pct),
-        owner_share_pct: Number(formData.owner_share_pct),
+        plan: clientPayload.plan,
+        monthly_price: Number(clientPayload.monthly_price),
+        billing_cycle_day: Number(clientPayload.billing_cycle_day),
+        razorpay_subscription_id: clientPayload.razorpay_subscription_id,
+        next_renewal_date: `Day ${clientPayload.billing_cycle_day} of every month`,
+        sales_channel: clientPayload.sales_channel,
+        partner_name: finalPartnerName,
+        partner_share_pct: clientPayload.partner_share_pct,
+        owner_share_pct: clientPayload.owner_share_pct,
       });
+
+      // If custom_domain or brand_name was specified during onboarding, persist it!
+      if (formData.custom_domain || formData.brand_name) {
+        await admin.updateTenantSettings(res.id, {
+          custom_domain: (formData.custom_domain || '').trim().toLowerCase(),
+          brand_name: (formData.brand_name || formData.name || '').trim(),
+        }).catch((domainErr) => console.warn('Failed to set initial branding:', domainErr));
+      }
 
       setCreatedClient({ ...res, password: formData.admin_password });
       setActionSuccessNotice(`Organization "${res.name}" provisioned successfully!`);
       setTimeout(() => setActionSuccessNotice(null), 4000);
       setShowCreateModal(false);
       setFormData(initialFormData);
+      setIsAddingNewPartner(false);
+      setNewPartnerNameInput('');
       loadData();
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : 'Failed to create client tenant.');
@@ -1271,16 +1307,97 @@ export default function SuperAdminClients() {
     setTimeout(() => setCopiedField(null), 2500);
   }
 
-  const filteredTenants = tenants.filter((t) => {
-    const matchesSearch =
-      t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (t.admin_email && t.admin_email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (t.razorpay_subscription_id && t.razorpay_subscription_id.toLowerCase().includes(searchQuery.toLowerCase()));
+  // Computed Organization Segments & Multi-Partner Aggregations
+  const directTenants = tenants.filter((t) => t.sales_channel !== 'partner');
+  const partnerTenants = tenants.filter((t) => t.sales_channel === 'partner');
 
-    if (statusFilter === 'active') return matchesSearch && t.status === 'active';
-    if (statusFilter === 'paused') return matchesSearch && t.status !== 'active';
-    return matchesSearch;
+  const existingPartners = Array.from(
+    new Set(
+      partnerTenants
+        .map((t) => t.partner_name?.trim())
+        .filter((name): name is string => Boolean(name))
+    )
+  ).sort();
+
+  const directMRR = directTenants.reduce((acc, t) => {
+    if (t.status !== 'active') return acc;
+    if (t.monthly_price) return acc + t.monthly_price;
+    const plan = (t.plan || 'pro').toLowerCase();
+    if (plan === 'starter') return acc + 999;
+    if (plan === 'enterprise') return acc + 9999;
+    return acc + 3499;
+  }, 0);
+
+  const partnerGrossMRR = partnerTenants.reduce((acc, t) => {
+    if (t.status !== 'active') return acc;
+    const price = t.monthly_price || ((t.plan || 'pro').toLowerCase() === 'starter' ? 999 : (t.plan || 'pro').toLowerCase() === 'enterprise' ? 9999 : 3499);
+    return acc + price;
+  }, 0);
+
+  const partnerCommissionMRR = partnerTenants.reduce((acc, t) => {
+    if (t.status !== 'active') return acc;
+    const price = t.monthly_price || ((t.plan || 'pro').toLowerCase() === 'starter' ? 999 : (t.plan || 'pro').toLowerCase() === 'enterprise' ? 9999 : 3499);
+    const splitPct = t.partner_share_pct ?? 50;
+    return acc + (price * (splitPct / 100));
+  }, 0);
+
+  const yourPartnerNetMRR = partnerGrossMRR - partnerCommissionMRR;
+  const totalNetRetainedMRR = directMRR + yourPartnerNetMRR;
+
+  function handleOpenCreateModal(overrideChannel?: 'direct' | 'partner') {
+    const channel = overrideChannel || (activeOrgTab === 'partnered' ? 'partner' : 'direct');
+    let defaultPartner = '';
+    if (channel === 'partner') {
+      if (selectedPartnerFilter && selectedPartnerFilter !== 'all') {
+        defaultPartner = selectedPartnerFilter;
+      } else if (existingPartners.length > 0) {
+        defaultPartner = existingPartners[0];
+      }
+    }
+
+    setFormData({
+      ...initialFormData,
+      sales_channel: channel,
+      partner_name: defaultPartner,
+      partner_share_pct: channel === 'partner' ? 50 : 0,
+      owner_share_pct: channel === 'partner' ? 50 : 100,
+      custom_domain: '',
+      brand_name: '',
+    });
+    setIsAddingNewPartner(channel === 'partner' && existingPartners.length === 0);
+    setNewPartnerNameInput('');
+    setFormError('');
+    setShowCreateModal(true);
+  }
+
+  const filteredTenants = tenants.filter((t) => {
+    // 1. Tab segment filter
+    if (activeOrgTab === 'direct' && t.sales_channel === 'partner') {
+      return false;
+    }
+    if (activeOrgTab === 'partnered') {
+      if (t.sales_channel !== 'partner') return false;
+      if (selectedPartnerFilter !== 'all' && t.partner_name?.trim() !== selectedPartnerFilter) {
+        return false;
+      }
+    }
+
+    // 2. Status filter
+    if (statusFilter === 'active' && t.status !== 'active') return false;
+    if (statusFilter === 'paused' && t.status === 'active') return false;
+
+    // 3. Search query
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return true;
+
+    return (
+      t.name.toLowerCase().includes(query) ||
+      t.slug.toLowerCase().includes(query) ||
+      (t.admin_email && t.admin_email.toLowerCase().includes(query)) ||
+      (t.partner_name && t.partner_name.toLowerCase().includes(query)) ||
+      (t.custom_domain && t.custom_domain.toLowerCase().includes(query)) ||
+      (t.razorpay_subscription_id && t.razorpay_subscription_id.toLowerCase().includes(query))
+    );
   });
 
   const totalCalculatedMRR = tenants.reduce((acc, t) => {
@@ -1522,11 +1639,19 @@ export default function SuperAdminClients() {
             </button>
 
             <button
-              onClick={() => setShowCreateModal(true)}
-              className="px-2.5 sm:px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
+              onClick={() => handleOpenCreateModal()}
+              className={`px-2.5 sm:px-3 py-1.5 text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap ${
+                activeOrgTab === 'direct'
+                  ? 'bg-emerald-600 hover:bg-emerald-700'
+                  : activeOrgTab === 'partnered'
+                  ? 'bg-purple-600 hover:bg-purple-700'
+                  : 'bg-accent hover:bg-accent-hover'
+              }`}
             >
               <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
-              <span>Onboard</span>
+              <span>
+                {activeOrgTab === 'direct' ? 'Onboard Direct' : activeOrgTab === 'partnered' ? 'Onboard Partner' : 'Onboard'}
+              </span>
             </button>
           </div>
         </header>
@@ -1580,7 +1705,7 @@ export default function SuperAdminClients() {
                   </span>
                 </div>
                 <p className="text-[10px] sm:text-xs text-text-muted mt-0.5">
-                  {tenants.filter((t) => t.status !== 'active').length} paused
+                  {directTenants.length} Direct &bull; {partnerTenants.length} Partner
                 </p>
               </div>
             </div>
@@ -1600,8 +1725,8 @@ export default function SuperAdminClients() {
                   </span>
                   <span className="text-[10px] sm:text-xs text-text-muted">/ mo</span>
                 </div>
-                <p className="text-[10px] sm:text-xs text-text-muted mt-0.5">
-                  Razorpay recurring
+                <p className="text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">
+                  ₹{totalNetRetainedMRR.toLocaleString('en-IN')} net retained
                 </p>
               </div>
             </div>
@@ -1653,6 +1778,206 @@ export default function SuperAdminClients() {
           {/* ── TAB 1: CLIENT ORGANIZATIONS DIRECTORY & CONFIGURATION ─────────── */}
           {activeTab === 'organizations' && (
             <div className="bg-surface border border-border rounded-md overflow-hidden shadow-xs">
+              
+              {/* ── SEGMENTED TOP TAB SWITCHER (Direct vs Partnered) ── */}
+              <div className="border-b border-border bg-surface px-3 sm:px-4 py-2.5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5 bg-surface-subtle/30">
+                <div className="flex items-center gap-1.5 overflow-x-auto safari-scroll py-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveOrgTab('all');
+                      setSelectedPartnerFilter('all');
+                    }}
+                    className={`px-3 py-1.5 rounded-sm text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                      activeOrgTab === 'all'
+                        ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-2xs'
+                        : 'bg-surface hover:bg-surface-subtle text-text-secondary border border-border'
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <span>All Organizations</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-medium ${
+                      activeOrgTab === 'all' ? 'bg-white/20 text-white dark:bg-slate-900/20 dark:text-slate-900' : 'bg-surface-subtle border border-border text-text-muted'
+                    }`}>
+                      {tenants.length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveOrgTab('direct');
+                      setSelectedPartnerFilter('all');
+                    }}
+                    className={`px-3 py-1.5 rounded-sm text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                      activeOrgTab === 'direct'
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : 'bg-surface hover:bg-surface-subtle text-text-secondary border border-border'
+                    }`}
+                  >
+                    <Building2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <span>🏢 My Direct Clients</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-medium ${
+                      activeOrgTab === 'direct' ? 'bg-white/20 text-white' : 'bg-surface-subtle border border-border text-text-muted'
+                    }`}>
+                      {directTenants.length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveOrgTab('partnered');
+                      setSelectedPartnerFilter('all');
+                    }}
+                    className={`px-3 py-1.5 rounded-sm text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                      activeOrgTab === 'partnered'
+                        ? 'bg-purple-600 text-white shadow-2xs'
+                        : 'bg-surface hover:bg-surface-subtle text-text-secondary border border-border'
+                    }`}
+                  >
+                    <Globe className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <span>🌐 Partnered / White-Label</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-medium ${
+                      activeOrgTab === 'partnered' ? 'bg-white/20 text-white' : 'bg-surface-subtle border border-border text-text-muted'
+                    }`}>
+                      {partnerTenants.length}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Tab-Aware Fast Action CTA */}
+                <div className="flex items-center gap-2 shrink-0">
+                  {activeOrgTab === 'direct' && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenCreateModal('direct')}
+                      className="w-full md:w-auto px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span>+ Onboard Direct Client</span>
+                    </button>
+                  )}
+
+                  {activeOrgTab === 'partnered' && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenCreateModal('partner')}
+                      className="w-full md:w-auto px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span>+ Onboard Partner Client</span>
+                    </button>
+                  )}
+
+                  {activeOrgTab === 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenCreateModal()}
+                      className="w-full md:w-auto px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span>+ Onboard Organization</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* ── PARTNER MULTI-AGENCY SUB-BAR & FINANCIAL RIBBON (When activeOrgTab === 'partnered') ── */}
+              {activeOrgTab === 'partnered' && (
+                <div className="bg-purple-500/5 border-b border-border px-3 sm:px-4 py-2.5 space-y-2.5 animate-in fade-in duration-150">
+                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2.5">
+                    {/* Agency Selector Chips */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider flex items-center gap-1">
+                        <Users className="w-3 h-3 text-purple-500" />
+                        <span>Agencies:</span>
+                      </span>
+                      
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPartnerFilter('all')}
+                        className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer border ${
+                          selectedPartnerFilter === 'all'
+                            ? 'bg-purple-600 text-white border-purple-600'
+                            : 'bg-surface hover:bg-surface-subtle text-text-secondary border-border'
+                        }`}
+                      >
+                        All ({partnerTenants.length})
+                      </button>
+
+                      {existingPartners.map((pName) => {
+                        const count = partnerTenants.filter(t => t.partner_name?.trim() === pName).length;
+                        const isSel = selectedPartnerFilter === pName;
+                        return (
+                          <button
+                            key={pName}
+                            type="button"
+                            onClick={() => setSelectedPartnerFilter(pName)}
+                            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer border flex items-center gap-1 ${
+                              isSel
+                                ? 'bg-purple-600 text-white border-purple-600'
+                                : 'bg-surface hover:bg-surface-subtle text-text-secondary border-border'
+                            }`}
+                          >
+                            <span>{pName}</span>
+                            <span className={`text-[10px] font-mono px-1 rounded ${
+                              isSel ? 'bg-white/20 text-white' : 'bg-surface-subtle text-text-muted'
+                            }`}>
+                              {count}
+                            </span>
+                          </button>
+                        );
+                      })}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleOpenCreateModal('partner');
+                          setIsAddingNewPartner(true);
+                        }}
+                        className="px-2 py-0.5 rounded text-[11px] font-medium text-purple-600 dark:text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 transition-colors cursor-pointer flex items-center gap-1"
+                        title="Add a new Partner Agency"
+                      >
+                        <Plus className="w-2.5 h-2.5" />
+                        <span>+ Add Partner Agency</span>
+                      </button>
+                    </div>
+
+                    {/* Partner Revenue Split Strip */}
+                    <div className="flex items-center gap-2 flex-wrap text-[11px] font-mono bg-surface border border-border px-2.5 py-1 rounded-sm shadow-2xs">
+                      <span className="text-text-muted">
+                        Gross: <strong className="text-text-primary font-semibold">₹{partnerGrossMRR.toLocaleString('en-IN')}</strong>
+                      </span>
+                      <span className="text-border">&bull;</span>
+                      <span className="text-purple-600 dark:text-purple-400">
+                        Payouts: <strong className="font-semibold">₹{partnerCommissionMRR.toLocaleString('en-IN')}</strong>
+                      </span>
+                      <span className="text-border">&bull;</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                        Your Net: <strong>₹{yourPartnerNetMRR.toLocaleString('en-IN')}</strong>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── DIRECT CLIENT PORTFOLIO RIBBON (When activeOrgTab === 'direct') ── */}
+              {activeOrgTab === 'direct' && (
+                <div className="bg-emerald-500/5 border-b border-border px-3 sm:px-4 py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 animate-in fade-in duration-150">
+                  <div className="flex items-center gap-2 text-xs text-text-secondary">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <span className="font-semibold text-text-primary">Boldlabs Direct Portfolio</span>
+                    <span className="text-text-muted">&bull;</span>
+                    <span>{directTenants.length} Direct Clients</span>
+                    <span className="text-text-muted">&bull;</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">100% Retained Revenue</span>
+                  </div>
+                  <div className="text-xs font-mono text-emerald-700 dark:text-emerald-300 bg-surface border border-emerald-500/20 px-2.5 py-1 rounded-sm">
+                    Direct MRR: <strong>₹{directMRR.toLocaleString('en-IN')}/mo</strong>
+                  </div>
+                </div>
+              )}
               
               {/* Search & Filter Bar */}
               <div className="p-3 sm:p-3.5 border-b border-border flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 bg-surface">
@@ -1769,7 +2094,20 @@ export default function SuperAdminClients() {
               ) : filteredTenants.length === 0 ? (
                 <div className="p-12 text-center space-y-2">
                   <Building2 className="w-8 h-8 text-text-muted mx-auto stroke-[1.5]" />
-                  <p className="text-xs font-medium text-text-primary">No organizations found</p>
+                  <p className="text-xs font-medium text-text-primary">
+                    {activeOrgTab === 'direct'
+                      ? 'No direct client organizations found'
+                      : activeOrgTab === 'partnered'
+                      ? (selectedPartnerFilter !== 'all' ? `No client organizations found for partner "${selectedPartnerFilter}"` : 'No partnered white-label organizations found')
+                      : 'No organizations found'}
+                  </p>
+                  <p className="text-[11px] text-text-muted">
+                    {activeOrgTab === 'direct'
+                      ? 'Click "+ Onboard Direct Client" above to provision an organization for Boldlabs.'
+                      : activeOrgTab === 'partnered'
+                      ? 'Click "+ Onboard Partner Client" above to provision a client under a partner agency.'
+                      : 'Adjust search query or onboard a new client organization.'}
+                  </p>
                 </div>
               ) : (
                 <>
@@ -5473,9 +5811,15 @@ export default function SuperAdminClients() {
             {/* Modal Header */}
             <div className="h-12 px-4 sm:px-5 border-b border-border flex items-center justify-between shrink-0 bg-surface">
               <div className="flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-accent stroke-[1.5]" />
+                {formData.sales_channel === 'partner' ? (
+                  <Globe className="w-4 h-4 text-purple-600 stroke-[1.5]" />
+                ) : (
+                  <Building2 className="w-4 h-4 text-emerald-600 stroke-[1.5]" />
+                )}
                 <h3 className="text-xs font-semibold text-text-primary">
-                  Onboard Client Organization
+                  {formData.sales_channel === 'partner'
+                    ? 'Onboard Partner Client Organization (White-Label)'
+                    : 'Onboard Direct Client Organization'}
                 </h3>
               </div>
               <button
@@ -5493,6 +5837,55 @@ export default function SuperAdminClients() {
                   {formError}
                 </div>
               )}
+
+              {/* Segmented Sales Channel Mode Switcher */}
+              <div className="p-1 bg-surface-subtle border border-border rounded-sm grid grid-cols-2 gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData((prev) => ({
+                      ...prev,
+                      sales_channel: 'direct',
+                      partner_name: '',
+                      partner_share_pct: 0,
+                      owner_share_pct: 100,
+                    }));
+                    setIsAddingNewPartner(false);
+                  }}
+                  className={`py-1.5 px-2 rounded-xs text-xs font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    formData.sales_channel !== 'partner'
+                      ? 'bg-white text-emerald-700 shadow-2xs font-semibold border border-border'
+                      : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  <Building2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                  <span>🏢 My Direct Client</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData((prev) => ({
+                      ...prev,
+                      sales_channel: 'partner',
+                      partner_name: prev.partner_name || (existingPartners[0] || ''),
+                      partner_share_pct: 50,
+                      owner_share_pct: 50,
+                    }));
+                    if (existingPartners.length === 0) {
+                      setIsAddingNewPartner(true);
+                    }
+                  }}
+                  className={`py-1.5 px-2 rounded-xs text-xs font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    formData.sales_channel === 'partner'
+                      ? 'bg-white text-purple-700 shadow-2xs font-semibold border border-border'
+                      : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5 stroke-[1.5]" />
+                  <span>🌐 Partner Agency Client</span>
+                </button>
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
@@ -5596,30 +5989,96 @@ export default function SuperAdminClients() {
                     <label className="block text-xs font-medium text-text-primary mb-1">Sales Channel</label>
                     <select
                       value={formData.sales_channel}
-                      onChange={(e) => setFormData({ ...formData, sales_channel: e.target.value })}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFormData({
+                          ...formData,
+                          sales_channel: val,
+                          partner_share_pct: val === 'partner' ? 50 : 0,
+                          owner_share_pct: val === 'partner' ? 50 : 100,
+                        });
+                        if (val === 'partner' && existingPartners.length === 0) {
+                          setIsAddingNewPartner(true);
+                        }
+                      }}
                       className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-sans text-text-primary focus:border-accent transition-colors duration-150 cursor-pointer"
                     >
-                      <option value="direct">Direct Sales ("I myself sell")</option>
-                      <option value="partner">Partner Agency Sales ("Company Partner")</option>
+                      <option value="direct">Direct Sales ("My Client - 100% Boldlabs")</option>
+                      <option value="partner">Partner Agency ("White-Label Partner")</option>
                     </select>
                   </div>
                 </div>
 
                 {formData.sales_channel === 'partner' && (
-                  <div className="p-3 bg-white rounded border border-border space-y-3 animate-in fade-in duration-150">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="p-3.5 bg-purple-500/5 rounded-md border border-purple-500/20 space-y-3 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-purple-600" />
+                        <span>Partner Agency Assignment</span>
+                      </label>
+                      {existingPartners.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsAddingNewPartner(!isAddingNewPartner);
+                            if (!isAddingNewPartner) setNewPartnerNameInput('');
+                          }}
+                          className="text-[11px] text-purple-600 dark:text-purple-400 font-medium hover:underline cursor-pointer"
+                        >
+                          {isAddingNewPartner ? '← Pick existing partner agency' : '+ Add new partner agency'}
+                        </button>
+                      )}
+                    </div>
+
+                    {existingPartners.length > 0 && !isAddingNewPartner ? (
                       <div>
-                        <label className="block text-[11px] font-semibold text-text-secondary mb-1">Partner Agency Name</label>
+                        <select
+                          value={formData.partner_name}
+                          onChange={(e) => {
+                            if (e.target.value === '__add_new__') {
+                              setIsAddingNewPartner(true);
+                              setNewPartnerNameInput('');
+                            } else {
+                              setFormData({ ...formData, partner_name: e.target.value });
+                            }
+                          }}
+                          className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-medium text-text-primary focus:border-accent cursor-pointer"
+                        >
+                          <option value="" disabled>Select partner agency...</option>
+                          {existingPartners.map((p) => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                          <option value="__add_new__">+ Add new partner agency...</option>
+                        </select>
+                      </div>
+                    ) : (
+                      <div>
                         <input
                           type="text"
-                          placeholder="e.g. Acme Media Partner"
-                          value={formData.partner_name}
-                          onChange={(e) => setFormData({ ...formData, partner_name: e.target.value })}
-                          className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                          required={formData.sales_channel === 'partner'}
+                          placeholder="Partner Agency Name * (e.g. Apex Media Group)"
+                          value={isAddingNewPartner ? newPartnerNameInput : formData.partner_name}
+                          onChange={(e) => {
+                            if (isAddingNewPartner) {
+                              setNewPartnerNameInput(e.target.value);
+                            } else {
+                              setFormData({ ...formData, partner_name: e.target.value });
+                            }
+                          }}
+                          className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs text-text-primary focus:border-accent"
                         />
+                        <p className="text-[10px] text-text-muted mt-1">
+                          This partner company will be saved and available for future client assignments.
+                        </p>
                       </div>
+                    )}
+
+                    {/* Revenue Split */}
+                    <div className="grid grid-cols-2 gap-3 pt-1">
                       <div>
-                        <label className="block text-[11px] font-semibold text-text-secondary mb-1">Partner Share %</label>
+                        <label className="block text-[11px] font-semibold text-text-secondary mb-1">
+                          Partner Share %
+                        </label>
                         <input
                           type="number"
                           min={0}
@@ -5629,11 +6088,13 @@ export default function SuperAdminClients() {
                             const val = Number(e.target.value);
                             setFormData({ ...formData, partner_share_pct: val, owner_share_pct: 100 - val });
                           }}
-                          className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent"
+                          className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent"
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-semibold text-text-secondary mb-1">Your (Owner) Share %</label>
+                        <label className="block text-[11px] font-semibold text-text-secondary mb-1">
+                          Your (Owner) Share %
+                        </label>
                         <input
                           type="number"
                           min={0}
@@ -5643,14 +6104,53 @@ export default function SuperAdminClients() {
                             const val = Number(e.target.value);
                             setFormData({ ...formData, owner_share_pct: val, partner_share_pct: 100 - val });
                           }}
-                          className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent"
+                          className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent"
                         />
                       </div>
                     </div>
-                    <div className="p-2 bg-emerald-500/10 rounded text-[11px] font-mono text-emerald-800 dark:text-emerald-300 flex justify-between">
-                      <span>Monthly Split on ₹{(formData.monthly_price || 0).toLocaleString()}:</span>
-                      <span>Partner: ₹{((formData.monthly_price || 0) * (formData.partner_share_pct / 100)).toLocaleString()} | Owner Net: ₹{((formData.monthly_price || 0) * (formData.owner_share_pct / 100)).toLocaleString()}</span>
+
+                    <div className="p-2.5 bg-white rounded border border-purple-500/20 text-[11px] font-mono flex items-center justify-between">
+                      <span className="text-text-muted">On ₹{(formData.monthly_price || 0).toLocaleString('en-IN')}/mo:</span>
+                      <span className="text-purple-700 dark:text-purple-300">Partner: ₹{((formData.monthly_price || 0) * (formData.partner_share_pct / 100)).toLocaleString('en-IN')}</span>
+                      <span className="text-emerald-700 dark:text-emerald-300 font-semibold">Your Net: ₹{((formData.monthly_price || 0) * (formData.owner_share_pct / 100)).toLocaleString('en-IN')}</span>
                     </div>
+
+                    {/* White-Label Custom Domain Setup (Optional) */}
+                    <div className="pt-2 border-t border-purple-500/20 space-y-2">
+                      <label className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-sky-500" />
+                        <span>White-Label Custom Domain & Brand (Optional)</span>
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <input
+                            type="text"
+                            placeholder="e.g. crm.partnerclinic.com"
+                            value={formData.custom_domain}
+                            onChange={(e) => setFormData({ ...formData, custom_domain: e.target.value.toLowerCase().trim() })}
+                            className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary placeholder:text-text-muted focus:border-accent"
+                          />
+                          <p className="text-[10px] text-text-muted mt-0.5">CNAME crm &rarr; cname.vercel-dns.com</p>
+                        </div>
+                        <div>
+                          <input
+                            type="text"
+                            placeholder="Brand Name (e.g. Acme Health CRM)"
+                            value={formData.brand_name}
+                            onChange={(e) => setFormData({ ...formData, brand_name: e.target.value })}
+                            className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:border-accent"
+                          />
+                          <p className="text-[10px] text-text-muted mt-0.5">Overrides Boldlabs in portal header</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {formData.sales_channel !== 'partner' && (
+                  <div className="p-2.5 bg-emerald-500/10 rounded border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Direct sales: You retain <strong>100%</strong> of client subscription revenue (₹{(formData.monthly_price || 0).toLocaleString('en-IN')}/mo).</span>
                   </div>
                 )}
               </div>

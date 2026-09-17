@@ -1453,6 +1453,15 @@ export interface ClientCreatePayload {
   google_refresh_token?: string;
   google_calendar_id?: string;
   notification_email?: string;
+  monthly_price?: number;
+  billing_cycle_day?: number;
+  razorpay_subscription_id?: string;
+  sales_channel?: string;
+  partner_name?: string;
+  partner_share_pct?: number;
+  owner_share_pct?: number;
+  custom_domain?: string;
+  brand_name?: string;
 }
 
 export interface ClientCreatedResponse {
@@ -1508,7 +1517,7 @@ export const admin = {
       method: 'POST',
       body: JSON.stringify({ new_password: newPassword }),
     }),
-  updateTenantBilling: (tenantId: string, data: { plan?: string; monthly_price?: number; billing_cycle_day?: number; razorpay_subscription_id?: string; next_renewal_date?: string }) =>
+  updateTenantBilling: (tenantId: string, data: { plan?: string; monthly_price?: number; billing_cycle_day?: number; razorpay_subscription_id?: string; next_renewal_date?: string; sales_channel?: string; partner_name?: string; partner_share_pct?: number; owner_share_pct?: number; [key: string]: any }) =>
     request<{ status: string; tenant_id: string; plan: string; settings: any }>(
       `/api/v1/crm/admin/tenants/${tenantId}/billing`,
       {
