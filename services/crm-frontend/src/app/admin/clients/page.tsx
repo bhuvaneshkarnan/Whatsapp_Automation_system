@@ -63,6 +63,7 @@ import {
   ShieldAlert,
   Loader2,
   Stethoscope,
+  Menu,
 } from 'lucide-react';
 import {
   admin,
@@ -767,6 +768,7 @@ export default function SuperAdminClients() {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [actionSuccessNotice, setActionSuccessNotice] = useState<string | null>(null);
   const [actionErrorNotice, setActionErrorNotice] = useState<string | null>(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   function triggerErrorNotice(msg: string) {
     setActionErrorNotice(msg);
@@ -1300,10 +1302,10 @@ export default function SuperAdminClients() {
   }
 
   return (
-    <div className="flex h-screen bg-canvas text-text-primary font-sans antialiased overflow-hidden">
+    <div className="flex h-[100dvh] min-h-[100dvh] bg-canvas text-text-primary font-sans antialiased overflow-hidden safari-scroll">
       
-      {/* ── 1. SUPER ADMIN SIDEBAR ────────────────────────────────────────── */}
-      <aside className="w-60 bg-surface text-text-secondary flex flex-col shrink-0 select-none border-r border-border">
+      {/* ── 1. SUPER ADMIN SIDEBAR (DESKTOP) ───────────────────────────────── */}
+      <aside className="hidden md:flex w-60 bg-surface text-text-secondary flex-col shrink-0 select-none border-r border-border">
         
         {/* Brand & Platform Name */}
         <div className="h-14 flex items-center gap-2.5 px-4 border-b border-border">
@@ -1319,7 +1321,7 @@ export default function SuperAdminClients() {
         </div>
 
         {/* Navigation Tabs */}
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto safari-scroll">
           <div className="px-2 py-1 text-[11px] font-semibold text-text-muted uppercase tracking-wider">
             Platform
           </div>
@@ -1349,7 +1351,7 @@ export default function SuperAdminClients() {
         </nav>
 
         {/* Footer: Quick switch back to CRM Dashboard */}
-        <div className="p-3 border-t border-border space-y-1.5">
+        <div className="p-3 border-t border-border space-y-1.5 safe-area-pb">
           <button
             onClick={() => router.push('/boldlabs')}
             className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 text-accent rounded-sm text-xs font-semibold transition-colors duration-150 cursor-pointer border border-accent/20"
@@ -1369,34 +1371,138 @@ export default function SuperAdminClients() {
 
       </aside>
 
+      {/* ── MOBILE SLIDE-OUT DRAWER (< md) ─────────────────────────────────── */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex">
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in duration-200" 
+            onClick={() => setMobileNavOpen(false)} 
+          />
+          
+          {/* Drawer Panel */}
+          <div className="relative w-4/5 max-w-xs bg-surface text-text-secondary flex flex-col z-10 border-r border-border shadow-2xl safe-area-pt safe-area-pb animate-in slide-in-from-left duration-200">
+            {/* Brand & Close */}
+            <div className="h-14 flex items-center justify-between px-4 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-sm bg-accent text-white flex items-center justify-center shrink-0 font-bold text-xs">
+                  B
+                </div>
+                <div>
+                  <h1 className="font-semibold text-xs text-text-primary">
+                    Boldlabs Admin
+                  </h1>
+                  <p className="text-[11px] text-text-muted">Master control plane</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setMobileNavOpen(false)}
+                className="p-1.5 text-text-muted hover:text-text-primary rounded-sm transition-colors"
+                title="Close Navigation"
+              >
+                <X className="w-4 h-4 stroke-[1.5]" />
+              </button>
+            </div>
+
+            {/* Nav items */}
+            <nav className="flex-1 p-3 space-y-1 overflow-y-auto safari-scroll">
+              <div className="px-2 py-1 text-[11px] font-semibold text-text-muted uppercase tracking-wider">
+                Platform Navigation
+              </div>
+
+              {[
+                { id: 'organizations', label: 'Organizations & Config', icon: Building2 },
+                { id: 'razorpay', label: 'Billing & Renewals', icon: CreditCard },
+                { id: 'admin_config', label: 'Admin Notifications', icon: Bell },
+              ].map((item) => {
+                const Icon = item.icon;
+                const active = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveTab(item.id as any);
+                      setMobileNavOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-sm text-xs transition-colors duration-150 cursor-pointer text-left ${
+                      active
+                        ? 'bg-surface-subtle text-text-primary font-semibold border border-border-strong'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium border border-transparent'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 stroke-[1.5] ${active ? 'text-accent' : 'text-text-muted'}`} />
+                    <span className="flex-1">{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Footer in Drawer */}
+            <div className="p-3 border-t border-border space-y-2">
+              <button
+                onClick={() => {
+                  setMobileNavOpen(false);
+                  router.push('/boldlabs');
+                }}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-accent/10 hover:bg-accent/20 text-accent rounded-sm text-xs font-semibold transition-colors duration-150 cursor-pointer border border-accent/20"
+              >
+                <MessageSquare className="w-3.5 h-3.5 stroke-[1.5]" />
+                <span>Open Boldlabs CRM</span>
+              </button>
+              <button
+                onClick={() => {
+                  setMobileNavOpen(false);
+                  router.push('/dashboard');
+                }}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-surface hover:bg-surface-subtle text-text-muted hover:text-text-primary rounded-sm text-xs font-medium transition-colors duration-150 cursor-pointer border border-border"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 stroke-[1.5]" />
+                <span>Return to Dashboard</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── 2. MAIN SUPER ADMIN WORKSPACE ────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-canvas">
         
         {/* Top Header */}
-        <header className="h-14 border-b border-border bg-surface px-6 flex items-center justify-between shrink-0">
-          <div>
-            <h2 className="font-semibold text-xs text-text-primary flex items-center gap-2">
-              <span>
-                {activeTab === 'organizations' && 'Client Organizations & Centralized Configuration'}
-                {activeTab === 'razorpay' && 'Razorpay Subscriptions & Renewal Alerts'}
-                {activeTab === 'admin_config' && 'Super Admin Notification Settings'}
-              </span>
-              <span className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono font-medium">
-                Unified Portal v2.4
-              </span>
-            </h2>
-            <p className="text-xs text-text-muted">
-              {activeTab === 'organizations' && 'Manage client workspaces, inspect live database records, configure AI brains, WhatsApp APIs, templates & billing'}
-              {activeTab === 'razorpay' && 'Inspect client recurring billing statuses, renewal schedules, and WhatsApp alert digests'}
-              {activeTab === 'admin_config' && 'Set your phone number for receiving automated system alerts and renewal reminders'}
-            </p>
+        <header className="h-14 border-b border-border bg-surface px-3 sm:px-6 flex items-center justify-between shrink-0 safe-area-pt">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            {/* Hamburger button on mobile */}
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              className="md:hidden p-1.5 text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-border rounded-sm transition-colors cursor-pointer shrink-0"
+              aria-label="Open Navigation Menu"
+            >
+              <Menu className="w-4 h-4 stroke-[1.5]" />
+            </button>
+            <div className="min-w-0">
+              <h2 className="font-semibold text-xs text-text-primary flex items-center gap-1.5 truncate">
+                <span className="truncate">
+                  {activeTab === 'organizations' && 'Organizations'}
+                  {activeTab === 'razorpay' && 'Billing & Renewals'}
+                  {activeTab === 'admin_config' && 'Admin Alerts'}
+                </span>
+                <span className="hidden sm:inline-block text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono font-medium shrink-0">
+                  v2.4
+                </span>
+              </h2>
+              <p className="hidden lg:block text-xs text-text-muted truncate">
+                {activeTab === 'organizations' && 'Manage client workspaces, inspect live database records, configure AI brains, WhatsApp APIs, templates & billing'}
+                {activeTab === 'razorpay' && 'Inspect client recurring billing statuses, renewal schedules, and WhatsApp alert digests'}
+                {activeTab === 'admin_config' && 'Set your phone number for receiving automated system alerts and renewal reminders'}
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* Super Admin Phone Pill */}
             <button
               onClick={() => setActiveTab('admin_config')}
-              className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-sm text-xs text-text-body transition-colors duration-150 cursor-pointer"
+              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-sm text-xs text-text-body transition-colors duration-150 cursor-pointer"
               title="Click to configure WhatsApp Alert recipient"
             >
               <Bell className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
@@ -1417,10 +1523,10 @@ export default function SuperAdminClients() {
 
             <button
               onClick={() => setShowCreateModal(true)}
-              className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs"
+              className="px-2.5 sm:px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
-              <span>Onboard organization</span>
+              <span>Onboard</span>
             </button>
           </div>
         </header>
@@ -1451,93 +1557,93 @@ export default function SuperAdminClients() {
         )}
 
         {/* Scrollable Body */}
-        <main className="flex-1 overflow-y-auto p-6 space-y-6">
+        <main className="flex-1 overflow-y-auto safari-scroll touch-scroll p-3.5 sm:p-6 space-y-4 sm:space-y-6 pb-24 md:pb-6">
           
           {/* ── 4 KPI Metrics Row ─────────────────────────────────────────────── */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
             
             {/* 1. Total Organizations */}
-            <div className="bg-surface border border-border rounded-md p-4 flex flex-col justify-between shadow-xs">
+            <div className="bg-surface border border-border rounded-md p-3 sm:p-4 flex flex-col justify-between shadow-xs">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-text-muted">
+                <span className="text-[11px] sm:text-xs font-medium text-text-muted">
                   Organizations
                 </span>
-                <Building2 className="w-4 h-4 text-text-muted stroke-[1.5]" />
+                <Building2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-text-muted stroke-[1.5]" />
               </div>
-              <div className="mt-2">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
+              <div className="mt-1.5 sm:mt-2">
+                <div className="flex items-baseline gap-1.5 sm:gap-2">
+                  <span className="text-xl sm:text-2xl font-semibold text-text-primary font-mono tabular-nums">
                     {tenants.length}
                   </span>
-                  <span className="text-xs font-medium text-status-success">
+                  <span className="text-[11px] sm:text-xs font-medium text-status-success">
                     {tenants.filter((t) => t.status === 'active').length} Active
                   </span>
                 </div>
-                <p className="text-xs text-text-muted mt-0.5">
+                <p className="text-[10px] sm:text-xs text-text-muted mt-0.5">
                   {tenants.filter((t) => t.status !== 'active').length} paused
                 </p>
               </div>
             </div>
 
             {/* 2. Platform MRR */}
-            <div className="bg-surface border border-border rounded-md p-4 flex flex-col justify-between shadow-xs">
+            <div className="bg-surface border border-border rounded-md p-3 sm:p-4 flex flex-col justify-between shadow-xs">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-text-muted">
+                <span className="text-[11px] sm:text-xs font-medium text-text-muted">
                   Platform MRR
                 </span>
-                <DollarSign className="w-4 h-4 text-text-muted stroke-[1.5]" />
+                <DollarSign className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-text-muted stroke-[1.5]" />
               </div>
-              <div className="mt-2">
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
+              <div className="mt-1.5 sm:mt-2">
+                <div className="flex items-baseline gap-1 sm:gap-1.5">
+                  <span className="text-xl sm:text-2xl font-semibold text-text-primary font-mono tabular-nums">
                     ₹{totalCalculatedMRR.toLocaleString('en-IN')}
                   </span>
-                  <span className="text-xs text-text-muted">/ mo</span>
+                  <span className="text-[10px] sm:text-xs text-text-muted">/ mo</span>
                 </div>
-                <p className="text-xs text-text-muted mt-0.5">
-                  Razorpay recurring total
+                <p className="text-[10px] sm:text-xs text-text-muted mt-0.5">
+                  Razorpay recurring
                 </p>
               </div>
             </div>
 
             {/* 3. Razorpay Due Date Tracker */}
-            <div className="bg-surface border border-border rounded-md p-4 flex flex-col justify-between shadow-xs">
+            <div className="bg-surface border border-border rounded-md p-3 sm:p-4 flex flex-col justify-between shadow-xs">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-text-muted">
-                  Admin WhatsApp Alerts
+                <span className="text-[11px] sm:text-xs font-medium text-text-muted">
+                  Admin Alerts
                 </span>
-                <Bell className="w-4 h-4 text-text-muted stroke-[1.5]" />
+                <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-text-muted stroke-[1.5]" />
               </div>
-              <div className="mt-2">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-semibold text-text-primary">
-                    {superAdminPhone ? 'Active' : 'Setup needed'}
+              <div className="mt-1.5 sm:mt-2">
+                <div className="flex items-baseline gap-1.5 sm:gap-2">
+                  <span className="text-xl sm:text-2xl font-semibold text-text-primary">
+                    {superAdminPhone ? 'Active' : 'Setup'}
                   </span>
-                  <span className="text-xs font-medium text-status-success">Live</span>
+                  <span className="text-[11px] sm:text-xs font-medium text-status-success">Live</span>
                 </div>
-                <p className="text-xs text-text-muted mt-0.5">
-                  {superAdminPhone ? `To +${superAdminPhone}` : 'Configure in settings'}
+                <p className="text-[10px] sm:text-xs text-text-muted mt-0.5 truncate">
+                  {superAdminPhone ? `+${superAdminPhone}` : 'Configure'}
                 </p>
               </div>
             </div>
 
             {/* 4. Platform Traffic */}
-            <div className="bg-surface border border-border rounded-md p-4 flex flex-col justify-between shadow-xs">
+            <div className="bg-surface border border-border rounded-md p-3 sm:p-4 flex flex-col justify-between shadow-xs">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-text-muted">
-                  WhatsApp Traffic
+                <span className="text-[11px] sm:text-xs font-medium text-text-muted">
+                  Traffic
                 </span>
-                <Activity className="w-4 h-4 text-text-muted stroke-[1.5]" />
+                <Activity className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-text-muted stroke-[1.5]" />
               </div>
-              <div className="mt-2">
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-2xl font-semibold text-text-primary font-mono tabular-nums">
+              <div className="mt-1.5 sm:mt-2">
+                <div className="flex items-baseline gap-1 sm:gap-1.5">
+                  <span className="text-xl sm:text-2xl font-semibold text-text-primary font-mono tabular-nums">
                     {stats?.total_messages || 0}
                   </span>
-                  <span className="text-xs text-text-muted">total messages</span>
+                  <span className="text-[10px] sm:text-xs text-text-muted">msgs</span>
                 </div>
-                <p className="text-xs text-text-muted mt-0.5">
-                  Across all managed tenants
+                <p className="text-[10px] sm:text-xs text-text-muted mt-0.5">
+                  All active tenants
                 </p>
               </div>
             </div>
@@ -1549,19 +1655,19 @@ export default function SuperAdminClients() {
             <div className="bg-surface border border-border rounded-md overflow-hidden shadow-xs">
               
               {/* Search & Filter Bar */}
-              <div className="p-3.5 border-b border-border flex items-center justify-between gap-3 flex-wrap bg-surface">
-                <div className="relative flex-1 max-w-sm">
+              <div className="p-3 sm:p-3.5 border-b border-border flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 bg-surface">
+                <div className="relative flex-1 w-full sm:max-w-sm">
                   <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted stroke-[1.5]" />
                   <input
                     type="text"
                     placeholder="Search organizations, slug, or email..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent transition-colors duration-150"
+                    className="w-full pl-8 pr-3 py-2 sm:py-1.5 bg-surface-subtle border border-border rounded-sm text-base sm:text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent transition-colors duration-150"
                   />
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value as any)}
@@ -1575,7 +1681,7 @@ export default function SuperAdminClients() {
                   <button
                     type="button"
                     onClick={() => setShowWebhooksRegistry(!showWebhooksRegistry)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer border flex items-center gap-1.5 ${
+                    className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer border flex items-center gap-1.5 ${
                       showWebhooksRegistry
                         ? 'bg-accent text-white border-accent'
                         : 'bg-surface hover:bg-surface-subtle text-text-body border-border'
@@ -1583,17 +1689,17 @@ export default function SuperAdminClients() {
                     title="Show Meta WhatsApp Webhook Callback URLs and Verify Tokens for all organizations"
                   >
                     <Key className="w-3 h-3 stroke-[1.5]" />
-                    <span>{showWebhooksRegistry ? 'Hide Webhooks' : 'Webhook Registry'}</span>
+                    <span>{showWebhooksRegistry ? 'Hide Webhooks' : 'Webhooks'}</span>
                   </button>
 
                   <button
                     onClick={() => handleSendAdminAlert()}
                     disabled={sendingAdminAlert || !superAdminPhone}
-                    className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer border border-border flex items-center gap-1.5 disabled:opacity-50"
+                    className="px-2.5 sm:px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer border border-border flex items-center gap-1.5 disabled:opacity-50"
                     title="Send consolidated Razorpay renewal digest to Super Admin WhatsApp"
                   >
                     <Send className="w-3 h-3 stroke-[1.5]" />
-                    <span>Send digest to WhatsApp</span>
+                    <span>Send digest</span>
                   </button>
                 </div>
               </div>
@@ -1666,7 +1772,8 @@ export default function SuperAdminClients() {
                   <p className="text-xs font-medium text-text-primary">No organizations found</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                  <div className="hidden md:block overflow-x-auto touch-scroll safari-scroll">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-border bg-surface-subtle/60 text-[11px] font-semibold text-text-muted uppercase tracking-wider">
@@ -1937,7 +2044,253 @@ export default function SuperAdminClients() {
                     </tbody>
                   </table>
                 </div>
-              )}
+
+                {/* Mobile Responsive Cards (< md) */}
+                <div className="md:hidden divide-y divide-border">
+                  {filteredTenants.map((t) => {
+                    const planFee = t.monthly_price || ((t.plan || 'pro').toLowerCase() === 'starter' ? 999 : (t.plan || 'pro').toLowerCase() === 'enterprise' ? 9999 : 3499);
+                    return (
+                      <div key={t.id} className="p-3.5 space-y-3 bg-surface">
+                        {/* Top Header: Name, Avatar, Slug, Status */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-xs shrink-0">
+                              {t.name.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-semibold text-text-primary text-xs truncate">{t.name}</span>
+                                <span className="text-[10px] font-mono text-text-muted bg-surface-subtle px-1.5 py-0.2 rounded border border-border">
+                                  /{t.slug}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-text-muted truncate mt-0.5" title={t.admin_email || ''}>
+                                {t.admin_email || 'No email configured'}
+                              </p>
+                            </div>
+                          </div>
+                          
+                          <div className="shrink-0 flex items-center gap-1">
+                            {t.status !== 'active' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
+                                <Pause className="w-2.5 h-2.5 fill-current" />
+                                <span>Paused</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                <span>Active</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Details Row: WhatsApp Live, Contacts, Plan & Pricing */}
+                        <div className="grid grid-cols-2 gap-2 text-xs bg-surface-subtle/50 p-2.5 rounded-sm border border-border/80">
+                          <div>
+                            <span className="text-[10px] text-text-muted block">WhatsApp API</span>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.whatsapp_configured ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                              <span className={`text-[11px] font-medium truncate ${t.whatsapp_configured ? 'text-emerald-600 dark:text-emerald-400' : 'text-text-muted'}`}>
+                                {t.whatsapp_configured ? 'Live API' : 'No API'}
+                              </span>
+                              <span className="text-[10px] text-text-muted font-mono ml-auto">
+                                {t.contact_count || 0}c &bull; {t.conversation_count || 0}m
+                              </span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <span className="text-[10px] text-text-muted block">Plan & Price</span>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className="text-[10px] font-mono font-semibold uppercase px-1 py-0.2 rounded bg-surface border border-border text-text-secondary">
+                                {t.plan || 'PRO'}
+                              </span>
+                              <span className="text-[11px] font-mono font-semibold text-text-primary">
+                                ₹{planFee.toLocaleString('en-IN')}<span className="text-[9px] font-normal text-text-muted">/m</span>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Subscription Status Pill */}
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-1">
+                            <span className="text-[11px] text-text-muted">Billing:</span>
+                            {t.subscription_status === 'active' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
+                                <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                <span>{t.razorpay_subscription_id ? 'Paid (Auto)' : 'Active (Manual)'}</span>
+                              </span>
+                            ) : t.subscription_status === 'payment_failed' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/25">
+                                <AlertCircle className="w-2.5 h-2.5 text-amber-600" />
+                                <span>Payment Failed</span>
+                              </span>
+                            ) : (!t.org_lifecycle_stage || t.org_lifecycle_stage === 'setup') ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/25">
+                                Initial Setup
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-slate-950 dark:bg-amber-950/80 dark:text-amber-100 border border-amber-400 dark:border-amber-600">
+                                <Clock className="w-2.5 h-2.5" />
+                                <span>Payment Pending</span>
+                              </span>
+                            )}
+                          </div>
+
+                          {t.razorpay_subscription_id && (
+                            <button
+                              onClick={() => handleSyncBilling(t)}
+                              disabled={syncingBillingId === t.id}
+                              className="p-1 text-text-muted hover:text-accent rounded hover:bg-surface-subtle transition-colors cursor-pointer flex items-center gap-1 text-[11px]"
+                              title="Sync live status from Razorpay"
+                            >
+                              <RefreshCw className={`w-3 h-3 ${syncingBillingId === t.id ? 'animate-spin text-accent' : ''}`} />
+                              <span>Sync</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Primary Actions Grid */}
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <button
+                            onClick={() => handleImpersonateTenant(t)}
+                            className="w-full py-2 px-3 bg-emerald-600 active:bg-emerald-700 text-white rounded text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs touch-manipulation"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5 stroke-[1.5]" />
+                            <span>Open CRM</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleOpenConfig(t)}
+                            className="w-full py-2 px-3 bg-surface active:bg-surface-subtle text-text-primary border border-border hover:border-accent rounded text-xs font-medium transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs touch-manipulation"
+                          >
+                            <Sliders className="w-3.5 h-3.5 text-text-muted" />
+                            <span>Configure</span>
+                          </button>
+                        </div>
+
+                        {/* Secondary Actions Grid */}
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <button
+                            onClick={() => handleOpenConfig(t, 'team')}
+                            className="py-1.5 px-2 bg-amber-500/10 active:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/30 rounded text-[11px] font-medium transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-xs touch-manipulation"
+                          >
+                            <Users className="w-3 h-3 text-amber-700 dark:text-amber-400 stroke-[1.5]" />
+                            <span>Staff</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleSyncMetaTemplates(t.id)}
+                            disabled={isSyncingMetaTemplates}
+                            className="py-1.5 px-2 bg-emerald-500/10 active:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 rounded text-[11px] font-medium transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-xs disabled:opacity-50 touch-manipulation"
+                          >
+                            <RefreshCw className={`w-3 h-3 text-emerald-700 dark:text-emerald-400 ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
+                            <span>Meta</span>
+                          </button>
+
+                          {!t.razorpay_short_url ? (
+                            <button
+                              onClick={() => {
+                                setClientPaymentPhone(t.admin_whatsapp_number || '');
+                                handleActivateBilling(t);
+                              }}
+                              disabled={activatingBillingId === t.id}
+                              className="py-1.5 px-2 bg-purple-500/10 active:bg-purple-500/20 text-purple-800 dark:text-purple-300 border border-purple-500/30 rounded text-[11px] font-medium transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-xs disabled:opacity-50 touch-manipulation"
+                            >
+                              <CreditCard className="w-3 h-3 text-purple-700" />
+                              <span>Pay Link</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setActivePaymentModalTenant(t);
+                                setClientPaymentPhone(t.admin_whatsapp_number || '');
+                              }}
+                              className="py-1.5 px-2 bg-purple-500/10 active:bg-purple-500/20 text-purple-800 dark:text-purple-300 border border-purple-500/30 rounded text-[11px] font-medium transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-xs touch-manipulation"
+                            >
+                              <CreditCard className="w-3 h-3 text-purple-700" />
+                              <span>Pay Link</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Action Icons Row (Booking, DB, Pause, Password, Delete) */}
+                        <div className="flex items-center justify-between pt-1 border-t border-border/70 text-text-muted">
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={`/${t.slug}/book`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1.5 text-text-muted hover:text-indigo-500 border border-border rounded transition-colors"
+                              title="Booking Page"
+                            >
+                              <Calendar className="w-3.5 h-3.5" />
+                            </a>
+
+                            <button
+                              onClick={() => handleOpenDatabaseView(t)}
+                              className="p-1.5 text-text-muted hover:text-accent border border-border rounded transition-colors cursor-pointer"
+                              title="Database Record Inspector"
+                            >
+                              <Database className="w-3.5 h-3.5" />
+                            </button>
+
+                            {t.razorpay_subscription_id && (
+                              <button
+                                onClick={() => handleViewInvoices(t)}
+                                className="p-1.5 text-text-muted hover:text-text-primary border border-border rounded transition-colors cursor-pointer"
+                                title="View Invoices"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => handleToggleStatus(t.id, t.status === 'active')}
+                              disabled={togglingId === t.id}
+                              className={`p-1.5 rounded transition-colors cursor-pointer border ${
+                                t.status === 'active'
+                                  ? 'text-text-muted hover:text-amber-500 border-border'
+                                  : 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20'
+                              }`}
+                              title={t.status === 'active' ? 'Pause Organization' : 'Resume Organization'}
+                            >
+                              {t.status === 'active' ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setResetTenantId(t.id);
+                                setResetTenantName(t.name);
+                                setResetTenantEmail(t.admin_email || `admin@${t.slug}.com`);
+                                setNewPassword('');
+                                setShowResetPasswordText(true);
+                                setResetSuccess(false);
+                                setResetError('');
+                              }}
+                              className="p-1.5 text-text-muted hover:text-text-primary border border-border rounded transition-colors cursor-pointer"
+                              title="Reset Password"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <button
+                            onClick={() => setDeleteTenantTarget(t)}
+                            className="p-1.5 text-text-muted hover:text-red-500 rounded transition-colors cursor-pointer border border-border hover:border-red-500/20"
+                            title="Delete Organization"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
             </div>
           )}
 
@@ -2101,53 +2454,96 @@ export default function SuperAdminClients() {
           )}
 
         </main>
+
+        {/* ── MOBILE BOTTOM NAVIGATION BAR (< md) ────────────────────────── */}
+        <div className="md:hidden border-t border-border bg-surface flex items-center justify-around py-1 px-2 safe-area-pb shrink-0 z-20 shadow-lg">
+          {[
+            { id: 'organizations', label: 'Orgs', icon: Building2 },
+            { id: 'razorpay', label: 'Billing', icon: CreditCard },
+            { id: 'admin_config', label: 'Alerts', icon: Bell },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm text-[10px] font-medium transition-colors touch-manipulation ${
+                  active
+                    ? 'text-accent font-semibold'
+                    : 'text-text-muted hover:text-text-primary'
+                }`}
+              >
+                <Icon className={`w-4 h-4 stroke-[1.5] mb-0.5 ${active ? 'text-accent' : 'text-text-muted'}`} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setMobileNavOpen(true)}
+            className="flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm text-[10px] font-medium text-text-muted hover:text-text-primary transition-colors touch-manipulation"
+          >
+            <Menu className="w-4 h-4 stroke-[1.5] mb-0.5" />
+            <span>Menu</span>
+          </button>
+        </div>
+
       </div>
 
             {/* ── MODAL: DATABASE RECORD INSPECTOR (SUPER ADMIN) ───────────────────── */}
       {viewingDbTenant && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150">
-          <div className="bg-surface border border-border rounded-lg w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-6 animate-in fade-in duration-150">
+          <div className="bg-surface border border-border rounded-t-xl sm:rounded-lg w-full max-w-5xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col overflow-hidden shadow-2xl safe-area-pb">
             
             {/* Modal Header */}
-            <div className="h-16 px-6 border-b border-border flex items-center justify-between shrink-0 bg-surface">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-sm bg-accent/10 border border-accent/20 text-accent flex items-center justify-center font-bold text-sm shrink-0">
-                  <Database className="w-5 h-5 stroke-[1.5]" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-sm font-semibold text-text-primary">
-                      {viewingDbTenant.name} &mdash; Database Inspector
-                    </h3>
-                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-subtle border border-border text-text-muted">
-                      /{viewingDbTenant.slug}
-                    </span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-subtle border border-border text-text-secondary uppercase">
-                      Plan: {viewingDbTenant.plan || 'PRO'}
-                    </span>
-                    <span className={`text-[10px] font-medium px-1.5 py-0.2 rounded ${
-                      viewingDbTenant.status === 'active'
-                        ? 'bg-status-success-bg text-status-success'
-                        : 'bg-status-error-bg text-status-error'
-                    }`}>
-                      {viewingDbTenant.status.toUpperCase()}
-                    </span>
+            <div className="min-h-[4rem] p-3 sm:px-6 sm:h-16 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0 bg-surface">
+              <div className="flex items-center justify-between w-full sm:w-auto gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-sm bg-accent/10 border border-accent/20 text-accent flex items-center justify-center font-bold text-sm shrink-0">
+                    <Database className="w-4 h-4 sm:w-5 sm:h-5 stroke-[1.5]" />
                   </div>
-                  <p className="text-[11px] text-text-muted mt-0.5 flex items-center gap-2">
-                    <span>UUID:</span>
-                    <span className="font-mono text-text-primary">{viewingDbTenant.id}</span>
-                    <button
-                      onClick={() => copyToClipboard(viewingDbTenant.id, 'db-uuid')}
-                      className="hover:text-accent cursor-pointer text-text-muted"
-                      title="Copy Organization UUID"
-                    >
-                      {copiedField === 'db-uuid' ? <Check className="w-3 h-3 text-status-success inline" /> : <Copy className="w-3 h-3 inline" />}
-                    </button>
-                  </p>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h3 className="text-xs sm:text-sm font-semibold text-text-primary truncate">
+                        {viewingDbTenant.name}
+                      </h3>
+                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-subtle border border-border text-text-muted">
+                        /{viewingDbTenant.slug}
+                      </span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-subtle border border-border text-text-secondary uppercase hidden xs:inline">
+                        {viewingDbTenant.plan || 'PRO'}
+                      </span>
+                      <span className={`text-[10px] font-medium px-1.5 py-0.2 rounded ${
+                        viewingDbTenant.status === 'active'
+                          ? 'bg-status-success-bg text-status-success'
+                          : 'bg-status-error-bg text-status-error'
+                      }`}>
+                        {viewingDbTenant.status.toUpperCase()}
+                      </span>
+                    </div>
+                    <p className="text-[10px] sm:text-[11px] text-text-muted mt-0.5 flex items-center gap-1.5">
+                      <span>UUID:</span>
+                      <span className="font-mono text-text-primary truncate max-w-[140px] sm:max-w-none">{viewingDbTenant.id}</span>
+                      <button
+                        onClick={() => copyToClipboard(viewingDbTenant.id, 'db-uuid')}
+                        className="hover:text-accent cursor-pointer text-text-muted p-1"
+                        title="Copy Organization UUID"
+                      >
+                        {copiedField === 'db-uuid' ? <Check className="w-3 h-3 text-status-success inline" /> : <Copy className="w-3 h-3 inline" />}
+                      </button>
+                    </p>
+                  </div>
                 </div>
+                {/* Mobile close button */}
+                <button
+                  onClick={() => setViewingDbTenant(null)}
+                  className="sm:hidden p-2 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors cursor-pointer shrink-0 touch-manipulation"
+                >
+                  <X className="w-5 h-5 stroke-[1.5]" />
+                </button>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 w-full sm:w-auto justify-start sm:justify-end">
                 {/* 1-Click Copy Full JSON */}
                 {dbTenantSettings && (
                   <button
@@ -2168,11 +2564,11 @@ export default function SuperAdminClients() {
                       };
                       copyToClipboard(JSON.stringify(fullDbExport, null, 2), 'full-db-json');
                     }}
-                    className="px-2.5 py-1 text-xs font-medium text-text-primary bg-surface-subtle hover:bg-surface border border-border rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer"
+                    className="px-2.5 py-1 text-xs font-medium text-text-primary bg-surface-subtle hover:bg-surface border border-border rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 min-h-[36px]"
                     title="Copy full database record as JSON"
                   >
                     {copiedField === 'full-db-json' ? <Check className="w-3.5 h-3.5 text-status-success stroke-[1.5]" /> : <Braces className="w-3.5 h-3.5 text-accent stroke-[1.5]" />}
-                    <span>{copiedField === 'full-db-json' ? 'Copied JSON!' : 'Copy Full JSON'}</span>
+                    <span>{copiedField === 'full-db-json' ? 'Copied' : 'JSON'}</span>
                   </button>
                 )}
 
@@ -2181,11 +2577,11 @@ export default function SuperAdminClients() {
                   type="button"
                   disabled={isSyncingMetaTemplates}
                   onClick={() => handleSyncMetaTemplates(viewingDbTenant.id)}
-                  className="px-2.5 py-1 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                  className="px-2.5 py-1 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50 whitespace-nowrap shrink-0 min-h-[36px]"
                   title="Auto-Provision All 11 Meta Templates as 100% Utility"
                 >
                   <Sparkles className={`w-3.5 h-3.5 stroke-[1.5] ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
-                  <span>{isSyncingMetaTemplates ? 'Syncing...' : 'Auto-Provision Meta (Utility)'}</span>
+                  <span>{isSyncingMetaTemplates ? 'Syncing...' : 'Meta Sync'}</span>
                 </button>
 
                 {/* Edit in Configure Drawer */}
@@ -2196,16 +2592,16 @@ export default function SuperAdminClients() {
                     setViewingDbTenant(null);
                     handleOpenConfig(t);
                   }}
-                  className="px-2.5 py-1 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  className="px-2.5 py-1 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap shrink-0 min-h-[36px]"
                   title="Open configuration editor for this organization"
                 >
                   <Sliders className="w-3.5 h-3.5 stroke-[1.5]" />
-                  <span>Edit in Configure</span>
+                  <span>Configure</span>
                 </button>
 
                 <button
                   onClick={() => setViewingDbTenant(null)}
-                  className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors duration-150 cursor-pointer"
+                  className="hidden sm:flex p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors duration-150 cursor-pointer"
                 >
                   <X className="w-4 h-4 stroke-[1.5]" />
                 </button>
@@ -2213,7 +2609,7 @@ export default function SuperAdminClients() {
             </div>
 
             {/* Subtabs Bar */}
-            <div className="px-6 border-b border-border bg-surface-subtle flex items-center justify-between gap-3 overflow-x-auto shrink-0">
+            <div className="px-3 sm:px-6 border-b border-border bg-surface-subtle flex items-center justify-between gap-2 overflow-x-auto safari-scroll no-scrollbar shrink-0">
               <div className="flex items-center gap-1">
                 {[
                   { id: 'overview', label: 'Overview & Metadata', icon: Building2 },
@@ -2231,7 +2627,7 @@ export default function SuperAdminClients() {
                     <button
                       key={tab.id}
                       onClick={() => setDbViewSubtab(tab.id as any)}
-                      className={`flex items-center gap-1.5 py-2.5 px-3 border-b-2 text-xs font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                      className={`flex items-center gap-1.5 py-2.5 px-3 border-b-2 text-xs font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap touch-manipulation ${
                         active
                           ? 'border-accent text-accent font-semibold bg-surface'
                           : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-surface/50'
@@ -2249,16 +2645,16 @@ export default function SuperAdminClients() {
                 <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted stroke-[1.5]" />
                 <input
                   type="text"
-                  placeholder="Filter keys or values..."
+                  placeholder="Filter keys..."
                   value={dbSearchQuery}
                   onChange={(e) => setDbSearchQuery(e.target.value)}
-                  className="w-48 pl-7 pr-2.5 py-1 bg-surface border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:border-accent transition-colors"
+                  className="w-28 sm:w-48 pl-7 pr-2.5 py-1 bg-surface border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:border-accent transition-colors"
                 />
               </div>
             </div>
 
             {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-canvas">
+            <div className="flex-1 overflow-y-auto safari-scroll p-3.5 sm:p-6 space-y-4 bg-canvas">
               {dbLoading ? (
                 <div className="py-24 text-center space-y-2">
                   <RefreshCw className="w-6 h-6 animate-spin text-accent mx-auto stroke-[1.5]" />
@@ -2853,18 +3249,18 @@ export default function SuperAdminClients() {
             </div>
 
             {/* Modal Footer */}
-            <div className="h-14 px-6 border-t border-border bg-surface flex items-center justify-between shrink-0">
-              <span className="text-[11px] text-text-muted">
-                Boldlabs Super Admin &bull; Live Database Inspector &bull; Tenant: <strong className="text-text-primary">{viewingDbTenant.slug}</strong>
+            <div className="p-3 sm:px-6 sm:py-3 border-t border-border bg-surface flex items-center justify-between shrink-0 safe-area-pb">
+              <span className="text-[11px] text-text-muted truncate max-w-[180px] sm:max-w-none">
+                Super Admin &bull; <strong className="text-text-primary">{viewingDbTenant.slug}</strong>
               </span>
 
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setViewingDbTenant(null)}
-                  className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body text-xs font-medium rounded-sm border border-border transition-colors cursor-pointer"
+                  className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body text-xs font-medium rounded-sm border border-border transition-colors cursor-pointer min-h-[38px] flex items-center touch-manipulation"
                 >
-                  Close Inspector
+                  Close
                 </button>
                 <button
                   type="button"
@@ -2873,7 +3269,7 @@ export default function SuperAdminClients() {
                     setViewingDbTenant(null);
                     handleOpenConfig(t);
                   }}
-                  className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs min-h-[38px] touch-manipulation"
                 >
                   <Sliders className="w-3.5 h-3.5 stroke-[1.5]" />
                   <span>Configure Settings</span>
@@ -2887,19 +3283,19 @@ export default function SuperAdminClients() {
 
 {/* ── MODAL: FULL TENANT CONFIGURATION DRAWER (SUPER ADMIN) ─────────────── */}
       {editingConfigTenant && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150">
-          <div className="bg-surface border border-border rounded-lg w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-6 animate-in fade-in duration-150">
+          <div className="bg-surface border border-border rounded-t-xl sm:rounded-lg w-full max-w-4xl max-h-[92dvh] sm:max-h-[88vh] flex flex-col overflow-hidden shadow-2xl safe-area-pb">
             
             {/* Modal Header */}
-            <div className="h-14 px-6 border-b border-border flex items-center justify-between shrink-0 bg-surface">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/20 text-accent flex items-center justify-center font-bold text-xs">
+            <div className="min-h-[3.5rem] p-3 sm:px-6 sm:h-14 border-b border-border flex items-center justify-between shrink-0 bg-surface gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-sm bg-accent/10 border border-accent/20 text-accent flex items-center justify-center font-bold text-xs shrink-0">
                   {editingConfigTenant.name.slice(0, 2).toUpperCase()}
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-text-primary">
-                      Configure {editingConfigTenant.name}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <h3 className="text-xs sm:text-sm font-semibold text-text-primary truncate">
+                      {editingConfigTenant.name}
                     </h3>
                     <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-subtle border border-border text-text-muted">
                       /{editingConfigTenant.slug}
@@ -2912,37 +3308,37 @@ export default function SuperAdminClients() {
                       {editingConfigTenant.status.toUpperCase()}
                     </span>
                   </div>
-                  <p className="text-[11px] text-text-muted">
-                    Centralized platform configuration & brain control for this organization
+                  <p className="text-[10px] sm:text-[11px] text-text-muted truncate hidden xs:block">
+                    Centralized platform configuration & brain control
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <a
                   href={`/${editingConfigTenant.slug}/book`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-2.5 py-1 text-xs font-medium text-indigo-400 hover:text-indigo-300 hover:bg-surface-subtle border border-border hover:border-indigo-500/40 rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer"
+                  className="px-2 py-1 sm:px-2.5 text-xs font-medium text-indigo-400 hover:text-indigo-300 hover:bg-surface-subtle border border-border hover:border-indigo-500/40 rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer min-h-[34px]"
                   title="Open Public Web Booking Page in new tab"
                 >
-                  <Calendar className="w-3 h-3 stroke-[1.5]" />
-                  <span>Booking Page</span>
+                  <Calendar className="w-3.5 h-3.5 stroke-[1.5]" />
+                  <span className="hidden sm:inline">Booking Page</span>
                 </a>
 
                 <button
                   type="button"
                   onClick={() => handleImpersonateTenant(editingConfigTenant)}
-                  className="px-2.5 py-1 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-border rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer"
+                  className="px-2 py-1 sm:px-2.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-border rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer min-h-[34px]"
                   title="Open Client CRM in another tab or view"
                 >
-                  <ExternalLink className="w-3 h-3 stroke-[1.5]" />
-                  <span>Open CRM</span>
+                  <ExternalLink className="w-3.5 h-3.5 stroke-[1.5]" />
+                  <span className="hidden sm:inline">Open CRM</span>
                 </button>
 
                 <button
                   onClick={() => setEditingConfigTenant(null)}
-                  className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors duration-150 cursor-pointer"
+                  className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors duration-150 cursor-pointer min-h-[34px] min-w-[34px] flex items-center justify-center touch-manipulation"
                 >
                   <X className="w-4 h-4 stroke-[1.5]" />
                 </button>
@@ -2950,7 +3346,7 @@ export default function SuperAdminClients() {
             </div>
 
             {/* Subtabs Bar */}
-            <div className="px-6 border-b border-border bg-surface-subtle flex items-center gap-1 overflow-x-auto shrink-0">
+            <div className="px-3 sm:px-6 border-b border-border bg-surface-subtle flex items-center gap-1 overflow-x-auto safari-scroll no-scrollbar shrink-0">
               {[
                 { id: 'ai', label: 'AI Intelligence & BYOK', icon: Bot },
                 { id: 'whatsapp', label: 'Meta WhatsApp API', icon: Smartphone },
@@ -2966,7 +3362,7 @@ export default function SuperAdminClients() {
                   <button
                     key={tab.id}
                     onClick={() => setConfigTab(tab.id as any)}
-                    className={`flex items-center gap-1.5 py-2.5 px-3 border-b-2 text-xs font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                    className={`flex items-center gap-1.5 py-2.5 px-3 border-b-2 text-xs font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap touch-manipulation ${
                       active
                         ? 'border-accent text-accent font-semibold bg-surface'
                         : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-surface/50'
@@ -2980,7 +3376,7 @@ export default function SuperAdminClients() {
             </div>
 
             {/* Modal Body / Tab Content */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <div className="flex-1 overflow-y-auto safari-scroll p-3.5 sm:p-6 space-y-4">
               {configLoading ? (
                 <div className="py-20 text-center space-y-2">
                   <RefreshCw className="w-6 h-6 animate-spin text-accent mx-auto stroke-[1.5]" />
@@ -4674,11 +5070,11 @@ export default function SuperAdminClients() {
                   )}
 
                   {/* Drawer Bottom Actions */}
-                  <div className="pt-3 border-t border-border flex items-center justify-between">
+                  <div className="sticky bottom-0 bg-surface/95 backdrop-blur-xs border-t border-border -mx-3.5 sm:-mx-6 -mb-3.5 sm:-mb-6 p-3 sm:p-4 flex items-center justify-between safe-area-pb z-20 shadow-lg mt-6">
                     <button
                       type="button"
                       onClick={() => setEditingConfigTenant(null)}
-                      className="px-4 py-2 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-border rounded-sm transition-colors duration-150 cursor-pointer"
+                      className="px-4 py-2 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-subtle border border-border rounded-sm transition-colors duration-150 cursor-pointer min-h-[44px] flex items-center touch-manipulation"
                     >
                       Cancel
                     </button>
@@ -4687,7 +5083,7 @@ export default function SuperAdminClients() {
                       <button
                         type="submit"
                         disabled={configSaving}
-                        className="px-5 py-2 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                        className="px-5 py-2 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-2 disabled:opacity-50 min-h-[44px] touch-manipulation shadow-xs"
                       >
                         {configSaving ? (
                           <>
@@ -4712,11 +5108,11 @@ export default function SuperAdminClients() {
 
       {/* ── MODAL: ONBOARD CLIENT ORGANIZATION ────────────────────────────────── */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-md w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden shadow-subtle">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-surface border border-border rounded-t-xl sm:rounded-md w-full max-w-xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col overflow-hidden shadow-subtle safe-area-pb">
             
             {/* Modal Header */}
-            <div className="h-12 px-5 border-b border-border flex items-center justify-between shrink-0 bg-surface">
+            <div className="h-12 px-4 sm:px-5 border-b border-border flex items-center justify-between shrink-0 bg-surface">
               <div className="flex items-center gap-2">
                 <Building2 className="w-4 h-4 text-accent stroke-[1.5]" />
                 <h3 className="text-xs font-semibold text-text-primary">
@@ -4725,14 +5121,14 @@ export default function SuperAdminClients() {
               </div>
               <button
                 onClick={() => setShowCreateModal(false)}
-                className="p-1 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer"
+                className="p-1.5 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer touch-manipulation"
               >
                 <X className="w-4 h-4 stroke-[1.5]" />
               </button>
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleCreateClient} className="p-5 overflow-y-auto space-y-3.5 flex-1">
+            <form onSubmit={handleCreateClient} className="p-4 sm:p-5 overflow-y-auto safari-scroll space-y-3.5 flex-1">
               {formError && (
                 <div className="p-3 bg-status-error-bg border border-status-error-border text-status-error text-xs rounded-sm font-medium">
                   {formError}
@@ -4918,14 +5314,14 @@ export default function SuperAdminClients() {
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer"
+                  className="px-3.5 py-2 text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer min-h-[44px] flex items-center touch-manipulation"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={formSubmitting}
-                  className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer disabled:opacity-50 flex items-center gap-1.5 min-h-[44px] touch-manipulation"
                 >
                   {formSubmitting ? <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" /> : <Plus className="w-3.5 h-3.5 stroke-[1.5]" />}
                   <span>Provision Organization</span>
@@ -4939,9 +5335,9 @@ export default function SuperAdminClients() {
 
       {/* ── MODAL: RESET CLIENT PASSWORD & ACCESS CREDENTIALS ────────────────────────────── */}
       {resetTenantId && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-surface border border-border rounded-lg w-full max-w-md overflow-hidden shadow-2xl">
-            <div className="h-12 px-5 border-b border-border flex items-center justify-between bg-surface-subtle">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-surface border border-border rounded-t-xl sm:rounded-lg w-full max-w-md max-h-[92dvh] sm:max-h-[90vh] overflow-hidden flex flex-col shadow-2xl safe-area-pb">
+            <div className="h-12 px-4 sm:px-5 border-b border-border flex items-center justify-between bg-surface-subtle shrink-0">
               <div className="flex items-center gap-2">
                 <Lock className="w-4 h-4 text-accent stroke-[1.5]" />
                 <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider">
@@ -4954,13 +5350,13 @@ export default function SuperAdminClients() {
                   setResetSuccess(false);
                   setResetError('');
                 }}
-                className="p-1 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer"
+                className="p-1.5 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer touch-manipulation"
               >
                 <X className="w-4 h-4 stroke-[1.5]" />
               </button>
             </div>
 
-            <form onSubmit={handleResetPassword} className="p-5 space-y-4">
+            <form onSubmit={handleResetPassword} className="p-4 sm:p-5 space-y-4 overflow-y-auto safari-scroll flex-1">
               <div className="flex items-center justify-between pb-2 border-b border-border">
                 <div>
                   <span className="text-[10px] text-text-muted uppercase tracking-wider font-semibold block">Organization</span>
@@ -5123,9 +5519,9 @@ export default function SuperAdminClients() {
 
       {/* ── MODAL: DELETE CONFIRMATION ────────────────────────────────────────── */}
       {deleteTenantTarget && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-md w-full max-w-sm overflow-hidden shadow-2xl">
-            <div className="h-12 px-5 border-b border-border flex items-center justify-between bg-surface">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-surface border border-border rounded-t-xl sm:rounded-md w-full max-w-sm overflow-hidden shadow-2xl safe-area-pb">
+            <div className="h-12 px-4 sm:px-5 border-b border-border flex items-center justify-between bg-surface shrink-0">
               <div className="flex items-center gap-2">
                 <Trash2 className="w-4 h-4 text-status-error stroke-[1.5]" />
                 <h3 className="text-xs font-semibold text-text-primary">
@@ -5134,13 +5530,13 @@ export default function SuperAdminClients() {
               </div>
               <button
                 onClick={() => setDeleteTenantTarget(null)}
-                className="p-1 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer"
+                className="p-1.5 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer touch-manipulation"
               >
                 <X className="w-4 h-4 stroke-[1.5]" />
               </button>
             </div>
 
-            <div className="p-5 space-y-3">
+            <div className="p-4 sm:p-5 space-y-3">
               <p className="text-xs text-text-body leading-relaxed">
                 Are you sure you want to permanently delete <strong>{deleteTenantTarget.name}</strong> (/{deleteTenantTarget.slug})?
               </p>
@@ -5153,7 +5549,7 @@ export default function SuperAdminClients() {
                 <button
                   type="button"
                   onClick={() => setDeleteTenantTarget(null)}
-                  className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer"
+                  className="px-3.5 py-2 text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer min-h-[44px] flex items-center touch-manipulation"
                 >
                   Cancel
                 </button>
@@ -5161,7 +5557,7 @@ export default function SuperAdminClients() {
                   type="button"
                   disabled={deletingTenant}
                   onClick={handleDeleteTenant}
-                  className="px-3.5 py-1.5 bg-status-error hover:bg-status-error text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  className="px-4 py-2 bg-status-error hover:bg-status-error text-white text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer disabled:opacity-50 flex items-center gap-1.5 min-h-[44px] touch-manipulation"
                 >
                   {deletingTenant ? <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" /> : <Trash2 className="w-3.5 h-3.5 stroke-[1.5]" />}
                   <span>Delete Organization</span>
@@ -5174,33 +5570,33 @@ export default function SuperAdminClients() {
 
       {/* ── MODAL: RAZORPAY PAYMENT LINK & ACTIVATION ──────────────────────────── */}
       {activePaymentModalTenant && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-lg w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in duration-150">
-            <div className="h-14 px-5 border-b border-border flex items-center justify-between bg-surface">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-600 flex items-center justify-center">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-surface border border-border rounded-t-xl sm:rounded-lg w-full max-w-lg max-h-[92dvh] sm:max-h-[90vh] overflow-hidden flex flex-col shadow-2xl safe-area-pb">
+            <div className="min-h-[3.5rem] p-3 sm:px-5 sm:h-14 border-b border-border flex items-center justify-between bg-surface shrink-0 gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-600 flex items-center justify-center shrink-0">
                   <CreditCard className="w-4 h-4" />
                 </div>
-                <div>
-                  <h3 className="text-xs font-bold text-text-primary">
-                    Client Subscription & Payment Link: {activePaymentModalTenant.name}
+                <div className="min-w-0">
+                  <h3 className="text-xs sm:text-sm font-bold text-text-primary truncate">
+                    Payment Link: {activePaymentModalTenant.name}
                   </h3>
-                  <p className="text-[10px] text-text-muted">
+                  <p className="text-[10px] text-text-muted truncate">
                     {activePaymentModalTenant.razorpay_subscription_id?.startsWith('plink_')
-                      ? `Razorpay Payment Link #${activePaymentModalTenant.razorpay_subscription_id}`
-                      : `Razorpay Subscription #${activePaymentModalTenant.razorpay_subscription_id || 'Not Generated'}`}
+                      ? `Payment Link #${activePaymentModalTenant.razorpay_subscription_id}`
+                      : `Subscription #${activePaymentModalTenant.razorpay_subscription_id || 'Not Generated'}`}
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setActivePaymentModalTenant(null)}
-                className="p-1 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer"
+                className="p-1.5 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer touch-manipulation shrink-0"
               >
                 <X className="w-4 h-4 stroke-[1.5]" />
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto safari-scroll flex-1">
               <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-md text-xs text-purple-900 dark:text-purple-300 space-y-1">
                 <p className="font-semibold flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-purple-600" />
@@ -5278,7 +5674,7 @@ export default function SuperAdminClients() {
                   <label className="block text-xs font-medium text-text-primary">
                     Send Link to Client
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {/* Send via WhatsApp */}
                     <button
                       type="button"
@@ -5292,7 +5688,7 @@ export default function SuperAdminClients() {
                         const msg = `Hello ${activePaymentModalTenant.name},\n\nYour AI WhatsApp Automation System with Boldlabs is now fully setup and ready!\n\nYou can review and activate your monthly subscription (${activePaymentModalTenant.plan?.toUpperCase() || 'PRO'} - ₹${priceStr}/month) using your secure Razorpay checkout link below:\n\nPayment Link: ${activePaymentModalTenant.razorpay_short_url}\n\nPlease let us know once completed so we can confirm your live activation. Thank you!`;
                         window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
                       }}
-                      className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                      className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs min-h-[44px] touch-manipulation"
                     >
                       <MessageSquare className="w-3.5 h-3.5" />
                       <span>Send via WhatsApp</span>
@@ -5301,7 +5697,7 @@ export default function SuperAdminClients() {
                     {/* Send via Email */}
                     <a
                       href={`mailto:${activePaymentModalTenant.admin_email || ''}?subject=${encodeURIComponent(`Your AI WhatsApp Automation System is Ready - ${activePaymentModalTenant.name}`)}&body=${encodeURIComponent(`Hello ${activePaymentModalTenant.name},\n\nYour AI WhatsApp Automation System with Boldlabs is now fully setup and ready!\n\nYou can review and activate your monthly subscription (${activePaymentModalTenant.plan?.toUpperCase() || 'PRO'} - ₹${(activePaymentModalTenant.monthly_price || 3499).toLocaleString()}/month) using your secure Razorpay checkout link below:\n\n${activePaymentModalTenant.razorpay_short_url}\n\nPlease let us know once completed so we can confirm your live activation.\n\nBest regards,\nBoldlabs Team`)}`}
-                      className="px-3 py-2 bg-surface hover:bg-surface-subtle text-text-primary border border-border rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs text-center"
+                      className="px-3 py-2.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs text-center min-h-[44px] flex items-center touch-manipulation"
                     >
                       <Mail className="w-3.5 h-3.5 text-text-muted" />
                       <span>Send via Email</span>
@@ -5311,16 +5707,16 @@ export default function SuperAdminClients() {
               )}
 
               {/* Modal Footer */}
-              <div className="pt-3 border-t border-border flex items-center justify-between">
+              <div className="pt-3 border-t border-border flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
                   {activePaymentModalTenant.razorpay_short_url && (
                     <a
                       href={activePaymentModalTenant.razorpay_short_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline font-medium"
+                      className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline font-medium min-h-[38px]"
                     >
-                      <span>Test Checkout Page</span>
+                      <span>Test Checkout</span>
                       <ExternalLink className="w-3 h-3" />
                     </a>
                   )}
@@ -5328,17 +5724,17 @@ export default function SuperAdminClients() {
                     type="button"
                     disabled={activatingBillingId === activePaymentModalTenant.id}
                     onClick={() => handleActivateBilling(activePaymentModalTenant, true, clientPaymentPhone)}
-                    className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-text-primary underline cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-text-primary underline cursor-pointer disabled:opacity-50 min-h-[38px]"
                     title="Generate a brand new live payment link"
                   >
                     <RefreshCw className={`w-3 h-3 ${activatingBillingId === activePaymentModalTenant.id ? 'animate-spin' : ''}`} />
-                    <span>Regenerate Link</span>
+                    <span>Regenerate</span>
                   </button>
                 </div>
                 <button
                   type="button"
                   onClick={() => setActivePaymentModalTenant(null)}
-                  className="px-4 py-1.5 bg-surface-subtle hover:bg-surface border border-border text-xs font-medium text-text-primary rounded-sm transition-colors cursor-pointer ml-auto"
+                  className="px-4 py-2 bg-surface-subtle hover:bg-surface border border-border text-xs font-medium text-text-primary rounded-sm transition-colors cursor-pointer ml-auto min-h-[44px] flex items-center touch-manipulation"
                 >
                   Done
                 </button>
@@ -5350,40 +5746,40 @@ export default function SuperAdminClients() {
 
       {/* ── MODAL: VIEW INVOICES ──────────────────────────────────────────────── */}
       {viewingInvoicesTenant && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-lg w-full max-w-2xl overflow-hidden shadow-2xl animate-in fade-in duration-150">
-            <div className="h-14 px-5 border-b border-border flex items-center justify-between bg-surface">
-              <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4 text-accent stroke-[1.5]" />
-                <div>
-                  <h3 className="text-xs font-bold text-text-primary">
-                    Billing Invoices: {viewingInvoicesTenant.name}
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-surface border border-border rounded-t-xl sm:rounded-lg w-full max-w-2xl max-h-[92dvh] sm:max-h-[90vh] overflow-hidden flex flex-col shadow-2xl safe-area-pb">
+            <div className="min-h-[3.5rem] p-3 sm:px-5 sm:h-14 border-b border-border flex items-center justify-between bg-surface shrink-0 gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="w-4 h-4 text-accent stroke-[1.5] shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="text-xs sm:text-sm font-bold text-text-primary truncate">
+                    Invoices: {viewingInvoicesTenant.name}
                   </h3>
-                  <p className="text-[10px] text-text-muted">
+                  <p className="text-[10px] text-text-muted truncate">
                     Sub ID: {viewingInvoicesTenant.razorpay_subscription_id || 'None'}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => handleSyncBilling(viewingInvoicesTenant).then(() => handleViewInvoices(viewingInvoicesTenant))}
                   disabled={syncingBillingId === viewingInvoicesTenant.id}
-                  className="px-2 py-1 text-xs bg-surface-subtle hover:bg-surface border border-border rounded-sm text-text-secondary flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1 text-xs bg-surface-subtle hover:bg-surface border border-border rounded-sm text-text-secondary flex items-center gap-1 cursor-pointer min-h-[36px]"
                   title="Sync with Razorpay"
                 >
                   <RefreshCw className={`w-3 h-3 ${syncingBillingId === viewingInvoicesTenant.id ? 'animate-spin' : ''}`} />
-                  <span>Sync Invoices</span>
+                  <span className="hidden sm:inline">Sync Invoices</span>
                 </button>
                 <button
                   onClick={() => setViewingInvoicesTenant(null)}
-                  className="p-1 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer"
+                  className="p-1.5 text-text-muted hover:text-text-primary rounded-sm transition-colors duration-150 cursor-pointer touch-manipulation min-h-[36px] min-w-[36px] flex items-center justify-center"
                 >
                   <X className="w-4 h-4 stroke-[1.5]" />
                 </button>
               </div>
             </div>
 
-            <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+            <div className="p-4 sm:p-5 space-y-4 max-h-[75dvh] overflow-y-auto safari-scroll flex-1">
               {loadingInvoices ? (
                 <div className="py-12 text-center text-xs text-text-muted flex flex-col items-center justify-center gap-2">
                   <RefreshCw className="w-5 h-5 animate-spin text-accent" />
@@ -5398,60 +5794,62 @@ export default function SuperAdminClients() {
                   </p>
                 </div>
               ) : (
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-border bg-surface-subtle text-text-muted">
-                      <th className="py-2 px-3">Date</th>
-                      <th className="py-2 px-3">Invoice ID</th>
-                      <th className="py-2 px-3">Payment ID</th>
-                      <th className="py-2 px-3">Amount</th>
-                      <th className="py-2 px-3">Status</th>
-                      <th className="py-2 px-3 text-right">Receipt</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {tenantInvoices.map((inv) => (
-                      <tr key={inv.id} className="hover:bg-surface-subtle/40">
-                        <td className="py-2.5 px-3 font-mono text-text-secondary text-[11px]">
-                          {inv.paid_at ? new Date(inv.paid_at).toLocaleDateString('en-IN') : new Date(inv.created_at).toLocaleDateString('en-IN')}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono text-text-primary text-[11px]">
-                          {inv.razorpay_invoice_id || '—'}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono text-text-muted text-[11px]">
-                          {inv.razorpay_payment_id || '—'}
-                        </td>
-                        <td className="py-2.5 px-3 font-semibold text-text-primary">
-                          ₹{inv.amount.toLocaleString('en-IN')}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                            inv.status === 'paid'
-                              ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
-                              : 'bg-amber-500/10 text-amber-600 border-amber-500/20'
-                          }`}>
-                            {inv.status.toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-right">
-                          {inv.invoice_pdf_url ? (
-                            <a
-                              href={inv.invoice_pdf_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-accent hover:underline inline-flex items-center gap-1 text-[11px] font-medium"
-                            >
-                              <span>View Receipt</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          ) : (
-                            <span className="text-text-muted text-[11px]">—</span>
-                          )}
-                        </td>
+                <div className="overflow-x-auto safari-scroll touch-scroll border border-border rounded-sm">
+                  <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
+                    <thead>
+                      <tr className="border-b border-border bg-surface-subtle text-text-muted">
+                        <th className="py-2 px-3">Date</th>
+                        <th className="py-2 px-3">Invoice ID</th>
+                        <th className="py-2 px-3">Payment ID</th>
+                        <th className="py-2 px-3">Amount</th>
+                        <th className="py-2 px-3">Status</th>
+                        <th className="py-2 px-3 text-right">Receipt</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {tenantInvoices.map((inv) => (
+                        <tr key={inv.id} className="hover:bg-surface-subtle/40">
+                          <td className="py-2.5 px-3 font-mono text-text-secondary text-[11px]">
+                            {inv.paid_at ? new Date(inv.paid_at).toLocaleDateString('en-IN') : new Date(inv.created_at).toLocaleDateString('en-IN')}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-text-primary text-[11px]">
+                            {inv.razorpay_invoice_id || '—'}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-text-muted text-[11px]">
+                            {inv.razorpay_payment_id || '—'}
+                          </td>
+                          <td className="py-2.5 px-3 font-semibold text-text-primary">
+                            ₹{inv.amount.toLocaleString('en-IN')}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                              inv.status === 'paid'
+                                ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                                : 'bg-amber-500/10 text-amber-600 border-amber-500/20'
+                            }`}>
+                              {inv.status.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            {inv.invoice_pdf_url ? (
+                              <a
+                                href={inv.invoice_pdf_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-accent hover:underline inline-flex items-center gap-1 text-[11px] font-medium"
+                              >
+                                <span>Receipt</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            ) : (
+                              <span className="text-text-muted text-[11px]">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </div>
@@ -5460,25 +5858,25 @@ export default function SuperAdminClients() {
 
       {/* ── CREATE / EDIT STAFF MEMBER MODAL ── */}
       {showStaffModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-lg shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-4 border-b border-border flex items-center justify-between bg-surface-subtle">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-surface border border-border rounded-t-xl sm:rounded-lg shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[90vh] safe-area-pb">
+            <div className="p-3.5 sm:p-4 border-b border-border flex items-center justify-between bg-surface-subtle shrink-0">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-accent" />
                 <h3 className="text-sm font-semibold text-text-primary">
-                  {editingStaff ? 'Edit Staff / Sales Credentials & Access' : 'Create Staff / Sales Credential'}
+                  {editingStaff ? 'Edit Staff Credentials & Access' : 'Create Staff Credential'}
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowStaffModal(false)}
-                className="text-text-muted hover:text-text-primary p-1 rounded transition-colors cursor-pointer"
+                className="text-text-muted hover:text-text-primary p-1.5 rounded transition-colors cursor-pointer touch-manipulation"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveStaff} className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
+            <form onSubmit={handleSaveStaff} className="flex-1 overflow-y-auto safari-scroll p-4 sm:p-5 space-y-4 text-xs">
               {staffError && (
                 <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
@@ -5773,18 +6171,18 @@ export default function SuperAdminClients() {
               </div>
 
               {/* Actions */}
-              <div className="pt-3 border-t border-border flex items-center justify-end gap-2">
+              <div className="sticky bottom-0 bg-surface/95 backdrop-blur-xs border-t border-border -mx-4 sm:-mx-5 -mb-4 sm:-mb-5 p-3 sm:p-4 flex items-center justify-end gap-2 safe-area-pb z-10 shadow-lg mt-4">
                 <button
                   type="button"
                   onClick={() => setShowStaffModal(false)}
-                  className="px-3 py-1.5 text-xs text-text-muted hover:text-text-primary border border-border rounded transition-colors cursor-pointer"
+                  className="px-3.5 py-2 text-xs text-text-muted hover:text-text-primary border border-border rounded transition-colors cursor-pointer min-h-[44px] flex items-center touch-manipulation"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={staffSaving}
-                  className="px-4 py-1.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white font-semibold text-xs rounded transition-colors cursor-pointer flex items-center gap-1.5"
+                  className="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white font-semibold text-xs rounded transition-colors cursor-pointer flex items-center gap-1.5 min-h-[44px] touch-manipulation shadow-xs"
                 >
                   {staffSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   <span>{editingStaff ? 'Save Changes' : 'Create Staff / Sales Account'}</span>

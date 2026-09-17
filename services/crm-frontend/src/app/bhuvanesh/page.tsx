@@ -72,9 +72,9 @@ export default function BhuvaneshAdminPortalPage() {
   // 1. Session verification loader
   if (checkingAuth) {
     return (
-      <div className="min-h-screen bg-[#0a0f1d] flex flex-col items-center justify-center gap-3 select-none">
+      <div className="min-h-[100dvh] safe-area-pt safe-area-pb bg-[#0a0f1d] flex flex-col items-center justify-center gap-3 select-none px-4">
         <div className="w-9 h-9 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-        <span className="text-xs text-slate-400 font-medium tracking-wide">Verifying Administrator Session...</span>
+        <span className="text-xs text-slate-400 font-medium tracking-wide text-center">Verifying Administrator Session...</span>
       </div>
     );
   }
@@ -86,7 +86,7 @@ export default function BhuvaneshAdminPortalPage() {
 
   // 3. Otherwise, render the dedicated Admin Login Portal
   return (
-    <div className="min-h-screen bg-[#080d19] text-white flex flex-col justify-center items-center px-4 font-sans selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-[100dvh] safe-area-pt safe-area-pb bg-[#080d19] text-white flex flex-col justify-center items-center px-4 py-8 font-sans selection:bg-emerald-500 selection:text-white">
       <div className="w-full max-w-sm">
         {/* Brand Header */}
         <div className="text-center mb-6">
@@ -105,7 +105,7 @@ export default function BhuvaneshAdminPortalPage() {
         </div>
 
         {/* Login Card */}
-        <div className="bg-[#0f172a] border border-slate-800 rounded-xl p-6 space-y-4 shadow-2xl backdrop-blur-xl">
+        <div className="bg-[#0f172a] border border-slate-800 rounded-xl p-5 sm:p-6 space-y-4 shadow-2xl backdrop-blur-xl">
           <div className="pb-2 border-b border-slate-800/80">
             <p className="text-xs text-slate-400 leading-relaxed">
               Restricted portal for client organization provisioning, Razorpay subscription management, and system configuration.
@@ -125,7 +125,7 @@ export default function BhuvaneshAdminPortalPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700/80 rounded-lg text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
+                  className="w-full pl-9 pr-3 py-2.5 bg-slate-900 border border-slate-700/80 rounded-lg text-base sm:text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
                   placeholder="admin@boldlabs.ai"
                   required
                   autoFocus
@@ -145,7 +145,7 @@ export default function BhuvaneshAdminPortalPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700/80 rounded-lg text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
+                  className="w-full pl-9 pr-3 py-2.5 bg-slate-900 border border-slate-700/80 rounded-lg text-base sm:text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
                   placeholder="••••••••••••"
                   required
                 />
@@ -153,7 +153,7 @@ export default function BhuvaneshAdminPortalPage() {
             </div>
 
             <div className="flex items-center justify-between pt-0.5">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
+              <label className="flex items-center gap-2.5 cursor-pointer select-none py-1">
                 <input
                   type="checkbox"
                   checked={rememberMe}
@@ -174,7 +174,7 @@ export default function BhuvaneshAdminPortalPage() {
             <button
               type="submit"
               disabled={loginLoading}
-              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-xs tracking-wide uppercase rounded-lg transition-all duration-150 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-lg shadow-emerald-950/50"
+              className="w-full min-h-[44px] py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-xs tracking-wide uppercase rounded-lg transition-all duration-150 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-lg shadow-emerald-950/50 touch-manipulation"
             >
               {loginLoading ? (
                 <>
@@ -195,7 +195,7 @@ export default function BhuvaneshAdminPortalPage() {
         <div className="text-center mt-5 space-y-2">
           <a
             href="/login"
-            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-emerald-400 transition-colors"
+            className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 text-xs text-slate-400 hover:text-emerald-400 transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5 stroke-[1.5]" />
             <span>Go to Client / Clinic CRM Login</span>
@@ -208,3 +208,4 @@ export default function BhuvaneshAdminPortalPage() {
     </div>
   );
 }
+

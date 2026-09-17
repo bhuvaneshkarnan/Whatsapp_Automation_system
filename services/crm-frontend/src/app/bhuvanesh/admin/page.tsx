@@ -31,9 +31,9 @@ export default function BhuvaneshAdminPage() {
 
   if (!authorized) {
     return (
-      <div className="min-h-screen bg-[#0a0f1d] flex flex-col items-center justify-center gap-3 select-none">
+      <div className="min-h-[100dvh] safe-area-pt safe-area-pb bg-[#0a0f1d] flex flex-col items-center justify-center gap-3 select-none px-4">
         <div className="w-9 h-9 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-        <span className="text-xs text-slate-400 font-medium tracking-wide">Verifying Administrator Session...</span>
+        <span className="text-xs text-slate-400 font-medium tracking-wide text-center">Verifying Administrator Session...</span>
       </div>
     );
   }
