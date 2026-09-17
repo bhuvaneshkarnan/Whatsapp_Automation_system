@@ -15578,7 +15578,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {/* TAB: REVIEWS & GMB FEEDBACK HUB                                            */}
             {/* ========================================================================= */}
             {activeNav === 'reviews' && (
-              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto space-y-3 pr-1 pb-20">
+              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto space-y-3 pr-1 pb-16">
 
                 {/* ── COMPACT HEADER + URL TOOLBAR ─────────────────────── */}
                 <div className="flex items-center justify-between gap-2 px-1">
@@ -16078,18 +16078,35 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   );
 
                   return (
-                    <div className="bg-surface rounded-lg border border-border overflow-hidden">
-                      {/* Desktop Table */}
-                      <div className="hidden md:block overflow-x-auto">
+                    <div className="bg-surface rounded-lg border border-border overflow-hidden flex flex-col shadow-2xs">
+                      {/* Counter & Scrolling Indicator Header */}
+                      <div className="px-3.5 py-2 bg-surface-subtle border-b border-border flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-text-primary text-[11px]">
+                            Showing {filtered.length} {filtered.length === 1 ? 'Review' : 'Reviews'}
+                          </span>
+                          {filtered.length > 3 && (
+                            <span className="text-[10px] text-text-muted hidden sm:inline">
+                              • Scroll table vertically to view all entries
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-text-muted font-mono">
+                          {reviewRatingFilter !== 'all' ? `${reviewRatingFilter}★ Filtered` : 'All Ratings'}
+                        </span>
+                      </div>
+
+                      {/* Desktop Table with dedicated vertical and horizontal scroll + sticky header */}
+                      <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)] min-h-[360px]">
                         <table className="w-full text-left border-collapse">
-                          <thead className="bg-surface-subtle border-b border-border text-[10px] font-semibold text-text-muted uppercase tracking-wider">
+                          <thead className="bg-surface-subtle border-b border-border text-[10px] font-semibold text-text-muted uppercase tracking-wider sticky top-0 z-10 shadow-2xs">
                             <tr>
-                              <th className="px-3 py-2">Customer</th>
-                              <th className="px-3 py-2">Rating</th>
-                              <th className="px-3 py-2">Service</th>
-                              <th className="px-3 py-2">Review & Notes</th>
-                              <th className="px-3 py-2">Date</th>
-                              <th className="px-3 py-2 text-right">Actions</th>
+                              <th className="px-3 py-2.5">Customer</th>
+                              <th className="px-3 py-2.5">Rating</th>
+                              <th className="px-3 py-2.5">Service</th>
+                              <th className="px-3 py-2.5">Review & Notes</th>
+                              <th className="px-3 py-2.5">Date</th>
+                              <th className="px-3 py-2.5 text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border text-xs">
@@ -16230,8 +16247,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </table>
                       </div>
 
-                      {/* Mobile Cards */}
-                      <div className="md:hidden divide-y divide-border">
+                      {/* Mobile Cards with dedicated vertical scroll */}
+                      <div className="md:hidden divide-y divide-border overflow-y-auto max-h-[calc(100vh-270px)]">
                         {(loadingReviews || filtered.length === 0) ? empty : filtered.map((rev) => {
                           const isHigh = (rev.rating || 0) >= 4;
                           const isGoogle = rev.source === 'google_business' || Boolean(rev.google_review_id);

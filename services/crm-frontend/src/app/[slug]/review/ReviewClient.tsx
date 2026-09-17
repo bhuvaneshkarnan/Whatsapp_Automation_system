@@ -130,6 +130,7 @@ export default function ReviewClient() {
   }, [slugParam]);
 
   const businessName = settings?.name || (settings as any)?.business_name || 'Our Service Team';
+  const businessCity = (settings as any)?.city || (settings as any)?.location || '';
   const presets = (
     (settings as any)?.services ||
     (settings as any)?.requirement_presets ||
@@ -178,12 +179,12 @@ export default function ReviewClient() {
     }
 
     if (rating <= 3 && !customerPhone.trim()) {
-      setFormError('Please enter your WhatsApp/phone number so management can reach out and resolve your issue.');
+      setFormError('Please enter your phone number so our senior team can contact you.');
       return;
     }
 
-    setFormError('');
     setSubmitting(true);
+    setFormError(null);
 
     const cleanNotes = [
       selectedTags.join(', '),
@@ -194,7 +195,7 @@ export default function ReviewClient() {
 
     try {
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Review generation timeout')), 6000)
+        setTimeout(() => reject(new Error('Review submission timeout')), 7000)
       );
 
       const res = await Promise.race([
@@ -202,6 +203,7 @@ export default function ReviewClient() {
           tenant_slug: slugParam,
           customer_name: customerName,
           customer_phone: customerPhone,
+          customer_location: businessCity,
           service_name: serviceName,
           rating,
           experience_notes: cleanNotes,
@@ -215,9 +217,18 @@ export default function ReviewClient() {
         `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(businessName)}`;
 
       const cleanText = cleanClientReview(res?.generated_review_text);
+      const locSuffix = businessCity ? ` in ${businessCity}` : '';
+      const fallbackOptions = [
+        `Really pleased with the ${serviceName || 'service'} from ${businessName}${locSuffix}. Everything was handled seamlessly, promptly, and with great professionalism. Highly recommended!`,
+        `Top-notch experience with ${businessName}${locSuffix} for ${serviceName || 'our requirements'}. The team was very attentive, organized, and delivered exactly what we needed.`,
+        `Had a wonderful experience with ${businessName}${locSuffix}. Their ${serviceName || 'service'} was high quality, quick, and very reliable.`,
+        `Extremely satisfied with ${businessName}${locSuffix}. Outstanding attention to detail, smooth execution, and friendly communication throughout.`,
+        `Dependable and high-quality ${serviceName || 'service'} from ${businessName}${locSuffix}. They made the entire experience easy and stress-free.`
+      ];
+      const randomFallback = fallbackOptions[Math.floor(Math.random() * fallbackOptions.length)];
       const finalText = cleanText || cleanClientReview(
         rating >= 4
-          ? `Really happy with the ${serviceName || 'service'} at ${businessName}. Everything was smooth, professional, and very well taken care of. Will definitely be returning again.`
+          ? randomFallback
           : `Customer feedback regarding ${serviceName || 'service'}: ${cleanNotes || 'Service review.'}`
       );
 
@@ -239,9 +250,17 @@ export default function ReviewClient() {
     } catch (err) {
       console.error('Review generation fallback:', err);
       // Fallback local review generation if network error or timeout occurs
+      const locSuffix = businessCity ? ` in ${businessCity}` : '';
+      const fallbackOptions = [
+        `Really pleased with the ${serviceName || 'service'} from ${businessName}${locSuffix}. Everything was handled seamlessly, promptly, and with great professionalism. Highly recommended!`,
+        `Top-notch experience with ${businessName}${locSuffix} for ${serviceName || 'our requirements'}. The team was very attentive, organized, and delivered exactly what we needed.`,
+        `Had a wonderful experience with ${businessName}${locSuffix}. Their ${serviceName || 'service'} was high quality, quick, and very reliable.`,
+        `Extremely satisfied with ${businessName}${locSuffix}. Outstanding attention to detail, smooth execution, and friendly communication throughout.`
+      ];
+      const randomFallback = fallbackOptions[Math.floor(Math.random() * fallbackOptions.length)];
       const fallbackText = cleanClientReview(
         rating >= 4
-          ? `Really happy with the ${serviceName || 'service'} at ${businessName}. Everything was smooth, professional, and very well taken care of. Will definitely be returning again.`
+          ? randomFallback
           : `Customer feedback regarding ${serviceName || 'service'}: ${cleanNotes || 'Service review.'}`
       );
 
@@ -279,7 +298,7 @@ export default function ReviewClient() {
 
     try {
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Review regeneration timeout')), 6000)
+        setTimeout(() => reject(new Error('Review regeneration timeout')), 7000)
       );
 
       const res = await Promise.race([
@@ -287,6 +306,7 @@ export default function ReviewClient() {
           tenant_slug: slugParam,
           customer_name: customerName,
           customer_phone: customerPhone,
+          customer_location: businessCity,
           service_name: serviceName,
           rating,
           experience_notes: cleanNotes,
@@ -314,10 +334,13 @@ export default function ReviewClient() {
       }
     } catch (err) {
       console.error('Failed to regenerate review, using local generator:', err);
+      const locSuffix = businessCity ? ` in ${businessCity}` : '';
       const fallbackVariations = [
-        `Great experience with the ${serviceName || 'service'} at ${businessName}. The entire process was seamless and the staff was very supportive.`,
-        `Really happy with the quality of service at ${businessName}. Everything was prompt, professional, and well coordinated.`,
-        `Had a wonderful visit to ${businessName} for ${serviceName || 'service'}. Clean environment, attentive team, and smooth support throughout.`
+        `Great experience with the ${serviceName || 'service'} at ${businessName}${locSuffix}. The entire process was seamless and the staff was very supportive.`,
+        `Really happy with the quality of service at ${businessName}${locSuffix}. Everything was prompt, professional, and well coordinated.`,
+        `Had a wonderful visit to ${businessName}${locSuffix} for ${serviceName || 'service'}. Attentive team and smooth support throughout.`,
+        `Exceptional work on ${serviceName || 'our requirements'} by ${businessName}${locSuffix}. Highly organized, courteous, and dependable.`,
+        `Dependable and high quality service from ${businessName}${locSuffix}. Always responsive and great attention to detail.`
       ];
       const freshFallback = cleanClientReview(
         fallbackVariations[Math.floor(Math.random() * fallbackVariations.length)] + (cleanNotes ? ` Special mention for ${cleanNotes}.` : '')
@@ -357,7 +380,9 @@ export default function ReviewClient() {
             </h1>
             <div className="flex items-center justify-center gap-1.5 mt-0.5">
               <ShieldCheck className="w-3.5 h-3.5 text-accent stroke-[2]" />
-              <p className="text-xs text-text-muted font-medium">Customer Experience & Review Portal</p>
+              <p className="text-xs text-text-muted font-medium">
+                {businessCity ? `${businessCity} • Customer Experience & Review Portal` : 'Customer Experience & Review Portal'}
+              </p>
             </div>
           </div>
         </div>

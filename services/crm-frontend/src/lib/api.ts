@@ -804,6 +804,7 @@ export const crm = {
     tenant_slug: string;
     customer_name?: string;
     customer_phone?: string;
+    customer_location?: string;
     service_name?: string;
     rating: number;
     experience_notes?: string;
@@ -829,6 +830,8 @@ export const crm = {
         slug: string;
         plan: string;
         industry: string;
+        city?: string;
+        location?: string;
         logo_url?: string;
         gmb_review_url?: string;
         review_experience_tags?: string[];
@@ -843,6 +846,8 @@ export const crm = {
         slug: bInfo.slug,
         plan: bInfo.plan,
         industry: bInfo.industry,
+        city: '',
+        location: '',
         logo_url: bInfo.logo_url,
         gmb_review_url: '',
         review_experience_tags: [],
