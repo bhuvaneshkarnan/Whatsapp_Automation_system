@@ -552,6 +552,7 @@ export const crm = {
     notes?: string;
     staff_member?: string;
     doctor_name?: string;
+    send_whatsapp_confirmation?: boolean;
   }) =>
     request<{
       status: string;

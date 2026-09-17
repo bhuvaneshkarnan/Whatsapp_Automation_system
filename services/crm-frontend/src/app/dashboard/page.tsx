@@ -2651,6 +2651,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     time: '10:00',
     price: 500,
     notes: '',
+    send_whatsapp_confirmation: true,
   });
 
   // Right Drawer & Sticky Notes State
@@ -4739,8 +4740,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         start_time: startTime,
         price: Number(newBookingForm.price) || 0,
         notes: newBookingForm.notes.trim(),
+        send_whatsapp_confirmation: newBookingForm.send_whatsapp_confirmation,
       });
-      setBookingCreateSuccess('Booking created successfully! WhatsApp confirmation & calendar sync triggered.');
+      const successMsg = newBookingForm.send_whatsapp_confirmation
+        ? 'Booking created successfully! WhatsApp confirmation & calendar sync triggered.'
+        : 'Booking created successfully for internal calendar (WhatsApp confirmation skipped).';
+      setBookingCreateSuccess(successMsg);
       loadBookings();
       loadConversations();
       loadContacts();
@@ -4756,6 +4761,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           time: '10:00',
           price: 500,
           notes: '',
+          send_whatsapp_confirmation: true,
         });
       }, 1500);
     } catch (err: unknown) {
@@ -11867,10 +11873,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     contact_name: selectedConv.contact_name || matchedCust?.name || '',
                                     contact_phone: selectedConv.contact_phone || matchedCust?.phone || '',
                                     service: lastService || currentTaxonomy.default_service || 'General Consultation',
+                                    staff_member: '',
                                     date: dStr,
                                     time: '10:00',
                                     price: 0,
                                     notes: isRepeat ? 'Follow-up session for repeat client' : 'First appointment for new lead',
+                                    send_whatsapp_confirmation: true,
                                   });
                                   setIsAddBookingOpen(true);
                                 }}
@@ -14279,10 +14287,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 contact_name: '',
                                 contact_phone: '',
                                 service: currentTaxonomy.default_service || 'Consultation',
+                                staff_member: '',
                                 date: dStr,
                                 time: '10:00',
                                 price: 0,
                                 notes: 'Repeat client appointment',
+                                send_whatsapp_confirmation: true,
                               });
                               setIsAddBookingOpen(true);
                             }}
@@ -14712,10 +14722,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                               contact_name: cust.name || '',
                                               contact_phone: cust.phone || '',
                                               service: cust.last_visit_service || currentTaxonomy.default_service || 'Consultation',
+                                              staff_member: '',
                                               date: dStr,
                                               time: '10:00',
                                               price: 0,
                                               notes: `Follow-up session for repeat client (${completedVisits} previous visits)`,
+                                              send_whatsapp_confirmation: true,
                                             });
                                             setIsAddBookingOpen(true);
                                           }}
@@ -19269,6 +19281,36 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   />
                 </div>
 
+                {/* WhatsApp Trigger Option */}
+                <div className="p-3 bg-surface-subtle border border-border rounded-sm space-y-1.5 transition-colors">
+                  <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={newBookingForm.send_whatsapp_confirmation}
+                      onChange={(e) =>
+                        setNewBookingForm({
+                          ...newBookingForm,
+                          send_whatsapp_confirmation: e.target.checked,
+                        })
+                      }
+                      className="mt-0.5 w-4 h-4 rounded border-border text-accent focus:ring-accent cursor-pointer"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
+                        <span className="text-xs font-semibold text-text-primary">
+                          Send WhatsApp confirmation
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
+                        {newBookingForm.send_whatsapp_confirmation
+                          ? 'Automatic WhatsApp confirmation template & clinic location will be sent to the patient.'
+                          : 'Do not send WhatsApp confirmation (creates appointment for internal records/calendar only).'}
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
                 {/* Actions Footer */}
                 <div className="pt-3 border-t border-border flex items-center justify-end gap-2">
                   <button
@@ -19296,7 +19338,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     ) : (
                       <>
                         <Check className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>Create booking</span>
+                        <span>{newBookingForm.send_whatsapp_confirmation ? 'Create & notify' : 'Create (Internal only)'}</span>
                       </>
                     )}
                   </button>

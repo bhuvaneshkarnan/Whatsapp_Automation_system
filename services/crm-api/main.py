@@ -3454,6 +3454,7 @@ class BookingCreatePayload(BaseModel):
     notes: Optional[str] = ""
     staff_member: Optional[str] = None
     doctor_name: Optional[str] = None
+    send_whatsapp_confirmation: Optional[bool] = True
 
 
 async def create_google_calendar_event(
@@ -3670,6 +3671,11 @@ async def create_booking(
         slot_booking_mode = s_data.get("slot_booking_mode", "single") if isinstance(s_data, dict) else "single"
         max_concurrent = int(s_data.get("max_concurrent_bookings", 1)) if isinstance(s_data, dict) else 1
 
+        send_wa = payload.send_whatsapp_confirmation is not False
+        initial_reminder_sent = datetime.now(timezone.utc) if not send_wa else None
+        initial_review_sent = datetime.now(timezone.utc) if not send_wa else None
+        initial_metadata = json.dumps({"send_whatsapp_confirmation": False, "internal_only": True}) if not send_wa else "{}"
+
         async with conn.transaction():
             # Transactional advisory lock: serializes concurrent booking requests for the same tenant/staff on this day,
             # eliminating phantom reads where two simultaneous requests see an empty slot and both insert.
@@ -3680,8 +3686,8 @@ async def create_booking(
                 conflict = await conn.fetchrow(
                     """SELECT id, service, start_time, end_time FROM bookings
                        WHERE tenant_id = $1::uuid AND status = 'confirmed'
-                         AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
-                         AND start_time < $3 AND end_time > $2
+                          AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
+                          AND start_time < $3 AND end_time > $2
                        FOR UPDATE""",
                     tenant_id, st_dt, et_dt, staff
                 )
@@ -3695,8 +3701,8 @@ async def create_booking(
                 existing_count = await conn.fetchval(
                     """SELECT COUNT(*) FROM bookings
                        WHERE tenant_id = $1::uuid AND status = 'confirmed'
-                         AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
-                         AND start_time < $3 AND end_time > $2""",
+                          AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
+                          AND start_time < $3 AND end_time > $2""",
                     tenant_id, st_dt, et_dt, staff
                 ) or 0
                 if existing_count >= max_concurrent:
@@ -3704,9 +3710,9 @@ async def create_booking(
 
             # 2. Insert booking
             await conn.execute(
-                """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member)
-                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, $9, 'INR', $10)""",
-                booking_id, tenant_id, contact_id, conv_id, payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0), staff
+                """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member, reminder_sent_at, review_sent_at, metadata)
+                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, $9, 'INR', $10, $11, $12, $13::jsonb)""",
+                booking_id, tenant_id, contact_id, conv_id, payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0), staff, initial_reminder_sent, initial_review_sent, initial_metadata
             )
 
         # 2b. Auto-link/upsert customer in CRM by phone so booking history is visible on customer profile
@@ -3782,139 +3788,142 @@ async def create_booking(
         clock_str = st_local.strftime("%I:%M %p")
         time_str = st_local.strftime("%d %b %Y at %I:%M %p")
 
-        # 4. Push Approved WhatsApp Confirmation Template to customer
-        tpl_name = (
-            tenant_settings.get("template_booking_confirmation") or
-            creds.get("template_booking_confirmation") or
-            "booking_confirmationn"
-        )
-        tpl_params = [clean_name or "Valued Customer", payload.service.strip(), date_str, clock_str]
-        
-        confirmation_msg = f"Hello {clean_name},\n\nYour appointment is confirmed.\nService: {payload.service.strip()}\nDate: {date_str}\nTime: {clock_str}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you."
-
+        # 4. Push Approved WhatsApp Confirmation Template to customer (if enabled)
         template_sent = False
-        if creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-            headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
-            url = f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages"
+        if send_wa:
+            tpl_name = (
+                tenant_settings.get("template_booking_confirmation") or
+                creds.get("template_booking_confirmation") or
+                "booking_confirmationn"
+            )
+            tpl_params = [clean_name or "Valued Customer", payload.service.strip(), date_str, clock_str]
             
-            clean_wa_phone = "".join(filter(str.isdigit, clean_phone))
-            if len(clean_wa_phone) == 10:
-                clean_wa_phone = f"91{clean_wa_phone}"
+            confirmation_msg = f"Hello {clean_name},\n\nYour appointment is confirmed.\nService: {payload.service.strip()}\nDate: {date_str}\nTime: {clock_str}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you."
 
-            # 1. Try approved Meta template first
-            payload_tpl = {
-                "messaging_product": "whatsapp",
-                "to": clean_wa_phone,
-                "type": "template",
-                "template": {
-                    "name": tpl_name,
-                    "language": {"code": "en"},
-                    "components": [
-                        {
-                            "type": "body",
-                            "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in tpl_params]
-                        }
-                    ]
-                }
-            }
-            template_wamid = None
-            try:
-                import httpx
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    res = await client.post(url, headers=headers, json=payload_tpl)
-                    logger.info("manual_booking_template_response", status=res.status_code, template=tpl_name, body=res.text)
-                    if res.status_code in (200, 201):
-                        template_sent = True
-                        template_wamid = res.json().get("messages", [{}])[0].get("id")
-                        logger.info("manual_booking_wa_template_dispatched", template=tpl_name, phone=clean_wa_phone, wa_id=template_wamid)
-                    elif "132000" in res.text or "132001" in res.text or "does not exist in" in res.text:
-                        # Try language retry en_US
-                        payload_tpl["template"]["language"] = {"code": "en_US"}
-                        res_retry = await client.post(url, headers=headers, json=payload_tpl)
-                        if res_retry.status_code in (200, 201):
-                            template_sent = True
-                            template_wamid = res_retry.json().get("messages", [{}])[0].get("id")
-                            logger.info("manual_booking_wa_template_retry_succeeded", template=tpl_name, phone=clean_wa_phone, wa_id=template_wamid)
-            except Exception as e:
-                logger.error("manual_booking_wa_template_error", error=str(e))
-
-            # 2. Text fallback is strictly suppressed for message templates
-            if not template_sent:
-                logger.info("manual_booking_wa_text_fallback_suppressed", template=tpl_name, phone=clean_wa_phone)
-
-        # Record confirmation message in DB if template was sent
-        if template_sent:
-            msg_id = str(uuid.uuid4())
-            await conn.execute(
-                """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
-                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'template', $5, $6, $7::jsonb, 'sent', false)""",
-                msg_id, conv_id, tenant_id, template_wamid, confirmation_msg, tpl_name, json.dumps(tpl_params or [])
-            )
-            await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
-
-        # 4b. Send Business Address & Google Maps Location (if configured)
-        full_location = (creds.get("full_location_text") or tenant_settings.get("full_location_text") or "").strip()
-
-        if full_location and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-            loc_msg = f"*Location & Directions:*\n{full_location}"
-            location_wamid = None
-            try:
-                import httpx
-                async with httpx.AsyncClient(timeout=8.0) as client:
-                    loc_res = await client.post(
-                        f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages",
-                        headers={"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"},
-                        json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": loc_msg}}
-                    )
-                    if loc_res.status_code in (200, 201):
-                        location_wamid = loc_res.json().get("messages", [{}])[0].get("id")
-                loc_id = str(uuid.uuid4())
-                await conn.execute(
-                    """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, status, ai_used_fallback)
-                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'text', $5, 'sent', false)""",
-                    loc_id, conv_id, tenant_id, location_wamid, loc_msg
-                )
-                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
-            except Exception as e:
-                logger.error("manual_booking_location_send_error", error=str(e))
-
-        # 5. Push Admin WhatsApp notification (if configured)
-        admin_phone = creds.get("admin_whatsapp_number") or tenant_settings.get("admin_whatsapp_number")
-        if admin_phone and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-            clean_admin_phone = admin_phone.replace("+", "").replace(" ", "").replace("-", "").strip()
-            admin_tpl_name = (
-                tenant_settings.get("template_admin_notification") or
-                creds.get("template_admin_notification") or
-                "admin_notification"
-            )
-            admin_tpl_params = [clean_name or "Client", clean_phone, payload.service.strip(), date_str, clock_str]
-            admin_notify_msg = f"New appointment booked.\n\nCustomer: {clean_name}\nPhone: {clean_phone}\nService: {payload.service.strip()}\nDate: {date_str}\nTime: {clock_str}"
-
-            try:
-                import httpx
+            if creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
                 headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
                 url = f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages"
-                admin_payload_tpl = {
+                
+                clean_wa_phone = "".join(filter(str.isdigit, clean_phone))
+                if len(clean_wa_phone) == 10:
+                    clean_wa_phone = f"91{clean_wa_phone}"
+
+                # 1. Try approved Meta template first
+                payload_tpl = {
                     "messaging_product": "whatsapp",
-                    "to": clean_admin_phone,
+                    "to": clean_wa_phone,
                     "type": "template",
                     "template": {
-                        "name": admin_tpl_name,
+                        "name": tpl_name,
                         "language": {"code": "en"},
                         "components": [
                             {
                                 "type": "body",
-                                "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in admin_tpl_params]
+                                "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in tpl_params]
                             }
                         ]
                     }
                 }
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    admin_res = await client.post(url, headers=headers, json=admin_payload_tpl)
-                    if admin_res.status_code not in (200, 201):
-                        logger.warning("admin_booking_wa_template_failed_text_suppressed", status=admin_res.status_code, text=admin_res.text)
-            except Exception as e:
-                logger.error("admin_booking_wa_notify_error", error=str(e))
+                template_wamid = None
+                try:
+                    import httpx
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        res = await client.post(url, headers=headers, json=payload_tpl)
+                        logger.info("manual_booking_template_response", status=res.status_code, template=tpl_name, body=res.text)
+                        if res.status_code in (200, 201):
+                            template_sent = True
+                            template_wamid = res.json().get("messages", [{}])[0].get("id")
+                            logger.info("manual_booking_wa_template_dispatched", template=tpl_name, phone=clean_wa_phone, wa_id=template_wamid)
+                        elif "132000" in res.text or "132001" in res.text or "does not exist in" in res.text:
+                            # Try language retry en_US
+                            payload_tpl["template"]["language"] = {"code": "en_US"}
+                            res_retry = await client.post(url, headers=headers, json=payload_tpl)
+                            if res_retry.status_code in (200, 201):
+                                template_sent = True
+                                template_wamid = res_retry.json().get("messages", [{}])[0].get("id")
+                                logger.info("manual_booking_wa_template_retry_succeeded", template=tpl_name, phone=clean_wa_phone, wa_id=template_wamid)
+                except Exception as e:
+                    logger.error("manual_booking_wa_template_error", error=str(e))
+
+                # 2. Text fallback is strictly suppressed for message templates
+                if not template_sent:
+                    logger.info("manual_booking_wa_text_fallback_suppressed", template=tpl_name, phone=clean_wa_phone)
+
+            # Record confirmation message in DB if template was sent
+            if template_sent:
+                msg_id = str(uuid.uuid4())
+                await conn.execute(
+                    """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'template', $5, $6, $7::jsonb, 'sent', false)""",
+                    msg_id, conv_id, tenant_id, template_wamid, confirmation_msg, tpl_name, json.dumps(tpl_params or [])
+                )
+                await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+
+            # 4b. Send Business Address & Google Maps Location (if configured)
+            full_location = (creds.get("full_location_text") or tenant_settings.get("full_location_text") or "").strip()
+
+            if full_location and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+                loc_msg = f"*Location & Directions:*\n{full_location}"
+                location_wamid = None
+                try:
+                    import httpx
+                    async with httpx.AsyncClient(timeout=8.0) as client:
+                        loc_res = await client.post(
+                            f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages",
+                            headers={"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"},
+                            json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": loc_msg}}
+                        )
+                        if loc_res.status_code in (200, 201):
+                            location_wamid = loc_res.json().get("messages", [{}])[0].get("id")
+                    loc_id = str(uuid.uuid4())
+                    await conn.execute(
+                        """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, status, ai_used_fallback)
+                           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'text', $5, 'sent', false)""",
+                        loc_id, conv_id, tenant_id, location_wamid, loc_msg
+                    )
+                    await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                except Exception as e:
+                    logger.error("manual_booking_location_send_error", error=str(e))
+
+            # 5. Push Admin WhatsApp notification (if configured)
+            admin_phone = creds.get("admin_whatsapp_number") or tenant_settings.get("admin_whatsapp_number")
+            if admin_phone and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+                clean_admin_phone = admin_phone.replace("+", "").replace(" ", "").replace("-", "").strip()
+                admin_tpl_name = (
+                    tenant_settings.get("template_admin_notification") or
+                    creds.get("template_admin_notification") or
+                    "admin_notification"
+                )
+                admin_tpl_params = [clean_name or "Client", clean_phone, payload.service.strip(), date_str, clock_str]
+                admin_notify_msg = f"New appointment booked.\n\nCustomer: {clean_name}\nPhone: {clean_phone}\nService: {payload.service.strip()}\nDate: {date_str}\nTime: {clock_str}"
+
+                try:
+                    import httpx
+                    headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
+                    url = f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages"
+                    admin_payload_tpl = {
+                        "messaging_product": "whatsapp",
+                        "to": clean_admin_phone,
+                        "type": "template",
+                        "template": {
+                            "name": admin_tpl_name,
+                            "language": {"code": "en"},
+                            "components": [
+                                {
+                                    "type": "body",
+                                    "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in admin_tpl_params]
+                                }
+                            ]
+                        }
+                    }
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        admin_res = await client.post(url, headers=headers, json=admin_payload_tpl)
+                        if admin_res.status_code not in (200, 201):
+                            logger.warning("admin_booking_wa_template_failed_text_suppressed", status=admin_res.status_code, text=admin_res.text)
+                except Exception as e:
+                    logger.error("admin_booking_wa_notify_error", error=str(e))
+        else:
+            logger.info("manual_booking_whatsapp_notifications_skipped_by_user", booking_id=booking_id, phone=clean_phone)
 
         # 6. Trigger Google Calendar Sync (if configured)
         contact_meta = contact_row.get("metadata") if contact_row else {}
@@ -3937,36 +3946,39 @@ async def create_booking(
             source="CRM",
             date_str=date_str,
             clock_str=clock_str,
-            full_location=full_location
+            full_location=full_location if send_wa else ""
         )
 
-        # Schedule automatic 24h & 2h reminders and post-session review request
-        try:
-            now_dt = datetime.now(tenant_tz)
-            remind_24h = st_dt - timedelta(hours=24)
-            if remind_24h > now_dt:
-                await conn.execute(
-                    """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
-                       VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
-                    tenant_id, booking_id, remind_24h
-                )
-            remind_2h = st_dt - timedelta(hours=2)
-            if remind_2h > now_dt:
-                await conn.execute(
-                    """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
-                       VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
-                    tenant_id, booking_id, remind_2h
-                )
-            remind_admin_30m = st_dt - timedelta(minutes=30)
-            if remind_admin_30m > now_dt:
-                await conn.execute(
-                    """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
-                       VALUES (gen_random_uuid(), $1::uuid, 'admin_reminder', $2::uuid, $3, 'pending', now())""",
-                    tenant_id, booking_id, remind_admin_30m
-                )
-            logger.info("scheduled_reminder_jobs_queued", booking_id=booking_id)
-        except Exception as e_job:
-            logger.warning("scheduled_jobs_queue_failed", error=str(e_job))
+        # Schedule automatic 24h & 2h reminders and post-session review request (only if WhatsApp notifications enabled)
+        if send_wa:
+            try:
+                now_dt = datetime.now(tenant_tz)
+                remind_24h = st_dt - timedelta(hours=24)
+                if remind_24h > now_dt:
+                    await conn.execute(
+                        """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                           VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
+                        tenant_id, booking_id, remind_24h
+                    )
+                remind_2h = st_dt - timedelta(hours=2)
+                if remind_2h > now_dt:
+                    await conn.execute(
+                        """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                           VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
+                        tenant_id, booking_id, remind_2h
+                    )
+                remind_admin_30m = st_dt - timedelta(minutes=30)
+                if remind_admin_30m > now_dt:
+                    await conn.execute(
+                        """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                           VALUES (gen_random_uuid(), $1::uuid, 'admin_reminder', $2::uuid, $3, 'pending', now())""",
+                        tenant_id, booking_id, remind_admin_30m
+                    )
+                logger.info("scheduled_reminder_jobs_queued", booking_id=booking_id)
+            except Exception as e_job:
+                logger.warning("scheduled_jobs_queue_failed", error=str(e_job))
+        else:
+            logger.info("scheduled_reminder_jobs_skipped_internal_booking", booking_id=booking_id)
 
     return {
         "status": "created",
@@ -3977,7 +3989,7 @@ async def create_booking(
         "price": float(payload.price or 0.0),
         "contact_name": clean_name,
         "contact_phone": clean_phone,
-        "whatsapp_confirmed": True
+        "whatsapp_confirmed": template_sent if send_wa else False
     }
 
 
