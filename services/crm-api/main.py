@@ -49,6 +49,42 @@ def safe_json_loads(val: Any, default: Any = None) -> Any:
     return default if default is not None else {}
 
 
+async def get_tenant_base_url(conn, tenant_id: str, request: Optional[Request] = None) -> str:
+    """Resolve the preferred base URL for a tenant (custom domain or partner agency domain, falling back to APP_BASE_URL)."""
+    if request:
+        req_origin = request.headers.get("origin") or ""
+        if not req_origin and request.headers.get("referer"):
+            parsed = urllib.parse.urlparse(request.headers.get("referer"))
+            if parsed.scheme and parsed.netloc:
+                req_origin = f"{parsed.scheme}://{parsed.netloc}"
+        if req_origin:
+            return req_origin.rstrip("/")
+    try:
+        t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+        if t_row and t_row["settings"]:
+            st = safe_json_loads(t_row["settings"], {})
+            cd = (st.get("custom_domain") or "").strip()
+            if cd:
+                if not cd.startswith("http"):
+                    cd = f"https://{cd}"
+                return cd.rstrip("/")
+            p_name = (st.get("partner_name") or "").strip()
+            if p_name:
+                p_cd = await conn.fetchval(
+                    "SELECT custom_domain FROM partner_agency_templates WHERE LOWER(TRIM(partner_name)) = LOWER(TRIM($1))",
+                    p_name
+                )
+                if p_cd and p_cd.strip():
+                    p_cd = p_cd.strip()
+                    if not p_cd.startswith("http"):
+                        p_cd = f"https://{p_cd}"
+                    return p_cd.rstrip("/")
+    except Exception:
+        pass
+    return APP_BASE_URL
+
+
+
 KNOWN_TEMPLATES_EXPANSION: Dict[str, str] = {
     "mbr_appointment_confirmed": "Hello {0},\n\nYour appointment has been confirmed.\nDate: {1}\nTime: {2}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you.",
     "booking_confirmationn": "Hello {0},\n\nYour appointment is confirmed.\nService: {1}\nDate: {2}\nTime: {3}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you.",
@@ -7331,6 +7367,7 @@ class GoogleOAuthInitPayload(BaseModel):
 @app.post("/oauth/google/init")
 async def init_google_oauth(
     payload: GoogleOAuthInitPayload,
+    request: Request,
     tenant_id: str = Depends(get_tenant_id)
 ):
     """Save Google Client ID & Secret, and return the Google OAuth authorization URL."""
@@ -7372,6 +7409,12 @@ async def init_google_oauth(
     scopes = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile openid"
     src = (payload.source or "dashboard").strip()
 
+    req_origin = request.headers.get("origin") or ""
+    if not req_origin and request.headers.get("referer"):
+        parsed = urllib.parse.urlparse(request.headers.get("referer"))
+        if parsed.scheme and parsed.netloc:
+            req_origin = f"{parsed.scheme}://{parsed.netloc}"
+
     # Sign state parameter with HMAC-SHA256 containing tenant_id, a random nonce, and an expiry timestamp
     state_nonce = os.urandom(16).hex()
     state_exp = int(datetime.now(timezone.utc).timestamp()) + 600  # 10 minutes expiry
@@ -7379,7 +7422,8 @@ async def init_google_oauth(
         "tenant_id": effective_tenant_id,
         "source": src,
         "nonce": state_nonce,
-        "exp": state_exp
+        "exp": state_exp,
+        "return_origin": req_origin
     }
     state_raw_json = json.dumps(state_payload_dict, separators=(',', ':'))
     state_b64 = base64.urlsafe_b64encode(state_raw_json.encode("utf-8")).decode("utf-8").rstrip("=")
@@ -7444,12 +7488,19 @@ async def google_oauth_callback(
         return await google_business_oauth_callback(code=code, state=state, error=error)
 
     is_admin = (state_data.get("source") == "admin")
-    base_redir = f"{APP_BASE_URL}/admin/clients" if is_admin else f"{APP_BASE_URL}/dashboard"
-    t_param = f"&tenant_id={tenant_id}" if is_admin else ""
+    ret_origin = (state_data.get("return_origin") or "").rstrip("/")
 
-    if error or not code:
-        logger.error("google_oauth_callback_error", error=error, state=state)
-        return RedirectResponse(f"{base_redir}?gcal_error={error or 'missing_code'}{t_param}")
+    async with db_pool.acquire() as conn:
+        tenant_slug = await conn.fetchval("SELECT slug FROM tenants WHERE id = $1::uuid", tenant_id)
+        if not ret_origin:
+            ret_origin = await get_tenant_base_url(conn, tenant_id)
+        
+        base_redir = f"{ret_origin}/admin/clients" if is_admin else (f"{ret_origin}/{tenant_slug}" if tenant_slug else f"{ret_origin}/dashboard")
+        t_param = f"&tenant_id={tenant_id}" if is_admin else ""
+
+        if error or not code:
+            logger.error("google_oauth_callback_error", error=error, state=state)
+            return RedirectResponse(f"{base_redir}?gcal_error={error or 'missing_code'}{t_param}")
 
     async with db_pool.acquire() as conn:
         tenant_slug = await conn.fetchval("SELECT slug FROM tenants WHERE id = $1::uuid", tenant_id)
@@ -13362,6 +13413,7 @@ async def get_google_business_access_token(conn, tenant_id: str) -> tuple[str, d
 @app.post("/api/v1/crm/oauth/google-business/init")
 async def init_google_business_oauth(
     payload: GoogleBusinessOAuthInitPayload,
+    request: Request,
     tenant_id: str = Depends(get_tenant_id)
 ):
     """Save Google Client ID & Secret, and generate Google OAuth authorization URL for Google Business Profile."""
@@ -13420,6 +13472,12 @@ async def init_google_business_oauth(
 
     scopes = "https://www.googleapis.com/auth/business.manage openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"
 
+    req_origin = request.headers.get("origin") or ""
+    if not req_origin and request.headers.get("referer"):
+        parsed = urllib.parse.urlparse(request.headers.get("referer"))
+        if parsed.scheme and parsed.netloc:
+            req_origin = f"{parsed.scheme}://{parsed.netloc}"
+
     state_nonce = os.urandom(16).hex()
     state_exp = int(datetime.now(timezone.utc).timestamp()) + 600
     state_dict = {
@@ -13428,7 +13486,8 @@ async def init_google_business_oauth(
         "provider": "google_business",
         "redirect_uri": GOOGLE_BUSINESS_REDIRECT_URI,
         "nonce": state_nonce,
-        "exp": state_exp
+        "exp": state_exp,
+        "return_origin": req_origin
     }
     state_raw = json.dumps(state_dict, separators=(',', ':'))
     state_b64 = base64.urlsafe_b64encode(state_raw.encode("utf-8")).decode("utf-8").rstrip("=")
@@ -13473,9 +13532,14 @@ async def google_business_oauth_callback(
     if not tenant_id:
         raise HTTPException(400, "Missing tenant ID in OAuth state.")
 
+    ret_origin = (state_data.get("return_origin") or "").rstrip("/")
+
     async with db_pool.acquire() as conn:
         tenant_slug = await conn.fetchval("SELECT slug FROM tenants WHERE id = $1::uuid", tenant_id)
-        base_redir = f"{APP_BASE_URL}/{tenant_slug}" if tenant_slug else f"{APP_BASE_URL}/dashboard"
+        if not ret_origin:
+            ret_origin = await get_tenant_base_url(conn, tenant_id)
+
+        base_redir = f"{ret_origin}/{tenant_slug}" if tenant_slug else f"{ret_origin}/dashboard"
 
         if error or not code:
             return RedirectResponse(f"{base_redir}?gmb_error={error or 'cancelled'}")
