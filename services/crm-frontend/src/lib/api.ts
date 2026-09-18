@@ -20,6 +20,8 @@ const SYSTEM_ROUTES = new Set([
 let dynamicSlugCache: Record<string, string> = {
   boldlabs: '05f469a7-2089-425c-8fce-1a56002d5272',
   mindbodyrecovery: 'b97ca3e5-7d43-44cf-8021-6e3659def878',
+  'bizpipe-demo': '386d9a0a-0911-4df5-bfba-4da4470364c2',
+  'smaato-mobile': '3ca563dc-a259-4a90-91e4-da5376c22c11',
 };
 
 // Seed dynamic cache from localStorage if available

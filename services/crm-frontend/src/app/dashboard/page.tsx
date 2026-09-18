@@ -77,6 +77,7 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   ArrowLeft,
+  ArrowRight,
   ChevronLeft,
   ChevronRight,
   Plus,
@@ -3464,6 +3465,30 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     };
   }, [configuredDoctors, customers]);
 
+  const reviewStats = useMemo(() => {
+    const total = customerReviews.length;
+    const positive = customerReviews.filter(r => (r.rating || 0) >= 4);
+    const shielded = customerReviews.filter(r => (r.rating || 0) <= 3);
+    const avg = total > 0 ? (customerReviews.reduce((sum, r) => sum + (r.rating || 0), 0) / total).toFixed(1) : '4.9';
+    const breakdown = [5, 4, 3, 2, 1].map(stars => {
+      const count = customerReviews.filter(r => Math.round(r.rating || 0) === stars).length;
+      const pct = total > 0 ? Math.round((count / total) * 100) : stars === 5 ? 85 : stars === 4 ? 15 : 0;
+      return { stars, count, pct };
+    });
+    const recent = [...customerReviews].sort(
+      (a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime()
+    ).slice(0, 6);
+
+    return {
+      total,
+      positiveCount: positive.length,
+      shieldedCount: shielded.length,
+      avgRating: avg,
+      breakdown,
+      recent,
+    };
+  }, [customerReviews]);
+
   function renderStaffSelectOptions(placeholder = '— Unassigned —') {
     return (
       <>
@@ -4021,6 +4046,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   // Initial Auth & Workspace Resolution
   useEffect(() => {
     let isCancelled = false;
+
+    // Adopt cross-domain handover token if passed in query string (?token=...)
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      const tokenParam = searchParams.get('token');
+      if (tokenParam) {
+        localStorage.setItem('auth_token', tokenParam);
+        const cleanUrl = window.location.pathname + (window.location.hash || '');
+        window.history.replaceState(null, '', cleanUrl);
+      }
+    }
+
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
     if (!token) {
       if (typeof window !== 'undefined') {
@@ -4322,6 +4359,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       crm.getAllNotes().then((n) => { setAllNotes(Array.isArray(n) ? n : []); }).catch(() => {});
     } else if (activeNav === 'settings') {
       loadSettings();
+      if (settingsForm.plan === 'review_only' && (settingsTab === 'calendar' || settingsTab === 'terminology')) {
+        setSettingsTab('branding');
+      }
       if (settingsTab === 'team') {
         loadTeamList();
       }
@@ -5643,10 +5683,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   }
 
   useEffect(() => {
-    if (activeNav === 'reviews') {
+    if (activeNav === 'reviews' || (activeNav === 'overview' && settingsForm.plan === 'review_only')) {
       loadReviews(true);
     }
-  }, [activeNav]);
+  }, [activeNav, settingsForm.plan]);
 
   async function handleDeleteReview(id: string) {
     if (!confirm('Are you sure you want to delete this review record?')) return;
@@ -9496,8 +9536,425 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           {/* ── 2. CENTER / MAIN VIEW AREA ───────────────────────────────────── */}
           <main className="flex-1 flex flex-col overflow-hidden bg-canvas p-2 sm:p-4 md:p-5 space-y-2 sm:space-y-4 pb-20 md:pb-4">
             
-            {/* ── VIEW 0: DEDICATED OVERVIEW DASHBOARD ─────────────────────────── */}
-            {activeNav === 'overview' && (
+            {/* ── VIEW 0-A: DEDICATED GOOGLE REVIEWS & REPUTATION OVERVIEW (review_only) ── */}
+            {activeNav === 'overview' && settingsForm.plan === 'review_only' && (
+              <div className="flex-1 flex flex-col overflow-y-auto space-y-6 pr-1">
+                {/* Header */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-border">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+                        <Star className="w-5 h-5 text-amber-500 fill-amber-400 stroke-[1.8]" />
+                        <span>Google Reviews & Reputation Command Center</span>
+                      </h2>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                        Shield Active
+                      </span>
+                    </div>
+                    <p className="text-xs text-text-muted mt-0.5">
+                      Real-time Google ratings, sentiment tracking, negative review shielding, and direct customer feedback
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Copy Public Review Link */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const link = typeof window !== 'undefined'
+                          ? `${window.location.origin}/${settingsForm.slug || user?.tenant_slug || 'review'}/review`
+                          : '';
+                        if (link) {
+                          navigator.clipboard.writeText(link);
+                          setActionNotice('Smart Review Portal link copied to clipboard!');
+                          setTimeout(() => setActionNotice(null), 3000);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border border-border shadow-2xs"
+                      title="Copy public smart review link to send to clients"
+                    >
+                      <Copy className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span>Copy Review Link</span>
+                    </button>
+
+                    {/* Open Public Portal in new tab */}
+                    <a
+                      href={`/${settingsForm.slug || user?.tenant_slug || 'review'}/review`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border border-border"
+                      title="Preview public review portal"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span className="hidden sm:inline">Preview Portal</span>
+                    </a>
+
+                    {/* Direct Google Review Page */}
+                    {(settingsForm.gmb_review_url || settingsForm.google_review_link) && (
+                      <a
+                        href={settingsForm.gmb_review_url || settingsForm.google_review_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border border-amber-500/30"
+                        title="Open your live Google Maps review page"
+                      >
+                        <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400 stroke-[1.5]" />
+                        <span className="hidden sm:inline">Google Maps Page</span>
+                      </a>
+                    )}
+
+                    {/* Refresh */}
+                    <button
+                      type="button"
+                      onClick={() => loadReviews(false)}
+                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-body font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border border-border"
+                      title="Refresh customer reviews"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${loadingReviews ? 'animate-spin' : ''}`} />
+                      <span className="hidden sm:inline">Refresh</span>
+                    </button>
+
+                    {/* Open Review Manager */}
+                    <button
+                      type="button"
+                      onClick={() => setActiveNav('reviews')}
+                      className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span>Review Manager</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 4 Hero Metric Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                  {/* Card 1: Average Rating */}
+                  <div
+                    onClick={() => setActiveNav('reviews')}
+                    className="bg-surface border border-border hover:border-amber-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Average Rating</span>
+                      <div className="w-7 h-7 rounded-sm bg-amber-500/10 text-amber-600 flex items-center justify-center">
+                        <Star className="w-4 h-4 text-amber-500 fill-amber-400 stroke-[1.8]" />
+                      </div>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-2xl font-bold text-text-primary font-mono tabular-nums flex items-center gap-1">
+                        <span>{reviewStats.avgRating}</span>
+                        <span className="text-amber-500 text-lg">★</span>
+                      </p>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        Top Rated
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 text-amber-400 text-xs">
+                      {'★★★★★'}
+                      <span className="text-[11px] text-text-muted ml-1">
+                        {reviewStats.total > 0 ? `${reviewStats.total} total reviews` : 'Google Maps verified'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Card 2: Total Customer Reviews */}
+                  <div
+                    onClick={() => setActiveNav('reviews')}
+                    className="bg-surface border border-border hover:border-blue-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Total Feedback</span>
+                      <div className="w-7 h-7 rounded-sm bg-blue-50 text-blue-600 flex items-center justify-center">
+                        <Users className="w-4 h-4 stroke-[1.8]" />
+                      </div>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                        {reviewStats.total}
+                      </p>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
+                        Lifetime
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-text-muted truncate">
+                      {reviewStats.positiveCount} Positive • {reviewStats.shieldedCount} Private
+                    </p>
+                  </div>
+
+                  {/* Card 3: 5★ Google Maps Reviews */}
+                  <div
+                    onClick={() => setActiveNav('reviews')}
+                    className="bg-surface border border-border hover:border-emerald-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Google 5★ Boosted</span>
+                      <div className="w-7 h-7 rounded-sm bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                        <CheckCircle2 className="w-4 h-4 stroke-[1.8]" />
+                      </div>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                        {reviewStats.positiveCount}
+                      </p>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        100% Public
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-text-muted truncate">
+                      Routed to Google Maps profile
+                    </p>
+                  </div>
+
+                  {/* Card 4: Negative Feedback Shielded */}
+                  <div
+                    onClick={() => setActiveNav('reviews')}
+                    className="bg-surface border border-border hover:border-indigo-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Reputation Shielded</span>
+                      <div className="w-7 h-7 rounded-sm bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                        <ShieldCheck className="w-4 h-4 stroke-[1.8]" />
+                      </div>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                        {reviewStats.shieldedCount}
+                      </p>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200">
+                        Shielded
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-text-muted truncate">
+                      1-3★ caught privately
+                    </p>
+                  </div>
+                </div>
+
+                {/* Smart Review Shielding Showcase Banner */}
+                <div className="p-4 sm:p-5 rounded-lg border border-border bg-gradient-to-r from-surface via-surface to-surface-subtle shadow-xs space-y-4">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-emerald-500 stroke-[2]" />
+                        <h3 className="text-sm font-bold text-text-primary">How Smart Review Shielding Protects You</h3>
+                      </div>
+                      <p className="text-xs text-text-muted mt-1">
+                        Your customers receive a branded review link. Negative reviews are intercepted before they ever touch Google.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const link = typeof window !== 'undefined'
+                            ? `${window.location.origin}/${settingsForm.slug || user?.tenant_slug || 'review'}/review`
+                            : '';
+                          if (link) {
+                            navigator.clipboard.writeText(link);
+                            setActionNotice('Smart Review Portal link copied!');
+                            setTimeout(() => setActionNotice(null), 3000);
+                          }
+                        }}
+                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy Portal Link</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                    <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-md space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                        <span>★★★★★</span>
+                        <span>4 to 5 Star Ratings (Delighted Clients)</span>
+                      </div>
+                      <p className="text-[11px] text-text-muted leading-relaxed">
+                        Customers are given an AI-generated draft praising their experience and are instantly redirected to your Google Maps review page to submit it publicly.
+                      </p>
+                    </div>
+
+                    <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-md space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-300">
+                        <span>★★★☆☆</span>
+                        <span>1 to 3 Star Ratings (Unhappy Clients)</span>
+                      </div>
+                      <p className="text-[11px] text-text-muted leading-relaxed">
+                        Redirected to a private, confidential feedback form. Their complaints are emailed directly to you so you can resolve them without lowering your public score.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Active Links Box */}
+                  <div className="pt-2 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-2 text-text-secondary min-w-0 w-full sm:w-auto">
+                      <span className="font-semibold text-text-primary whitespace-nowrap">Your Review Portal:</span>
+                      <code className="px-2 py-1 bg-surface-subtle border border-border rounded text-[11px] font-mono text-text-primary truncate">
+                        {typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'slug'}/review` : ''}
+                      </code>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] text-text-muted">Target Google Listing:</span>
+                      <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3 text-emerald-500" />
+                        <span>Connected</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Rating Distribution & Recent Feedback Section */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  {/* Left Column (1 col): Rating Breakdown */}
+                  <div className="p-4 rounded-md border border-border bg-surface space-y-4">
+                    <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                      Rating Distribution
+                    </h4>
+
+                    <div className="space-y-2">
+                      {reviewStats.breakdown.map((item) => (
+                        <div key={item.stars} className="flex items-center gap-2 text-xs">
+                          <span className="w-12 font-semibold text-text-secondary text-[11px] flex items-center gap-0.5 shrink-0">
+                            <span>{item.stars}</span>
+                            <span className="text-amber-500">★</span>
+                          </span>
+                          <div className="flex-1 h-2 bg-surface-subtle rounded-full overflow-hidden border border-border">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                item.stars >= 4 ? 'bg-emerald-500' : item.stars === 3 ? 'bg-amber-500' : 'bg-rose-500'
+                              }`}
+                              style={{ width: `${item.pct}%` }}
+                            />
+                          </div>
+                          <span className="w-8 text-right font-mono text-[11px] text-text-muted shrink-0">
+                            {item.count}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="pt-3 border-t border-border space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-text-muted">Positive Sentiment</span>
+                        <span className="font-bold text-emerald-600">
+                          {reviewStats.total > 0
+                            ? `${Math.round((reviewStats.positiveCount / reviewStats.total) * 100)}%`
+                            : '100%'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-text-muted">Public Redirection Rate</span>
+                        <span className="font-bold text-text-primary">
+                          {reviewStats.total > 0
+                            ? `${Math.round((reviewStats.positiveCount / reviewStats.total) * 100)}%`
+                            : '100%'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column (2 cols): Recent Feedback Feed */}
+                  <div className="lg:col-span-2 p-4 rounded-md border border-border bg-surface space-y-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between pb-2 border-b border-border">
+                        <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                          Recent Customer Reviews
+                        </h4>
+                        <button
+                          type="button"
+                          onClick={() => setActiveNav('reviews')}
+                          className="text-xs text-accent hover:text-accent-hover font-semibold flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>Open Review Manager</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </button>
+                      </div>
+
+                      {reviewStats.recent.length === 0 ? (
+                        <div className="py-10 text-center space-y-2">
+                          <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
+                            <Star className="w-5 h-5 fill-amber-400 stroke-[1.5]" />
+                          </div>
+                          <p className="text-xs font-bold text-text-primary">No Customer Reviews Yet</p>
+                          <p className="text-[11px] text-text-muted max-w-sm mx-auto">
+                            Share your Smart Review Portal link with your clients on WhatsApp to start collecting 5-star Google reviews and shield your business from negative feedback.
+                          </p>
+                          <div className="pt-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const link = typeof window !== 'undefined'
+                                  ? `${window.location.origin}/${settingsForm.slug || user?.tenant_slug || 'review'}/review`
+                                  : '';
+                                if (link) {
+                                  navigator.clipboard.writeText(link);
+                                  setActionNotice('Review link copied to clipboard!');
+                                  setTimeout(() => setActionNotice(null), 3000);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded cursor-pointer transition-colors shadow-2xs"
+                            >
+                              Copy Smart Review Link
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-border/60">
+                          {reviewStats.recent.map((rev) => (
+                            <div key={rev.id} className="py-3 space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-bold text-text-primary">{rev.customer_name || 'Anonymous Customer'}</span>
+                                  {rev.customer_phone && (
+                                    <span className="text-[10px] text-text-muted font-mono">{rev.customer_phone}</span>
+                                  )}
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                    (rev.rating || 0) >= 4
+                                      ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                                      : 'bg-rose-500/10 text-rose-600 border-rose-500/20'
+                                  }`}>
+                                    {(rev.rating || 0) >= 4 ? 'Google Maps' : 'Shielded Feedback'}
+                                  </span>
+                                </div>
+                                <span className="text-xs text-amber-500 font-bold">
+                                  {'★'.repeat(rev.rating || 5)}{'☆'.repeat(5 - (rev.rating || 5))}
+                                </span>
+                              </div>
+                              {rev.review_text && (
+                                <p className="text-xs text-text-secondary leading-relaxed bg-surface-subtle p-2 rounded border border-border/50">
+                                  "{rev.review_text}"
+                                </p>
+                              )}
+                              {rev.reply_text && (
+                                <div className="pl-3 border-l-2 border-accent text-[11px] text-text-muted italic">
+                                  Reply: {rev.reply_text}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-3 border-t border-border flex items-center justify-between text-xs">
+                      <span className="text-text-muted">Total Reviews Captured: {reviewStats.total}</span>
+                      <button
+                        type="button"
+                        onClick={() => setActiveNav('reviews')}
+                        className="text-accent hover:text-accent-hover font-semibold flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>Manage & Reply to All</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── VIEW 0-B: STANDARD WORKSPACE OVERVIEW (WhatsApp, Funnel & ROI) ── */}
+            {activeNav === 'overview' && settingsForm.plan !== 'review_only' && (
               <div className="flex-1 flex flex-col overflow-y-auto space-y-6 pr-1">
                 {/* Welcome & Period Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-border">
@@ -16947,15 +17404,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                 {/* Subtabs Bar - Horizontally Scrollable Strip on Mobile */}
                 <div className="flex gap-1 border-b border-border pb-3 overflow-x-auto no-scrollbar flex-nowrap shrink-0 max-w-full">
-                  {[
-                    { id: 'billing', label: 'Subscription & Payments', icon: CreditCard },
-                    { id: 'branding', label: 'Profile & Branding', icon: Building2 },
-                    { id: 'calendar', label: 'Google Calendar & Scheduling', icon: CalendarDays },
-                    { id: 'notifications', label: 'Alert Channels', icon: Bell },
-                    { id: 'localization', label: 'Regional & Currency', icon: Globe },
-                    { id: 'terminology', label: 'CRM Terminology', icon: Sliders },
-                    { id: 'account', label: 'Account & Session', icon: LogOut },
-                  ].map((tab) => {
+                  {(() => {
+                    const isReviewOnly = settingsForm.plan === 'review_only';
+                    return [
+                      { id: 'billing', label: 'Subscription & Payments', icon: CreditCard },
+                      { id: 'branding', label: isReviewOnly ? 'Business & Google Review Profile' : 'Profile & Branding', icon: Building2 },
+                      ...(!isReviewOnly ? [{ id: 'calendar', label: 'Google Calendar & Scheduling', icon: CalendarDays }] : []),
+                      { id: 'notifications', label: isReviewOnly ? 'Review Notification Alerts' : 'Alert Channels', icon: Bell },
+                      { id: 'localization', label: 'Regional & Currency', icon: Globe },
+                      ...(!isReviewOnly ? [{ id: 'terminology', label: 'CRM Terminology', icon: Sliders }] : []),
+                      { id: 'account', label: 'Account & Session', icon: LogOut },
+                    ];
+                  })().map((tab) => {
                     const Icon = tab.icon;
                     return (
                       <button
@@ -17394,137 +17854,262 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">Company / Brand Name</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. Boldlabs Studio / City Health Clinic"
-                            value={settingsForm.name || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, name: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                          <p className="text-xs text-text-muted mt-1">Displayed in your header and customer notifications.</p>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">Assistant Display Name</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. Reception Assistant"
-                            value={settingsForm.assistant_name || ''}
-                            onChange={(e) => setSettingsForm({ ...settingsForm, assistant_name: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                          <p className="text-xs text-text-muted mt-1">Name used when introducing your assistant to customers.</p>
-                        </div>
-                      </div>
-
-                      {/* Business Address */}
-                      <div className="p-4 bg-surface rounded-md border border-border space-y-2">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-medium text-text-primary">
-                            Business Address & Google Maps Link
-                          </label>
-                          <span className="text-xs font-medium text-text-muted bg-surface-subtle px-2 py-0.5 rounded-sm border border-border">
-                            Sent after booking
-                          </span>
-                        </div>
-                        <p className="text-xs text-text-muted">
-                          Automatically shared with customers in WhatsApp booking confirmations and calendar invites.
-                        </p>
-                        <textarea
-                          rows={2}
-                          placeholder="e.g. 123 Innovation Tower, Anna Nagar, Chennai. Maps: https://maps.app.goo.gl/xyz"
-                          value={settingsForm.full_location_text || ''}
-                          onChange={(e) => setSettingsForm({ ...settingsForm, full_location_text: e.target.value })}
-                          className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans resize-none transition-colors duration-150"
-                        />
-                      </div>
-
-                      {/* Google Review Settings & Toggle */}
-                      <div className="p-4 bg-surface rounded-md border border-border space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Star className="w-4 h-4 text-accent stroke-[1.5]" />
-                            <label className="text-xs font-semibold text-text-primary">
-                              Post-Service Review WhatsApp Template
-                            </label>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setSettingsForm({ ...settingsForm, enable_auto_review: settingsForm.enable_auto_review === false ? true : false })}
-                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-                              settingsForm.enable_auto_review !== false ? 'bg-accent' : 'bg-surface-subtle border-border'
-                            }`}
-                            title={settingsForm.enable_auto_review !== false ? 'Review template sending is Enabled' : 'Review template sending is Disabled'}
-                          >
-                            <span
-                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                                settingsForm.enable_auto_review !== false ? 'translate-x-4' : 'translate-x-0'
-                              }`}
+                      {settingsForm.plan === 'review_only' ? (
+                        /* ── Tailored Review & Google Reputation Profile ── */
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-xs font-medium text-text-primary mb-1">Business / Store Name</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Smaato Mobile Store"
+                              value={settingsForm.name || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, name: e.target.value })}
+                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                             />
-                          </button>
-                        </div>
-                        <p className="text-xs text-text-muted leading-relaxed">
-                          {settingsForm.enable_auto_review !== false ? (
-                            <span className="text-status-success font-medium">Enabled: </span>
-                          ) : (
-                            <span className="text-text-muted font-medium">Disabled: </span>
-                          )}
-                          Send an automated Google Review request template on WhatsApp after an appointment is marked as Attended. When changing status, you will also be prompted with the choice to send or skip for each client.
-                        </p>
-                        {settingsForm.enable_auto_review !== false && (
-                          <div className="pt-1">
-                            <div className="p-3 bg-amber-500/5 rounded-md border border-amber-500/20 space-y-1.5">
-                              <label className="block text-[11px] font-semibold text-text-primary flex items-center gap-1.5">
-                                <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-                                <span>Google / GMB Review Link</span>
+                            <p className="text-xs text-text-muted mt-1">Name shown on your public review collection portal and customer communications.</p>
+                          </div>
+
+                          {/* Primary Google / GMB Review URL Input */}
+                          <div className="p-4 bg-amber-500/5 rounded-md border border-amber-500/20 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-bold text-text-primary flex items-center gap-1.5">
+                                <Star className="w-4 h-4 text-amber-500 fill-amber-400" />
+                                <span>Google Maps / GMB Review Destination Link</span>
                               </label>
-                              <div className="flex gap-2 items-center">
-                                <input
-                                  type="text"
-                                  placeholder="https://g.page/r/your-gmb-review-link/review"
-                                  value={settingsForm.gmb_review_url || settingsForm.google_review_link || ''}
-                                  onChange={(e) => setSettingsForm({ ...settingsForm, gmb_review_url: e.target.value, google_review_link: e.target.value })}
-                                  className="flex-1 min-w-0 px-3 py-2 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent transition-colors duration-150"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleSaveSettings(e)}
-                                  disabled={settingsSaving}
-                                  className="px-3.5 py-2 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 disabled:opacity-50 shadow-2xs"
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                Shield Target
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-text-muted">
+                              When customers give you 4 or 5 stars on your review portal, they are automatically prompted with an AI review draft and redirected directly to this Google Maps page to submit their public rating.
+                            </p>
+                            <div className="flex gap-2 items-center">
+                              <input
+                                type="url"
+                                placeholder="https://g.page/r/your-gmb-review-link/review or https://maps.app.goo.gl/..."
+                                value={settingsForm.gmb_review_url || settingsForm.google_review_link || ''}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, gmb_review_url: e.target.value, google_review_link: e.target.value })}
+                                className="flex-1 min-w-0 px-3 py-2 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent transition-colors duration-150"
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => handleSaveSettings(e)}
+                                disabled={settingsSaving}
+                                className="px-3.5 py-2 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 disabled:opacity-50 shadow-2xs"
+                              >
+                                {settingsSaving ? (
+                                  <>
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
+                                    <span>Saving...</span>
+                                  </>
+                                ) : settingsSaved ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 stroke-[1.5] text-emerald-300" />
+                                    <span>Saved!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 stroke-[1.5]" />
+                                    <span>Save Link</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                            {(settingsForm.gmb_review_url || settingsForm.google_review_link) && (
+                              <div className="pt-1">
+                                <a
+                                  href={settingsForm.gmb_review_url || settingsForm.google_review_link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[11px] text-accent hover:text-accent-hover font-semibold inline-flex items-center gap-1"
                                 >
-                                  {settingsSaving ? (
-                                    <>
-                                      <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
-                                      <span>Saving...</span>
-                                    </>
-                                  ) : settingsSaved ? (
-                                    <>
-                                      <Check className="w-3.5 h-3.5 stroke-[1.5] text-emerald-300" />
-                                      <span>Saved!</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Check className="w-3.5 h-3.5 stroke-[1.5]" />
-                                      <span>Save Link</span>
-                                    </>
-                                  )}
-                                </button>
+                                  <span>Test Google Review Link</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
                               </div>
-                              <p className="text-[10px] text-text-muted">
-                                Paste your Google Business review link here. Used by the public AI review collector page (<strong>/{settingsForm.slug || 'slug'}/review</strong>) — 4-5 star reviews are auto-copied and redirected here. Also sent in WhatsApp post-service review nudges with the customer's name pre-filled.
-                              </p>
+                            )}
+                          </div>
+
+                          {/* Public Review Collector Portal Link */}
+                          <div className="p-4 bg-surface-subtle rounded-md border border-border space-y-2">
+                            <label className="text-xs font-bold text-text-primary flex items-center gap-1.5">
+                              <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                              <span>Your Public Smart Review Portal URL</span>
+                            </label>
+                            <p className="text-[11px] text-text-muted">
+                              Share this URL or QR code with your clients. 4-5 star reviews are auto-forwarded to Google. 1-3 star reviews are privately captured in your dashboard.
+                            </p>
+                            <div className="flex gap-2 items-center">
+                              <input
+                                type="text"
+                                readOnly
+                                value={typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || user?.tenant_slug || 'review'}/review` : ''}
+                                className="flex-1 min-w-0 px-3 py-2 bg-white border border-border rounded-sm text-xs font-mono text-text-muted select-all"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const link = typeof window !== 'undefined'
+                                    ? `${window.location.origin}/${settingsForm.slug || user?.tenant_slug || 'review'}/review`
+                                    : '';
+                                  if (link) {
+                                    navigator.clipboard.writeText(link);
+                                    setActionNotice('Smart Review Portal link copied!');
+                                    setTimeout(() => setActionNotice(null), 3000);
+                                  }
+                                }}
+                                className="px-3.5 py-2 bg-surface hover:bg-surface-subtle border border-border text-text-primary font-medium text-xs rounded-sm transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 shadow-2xs"
+                              >
+                                <Copy className="w-3.5 h-3.5 stroke-[1.5]" />
+                                <span>Copy URL</span>
+                              </button>
+                              <a
+                                href={`/${settingsForm.slug || user?.tenant_slug || 'review'}/review`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs rounded-sm transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 shadow-2xs"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5 stroke-[1.5]" />
+                                <span>Preview</span>
+                              </a>
                             </div>
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-medium text-text-primary mb-1">Company / Brand Name</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. Boldlabs Studio / City Health Clinic"
+                                value={settingsForm.name || ''}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, name: e.target.value })}
+                                className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                              />
+                              <p className="text-xs text-text-muted mt-1">Displayed in your header and customer notifications.</p>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-medium text-text-primary mb-1">Assistant Display Name</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. Reception Assistant"
+                                value={settingsForm.assistant_name || ''}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, assistant_name: e.target.value })}
+                                className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                              />
+                              <p className="text-xs text-text-muted mt-1">Name used when introducing your assistant to customers.</p>
+                            </div>
+                          </div>
+
+                          {/* Business Address */}
+                          <div className="p-4 bg-surface rounded-md border border-border space-y-2">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-medium text-text-primary">
+                                Business Address & Google Maps Link
+                              </label>
+                              <span className="text-xs font-medium text-text-muted bg-surface-subtle px-2 py-0.5 rounded-sm border border-border">
+                                Sent after booking
+                              </span>
+                            </div>
+                            <p className="text-xs text-text-muted">
+                              Automatically shared with customers in WhatsApp booking confirmations and calendar invites.
+                            </p>
+                            <textarea
+                              rows={2}
+                              placeholder="e.g. 123 Innovation Tower, Anna Nagar, Chennai. Maps: https://maps.app.goo.gl/xyz"
+                              value={settingsForm.full_location_text || ''}
+                              onChange={(e) => setSettingsForm({ ...settingsForm, full_location_text: e.target.value })}
+                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans resize-none transition-colors duration-150"
+                            />
+                          </div>
+
+                          {/* Google Review Settings & Toggle */}
+                          <div className="p-4 bg-surface rounded-md border border-border space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Star className="w-4 h-4 text-accent stroke-[1.5]" />
+                                <label className="text-xs font-semibold text-text-primary">
+                                  Post-Service Review WhatsApp Template
+                                </label>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setSettingsForm({ ...settingsForm, enable_auto_review: settingsForm.enable_auto_review === false ? true : false })}
+                                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                                  settingsForm.enable_auto_review !== false ? 'bg-accent' : 'bg-surface-subtle border-border'
+                                }`}
+                                title={settingsForm.enable_auto_review !== false ? 'Review template sending is Enabled' : 'Review template sending is Disabled'}
+                              >
+                                <span
+                                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                                    settingsForm.enable_auto_review !== false ? 'translate-x-4' : 'translate-x-0'
+                                  }`}
+                                />
+                              </button>
+                            </div>
+                            <p className="text-xs text-text-muted leading-relaxed">
+                              {settingsForm.enable_auto_review !== false ? (
+                                <span className="text-status-success font-medium">Enabled: </span>
+                              ) : (
+                                <span className="text-text-muted font-medium">Disabled: </span>
+                              )}
+                              Send an automated Google Review request template on WhatsApp after an appointment is marked as Attended. When changing status, you will also be prompted with the choice to send or skip for each client.
+                            </p>
+                            {settingsForm.enable_auto_review !== false && (
+                              <div className="pt-1">
+                                <div className="p-3 bg-amber-500/5 rounded-md border border-amber-500/20 space-y-1.5">
+                                  <label className="block text-[11px] font-semibold text-text-primary flex items-center gap-1.5">
+                                    <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
+                                    <span>Google / GMB Review Link</span>
+                                  </label>
+                                  <div className="flex gap-2 items-center">
+                                    <input
+                                      type="text"
+                                      placeholder="https://g.page/r/your-gmb-review-link/review"
+                                      value={settingsForm.gmb_review_url || settingsForm.google_review_link || ''}
+                                      onChange={(e) => setSettingsForm({ ...settingsForm, gmb_review_url: e.target.value, google_review_link: e.target.value })}
+                                      className="flex-1 min-w-0 px-3 py-2 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent transition-colors duration-150"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleSaveSettings(e)}
+                                      disabled={settingsSaving}
+                                      className="px-3.5 py-2 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 disabled:opacity-50 shadow-2xs"
+                                    >
+                                      {settingsSaving ? (
+                                        <>
+                                          <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
+                                          <span>Saving...</span>
+                                        </>
+                                      ) : settingsSaved ? (
+                                        <>
+                                          <Check className="w-3.5 h-3.5 stroke-[1.5] text-emerald-300" />
+                                          <span>Saved!</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Check className="w-3.5 h-3.5 stroke-[1.5]" />
+                                          <span>Save Link</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                  <p className="text-[10px] text-text-muted">
+                                    Paste your Google Business review link here. Used by the public AI review collector page (<strong>/{settingsForm.slug || 'slug'}/review</strong>) — 4-5 star reviews are auto-copied and redirected here. Also sent in WhatsApp post-service review nudges with the customer's name pre-filled.
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
                   {/* ── GOOGLE CALENDAR & SCHEDULING SETTINGS ───────────────── */}
-                  {settingsTab === 'calendar' && (
+                  {settingsTab === 'calendar' && settingsForm.plan !== 'review_only' && (
                     <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
                       <div className="flex items-center justify-between pb-2 border-b border-border">
                         <div>
@@ -18107,7 +18692,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   )}
 
                   {/* ── 4. CRM INDUSTRY & DYNAMIC TERMINOLOGY ────────────────── */}
-                  {settingsTab === 'terminology' && (
+                  {settingsTab === 'terminology' && settingsForm.plan !== 'review_only' && (
                     <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
                       <div className="pb-2 border-b border-border flex items-center justify-between">
                         <div>

@@ -1425,9 +1425,21 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     }
   }
 
-  function handleImpersonateTenant(tenant: { id: string; slug: string }) {
+  function handleImpersonateTenant(tenant: { id: string; slug: string; custom_domain?: string; partner_name?: string }) {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') || '' : '';
     localStorage.setItem('tenant_id', tenant.id);
     localStorage.setItem('tenant_slug', tenant.slug);
+
+    const matchingTpl = partnerTemplates.find(
+      (tpl) => tpl.partner_name?.toLowerCase() === tenant.partner_name?.toLowerCase()
+    );
+    let domain = ((tenant as any).custom_domain || matchingTpl?.custom_domain || '').trim().toLowerCase();
+    domain = domain.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+
+    if (domain && typeof window !== 'undefined' && domain !== window.location.hostname) {
+      window.open(`https://${domain}/${tenant.slug}?token=${encodeURIComponent(token)}`, '_blank');
+      return;
+    }
     router.push(`/${tenant.slug}`);
   }
 

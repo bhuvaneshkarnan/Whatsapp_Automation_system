@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth, crm, registerTenantSlug } from '@/lib/api';
 import { useBranding } from '@/lib/branding';
@@ -35,6 +35,23 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [paymentRequired, setPaymentRequired] = useState<PaymentRequiredDetails | null>(null);
+
+  // Adopt cross-domain handover token if passed in query string (?token=...)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const searchParams = new URLSearchParams(window.location.search);
+    const tokenParam = searchParams.get('token');
+    if (tokenParam) {
+      localStorage.setItem('auth_token', tokenParam);
+      const redirectUrl = searchParams.get('redirect');
+      if (redirectUrl) {
+        const cleanRedirect = redirectUrl.replace(/\\/g, '/').trim();
+        window.location.replace(cleanRedirect);
+      } else {
+        window.location.replace('/dashboard');
+      }
+    }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

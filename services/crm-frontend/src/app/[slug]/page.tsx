@@ -5,6 +5,7 @@ export function generateStaticParams() {
     { slug: 'boldlabs' },
     { slug: 'mindbodyrecovery' },
     { slug: 'bizpipe-demo' },
+    { slug: 'smaato-mobile' },
     { slug: 'dashboard' },
   ];
 }
