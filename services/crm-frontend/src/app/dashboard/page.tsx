@@ -9540,25 +9540,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             
             {/* ── VIEW 0-A: DEDICATED GOOGLE REVIEWS & REPUTATION OVERVIEW (review_only) ── */}
             {activeNav === 'overview' && settingsForm.plan === 'review_only' && (
-              <div className="flex-1 flex flex-col overflow-y-auto space-y-6 pr-1">
+              <div className="flex-1 flex flex-col overflow-y-auto space-y-3.5 pr-1">
                 {/* Header */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-border">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
-                        <Star className="w-5 h-5 text-amber-500 fill-amber-400 stroke-[1.8]" />
-                        <span>Google Reviews & Reputation Command Center</span>
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 pb-2.5 border-b border-border">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-base sm:text-lg font-bold text-text-primary flex items-center gap-1.5 whitespace-nowrap">
+                        <Star className="w-4 h-4 text-amber-500 fill-amber-400 stroke-[1.8] shrink-0" />
+                        <span>Google Reviews & Reputation</span>
                       </h2>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 shrink-0">
                         Shield Active
                       </span>
                     </div>
-                    <p className="text-xs text-text-muted mt-0.5">
+                    <p className="text-[11px] text-text-muted truncate mt-0.5">
                       Real-time Google ratings, sentiment tracking, negative review shielding, and direct customer feedback
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap shrink-0">
                     {/* Copy Public Review Link */}
                     <button
                       type="button"
@@ -9568,27 +9568,27 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           : '';
                         if (link) {
                           navigator.clipboard.writeText(link);
-                          setActionNotice('Smart Review Portal link copied to clipboard!');
+                          setActionNotice('Smart Review Portal link copied!');
                           setTimeout(() => setActionNotice(null), 3000);
                         }
                       }}
-                      className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border border-border shadow-2xs"
+                      className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-body font-medium text-xs rounded border border-border shadow-2xs transition-colors cursor-pointer flex items-center gap-1"
                       title="Copy public smart review link to send to clients"
                     >
-                      <Copy className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>Copy Review Link</span>
+                      <Copy className="w-3 h-3 stroke-[1.5]" />
+                      <span>Copy Link</span>
                     </button>
 
                     {/* QR Standee & Print Poster */}
                     <button
                       type="button"
                       onClick={() => setQrStandeeModalOpen(true)}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 shadow-xs"
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded shadow-2xs transition-colors cursor-pointer flex items-center gap-1"
                       title="Generate & Print Google Review Standee / Counter Poster"
                     >
-                      <QrCode className="w-3.5 h-3.5 stroke-[2]" />
-                      <Printer className="w-3.5 h-3.5" />
-                      <span>QR Standee & Print</span>
+                      <QrCode className="w-3 h-3 stroke-[2]" />
+                      <Printer className="w-3 h-3 opacity-90" />
+                      <span>QR Standee</span>
                     </button>
 
                     {/* Open Public Portal in new tab */}
@@ -9596,11 +9596,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       href={`/${settingsForm.slug || user?.tenant_slug || 'review'}/review`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border border-border"
+                      className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-body font-medium text-xs rounded border border-border transition-colors cursor-pointer flex items-center gap-1"
                       title="Preview public review portal"
                     >
-                      <ExternalLink className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span className="hidden sm:inline">Preview Portal</span>
+                      <ExternalLink className="w-3 h-3 stroke-[1.5]" />
+                      <span>Preview</span>
                     </a>
 
                     {/* Direct Google Review Page */}
@@ -9609,11 +9609,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         href={settingsForm.gmb_review_url || settingsForm.google_review_link}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border border-amber-500/30"
+                        className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-medium text-xs rounded border border-amber-500/30 transition-colors cursor-pointer flex items-center gap-1"
                         title="Open your live Google Maps review page"
                       >
-                        <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400 stroke-[1.5]" />
-                        <span className="hidden sm:inline">Google Maps Page</span>
+                        <Star className="w-3 h-3 text-amber-500 fill-amber-400 stroke-[1.5]" />
+                        <span>Maps Page</span>
                       </a>
                     )}
 
@@ -9621,10 +9621,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <button
                       type="button"
                       onClick={() => loadReviews(false)}
-                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-body font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border border-border"
+                      className="p-1 sm:px-2 sm:py-1 bg-surface hover:bg-surface-subtle text-text-body font-medium text-xs rounded border border-border transition-colors cursor-pointer flex items-center gap-1"
                       title="Refresh customer reviews"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${loadingReviews ? 'animate-spin' : ''}`} />
+                      <RefreshCw className={`w-3 h-3 stroke-[1.5] ${loadingReviews ? 'animate-spin' : ''}`} />
                       <span className="hidden sm:inline">Refresh</span>
                     </button>
 
@@ -9632,40 +9632,40 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <button
                       type="button"
                       onClick={() => setActiveNav('reviews')}
-                      className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                      className="px-2.5 py-1 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded shadow-2xs transition-colors cursor-pointer flex items-center gap-1"
                     >
-                      <MessageSquare className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <MessageSquare className="w-3 h-3 stroke-[1.5]" />
                       <span>Review Manager</span>
                     </button>
                   </div>
                 </div>
 
                 {/* 4 Hero Metric Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
                   {/* Card 1: Average Rating */}
                   <div
                     onClick={() => setActiveNav('reviews')}
-                    className="bg-surface border border-border hover:border-amber-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
+                    className="bg-surface border border-border hover:border-amber-500/50 rounded-lg p-3 transition-all duration-150 cursor-pointer space-y-1 shadow-2xs group"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Average Rating</span>
-                      <div className="w-7 h-7 rounded-sm bg-amber-500/10 text-amber-600 flex items-center justify-center">
-                        <Star className="w-4 h-4 text-amber-500 fill-amber-400 stroke-[1.8]" />
+                      <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">Average Rating</span>
+                      <div className="w-6 h-6 rounded bg-amber-500/10 text-amber-600 flex items-center justify-center">
+                        <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400 stroke-[1.8]" />
                       </div>
                     </div>
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="text-2xl font-bold text-text-primary font-mono tabular-nums flex items-center gap-1">
+                    <div className="flex items-baseline justify-between gap-1.5">
+                      <p className="text-xl font-bold text-text-primary font-mono tabular-nums flex items-center gap-1">
                         <span>{reviewStats.avgRating}</span>
-                        <span className="text-amber-500 text-lg">★</span>
+                        <span className="text-amber-500 text-base">★</span>
                       </p>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
                         Top Rated
                       </span>
                     </div>
-                    <div className="flex items-center gap-1 text-amber-400 text-xs">
+                    <div className="flex items-center gap-1 text-amber-400 text-[10px]">
                       {'★★★★★'}
-                      <span className="text-[11px] text-text-muted ml-1">
-                        {reviewStats.total > 0 ? `${reviewStats.total} total reviews` : 'Google Maps verified'}
+                      <span className="text-[10px] text-text-muted ml-1 truncate">
+                        {reviewStats.total > 0 ? `${reviewStats.total} reviews` : 'Google verified'}
                       </span>
                     </div>
                   </div>
@@ -9673,23 +9673,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   {/* Card 2: Total Customer Reviews */}
                   <div
                     onClick={() => setActiveNav('reviews')}
-                    className="bg-surface border border-border hover:border-blue-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
+                    className="bg-surface border border-border hover:border-blue-500/50 rounded-lg p-3 transition-all duration-150 cursor-pointer space-y-1 shadow-2xs group"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Total Feedback</span>
-                      <div className="w-7 h-7 rounded-sm bg-blue-50 text-blue-600 flex items-center justify-center">
-                        <Users className="w-4 h-4 stroke-[1.8]" />
+                      <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">Total Feedback</span>
+                      <div className="w-6 h-6 rounded bg-blue-50 text-blue-600 flex items-center justify-center">
+                        <Users className="w-3.5 h-3.5 stroke-[1.8]" />
                       </div>
                     </div>
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                    <div className="flex items-baseline justify-between gap-1.5">
+                      <p className="text-xl font-bold text-text-primary font-mono tabular-nums">
                         {reviewStats.total}
                       </p>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
                         Lifetime
                       </span>
                     </div>
-                    <p className="text-[11px] text-text-muted truncate">
+                    <p className="text-[10px] text-text-muted truncate">
                       {reviewStats.positiveCount} Positive • {reviewStats.shieldedCount} Private
                     </p>
                   </div>
@@ -9697,23 +9697,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   {/* Card 3: 5★ Google Maps Reviews */}
                   <div
                     onClick={() => setActiveNav('reviews')}
-                    className="bg-surface border border-border hover:border-emerald-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
+                    className="bg-surface border border-border hover:border-emerald-500/50 rounded-lg p-3 transition-all duration-150 cursor-pointer space-y-1 shadow-2xs group"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Google 5★ Boosted</span>
-                      <div className="w-7 h-7 rounded-sm bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                        <CheckCircle2 className="w-4 h-4 stroke-[1.8]" />
+                      <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">Google 5★ Boosted</span>
+                      <div className="w-6 h-6 rounded bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                        <CheckCircle2 className="w-3.5 h-3.5 stroke-[1.8]" />
                       </div>
                     </div>
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                    <div className="flex items-baseline justify-between gap-1.5">
+                      <p className="text-xl font-bold text-text-primary font-mono tabular-nums">
                         {reviewStats.positiveCount}
                       </p>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
                         100% Public
                       </span>
                     </div>
-                    <p className="text-[11px] text-text-muted truncate">
+                    <p className="text-[10px] text-text-muted truncate">
                       Routed to Google Maps profile
                     </p>
                   </div>
@@ -9721,37 +9721,37 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   {/* Card 4: Negative Feedback Shielded */}
                   <div
                     onClick={() => setActiveNav('reviews')}
-                    className="bg-surface border border-border hover:border-indigo-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
+                    className="bg-surface border border-border hover:border-indigo-500/50 rounded-lg p-3 transition-all duration-150 cursor-pointer space-y-1 shadow-2xs group"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Reputation Shielded</span>
-                      <div className="w-7 h-7 rounded-sm bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                        <ShieldCheck className="w-4 h-4 stroke-[1.8]" />
+                      <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">Reputation Shielded</span>
+                      <div className="w-6 h-6 rounded bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                        <ShieldCheck className="w-3.5 h-3.5 stroke-[1.8]" />
                       </div>
                     </div>
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                    <div className="flex items-baseline justify-between gap-1.5">
+                      <p className="text-xl font-bold text-text-primary font-mono tabular-nums">
                         {reviewStats.shieldedCount}
                       </p>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200">
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200">
                         Shielded
                       </span>
                     </div>
-                    <p className="text-[11px] text-text-muted truncate">
+                    <p className="text-[10px] text-text-muted truncate">
                       1-3★ caught privately
                     </p>
                   </div>
                 </div>
 
                 {/* Smart Review Shielding Showcase Banner */}
-                <div className="p-4 sm:p-5 rounded-lg border border-border bg-gradient-to-r from-surface via-surface to-surface-subtle shadow-xs space-y-4">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="p-3 sm:p-3.5 rounded-lg border border-border bg-gradient-to-r from-surface via-surface to-surface-subtle shadow-2xs space-y-2.5">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
                     <div>
-                      <div className="flex items-center gap-2">
-                        <ShieldCheck className="w-5 h-5 text-emerald-500 stroke-[2]" />
-                        <h3 className="text-sm font-bold text-text-primary">How Smart Review Shielding Protects You</h3>
+                      <div className="flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-emerald-500 stroke-[2]" />
+                        <h3 className="text-xs sm:text-sm font-bold text-text-primary">How Smart Review Shielding Protects You</h3>
                       </div>
-                      <p className="text-xs text-text-muted mt-1">
+                      <p className="text-[11px] text-text-muted mt-0.5">
                         Your customers receive a branded review link. Negative reviews are intercepted before they ever touch Google.
                       </p>
                     </div>
@@ -9769,17 +9769,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             setTimeout(() => setActionNotice(null), 3000);
                           }
                         }}
-                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded shadow-2xs flex items-center gap-1 transition-colors cursor-pointer"
                       >
-                        <Copy className="w-3.5 h-3.5" />
+                        <Copy className="w-3 h-3" />
                         <span>Copy Portal Link</span>
                       </button>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                    <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-md space-y-1">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-0.5">
+                    <div className="p-2.5 bg-emerald-500/5 border border-emerald-500/20 rounded space-y-0.5">
+                      <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
                         <span>★★★★★</span>
                         <span>4 to 5 Star Ratings (Delighted Clients)</span>
                       </div>
@@ -9788,8 +9788,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </p>
                     </div>
 
-                    <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-md space-y-1">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-300">
+                    <div className="p-2.5 bg-amber-500/5 border border-amber-500/20 rounded space-y-0.5">
+                      <div className="flex items-center gap-1 text-[11px] font-bold text-amber-700 dark:text-amber-300">
                         <span>★★★☆☆</span>
                         <span>1 to 3 Star Ratings (Unhappy Clients)</span>
                       </div>
@@ -9800,10 +9800,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
 
                   {/* Active Links Box */}
-                  <div className="pt-2 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                  <div className="pt-2 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px]">
                     <div className="flex items-center gap-2 text-text-secondary min-w-0 w-full sm:w-auto">
                       <span className="font-semibold text-text-primary whitespace-nowrap">Your Review Portal:</span>
-                      <code className="px-2 py-1 bg-surface-subtle border border-border rounded text-[11px] font-mono text-text-primary truncate">
+                      <code className="px-2 py-0.5 bg-surface-subtle border border-border rounded text-[11px] font-mono text-text-primary truncate">
                         {typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'slug'}/review` : ''}
                       </code>
                     </div>
@@ -9819,21 +9819,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </div>
 
                 {/* Rating Distribution & Recent Feedback Section */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                   {/* Left Column (1 col): Rating Breakdown */}
-                  <div className="p-4 rounded-md border border-border bg-surface space-y-4">
-                    <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                  <div className="p-3 rounded-lg border border-border bg-surface space-y-2.5 shadow-2xs">
+                    <h4 className="text-[11px] font-bold text-text-primary uppercase tracking-wider">
                       Rating Distribution
                     </h4>
 
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       {reviewStats.breakdown.map((item) => (
                         <div key={item.stars} className="flex items-center gap-2 text-xs">
-                          <span className="w-12 font-semibold text-text-secondary text-[11px] flex items-center gap-0.5 shrink-0">
+                          <span className="w-10 font-semibold text-text-secondary text-[11px] flex items-center gap-0.5 shrink-0">
                             <span>{item.stars}</span>
                             <span className="text-amber-500">★</span>
                           </span>
-                          <div className="flex-1 h-2 bg-surface-subtle rounded-full overflow-hidden border border-border">
+                          <div className="flex-1 h-1.5 bg-surface-subtle rounded-full overflow-hidden border border-border">
                             <div
                               className={`h-full rounded-full transition-all duration-300 ${
                                 item.stars >= 4 ? 'bg-emerald-500' : item.stars === 3 ? 'bg-amber-500' : 'bg-rose-500'
@@ -9841,15 +9841,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               style={{ width: `${item.pct}%` }}
                             />
                           </div>
-                          <span className="w-8 text-right font-mono text-[11px] text-text-muted shrink-0">
+                          <span className="w-6 text-right font-mono text-[10px] text-text-muted shrink-0">
                             {item.count}
                           </span>
                         </div>
                       ))}
                     </div>
 
-                    <div className="pt-3 border-t border-border space-y-2">
-                      <div className="flex items-center justify-between text-xs">
+                    <div className="pt-2 border-t border-border space-y-1 text-[11px]">
+                      <div className="flex items-center justify-between">
                         <span className="text-text-muted">Positive Sentiment</span>
                         <span className="font-bold text-emerald-600">
                           {reviewStats.total > 0
@@ -9857,7 +9857,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             : '100%'}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center justify-between">
                         <span className="text-text-muted">Public Redirection Rate</span>
                         <span className="font-bold text-text-primary">
                           {reviewStats.total > 0
@@ -9869,10 +9869,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
 
                   {/* Right Column (2 cols): Recent Feedback Feed */}
-                  <div className="lg:col-span-2 p-4 rounded-md border border-border bg-surface space-y-3 flex flex-col justify-between">
+                  <div className="lg:col-span-2 p-3 rounded-lg border border-border bg-surface space-y-2.5 flex flex-col justify-between shadow-2xs">
                     <div>
-                      <div className="flex items-center justify-between pb-2 border-b border-border">
-                        <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                        <h4 className="text-[11px] font-bold text-text-primary uppercase tracking-wider">
                           Recent Customer Reviews
                         </h4>
                         <button
