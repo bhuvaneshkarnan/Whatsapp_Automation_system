@@ -20,10 +20,11 @@ class LLMError(Exception):
     pass
 
 
-def clean_llm_response(text: str) -> str:
+def clean_llm_response(text: str, single_line: bool = False) -> str:
     """
     Strips internal thinking process (<think>...</think>), reasoning blocks,
-    markdown wrappers, bullet hyphens, and limits message to 1-2 crisp lines.
+    markdown wrappers, bullet hyphens, and enforces crisp WhatsApp formatting.
+    If single_line=True, guarantees strictly 1 single line with zero newlines.
     Preserves action tags [ACTION:...] at the end.
     """
     if not text:
@@ -59,31 +60,59 @@ def clean_llm_response(text: str) -> str:
     cleaned = re.sub(r'\s*[—–]\s*', ', ', cleaned)
     # Replace spaced hyphens with a comma
     cleaned = re.sub(r'\s+-\s+', ', ', cleaned)
-    # Replace hyphens between words/suffixes with a space (e.g. 'business-ku' -> 'business ku', 'pesalam-a' -> 'pesalam a', 'all-inclusive' -> 'all inclusive')
+    # Replace hyphens between words/suffixes with a space (e.g. 'business-ku' -> 'business ku', 'pesalam-a' -> 'pesalam a')
     cleaned = re.sub(r'(\w)-(\w)', r'\1 \2', cleaned)
     # Remove any remaining stray hyphens
     cleaned = re.sub(r'-', ' ', cleaned)
 
-    # Connect short conversational openers that have artificial double newlines (e.g. "Awesome\n\nI have..." -> "Awesome, I have...")
-    cleaned = re.sub(
-        r'^(Awesome|Got it|Sure thing|Sure|Thanks|Thanks for sharing that|Great|Hey there|Hey|Hello|Hi)\s*\n+([A-Z0-9])',
-        r'\1, \2',
-        cleaned,
-        flags=re.IGNORECASE
-    )
+    if single_line:
+        # STRICT SINGLE LINE WHATSAPP ENFORCEMENT
+        # Flatten all newlines and multiple spaces into a single space
+        cleaned = re.sub(r'[\r\n]+', ' ', cleaned).strip()
+        cleaned = re.sub(r'\s{2,}', ' ', cleaned)
 
-    # Split lines and filter out empty ones (allow 1 to 3 short lines as per global WhatsApp format)
-    lines = [l.strip() for l in cleaned.split("\n") if l.strip()]
-    if len(lines) > 3:
-        lines = lines[:3]
+        # Split into sentences
+        raw_sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
+        if len(raw_sentences) > 2:
+            # If the last sentence is a question, keep the first sentence + the question
+            if raw_sentences[-1].endswith('?'):
+                chosen = [raw_sentences[0], raw_sentences[-1]]
+            else:
+                chosen = raw_sentences[:2]
+            cleaned = " ".join(chosen).strip()
+        elif raw_sentences:
+            cleaned = " ".join(raw_sentences).strip()
 
-    cleaned = "\n".join(lines).strip()
+        # Word cap for 1 line: at most 28 words
+        words = cleaned.split()
+        if len(words) > 28:
+            joined = " ".join(words[:28])
+            m = re.search(r'^(.*[.!?])', joined)
+            if m and len(m.group(1).split()) >= 8:
+                cleaned = m.group(1).strip()
+            else:
+                cleaned = " ".join(words[:24]) + "?"
+    else:
+        # Connect short conversational openers that have artificial double newlines (e.g. "Awesome\n\nI have..." -> "Awesome, I have...")
+        cleaned = re.sub(
+            r'^(Awesome|Got it|Sure thing|Sure|Thanks|Thanks for sharing that|Great|Hey there|Hey|Hello|Hi)\s*\n+([A-Z0-9])',
+            r'\1, \2',
+            cleaned,
+            flags=re.IGNORECASE
+        )
 
-    # Sentence-level brevity enforcement (Strict 1-3 complete short sentences, never cut mid-sentence)
-    raw_sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
-    if len(raw_sentences) > 3:
-        raw_sentences = raw_sentences[:3]
-        cleaned = "\n".join(raw_sentences)
+        # Split lines and filter out empty ones (allow 1 to 3 short lines as per global WhatsApp format)
+        lines = [l.strip() for l in cleaned.split("\n") if l.strip()]
+        if len(lines) > 3:
+            lines = lines[:3]
+
+        cleaned = "\n".join(lines).strip()
+
+        # Sentence-level brevity enforcement (Strict 1-3 complete short sentences, never cut mid-sentence)
+        raw_sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
+        if len(raw_sentences) > 3:
+            raw_sentences = raw_sentences[:3]
+            cleaned = " ".join(raw_sentences).strip()
 
     # Re-attach action tags on their own line at the very end
     if action_tags:
@@ -163,6 +192,7 @@ async def call_gemini(
     temperature: float = 0.3,
     timeout_seconds: float = 8.0,
     tenant_id: str = "",
+    single_line: bool = False,
 ) -> str:
     """Call Google Gemini API with automatic model failover using verified active models."""
     start = time.monotonic()
@@ -175,13 +205,14 @@ async def call_gemini(
             "parts": [{"text": msg["content"]}],
         })
 
+    gemini_tokens = min(max_tokens, 75) if single_line else max(min(max_tokens, 500), 80)
     payload = {
         "system_instruction": {
             "parts": [{"text": system_prompt}]
         },
         "contents": contents,
         "generationConfig": {
-            "maxOutputTokens": max(max_tokens, 500),
+            "maxOutputTokens": gemini_tokens,
             "temperature": temperature,
             "candidateCount": 1,
         },
@@ -212,7 +243,7 @@ async def call_gemini(
                 if not text_parts and parts:
                     text_parts = [p.get("text", "") for p in parts if p.get("text")]
                 text = "".join(text_parts)
-                cleaned = clean_llm_response(text)
+                cleaned = clean_llm_response(text, single_line=single_line)
                 if cleaned:
                     latency_ms = int((time.monotonic() - start) * 1000)
                     logger.info("gemini_success", tenant_id=tenant_id, model=m, latency_ms=latency_ms)
@@ -240,6 +271,7 @@ async def call_groq(
     temperature: float = 0.3,
     timeout_seconds: float = 3.0,
     tenant_id: str = "",
+    single_line: bool = False,
 ) -> str:
     """
     Call Groq API with ultra-fast LPU inference (sub-500ms latency) and verified active models.
@@ -267,7 +299,7 @@ async def call_groq(
 
     last_err = None
     req_timeout = min(timeout_seconds, 2.5)
-    toks = min(max_tokens, 350)
+    toks = min(max_tokens, 75) if single_line else min(max_tokens, 350)
     for m in candidate_models:
         payload = {
             "model": m,
@@ -286,7 +318,7 @@ async def call_groq(
             if response.status_code == 200:
                 data = response.json()
                 text = data["choices"][0]["message"]["content"]
-                cleaned = clean_llm_response(text)
+                cleaned = clean_llm_response(text, single_line=single_line)
                 if cleaned:
                     latency_ms = int((time.monotonic() - start) * 1000)
                     logger.info("groq_success", tenant_id=tenant_id, model=m, latency_ms=latency_ms)
@@ -315,6 +347,7 @@ async def call_opencode(
     temperature: float = 0.3,
     timeout_seconds: float = 10.0,
     tenant_id: str = "",
+    single_line: bool = False,
 ) -> str:
     """
     Call OpenCode / OpenAI / OpenRouter / DeepSeek compatible endpoint.
@@ -356,11 +389,12 @@ async def call_opencode(
     candidate_models = list(dict.fromkeys(candidate_models))
 
     last_err = None
+    toks = min(max_tokens, 75) if single_line else min(max_tokens, 500)
     for m in candidate_models:
         payload = {
             "model": m,
             "messages": formatted_msgs,
-            "max_tokens": max_tokens,
+            "max_tokens": toks,
             "temperature": temperature,
         }
 
@@ -374,7 +408,7 @@ async def call_opencode(
             if response.status_code == 200:
                 data = response.json()
                 text = data["choices"][0]["message"]["content"]
-                cleaned = clean_llm_response(text)
+                cleaned = clean_llm_response(text, single_line=single_line)
                 if cleaned:
                     latency_ms = int((time.monotonic() - start) * 1000)
                     logger.info("opencode_success", tenant_id=tenant_id, model=m, latency_ms=latency_ms)
@@ -406,6 +440,7 @@ async def call_llm_cascade(
     temperature: float = 0.3,
     timeout_seconds: float = 4.0,
     tenant_id: str = "",
+    single_line: bool = False,
 ) -> Tuple[Optional[str], str]:
     """
     Ultra-Fast Multi-LLM Cascading Router with 3-Model Fallback:
@@ -413,7 +448,7 @@ async def call_llm_cascade(
     2. If primary fails or is rate-limited, secondary model seamlessly provides reply.
     3. If both primary & secondary fail, tertiary 3rd model (OpenCode) executes and replies.
     """
-    effective_max_tokens = min(max_tokens, 500)
+    effective_max_tokens = min(max_tokens, 75) if single_line else min(max_tokens, 500)
 
     # ── Option A: Concurrent Racer (Only if explicitly requested as 'fastest' or 'racer') ──
     if primary_provider in ("fastest", "racer") and groq_key and gemini_key:
@@ -427,6 +462,7 @@ async def call_llm_cascade(
                 temperature=temperature,
                 timeout_seconds=8.0,
                 tenant_id=tenant_id,
+                single_line=single_line,
             ), "groq"
 
         async def _run_gemini():
@@ -439,6 +475,7 @@ async def call_llm_cascade(
                 temperature=temperature,
                 timeout_seconds=8.0,
                 tenant_id=tenant_id,
+                single_line=single_line,
             ), "gemini"
 
         task_groq = asyncio.create_task(_run_groq())
@@ -503,6 +540,7 @@ async def call_llm_cascade(
                     temperature=temperature,
                     timeout_seconds=min(timeout_seconds, 10.0),
                     tenant_id=tenant_id,
+                    single_line=single_line,
                 )
                 if text and len(text.strip()) > 0:
                     return text, "gemini"
@@ -517,6 +555,7 @@ async def call_llm_cascade(
                     temperature=temperature,
                     timeout_seconds=min(timeout_seconds, 4.0),
                     tenant_id=tenant_id,
+                    single_line=single_line,
                 )
                 if text and len(text.strip()) > 0:
                     return text, "groq"
@@ -532,6 +571,7 @@ async def call_llm_cascade(
                     temperature=temperature,
                     timeout_seconds=8.0,
                     tenant_id=tenant_id,
+                    single_line=single_line,
                 )
                 if text and len(text.strip()) > 0:
                     return text, "opencode"
