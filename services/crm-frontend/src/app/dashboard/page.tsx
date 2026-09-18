@@ -5752,7 +5752,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     setReplyLoading(true);
     setReplyError('');
     try {
-      await crm.replyToGoogleReview(activeReplyReview.id, replyText.trim());
+      const res = await crm.replyToGoogleReview(activeReplyReview.id, replyText.trim());
+      const isLiveGoogle = Boolean(activeReplyReview.google_review_id);
       setCustomerReviews((prev) =>
         prev.map((r) =>
           r.id === activeReplyReview.id
@@ -5760,14 +5761,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             : r
         )
       );
-      setReplySuccessMsg('Reply published successfully!');
+      if (isLiveGoogle) {
+        setReplySuccessMsg('Reply published live to Google Maps successfully!');
+      } else {
+        setReplySuccessMsg('Reply saved to CRM record! To post publicly on Google Maps, use "Copy & Open Google Maps".');
+      }
       setTimeout(() => {
         setReplySuccessMsg('');
         setActiveReplyReview(null);
         setReplyText('');
-      }, 1200);
+      }, 2000);
     } catch (err: any) {
-      setReplyError(err?.message || 'Failed to publish reply to Google.');
+      setReplyError(err?.message || 'Failed to process reply.');
     } finally {
       setReplyLoading(false);
     }
@@ -16978,9 +16983,38 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       <p className="text-[10px] text-rose-700 mt-0.5"><strong>Note: </strong>{rev.experience_notes}</p>
                                     )}
                                     {rev.owner_reply_text && (
-                                      <div className="mt-1 p-1.5 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-800/40 rounded text-[10px] text-blue-950 dark:text-blue-200">
-                                        <span className="font-semibold text-blue-700 dark:text-blue-300">Your Reply: </span>
-                                        <span>{rev.owner_reply_text.replace(/["“”]/g, '')}</span>
+                                      <div className="mt-1 p-1.5 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-800/40 rounded text-[10px] text-blue-950 dark:text-blue-200 space-y-1">
+                                        <div className="flex items-start justify-between gap-1">
+                                          <div>
+                                            <span className="font-semibold text-blue-700 dark:text-blue-300">
+                                              {isGoogle ? 'Google Maps Reply: ' : 'Your Reply (CRM Record): '}
+                                            </span>
+                                            <span>{rev.owner_reply_text.replace(/["“”]/g, '')}</span>
+                                          </div>
+                                        </div>
+                                        {!isGoogle && (rev.rating || 0) >= 4 && (
+                                          <div className="pt-1 flex items-center justify-between border-t border-blue-200/50 dark:border-blue-800/50">
+                                            <span className="text-[9px] text-blue-700/80 dark:text-blue-300/80">
+                                              To show on Google Maps:
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                if (typeof window !== 'undefined' && navigator.clipboard) {
+                                                  navigator.clipboard.writeText(rev.owner_reply_text || '');
+                                                }
+                                                setActionNotice('Reply copied! Opening Google Maps...');
+                                                window.open(settingsForm.gmb_review_url || settingsForm.google_review_link || 'https://business.google.com/', '_blank');
+                                                setTimeout(() => setActionNotice(null), 3000);
+                                              }}
+                                              className="px-1.5 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-[9px] shrink-0 cursor-pointer flex items-center gap-1 shadow-2xs"
+                                              title="Copy reply and open Google Business Profile to paste onto Google Maps"
+                                            >
+                                              <Copy className="w-2.5 h-2.5" />
+                                              <span>Copy & Post to Google</span>
+                                            </button>
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                   </td>
@@ -16989,6 +17023,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   </td>
                                   <td className="px-3 py-2.5 text-right whitespace-nowrap">
                                     <div className="flex items-center justify-end gap-1.5">
+                                      {(rev.rating || 0) >= 4 && (settingsForm.gmb_review_url || settingsForm.google_review_link) && (
+                                        <a
+                                          href={settingsForm.gmb_review_url || settingsForm.google_review_link}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1 transition-colors"
+                                          title="Open Google Maps review page"
+                                        >
+                                          <Star className="w-2.5 h-2.5 text-amber-500 fill-amber-400" />
+                                          <span className="hidden lg:inline">Google Maps</span>
+                                        </a>
+                                      )}
                                       {rev.customer_phone && (
                                         <a
                                           href={`https://wa.me/${rev.customer_phone.replace(/[^0-9]/g, '')}`}
@@ -17145,143 +17191,192 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 })()}
 
                 {/* ── GOOGLE REVIEW REPLY MODAL ─────────────────────────────── */}
-                {activeReplyReview && (
-                  <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-                    <div className="bg-surface border border-border rounded-xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                      {/* Header */}
-                      <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface-subtle">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600 dark:text-blue-400">
-                            <Globe className="w-4 h-4" />
+                {activeReplyReview && (() => {
+                  const isLiveGoogle = Boolean(activeReplyReview.google_review_id);
+                  const isPortalDirected = !isLiveGoogle && ((activeReplyReview.rating || 0) >= 4 || activeReplyReview.destination === 'gmb');
+                  const gmbUrl = settingsForm.gmb_review_url || settingsForm.google_review_link || 'https://business.google.com/';
+
+                  return (
+                    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+                      <div className="bg-surface border border-border rounded-xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                        {/* Header */}
+                        <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface-subtle">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                              <Globe className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h3 className="text-xs font-bold text-text-primary">
+                                {isLiveGoogle ? 'Reply to Google Review' : isPortalDirected ? 'Respond to Customer Review' : 'Respond to Customer Feedback'}
+                              </h3>
+                              <p className="text-[10px] text-text-muted">
+                                {isLiveGoogle ? 'Publishes live on Google Search & Google Maps' : isPortalDirected ? 'Client was directed to Google Maps • Saves to CRM' : 'Record official resolution note'}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <h3 className="text-xs font-bold text-text-primary">
-                              {activeReplyReview.source === 'google_business' ? 'Reply to Google Review' : 'Respond to Customer Feedback'}
-                            </h3>
-                            <p className="text-[10px] text-text-muted">
-                              {activeReplyReview.source === 'google_business' ? 'Publishes live on Google Search & Google Maps' : 'Record official resolution note'}
+                          <button
+                            type="button"
+                            onClick={() => { setActiveReplyReview(null); setReplyText(''); setReplyError(''); }}
+                            className="text-text-muted hover:text-text-primary p-1 rounded hover:bg-surface cursor-pointer"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        {/* Review Summary Box */}
+                        <div className="p-4 space-y-3">
+                          {/* Portal Notice Banner */}
+                          {isPortalDirected && (
+                            <div className="p-3 bg-amber-500/10 border border-amber-500/25 rounded-lg text-xs space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-200">
+                                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                                  <span>Portal Generated Review (Directed to Google)</span>
+                                </div>
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-200/60 dark:bg-amber-900/60 text-amber-900 dark:text-amber-100">
+                                  CRM Record
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-text-secondary leading-relaxed">
+                                This review was drafted on your Smart Review Portal and the client was directed to paste it on your Google listing.
+                              </p>
+                              <p className="text-[11px] text-text-secondary leading-relaxed">
+                                To show your reply publicly on Google Maps, click <strong>"Copy & Open Google Maps"</strong> below. Saving below records your response in your CRM.
+                              </p>
+                            </div>
+                          )}
+
+                          <div className="p-3 bg-surface-subtle rounded-lg border border-border space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                {activeReplyReview.reviewer_photo_url ? (
+                                  <img src={activeReplyReview.reviewer_photo_url} alt="" className="w-6 h-6 rounded-full border border-border object-cover" />
+                                ) : (
+                                  <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold">
+                                    {(activeReplyReview.customer_name || 'C').charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                                <span className="text-xs font-bold text-text-primary">{activeReplyReview.customer_name || 'Anonymous'}</span>
+                              </div>
+                              <div className="flex items-center gap-0.5">
+                                {Array.from({ length: 5 }).map((_, i) => (
+                                  <Star key={i} className={`w-3 h-3 ${i < (activeReplyReview.rating || 0) ? 'fill-amber-400 text-amber-500' : 'text-border'}`} />
+                                ))}
+                              </div>
+                            </div>
+                            <p className="text-xs text-text-secondary italic">
+                              "{activeReplyReview.generated_review_text || activeReplyReview.experience_notes || 'No comment provided.'}"
                             </p>
                           </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => { setActiveReplyReview(null); setReplyText(''); setReplyError(''); }}
-                          className="text-text-muted hover:text-text-primary p-1 rounded hover:bg-surface"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
 
-                      {/* Review Summary Box */}
-                      <div className="p-4 space-y-3">
-                        <div className="p-3 bg-surface-subtle rounded-lg border border-border space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              {activeReplyReview.reviewer_photo_url ? (
-                                <img src={activeReplyReview.reviewer_photo_url} alt="" className="w-6 h-6 rounded-full border border-border object-cover" />
-                              ) : (
-                                <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold">
-                                  {(activeReplyReview.customer_name || 'C').charAt(0).toUpperCase()}
-                                </div>
-                              )}
-                              <span className="text-xs font-bold text-text-primary">{activeReplyReview.customer_name || 'Anonymous'}</span>
+                          {/* AI Quick Reply Draft Buttons */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-semibold text-text-secondary flex items-center gap-1">
+                                <Sparkles className="w-3 h-3 text-violet-500" />
+                                AI Draft Suggestions
+                              </span>
+                              {replyAiLoading && <span className="text-[10px] text-violet-500 animate-pulse">Drafting...</span>}
                             </div>
-                            <div className="flex items-center gap-0.5">
-                              {Array.from({ length: 5 }).map((_, i) => (
-                                <Star key={i} className={`w-3 h-3 ${i < (activeReplyReview.rating || 0) ? 'fill-amber-400 text-amber-500' : 'text-border'}`} />
-                              ))}
+                            <div className="flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleGenerateAiReplyDraft('grateful')}
+                                disabled={replyAiLoading}
+                                className="px-2.5 py-1 rounded-md bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 text-[10px] font-semibold transition-colors cursor-pointer"
+                              >
+                                Professional & Grateful
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleGenerateAiReplyDraft('warm')}
+                                disabled={replyAiLoading}
+                                className="px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-semibold transition-colors cursor-pointer"
+                              >
+                                Warm & Brief
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleGenerateAiReplyDraft('apology')}
+                                disabled={replyAiLoading}
+                                className="px-2.5 py-1 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-semibold transition-colors cursor-pointer"
+                              >
+                                Polite Resolution & Apology
+                              </button>
                             </div>
                           </div>
-                          <p className="text-xs text-text-secondary italic">
-                            "{activeReplyReview.generated_review_text || activeReplyReview.experience_notes || 'No comment provided.'}"
-                          </p>
-                        </div>
 
-                        {/* AI Quick Reply Draft Buttons */}
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between text-[11px]">
-                            <span className="font-semibold text-text-secondary flex items-center gap-1">
-                              <Sparkles className="w-3 h-3 text-violet-500" />
-                              AI Draft Suggestions
-                            </span>
-                            {replyAiLoading && <span className="text-[10px] text-violet-500 animate-pulse">Drafting...</span>}
+                          {/* Text Area */}
+                          <div className="space-y-1">
+                            <label className="block text-[11px] font-semibold text-text-secondary">
+                              Your Response {isLiveGoogle ? <span className="text-text-muted font-normal">(visible publicly on Google)</span> : <span className="text-text-muted font-normal">(saved to CRM)</span>}
+                            </label>
+                            <textarea
+                              rows={4}
+                              value={replyText}
+                              onChange={(e) => setReplyText(e.target.value)}
+                              placeholder="Type your official owner response..."
+                              className="w-full p-2.5 bg-surface border border-border rounded-lg text-xs text-text-primary focus:outline-none focus:border-accent resize-none leading-relaxed"
+                            />
                           </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleGenerateAiReplyDraft('grateful')}
-                              disabled={replyAiLoading}
-                              className="px-2.5 py-1 rounded-md bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 text-[10px] font-semibold transition-colors cursor-pointer"
-                            >
-                              Professional & Grateful
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleGenerateAiReplyDraft('warm')}
-                              disabled={replyAiLoading}
-                              className="px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-semibold transition-colors cursor-pointer"
-                            >
-                              Warm & Brief
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleGenerateAiReplyDraft('apology')}
-                              disabled={replyAiLoading}
-                              className="px-2.5 py-1 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-semibold transition-colors cursor-pointer"
-                            >
-                              Polite Resolution & Apology
-                            </button>
-                          </div>
-                        </div>
 
-                        {/* Text Area */}
-                        <div className="space-y-1">
-                          <label className="block text-[11px] font-semibold text-text-secondary">
-                            Your Response {activeReplyReview.source === 'google_business' && <span className="text-text-muted font-normal">(visible publicly on Google)</span>}
-                          </label>
-                          <textarea
-                            rows={4}
-                            value={replyText}
-                            onChange={(e) => setReplyText(e.target.value)}
-                            placeholder="Type your official owner response..."
-                            className="w-full p-2.5 bg-surface border border-border rounded-lg text-xs text-text-primary focus:outline-none focus:border-accent resize-none leading-relaxed"
-                          />
-                        </div>
-
-                        {replyError && (
-                          <p className="text-[11px] text-rose-600 bg-rose-50 p-2 rounded border border-rose-200">{replyError}</p>
-                        )}
-                        {replySuccessMsg && (
-                          <p className="text-[11px] text-emerald-600 bg-emerald-50 p-2 rounded border border-emerald-200">{replySuccessMsg}</p>
-                        )}
-                      </div>
-
-                      {/* Footer Actions */}
-                      <div className="px-4 py-3 bg-surface-subtle border-t border-border flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => { setActiveReplyReview(null); setReplyText(''); setReplyError(''); }}
-                          className="px-3 py-1.5 rounded-md border border-border text-xs font-semibold text-text-secondary hover:bg-border/60 transition-colors cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handlePostGoogleReply}
-                          disabled={replyLoading || !replyText.trim()}
-                          className="px-4 py-1.5 rounded-md bg-accent hover:opacity-90 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
-                        >
-                          {replyLoading ? (
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Send className="w-3.5 h-3.5" />
+                          {replyError && (
+                            <p className="text-[11px] text-rose-600 bg-rose-50 p-2 rounded border border-rose-200">{replyError}</p>
                           )}
-                          <span>{activeReplyReview.source === 'google_business' ? 'Publish to Google Maps' : 'Save Response'}</span>
-                        </button>
+                          {replySuccessMsg && (
+                            <p className="text-[11px] text-emerald-600 bg-emerald-50 p-2 rounded border border-emerald-200">{replySuccessMsg}</p>
+                          )}
+                        </div>
+
+                        {/* Footer Actions */}
+                        <div className="px-4 py-3 bg-surface-subtle border-t border-border flex flex-wrap items-center justify-between gap-2">
+                          {isPortalDirected ? (
+                            <button
+                              type="button"
+                              disabled={!replyText.trim()}
+                              onClick={() => {
+                                if (typeof window !== 'undefined' && navigator.clipboard) {
+                                  navigator.clipboard.writeText(replyText.trim());
+                                }
+                                setActionNotice('Reply copied! Opening Google Business Profile...');
+                                window.open(gmbUrl, '_blank');
+                                setTimeout(() => setActionNotice(null), 3500);
+                              }}
+                              className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                              title="Copy reply text and open Google Maps to paste"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>Copy & Open Google Maps</span>
+                            </button>
+                          ) : <div />}
+
+                          <div className="flex items-center gap-2 ml-auto">
+                            <button
+                              type="button"
+                              onClick={() => { setActiveReplyReview(null); setReplyText(''); setReplyError(''); }}
+                              className="px-3 py-1.5 rounded-md border border-border text-xs font-semibold text-text-secondary hover:bg-border/60 transition-colors cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handlePostGoogleReply}
+                              disabled={replyLoading || !replyText.trim()}
+                              className="px-4 py-1.5 rounded-md bg-accent hover:opacity-90 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                            >
+                              {replyLoading ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Send className="w-3.5 h-3.5" />
+                              )}
+                              <span>{isLiveGoogle ? 'Publish to Google Maps' : 'Save Response to CRM'}</span>
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* ── GOOGLE BUSINESS CONNECT MODAL ─────────────────────────── */}
                 {googleConnectModalOpen && (
