@@ -165,6 +165,7 @@ async def login_for_access_token(
     check_login_rate_limit(rate_limit_key)
 
     async with db_pool.acquire() as conn:
+        user = None
         if clean_tenant_slug:
             user = await conn.fetchrow(
                 """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
@@ -175,7 +176,8 @@ async def login_for_access_token(
                      AND (LOWER(TRIM(t.slug)) = $2 OR LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $2)""",
                 username_clean, clean_tenant_slug
             )
-        elif clean_domain:
+
+        if not user and clean_domain:
             user = await conn.fetchrow(
                 """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
                           t.slug as tenant_slug, t.name as tenant_name
@@ -190,19 +192,8 @@ async def login_for_access_token(
                      )""",
                 username_clean, clean_domain
             )
-            # Fallback: if no user found under this domain query, check if exactly one active user matches email
-            if not user:
-                fallback_users = await conn.fetch(
-                    """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
-                              t.slug as tenant_slug, t.name as tenant_name
-                       FROM users u
-                       LEFT JOIN tenants t ON u.tenant_id = t.id
-                       WHERE LOWER(TRIM(u.email)) = $1""",
-                    username_clean
-                )
-                if len(fallback_users) == 1:
-                    user = fallback_users[0]
-        else:
+
+        if not user:
             users = await conn.fetch(
                 """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
                           t.slug as tenant_slug, t.name as tenant_name
@@ -211,12 +202,15 @@ async def login_for_access_token(
                    WHERE LOWER(TRIM(u.email)) = $1""",
                 username_clean
             )
-            if len(users) > 1:
+            if len(users) == 1:
+                user = users[0]
+            elif len(users) > 1 and not (clean_tenant_slug or clean_domain):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Multiple organizations found for this email. Please specify your organization slug (tenant_slug) to log in."
                 )
-            user = users[0] if users else None
+            elif len(users) > 1:
+                user = users[0]
 
         if not user:
             record_failed_login(rate_limit_key)
