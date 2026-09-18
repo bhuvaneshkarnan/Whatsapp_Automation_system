@@ -5103,7 +5103,16 @@ async def update_booking_status(
         from urllib.parse import quote as _url_quote
         _tenant_slug = t_settings_dict.get("slug", "")
         _customer_phone_raw = (booking.get("phone") or "").strip()
-        _crm_origin = "https://crm.goboldlabs.com"
+        _custom_domain = (t_settings_dict.get("custom_domain") or "").strip()
+        if not _custom_domain and t_settings_dict.get("partner_name"):
+            p_row = await conn.fetchrow(
+                "SELECT custom_domain FROM partner_agency_templates WHERE LOWER(partner_name) = $1 LIMIT 1",
+                t_settings_dict["partner_name"].strip().lower()
+            )
+            if p_row and p_row["custom_domain"]:
+                _custom_domain = p_row["custom_domain"].strip()
+
+        _crm_origin = f"https://{_custom_domain}" if _custom_domain else "https://crm.goboldlabs.com"
         if _tenant_slug:
             _encoded_name = _url_quote(patient_name or "", safe="")
             _encoded_phone = _url_quote(_customer_phone_raw or "", safe="")
@@ -9341,8 +9350,23 @@ async def handle_razorpay_webhook(
                 target_email = admin_u["email"] if admin_u else t_cfg.get("notification_email")
                 target_phone = t_cfg.get("admin_whatsapp_number", "")
                 t_name = tenant.get("name", "Client Organization")
-                t_slug = tenant.get("slug", "dashboard")
-                dash_url = f"https://crm.goboldlabs.com/{t_slug}"
+                t_custom_dom = (t_cfg.get("custom_domain") or "").strip()
+                t_brand_title = (t_cfg.get("brand_name") or "").strip()
+                if not t_custom_dom and t_cfg.get("partner_name"):
+                    p_row = await conn.fetchrow(
+                        "SELECT custom_domain, brand_name FROM partner_agency_templates WHERE LOWER(partner_name) = $1 LIMIT 1",
+                        t_cfg["partner_name"].strip().lower()
+                    )
+                    if p_row:
+                        if p_row["custom_domain"]:
+                            t_custom_dom = p_row["custom_domain"].strip()
+                        if not t_brand_title and p_row["brand_name"]:
+                            t_brand_title = p_row["brand_name"].strip()
+
+                dom_base = f"https://{t_custom_dom}" if t_custom_dom else "https://crm.goboldlabs.com"
+                dash_url = f"{dom_base}/{t_slug}"
+                login_url = f"{dom_base}/login"
+                brand_header_text = t_brand_title or "Boldlabs AI WhatsApp Automation Platform"
 
                 g_cred_row = await conn.fetchrow(
                     "SELECT credential_data FROM tenant_credentials WHERE provider = 'google_calendar' AND is_active = true LIMIT 1"
@@ -9361,7 +9385,7 @@ async def handle_razorpay_webhook(
                     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
                       <div style="text-align: center; margin-bottom: 24px;">
                         <h2 style="color: #0f172a; margin: 0; font-size: 20px;">Payment Confirmed • Workspace Active</h2>
-                        <p style="color: #64748b; font-size: 13px; margin: 6px 0 0 0;">Boldlabs AI WhatsApp Automation Platform</p>
+                        <p style="color: #64748b; font-size: 13px; margin: 6px 0 0 0;">{brand_header_text}</p>
                       </div>
                       <p style="color: #334155; font-size: 14px; line-height: 1.6;">Hello <strong>{t_name}</strong>,</p>
                       <p style="color: #334155; font-size: 14px; line-height: 1.6;">Your monthly subscription payment of <strong>₹{int(amount):,}</strong> has been successfully confirmed. Your AI WhatsApp Automation workspace is now <strong>100% LIVE and ACTIVE</strong>.</p>
@@ -9370,7 +9394,7 @@ async def handle_razorpay_webhook(
                         <h4 style="margin: 0 0 12px 0; color: #0f172a; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Your CRM Dashboard Access</h4>
                         <table style="width: 100%; font-size: 13px; color: #334155; border-collapse: collapse;">
                           <tr><td style="padding: 4px 0; font-weight: 600; width: 130px;">Workspace Link:</td><td><a href="{dash_url}" style="color: #4f46e5; text-decoration: underline; font-weight: 600;">{dash_url}</a></td></tr>
-                          <tr><td style="padding: 4px 0; font-weight: 600;">Login Portal:</td><td><a href="https://crm.goboldlabs.com/login" style="color: #4f46e5;">https://crm.goboldlabs.com/login</a></td></tr>
+                          <tr><td style="padding: 4px 0; font-weight: 600;">Login Portal:</td><td><a href="{login_url}" style="color: #4f46e5;">{login_url}</a></td></tr>
                           <tr><td style="padding: 4px 0; font-weight: 600;">Registered Email:</td><td>{target_email}</td></tr>
                           <tr><td style="padding: 4px 0; font-weight: 600;">Status:</td><td><span style="color: #16a34a; font-weight: 600;">Active • Live Automation</span></td></tr>
                         </table>

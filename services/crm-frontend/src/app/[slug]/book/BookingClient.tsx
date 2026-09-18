@@ -20,9 +20,11 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { publicBooking, PublicBookingInfo } from '@/lib/api';
+import { useBranding } from '@/lib/branding';
 
 export default function BookingClient() {
   const params = useParams();
+  const { branding, isCustomDomain } = useBranding();
 
   // Extract slug from route or pathname fallback
   let slug = '';
@@ -593,7 +595,9 @@ export default function BookingClient() {
 
           {/* Footer */}
           <p className="text-center text-[11px] text-text-muted pt-2">
-            Powered by Boldlabs CRM &bull; Instant WhatsApp Confirmation &bull; &copy; 2026 {info.name}
+            {branding.hide_platform_branding || isCustomDomain
+              ? `Instant WhatsApp Confirmation • © ${new Date().getFullYear()} ${info.name}`
+              : `Powered by Boldlabs CRM • Instant WhatsApp Confirmation • © ${new Date().getFullYear()} ${info.name}`}
           </p>
         </div>
       </div>
