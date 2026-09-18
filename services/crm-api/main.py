@@ -6473,6 +6473,8 @@ class TenantSettingsUpdate(BaseModel):
     
     industry: Optional[str] = None
     taxonomy: Optional[Dict[str, Any]] = None
+    review_experience_tags: Optional[List[str]] = None
+    requirement_presets: Optional[List[str]] = None
     opening_time: Optional[str] = None
     closing_time: Optional[str] = None
     slot_booking_mode: Optional[str] = None
@@ -6704,6 +6706,21 @@ async def get_tenant_settings(
         }),
         "opening_time": tenant_settings.get("opening_time", "09:00"),
         "closing_time": tenant_settings.get("closing_time", "20:00"),
+        "review_experience_tags": tenant_settings.get("review_experience_tags") or [
+            'Friendly & Caring Staff',
+            'Clean & Hygienic Space',
+            'Quick & Prompt Service',
+            'Detailed Explanation',
+            'Great Results & Treatment',
+            'Value for Money',
+            'Comfortable & Relaxing',
+            'Easy Booking & Response'
+        ],
+        "requirement_presets": (
+            (tenant_settings.get("taxonomy") or {}).get("requirement_presets")
+            if isinstance(tenant_settings.get("taxonomy"), dict)
+            else tenant_settings.get("requirement_presets")
+        ) or [],
         "gmb_review_url": (tenant_settings.get("gmb_review_url") or tenant_settings.get("google_review_link") or wa_data.get("google_review_link") or wa_data.get("gmb_review_url") or "").strip(),
         "slot_booking_mode": tenant_settings.get("slot_booking_mode", "single"),
         "max_concurrent_bookings": tenant_settings.get("max_concurrent_bookings", 1),
@@ -7145,6 +7162,13 @@ async def update_tenant_settings(
         if payload.full_location_text is not None: cur_settings["full_location_text"] = payload.full_location_text.strip()
         if payload.industry is not None: cur_settings["industry"] = payload.industry.strip()
         if payload.taxonomy is not None: cur_settings["taxonomy"] = payload.taxonomy
+        if payload.requirement_presets is not None:
+            if not isinstance(cur_settings.get("taxonomy"), dict):
+                cur_settings["taxonomy"] = {}
+            cur_settings["taxonomy"]["requirement_presets"] = payload.requirement_presets
+            cur_settings["requirement_presets"] = payload.requirement_presets
+        if payload.review_experience_tags is not None:
+            cur_settings["review_experience_tags"] = payload.review_experience_tags
         if payload.opening_time is not None: cur_settings["opening_time"] = payload.opening_time.strip()
         if payload.closing_time is not None: cur_settings["closing_time"] = payload.closing_time.strip()
         if payload.slot_booking_mode is not None: cur_settings["slot_booking_mode"] = payload.slot_booking_mode.strip().lower()

@@ -34,6 +34,7 @@ import {
 } from '@/lib/api';
 import { ModernCustomerView } from '@/components/dashboard/ModernCustomerView';
 import { MergeCustomersModal } from '@/components/dashboard/MergeCustomersModal';
+import QrStandeeModal from '@/components/QrStandeeModal';
 import { useBranding } from '@/lib/branding';
 import {
   MessageSquare,
@@ -2349,6 +2350,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [reviewServicesSaved, setReviewServicesSaved] = useState(false);
   const [reviewTagsSaved, setReviewTagsSaved] = useState(false);
   const [showReviewConfig, setShowReviewConfig] = useState(false);
+  const [qrStandeeModalOpen, setQrStandeeModalOpen] = useState(false);
 
   // Google Business Profile Reviews Integration State
   const [googleBusinessStatus, setGoogleBusinessStatus] = useState<GoogleBusinessStatus | null>(null);
@@ -9577,6 +9579,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <span>Copy Review Link</span>
                     </button>
 
+                    {/* QR Standee & Print Poster */}
+                    <button
+                      type="button"
+                      onClick={() => setQrStandeeModalOpen(true)}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 shadow-xs"
+                      title="Generate & Print Google Review Standee / Counter Poster"
+                    >
+                      <QrCode className="w-3.5 h-3.5 stroke-[2]" />
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>QR Standee & Print</span>
+                    </button>
+
                     {/* Open Public Portal in new tab */}
                     <a
                       href={`/${settingsForm.slug || user?.tenant_slug || 'review'}/review`}
@@ -16434,31 +16448,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <ArrowUpRight className="w-3.5 h-3.5" />
                     </a>
 
-                    {/* QR Code Popover */}
-                    {(() => {
-                      const pubUrl = typeof window !== 'undefined' ? `${window.location.origin}/${settingsForm.slug || 'tenant'}/review` : `https://crm.goboldlabs.com/${settingsForm.slug || 'tenant'}/review`;
-                      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pubUrl)}`;
-                      return (
-                        <div className="relative group">
-                          <button type="button" className="p-1 text-text-muted hover:text-text-primary bg-surface hover:bg-surface-subtle rounded-md border border-border transition-colors cursor-pointer" title="View QR Code & Poster">
-                            <QrCode className="w-3.5 h-3.5" />
-                          </button>
-                          <div className="absolute right-0 top-full mt-1 z-50 bg-surface border border-border rounded-lg shadow-lg p-3 hidden group-hover:flex flex-col items-center gap-2 w-44">
-                            <img src={qrApiUrl} alt="QR" className="w-24 h-24 rounded border border-border p-0.5 bg-white" />
-                            <a href={qrApiUrl} download={`QR-${settingsForm.slug || 'shop'}.png`} target="_blank" rel="noopener noreferrer"
-                              className="w-full py-1 bg-surface-subtle hover:bg-border/60 text-text-primary border border-border rounded text-[10px] font-semibold text-center cursor-pointer">
-                              Download QR
-                            </a>
-                            <button type="button" onClick={() => {
-                              const w = window.open('', '_blank');
-                              if (w) { w.document.write(`<html><head><title>QR - ${settingsForm.name || 'Shop'}</title></head><body style="text-align:center;font-family:sans-serif;padding:40px;"><h2>${settingsForm.name || 'Leave Us A Review'}</h2><p>Scan to share your feedback!</p><img src="${qrApiUrl}" style="width:240px;height:240px;margin:16px 0;" /><p style="color:#888;font-size:12px;">Thank you for visiting!</p></body></html>`); w.document.close(); w.print(); }
-                            }} className="w-full py-1 bg-accent hover:opacity-90 text-white rounded text-[10px] font-bold cursor-pointer text-center transition-opacity">
-                              Print Poster
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })()}
+                    {/* QR Standee & Print Modal Trigger */}
+                    <button
+                      type="button"
+                      onClick={() => setQrStandeeModalOpen(true)}
+                      className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-primary rounded-md border border-border text-[11px] font-semibold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                      title="Generate & Print Google Review Standee / Counter Poster"
+                    >
+                      <QrCode className="w-3.5 h-3.5 text-blue-600 stroke-[2]" />
+                      <Printer className="w-3.5 h-3.5 text-text-muted" />
+                      <span>QR Standee & Print</span>
+                    </button>
 
                     {/* Page Config Toggle */}
                     <button
@@ -16560,13 +16560,29 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             type="button"
                             onClick={async () => {
                               try {
-                                await crm.updateTenantSettings(settingsForm.slug || slug, {
-                                  taxonomy: { ...(settingsForm.taxonomy || {}), requirement_presets: services },
+                                const inp = document.getElementById('rev-svc-inp') as HTMLInputElement;
+                                const pendingVal = inp?.value.trim() || '';
+                                let finalServices = [...services];
+                                if (pendingVal && !finalServices.includes(pendingVal)) {
+                                  finalServices.push(pendingVal);
+                                  if (inp) inp.value = '';
+                                }
+                                await crm.updateSettings({
+                                  taxonomy: { ...(settingsForm.taxonomy || {}), requirement_presets: finalServices },
+                                  requirement_presets: finalServices,
                                 } as any);
+                                setSettingsForm(prev => ({
+                                  ...prev,
+                                  taxonomy: { ...(prev.taxonomy || {}), requirement_presets: finalServices },
+                                  requirement_presets: finalServices,
+                                }));
                                 setReviewServicesSaved(true);
+                                setActionNotice('Services list saved successfully!');
                                 setTimeout(() => setReviewServicesSaved(false), 2000);
-                              } catch (e) {
+                                setTimeout(() => setActionNotice(null), 3000);
+                              } catch (e: any) {
                                 console.error('Failed to save services:', e);
+                                alert(e?.message || 'Failed to save services.');
                               }
                             }}
                             className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded cursor-pointer transition-colors"
@@ -16632,11 +16648,27 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             type="button"
                             onClick={async () => {
                               try {
-                                await crm.updateTenantSettings(settingsForm.slug || slug, { review_experience_tags: currentTags } as any);
+                                const inp = document.getElementById('rev-tag-inp') as HTMLInputElement;
+                                const pendingVal = inp?.value.trim() || '';
+                                let finalTags = [...currentTags];
+                                if (pendingVal && !finalTags.includes(pendingVal)) {
+                                  finalTags.push(pendingVal);
+                                  if (inp) inp.value = '';
+                                }
+                                await crm.updateSettings({
+                                  review_experience_tags: finalTags,
+                                } as any);
+                                setSettingsForm(prev => ({
+                                  ...prev,
+                                  review_experience_tags: finalTags,
+                                }));
                                 setReviewTagsSaved(true);
+                                setActionNotice('Experience tags saved successfully!');
                                 setTimeout(() => setReviewTagsSaved(false), 2000);
-                              } catch (e) {
+                                setTimeout(() => setActionNotice(null), 3000);
+                              } catch (e: any) {
                                 console.error('Failed to save tags:', e);
+                                alert(e?.message || 'Failed to save tags.');
                               }
                             }}
                             className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold rounded cursor-pointer transition-colors"
@@ -22737,6 +22769,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           </div>
         </div>
       )}
+
+      {/* Ultra-HD Google Review QR Standee & Counter Poster Modal */}
+      <QrStandeeModal
+        isOpen={qrStandeeModalOpen}
+        onClose={() => setQrStandeeModalOpen(false)}
+        tenantName={settingsForm.name || user?.tenant_name || 'Our Business'}
+        tenantSlug={settingsForm.slug || user?.tenant_slug || (slug as string) || 'review'}
+        gmbReviewUrl={settingsForm.gmb_review_url || settingsForm.google_review_link}
+        customDomain={settingsForm.custom_domain || (typeof window !== 'undefined' ? window.location.hostname : '')}
+      />
 
       </div>
   );

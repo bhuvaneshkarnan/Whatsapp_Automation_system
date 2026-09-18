@@ -1302,6 +1302,9 @@ export interface TenantSettingsResponse {
     staff_presets?: string[];
   };
 
+  review_experience_tags?: string[];
+  requirement_presets?: string[];
+
   org_lifecycle_stage?: string;
   subscription_status?: string;
   razorpay_customer_id?: string;
