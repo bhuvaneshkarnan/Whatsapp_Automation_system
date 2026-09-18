@@ -685,7 +685,7 @@ async def dispatch_push_notification(
             await conn.execute(
                 """INSERT INTO notifications (id, tenant_id, title, body, type, data, is_read, created_at)
                    VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::jsonb, false, now())""",
-                notification_id, tenant_id, title, body, notif_type, json.dumps(merged_data)
+                notification_id, tenant_id, title, body, notif_type, json.dumps(merged_data, default=str)
             )
 
             subs = await conn.fetch(
@@ -706,7 +706,7 @@ async def dispatch_push_notification(
         "badge": "/favicon.ico",
         "tag": f"{notif_type}-{int(time.time())}",
         "data": merged_data
-    })
+    }, default=str)
 
     sent_count = 0
     expired_ids = []
