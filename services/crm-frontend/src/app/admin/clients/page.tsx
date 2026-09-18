@@ -889,6 +889,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
   const [resetTenantId, setResetTenantId] = useState<string | null>(null);
   const [resetTenantName, setResetTenantName] = useState<string>('');
   const [resetTenantEmail, setResetTenantEmail] = useState<string>('');
+  const [resetTenantDomain, setResetTenantDomain] = useState<string>('');
   const [newPassword, setNewPassword] = useState('');
   const [showResetPasswordText, setShowResetPasswordText] = useState(true);
   const [resetSuccess, setResetSuccess] = useState(false);
@@ -2816,6 +2817,11 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                         <button
                                           onClick={() => {
                                             setActionMenuTenantId(null);
+                                            const matchingTpl = partnerTemplates.find(
+                                              (tpl) => tpl.partner_name?.toLowerCase() === t.partner_name?.toLowerCase()
+                                            );
+                                            const effectiveDomain = (t as any).custom_domain || matchingTpl?.custom_domain || 'crm.goboldlabs.com';
+                                            setResetTenantDomain(effectiveDomain);
                                             setResetTenantId(t.id);
                                             setResetTenantName(t.name);
                                             setResetTenantEmail(t.admin_email || `admin@${t.slug}.com`);
@@ -3080,6 +3086,11 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
                             <button
                               onClick={() => {
+                                const matchingTpl = partnerTemplates.find(
+                                  (tpl) => tpl.partner_name?.toLowerCase() === t.partner_name?.toLowerCase()
+                                );
+                                const effectiveDomain = (t as any).custom_domain || matchingTpl?.custom_domain || 'crm.goboldlabs.com';
+                                setResetTenantDomain(effectiveDomain);
                                 setResetTenantId(t.id);
                                 setResetTenantName(t.name);
                                 setResetTenantEmail(t.admin_email || `admin@${t.slug}.com`);
@@ -6732,13 +6743,13 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                   <span className="text-sm font-bold text-slate-950 dark:text-slate-100">{resetTenantName}</span>
                 </div>
                 <a
-                  href="https://crm.goboldlabs.com/login"
+                  href={`https://${resetTenantDomain || 'crm.goboldlabs.com'}/login`}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-accent hover:underline bg-accent/10 border border-accent/20 rounded"
                 >
                   <ExternalLink className="w-3 h-3" />
-                  <span>crm.goboldlabs.com/login</span>
+                  <span>{resetTenantDomain || 'crm.goboldlabs.com'}/login</span>
                 </a>
               </div>
 
@@ -6847,7 +6858,8 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                   <button
                     type="button"
                     onClick={() => {
-                      const text = `Organization: ${resetTenantName}\nLogin Portal: https://crm.goboldlabs.com/login\nUsername: ${resetTenantEmail}\nPassword: ${newPassword}`;
+                      const loginUrl = `https://${resetTenantDomain || 'crm.goboldlabs.com'}/login`;
+                      const text = `Organization: ${resetTenantName}\nLogin Portal: ${loginUrl}\nUsername: ${resetTenantEmail}\nPassword: ${newPassword}`;
                       navigator.clipboard.writeText(text);
                       setCopiedField('all_creds');
                       setTimeout(() => setCopiedField(null), 2000);
