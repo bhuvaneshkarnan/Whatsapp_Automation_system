@@ -182,9 +182,26 @@ async def login_for_access_token(
                    FROM users u
                    LEFT JOIN tenants t ON u.tenant_id = t.id
                    WHERE LOWER(TRIM(u.email)) = $1 
-                     AND LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $2""",
+                     AND (
+                       LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $2
+                       OR LOWER(TRIM(COALESCE(t.settings->>'partner_name', ''))) IN (
+                         SELECT LOWER(TRIM(partner_name)) FROM partner_agency_templates WHERE LOWER(TRIM(custom_domain)) = $2
+                       )
+                     )""",
                 username_clean, clean_domain
             )
+            # Fallback: if no user found under this domain query, check if exactly one active user matches email
+            if not user:
+                fallback_users = await conn.fetch(
+                    """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
+                              t.slug as tenant_slug, t.name as tenant_name
+                       FROM users u
+                       LEFT JOIN tenants t ON u.tenant_id = t.id
+                       WHERE LOWER(TRIM(u.email)) = $1""",
+                    username_clean
+                )
+                if len(fallback_users) == 1:
+                    user = fallback_users[0]
         else:
             users = await conn.fetch(
                 """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,

@@ -4,6 +4,7 @@ export function generateStaticParams() {
   return [
     { slug: 'boldlabs' },
     { slug: 'mindbodyrecovery' },
+    { slug: 'bizpipe-demo' },
     { slug: 'dashboard' },
   ];
 }
