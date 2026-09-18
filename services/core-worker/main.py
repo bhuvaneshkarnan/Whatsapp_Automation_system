@@ -1006,22 +1006,25 @@ class CoreWorker:
                     logger.info("interactive_reply_received", conv_id=conv_id, title=body_text)
 
                 media_id = raw_data.get("audio", {}).get("id") or raw_data.get("voice", {}).get("id")
-                if media_id and creds and creds.get("access_token"):
+                wa_token = (creds.get("access_token") if creds else None) or fields.get("accessToken")
+                if media_id and wa_token:
                     try:
                         groq_key = await self._get_groq_key(tenant_id)
                         gemini_key = await self._get_gemini_key(tenant_id)
                         transcription = await transcribe_voice_message(
                             media_id=media_id,
-                            wa_access_token=creds["access_token"],
+                            wa_access_token=wa_token,
                             groq_api_key=groq_key,
                             gemini_api_key=gemini_key,
                         )
-                        if transcription:
-                            body_text = f"🎤 [Voice Note]: {transcription}"
+                        if transcription and transcription.strip():
+                            body_text = f"🎤 [Voice Note]: {transcription.strip()}"
                             logger.info("voice_note_transcribed", conv_id=conv_id, text=body_text[:60])
+                        else:
+                            body_text = "🎤 [Voice Note - unreadable audio]"
                     except Exception as e:
                         logger.error("voice_note_transcription_failed", media_id=media_id, error=str(e))
-                        body_text = "🎤 [Voice Note received]"
+                        body_text = "🎤 [Voice Note - audio unreadable]"
 
                 # Media / rich message fallback extraction if body_text is empty or just generic placeholder
                 if not body_text or not body_text.strip() or body_text in ["📷 [Photo]", "🎥 [Video]", "📄 [Document]", "🎤 [Voice Note]"]:
@@ -1044,7 +1047,7 @@ class CoreWorker:
                         else:
                             body_text = "📄 [Document]"
                     elif msg_type in ["audio", "voice"]:
-                        if not body_text:
+                        if not body_text or body_text == "🎤 [Voice Note]":
                             body_text = "🎤 [Voice Note received]"
                     elif msg_type == "sticker" or "sticker" in raw_data:
                         body_text = "🏷️ [Sticker]"
@@ -1099,7 +1102,7 @@ class CoreWorker:
                 if safe_content_type == "image": body_text = "📷 [Photo]"
                 elif safe_content_type == "video": body_text = "🎥 [Video]"
                 elif safe_content_type == "document": body_text = "📄 [Document]"
-                elif safe_content_type == "audio": body_text = "🎵 [Audio]"
+                elif safe_content_type == "audio": body_text = "🎤 [Voice Note received]"
                 elif safe_content_type == "sticker": body_text = "🏷️ [Sticker]"
                 elif safe_content_type == "location": body_text = "📍 [Location]"
                 else: body_text = "[Message]"
@@ -1573,7 +1576,7 @@ class CoreWorker:
             "kelunga", "keten", "pannalam", "pannunga", "solren", "illai", "vendaam", "kudu",
             "machi", "thala", "paaru", "paathuten", "sandhosham", "puriyala", "purinjidhu", "kooda",
             "annachi", "thambi", "anna", "akka", "apram", "appuram", "seringa", "oknga", "ama",
-            "aama", "aamam", "valikuthu", "vali", "treatment", "fees", "kaala", "nandri", "thalaiva"
+            "aama", "aamam", "valikuthu", "vali", "kaala", "nandri", "thalaiva"
         }
         tanglish_matches = tokens_all.intersection(tanglish_words)
 
@@ -1740,41 +1743,51 @@ class CoreWorker:
 
         # Clean humanized conversational WhatsApp texting format directive (Global Mandatory Rules for All Tenants)
         humanized_format_block = (
-            "### ABSOLUTE GLOBAL CONVERSATION RULES (MANDATORY FOR ALL TENANTS & REPLIES):\n"
-            "1. NATURAL, WARM & CONVERSATIONAL WHATSAPP TEXTING (2 TO 3 CONCISE LINES):\n"
-            "   - Reply in a warm, polite, and directly helpful conversational tone (around 25 to 45 words total, 2-3 short lines).\n"
-            "   - Always answer the customer's specific inquiry directly, clearly, and friendly in Sentence 1.\n"
-            "   - Be polite and courteous. If the customer greets you, greet them warmly in return.\n"
-            "   - NEVER be cold, blunt, rude, robotic, or dismissive. Talk like a friendly, caring person representing this business on WhatsApp.\n"
-            "   - Keep it easy and fast to read. Avoid long essays, walls of text, or corporate fluff.\n"
-            "2. ZERO HYPHENS, ZERO BULLETS & PURE HUMAN TEXTING FLOW:\n"
-            "   - Strictly FORBIDDEN from using ANY hyphens (-), dashes (--), asterisks (*), bullet points (•), or numbered lists (1. 2. 3.).\n"
-            "   - In Tanglish or vernacular, do NOT use hyphens for word suffixes (write 'business ku' not 'business-ku', write 'pesalama' not 'pesalam-a').\n"
-            "   - Real humans texting on WhatsApp never write hyphenated listicles. Write in natural, flowing conversational sentences.\n"
-            "   - If mentioning multiple items, weave them into a smooth sentence with commas.\n"
-            "3. DEEP QUERY UNDERSTANDING & DIRECT ANSWER (100% GROUNDED IN THIS TENANT'S BUSINESS INFO):\n"
-            "   - First, carefully read and clearly understand what the customer specifically asked, stated, or doubted.\n"
-            "   - Answer THAT specific query directly in Line 1 using EXCLUSIVELY this business's verified factual details provided below.\n"
-            "   - STRICTLY FORBIDDEN from using info, services, treatments, or pricing from any other business. Ground every fact 100% in this business's data.\n"
-            "   - If the customer asks about something not covered in this business's knowledge base, politely state that our team can assist with that specific inquiry. Never guess or hallucinate!\n"
-            "   - Absolutely FORBIDDEN from using rigid robotic templates or repetitive welcome pitches.\n"
-            "   - NO INTERROGATION: Never interrogate the customer with repetitive qualification questions.\n"
-            "   - ZERO REPETITION: NEVER ask the same question repeatedly. If the customer made a casual remark ('nalla poguthu', 'going fine', 'ok'), acknowledge it warmly and naturally in sentence 1!\n"
-            "4. COMPLETE SERVICE DETAILS FIRST (DO NOT REVEAL PRICING AT START UNPROMPTED):\n"
-            "   - When customer asks for details or what you do: Share the core value and what the service/treatment does in 1-2 friendly lines so they understand it before booking.\n"
-            "   - Do NOT reveal pricing in initial introductions or overviews unless the customer explicitly asks for cost, price, fees, or charges.\n"
-            "   - When the customer specifically asks for price, quote the exact price factually from business knowledge warmly and directly.\n"
-            "5. CUSTOMER-LED BOOKING (NO PREMATURE APPOINTMENT PUSHING):\n"
-            "   - Do NOT push or force appointments before the customer understands what the service is and expresses interest.\n"
-            "   - Leave a warm, zero-pressure invitation (e.g. 'Feel free to let me know if you would like to book an appointment or know more!').\n"
-            "   - When the customer expresses interest to book (e.g. 'I want to book', 'can we schedule?'), politely ask what date and time works best for them.\n"
-            "6. AUTOMATIC LANGUAGE & DIALECT MIRRORING (MANDATORY):\n"
-            "   - Organically detect and reply in the customer's exact language and dialect (Tamil script in Tamil script, Tanglish in Tanglish, Hinglish in Hinglish, English in English).\n"
-            "   - If the customer has EVER texted in Tamil script (தமிழ்), reply 100% in polite and friendly Tamil script (தமிழ்).\n"
-            "   - If the customer texts in Tanglish (e.g. 'nalla poguthu', 'cost evlo', 'eppadi irukku'), your ENTIRE reply MUST be in natural Romanized Tanglish! NEVER reply in English to Tanglish!\n"
-            "7. STRICT TENANT BUSINESS KNOWLEDGE GROUNDING:\n"
-            "   - The tenant knowledge base below provides factual business information ONLY for THIS specific business (services, pricing, address, hours).\n"
-            "   - Deliver the specific fact the customer requested in natural, polite lines, adhering strictly to these Global Conversation Rules."
+            "### ABSOLUTE GLOBAL CONVERSATION ENGINE (HOW THE AI BEHAVES & COMMUNICATES):\n"
+            "This prompt defines HOW you behave and communicate on WhatsApp. It is business-agnostic and paired with this client's separate Business Prompt below. "
+            "Nothing about a specific clinic's pricing, doctors, or services belongs here — that always lives strictly in the Business Knowledge Base below.\n\n"
+            "1. IDENTITY & HONESTY (ALWAYS ANSWER DIRECT QUESTIONS FIRST):\n"
+            "   - You are a front-desk team member communicating on WhatsApp. You are having a genuine, flowing conversation, reacting to what the person actually says rather than following a rigid script.\n"
+            "   - If asked directly whether you are an AI or a bot, answer honestly and briefly, then continue the conversation naturally from wherever it was. Never dodge a direct question by repeating your previous message — that reads as broken and robotic.\n"
+            "   - Answering direct questions always comes first, above everything else in this prompt.\n"
+            "   - Never invent a feature, therapy, doctor, or price beyond what is explicitly given to you in the business knowledge base. If you don't know, say the team will confirm.\n\n"
+            "2. CONVERSATIONAL PHILOSOPHY & FLOW:\n"
+            "   - No fixed script or rigid sequence. Think about what the person needs to eventually understand, and let the conversation get there naturally based on the customer's actual words.\n"
+            "   - Always react to the specific thing the person just said before introducing anything new.\n"
+            "   - Ask ONE thing at a time. Never stack multiple questions in one message.\n"
+            "   - Never repeat a question you already have the answer to, even reworded. Whatever they said is their answer, move forward from there.\n"
+            "   - Never end a reply on a vague note ('let me know once you decide'). Always point to one concrete next step or the next relevant question.\n"
+            "   - If a new enquiry comes in with no stated reason, ask naturally what is bringing them in — not like a form.\n\n"
+            "3. DISCOVERY BEFORE BOOKING:\n"
+            "   - Unless the business prompt says otherwise, don't move toward booking until there has been genuine back-and-forth — several real exchanges.\n"
+            "   - Use this time to understand their situation the way a real consultant would: what is going on, how long, how it is affecting them, plus whatever context the business prompt says matters (location, age, etc.) — asked gently, one at a time, wherever it naturally fits. Never all at once.\n"
+            "   - If the person pushes to book immediately, continue discovery first gently (e.g. 'Of course, I just want to understand your situation a little better first.') unless the business prompt specifies immediate booking.\n"
+            "   - Exceptions: returning contacts you already have context on, and explicit requests to speak to a real person — that always comes first, no exceptions.\n\n"
+            "4. STATUS VS. BOOKING DISTINCTION:\n"
+            "   - A question about an existing appointment is a status check, not a new booking — answer it plainly.\n"
+            "   - 'Can I come today' or 'is there a slot at 3' are questions/queries, not confirmations, even if a specific time was discussed earlier. Only treat something as booked after an explicit, unambiguous yes to a specific date and time.\n\n"
+            "5. HANDLING HESITATION OR A NO:\n"
+            "   - Step 1: Understand why in one natural, non-pushy line (price, timing, or something else). Do not interrogate.\n"
+            "   - Step 2: If a lighter option genuinely fits what they said (per the business prompt), mention it naturally.\n"
+            "   - Step 3: If they are still clearly not interested, respect that fully — do not push further.\n"
+            "   - Step 4: Always close respectfully: thank them, leave the door open, never sound disappointed or guilt-trip them.\n\n"
+            "6. TONE & STYLE (NO STOCK EMPATHY PHRASES):\n"
+            "   - Simple, warm, clear, everyday language, the way a real person types on WhatsApp. No AI clichés, no clinical jargon.\n"
+            "   - Show empathy mainly through the next useful question, not through long emotional statements. Avoid repetitive stock phrases like 'I am sorry to hear that', 'I completely understand how difficult this must be', 'Thank you for sharing this' — they read as artificial fast. Acknowledge briefly, then ask something useful.\n"
+            "   - Reply in the same language and style the person just used (Tamil script to Tamil script, Tanglish to natural Tanglish, Hinglish to Hinglish, plain English to plain English).\n\n"
+            "7. FORMATTING (APPLIES TO EVERY SINGLE REPLY):\n"
+            "   - Real line breaks. Most replies: one to three short lines. Two separate ideas go on separate lines rather than merging into one long sentence.\n"
+            "   - ABSOLUTELY ZERO hyphens (-), dashes (--), asterisks (*), bullet points (•), numbered lists (1. 2. 3.), or emojis. Real humans texting on WhatsApp type in smooth conversational sentences without hyphens.\n\n"
+            "8. SAFETY & SCOPE:\n"
+            "   - Never give a recommendation or price outside what is explicitly in this business's knowledge base.\n"
+            "   - If something sounds outside this business's actual scope (per the business prompt's rules — e.g. medical vs. therapeutic, no psychiatric/prescription), say so clearly and redirect, even if it costs the booking. This overrides the goal of getting a booking.\n"
+            "   - If asked something outside scope, say honestly that the team can help with that part — never guess or improvise.\n\n"
+            "9. WHERE BUSINESS FACTS & SEQUENCING LIVE:\n"
+            "   - Everything about who is on the team, what is offered, what it costs, how pricing conversations should be qualified and sequenced, and any location specifics lives strictly in the separate Business Prompt below. Treat that content as the supreme source of truth for all business facts and flows.\n\n"
+            "10. TRANSCRIBED VOICE NOTES:\n"
+            "   - When the customer sends a voice note (transcribed as '🎤 [Voice Note]: <text>'), warmly acknowledge it in Line 1 (e.g. 'Got your voice note!') and directly answer their query using this business's details. Never ask them to type what they just spoke.\n\n"
+            "11. HUMAN HANDOFF & ESCALATION:\n"
+            "   - When requested explicitly to speak with a human/staff/doctor, or if an issue is beyond basic business info, reassure them that a team member will follow up shortly, share the direct number if available, and append [ACTION:HUMAN_TAKEOVER]."
         )
 
         # 2. Retrieve customer profile & bookings memory with strict tenant scoping
@@ -1922,6 +1935,11 @@ class CoreWorker:
         tenant_name = (tenant_row["name"] if tenant_row and tenant_row.get("name") else "")
         tenant_slug = (tenant_row["slug"] if tenant_row and tenant_row.get("slug") else "")
         tenant_st_row = tenant_row.get("settings") if tenant_row else None
+        is_mbr = (
+            str(tenant_id) == "b97ca3e5-7d43-44cf-8021-6e3659def878"
+            or ((tenant_slug or "").lower() in ("mindbodyrecovery", "mind-body-recovery"))
+            or ("mind body recovery" in (tenant_name or "").lower())
+        )
         if tenant_st_row:
             if isinstance(tenant_st_row, str):
                 try: tenant_st_row = json.loads(tenant_st_row)
@@ -2096,6 +2114,17 @@ class CoreWorker:
             "- WHEN CUSTOMER EXPLICITLY ASKS FOR OPTIONS (e.g., 'What slots are available?', 'Can I come today?'): Check the verified empty slots list above for that day, confirm operating hours, and share 2 to 3 available open times from the list.\n"
             "- ZERO FALSE 'FULLY BOOKED' CLAIMS: NEVER state, claim, or imply that today or any day is 'fully booked' if it has open slots in the verified empty list above.\n"
             "- RESCHEDULE FLOW: When a customer wants to reschedule, ask them what new day and time works best for them, check availability, and confirm it with [ACTION:RESCHEDULE_BOOKING: ...].\n"
+            + (
+                "- STRICT APPOINTMENT CONFIRMATION PRIVACY (MIND BODY RECOVERY MANDATORY POLICY):\n"
+                "  When confirming an appointment or booking with the patient, you MUST NOT disclose, state, or repeat:\n"
+                "    1. Any doctor or therapist's name (NEVER say 'with Dr. [Name]').\n"
+                "    2. The patient's health concern, condition, symptoms, or reason for visit (NEVER say 'for your depression / anxiety / back pain').\n"
+                "    3. The specific service or treatment name (NEVER say 'for First Visit Consultation & Treatment' or specific therapy).\n"
+                "  REQUIRED CONFIRMATION FORMAT:\n"
+                "  State ONLY a simple appointment confirmation with the date and time.\n"
+                "  Example: 'Your appointment has been confirmed for [Date] at [Time]. If you need to make any changes, just reply to this chat.'\n"
+                if is_mbr else ""
+            )
         )
 
         if is_returning_customer:
@@ -2199,6 +2228,34 @@ class CoreWorker:
             "waiting for call", "why u didn't contact", "why didn't you reach out"
         ])
 
+        has_missed_call_context = (
+            "missed-call" in (tags or "").lower()
+            or "missed call" in (customer_notes_text or "").lower()
+            or any(p in inbound_clean for p in ["yes i called", "i called", "called you", "called earlier", "saw your message", "got your message", "missed call"])
+        )
+
+        is_human_request = any(w in inbound_clean for w in [
+            "human agent", "talk to human", "speak to human", "talk to agent", "talk to staff",
+            "speak to real person", "real person", "customer care", "connect to agent", "human support",
+            "speak with someone", "talk with someone", "can i speak", "can i talk to",
+            "talk to bhuvanesh", "speak to bhuvanesh", "talk to doctor", "speak to doctor", "speak to owner"
+        ])
+
+        is_voice_note = "🎤 [voice note]:" in inbound_clean or inbound_clean.startswith("🎤 [voice note]:")
+        voice_note_content = ""
+        if is_voice_note:
+            parts = message_text.split("🎤 [Voice Note]:", 1)
+            if len(parts) > 1:
+                voice_note_content = parts[1].strip()
+            else:
+                parts_lower = message_text.lower().split("🎤 [voice note]:", 1)
+                if len(parts_lower) > 1:
+                    voice_note_content = message_text[len(parts_lower[0]) + len("🎤 [voice note]:"):].strip()
+
+        is_media_only = (not is_voice_note) and any(inbound_clean == p or inbound_clean.startswith(p) for p in [
+            "📷 [photo]", "🎥 [video]", "📄 [document]", "🎤 [voice note received]", "🎤 [voice note -", "🎵 [audio]"
+        ])
+
         is_contact_number_query = any(p in inbound_clean for p in [
             "give contact number", "give phone number", "share contact number", "share phone number",
             "send contact number", "send phone number", "give your number", "give your contact",
@@ -2206,6 +2263,11 @@ class CoreWorker:
             "what is your number", "contact number", "call number", "direct number", "how to call you",
             "can i call you", "can i call", "let me call", "who can i call", "phone number please",
             "send number", "give number", "number please"
+        ])
+
+        is_bot_question = any(p in inbound_clean for p in [
+            "are you ai", "are you a bot", "are you bot", "are you robot", "am i talking to a bot",
+            "is this ai", "is this automated", "who is this", "am i speaking to a real person", "are you real person"
         ])
 
         if is_missed_call_query:
@@ -2216,6 +2278,38 @@ class CoreWorker:
                 f"2. NEVER make contradictory excuses (do NOT say 'today is fully booked' when they had a time, and do NOT dismiss them saying 'this is just a demo'). "
                 f"3. Offer an immediate callback right now if they are free, or ask if they would prefer a call at a specific time tomorrow. "
                 + (f"4. You can also share that they can call {admin_name} directly at {admin_phone}." if admin_phone else "")
+            )
+        elif has_missed_call_context and len(history) <= 2:
+            funnel_stage = "MISSED_CALL_FOLLOWUP"
+            stage_directive = (
+                f"The customer called our business phone earlier and is messaging us back following our outreach. "
+                f"1. Warmly acknowledge the connection in Line 1: 'Hey! Saw we missed your call. What can I help you with today regarding {tenant_name}?' "
+                f"2. Never pretend they messaged first or act confused. "
+                f"3. Directly answer whatever query they stated using ONLY this business's verified details."
+            )
+        elif is_human_request:
+            funnel_stage = "HUMAN_TAKEOVER_REQUEST"
+            stage_directive = (
+                f"The customer explicitly wants to speak with a human, staff member, doctor, or owner ({admin_name or 'our team'}). "
+                f"1. Reassure them: 'I will have {admin_name or 'a team member'} connect with you directly!' "
+                + (f"2. You can also share that they can reach {admin_name} directly at {admin_phone}. " if admin_phone else "")
+                + f"3. Append [ACTION:HUMAN_TAKEOVER] at the very end of your reply on a new line."
+            )
+        elif is_media_only:
+            funnel_stage = "MEDIA_MESSAGE_RECEIVED"
+            stage_directive = (
+                "The customer shared an image, video, document, or unreadable audio note without accompanying text. "
+                "1. Warmly acknowledge receipt in Line 1: 'I see you shared a note or file.' "
+                "2. In Line 2, politely ask them to type: 'Could you please type what you need so I can help you properly?' "
+                "CRITICAL: Always include the sentence asking them to type what they need."
+            )
+        elif is_bot_question:
+            funnel_stage = "BOT_HONESTY_INQUIRY"
+            stage_directive = (
+                f"The customer is asking if you are an AI or bot. "
+                f"1. Answer honestly, warmly, and briefly in Line 1: 'I am {assistant_name}, an AI assistant helping our team at {tenant_name} on WhatsApp!' "
+                f"2. Seamlessly continue: 'How can I assist you with our services today?' "
+                f"3. Never dodge, repeat a canned pitch, or argue."
             )
         elif is_contact_number_query:
             funnel_stage = "CONTACT_NUMBER_REQUEST"
@@ -2236,36 +2330,54 @@ class CoreWorker:
                 "The customer explicitly wants to schedule or check availability. "
                 "Ask what date and time works best for them. Check Google Calendar availability and confirm."
             )
-        elif any(w in inbound_clean for w in ["expensive", "costly", "think about it", "let you know", "are you ai", "are you a bot", "discount", "deal", "offer", "not tech", "hard to setup", "painful", "afraid"]):
+        elif any(w in inbound_clean for w in ["expensive", "costly", "think about it", "let you know", "discount", "deal", "offer", "not tech", "hard to setup", "painful", "afraid"]):
             funnel_stage = "OBJECTION_HESITATION"
             stage_directive = (
                 "The customer is showing hesitation, price sensitivity, or skepticism. "
-                "Validate their thought empathetically in sentence 1 (never argue). Reframe the core value simply. Follow with a short, low-pressure question."
+                "Briefly and naturally acknowledge their concern without stock empathy phrases. "
+                "Follow this business's specific objection playbook or highlight a lighter option from business instructions. Close respectfully without pressure."
             )
         elif any(w in inbound_clean for w in ["price", "pricing", "how much", "cost", "fee", "charges", "rate", "evlo", "evalo", "kitna"]):
             funnel_stage = "EVALUATION_PRICING"
             stage_directive = (
-                "The customer explicitly asked for pricing. "
-                "State the exact price directly in 1 sentence from business details. In line 2, leave a warm open door without interrogation."
+                "The customer asked for pricing. Follow this business's specific pricing conversation playbook from the Business Instructions: "
+                "quote the appropriate pricing from business details, and follow the business's qualification sequence "
+                "(e.g. ask what issue they need help with, or how long they have had it). Never drop a bare number and stop."
             )
         elif any(w in inbound_clean for w in ["where", "location", "address", "landmark", "directions", "how to reach"]):
             funnel_stage = "EVALUATION_LOCATION"
             stage_directive = (
                 "The customer is asking where the business/clinic is located. "
-                "Provide the exact address and landmark clearly. Ask if they would like help scheduling a visit."
+                "Follow this business's verified location instructions above (if the business specifies a short address format like 'T Nagar, Chennai', follow that exact format; otherwise provide the verified business address). "
+                "Then naturally continue the conversation."
+            )
+        elif is_voice_note:
+            funnel_stage = "VOICE_NOTE_INBOUND"
+            stage_directive = (
+                f"The customer sent a WhatsApp voice note transcribed as: '{voice_note_content or message_text}'. "
+                f"1. Warmly acknowledge their voice note in Line 1 (e.g. 'Got your voice note!'). "
+                f"2. Directly answer whatever question, query, or service detail they asked about using ONLY this business's verified details below. "
+                f"3. Keep your reply short, direct, and conversational (1 to 3 short lines). Never ask them to type what they just spoke."
             )
         elif len(history) > 2:
             funnel_stage = "CONSIDERATION_PROGRESSION"
             stage_directive = (
-                "Ongoing conversation. Directly and clearly answer what they just said using ONLY this business's verified details. Do not interrogate with sales questions. "
-                "Let them know they can book an appointment or ask questions whenever they are ready."
+                "Ongoing conversation. Directly and clearly answer what they just said using this business's verified details. "
+                "Advance the conversation naturally: ask the next relevant discovery question per the business prompt, or guide toward scheduling if ready."
             )
         else:
             funnel_stage = "DISCOVERY"
             stage_directive = (
-                "First touchpoint or enquiry. Carefully understand their specific query and explain the relevant service using ONLY this tenant's business details in 1-2 lines. "
-                "Do NOT reveal pricing unless the customer specifically asks for cost/pricing. "
-                "Do NOT interrogate or ask qualifying questions. Let the customer know they can book or ask questions if they want to."
+                "First touchpoint or enquiry. Warmly welcome them and understand what brings them in. "
+                "Carefully answer their specific query using ONLY this tenant's business details in 1-2 lines. "
+                "Ask one natural, gentle discovery question per the business prompt to understand their situation, or ask what brings them in."
+            )
+
+        if is_voice_note and funnel_stage != "VOICE_NOTE_INBOUND":
+            stage_directive = (
+                f"The customer sent a voice note transcribed as: '{voice_note_content or message_text}'. "
+                f"Warmly acknowledge their voice note in Line 1 (e.g. 'Got your voice note!'), then address their query directly: "
+                + stage_directive
             )
 
         funnel_stage_block = (
@@ -2311,6 +2423,8 @@ class CoreWorker:
             "  [ACTION:RESCHEDULE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}]\n"
             "- CANCELLATION: When the customer explicitly asks to cancel their booking, append this action tag on a new line at the very end of your reply:\n"
             "  [ACTION:CANCEL_BOOKING]\n"
+            "- HUMAN TAKEOVER / ESCALATION: When the customer explicitly asks to speak with a human, doctor, staff, or owner, or when an issue requires human assistance, append this action tag on a new line at the very end of your reply:\n"
+            "  [ACTION:HUMAN_TAKEOVER]\n"
             "- CUSTOMER DETAIL & INTENT EXTRACTION: If the customer mentions or confirms their name, health concern / problem, preferred doctor, age, location / city, or indicates buying interest (asking about pricing, requesting a demo, booking, or objecting), append this action tag on a new line at the very end of your reply:\n"
             "  [ACTION:CUSTOMER_INFO: {\"name\": \"<Customer Name or null>\", \"health_concern\": \"<Concern or null>\", \"preferred_doctor\": \"<Doctor or null>\", \"age\": <age as integer or null>, \"location\": \"<City or location or null>\", \"lead_probability\": \"hot\" | \"warm\" | \"cold\"}]"
         )
@@ -2377,24 +2491,28 @@ class CoreWorker:
         if upcoming_booking_block:
             prompt_blocks.append(upcoming_booking_block)
 
-        # 100% Tenant Autonomous Instructions & Configuration:
+        # ── TENANT CUSTOM AI INSTRUCTIONS & KNOWLEDGE BASE (PRIMARY BUSINESS DIRECTIVE) ──
         if custom_instructions.strip():
             prompt_blocks.append(
-                f"### BUSINESS KNOWLEDGE BASE & DETAILS (FACTUAL REFERENCE ONLY FOR THIS BUSINESS):\n"
-                f"{custom_instructions.strip()}\n"
-                "- MANDATORY DIRECTIVE: Use the above business info strictly as the sole factual reference for this business (services, pricing, FAQs). "
-                "Do NOT adopt any essay format, bullet points, or hyphens. Deliver answers in 1 line following the Global Conversation Rules. "
-                "Every factual answer must be grounded 100% in this business's verified details. "
-                "Do NOT reveal pricing in initial overviews unless the customer explicitly asks for price or cost."
+                "### TENANT CUSTOM AI INSTRUCTIONS & BUSINESS KNOWLEDGE BASE (PRIMARY BUSINESS DIRECTIVE):\n"
+                f"{custom_instructions.strip()}\n\n"
+                "- MANDATORY COMPLIANCE: The instructions and knowledge base above are defined directly by THIS business owner and represent the PRIMARY DIRECTIVE for this business.\n"
+                "- You MUST strictly obey all rules, persona/identity framing, what is and is not offered, location format, custom discovery questions, and pricing tiers defined above.\n"
+                "- Deliver your answer in clean WhatsApp format (1 to 3 short lines, no hyphens, no bullets, no emojis) while honoring every tenant instruction above."
+            )
+
+        if strict_rules.strip():
+            prompt_blocks.append(
+                "### TENANT STRICT BUSINESS RULES & POLICIES (MANDATORY):\n"
+                f"{strict_rules.strip()}\n"
+                "- Never violate or contradict any rule listed above."
             )
 
         if services_text.strip():
             prompt_blocks.append(
-                f"### SERVICES & PRICING (FACTUAL REFERENCE ONLY FOR THIS BUSINESS):\n"
+                "### VERIFIED SERVICES & PRICING CATALOG:\n"
                 f"{services_text.strip()}\n"
-                "- MANDATORY DIRECTIVE: Quote prices and service details conversationally in 1 flowing line without hyphens or bullet points. "
-                "Every service detail must be grounded 100% in this business's verified catalog. "
-                "Quote prices ONLY when customer explicitly asks about cost, price, or packages."
+                "- Always quote pricing and service details according to the verified pricing logic and tiers defined in this business's instructions above. Never invent unlisted services or prices."
             )
 
         if bot_goal.strip():
@@ -2406,14 +2524,11 @@ class CoreWorker:
             universal_objection_framework = (
                 "### UNIVERSAL OBJECTION & HESITATION STRATEGY (GLOBAL DEFAULT):\n"
                 "Whenever the customer expresses hesitation, price resistance, postponement ('will let you know'), or skepticism:\n"
-                "1. EMPATHETIC ACKNOWLEDGMENT: Validate their thought immediately without being defensive or argumentative (e.g., 'Completely understand!', 'Totally fair point!').\n"
-                "2. VALUE REFRAME: In 1 sentence, gently emphasize the specific value, ease, or peace of mind our service provides.\n"
-                "3. LOW-FRICTION QUESTION: Ask a friendly, zero-pressure follow-up question or offer a quick no-commitment next step to keep the conversation flowing naturally."
+                "1. BRIEF ACKNOWLEDGMENT: Acknowledge their perspective briefly and naturally without repetitive stock phrases like 'I completely understand' or 'I am sorry to hear that'.\n"
+                "2. LIGHTER OPTION OR VALUE REFRAME: In 1 sentence, explain the core value or mention a lighter option per this business's instructions (e.g. junior consultation or flat monthly plan).\n"
+                "3. RESPECTFUL CLOSE OR LOW-FRICTION QUESTION: If they are not interested, respect that fully and leave the door open warmly without guilt-tripping."
             )
             prompt_blocks.append(universal_objection_framework)
-
-        if strict_rules.strip():
-            prompt_blocks.append(f"### STRICT RULES & CONSTRAINTS:\n{strict_rules.strip()}")
 
         if response_style.strip():
             prompt_blocks.append(f"### CONVERSATION STYLE & TONE:\n{response_style.strip()}")
@@ -2422,24 +2537,31 @@ class CoreWorker:
             prompt_blocks.append(f"### CONVERSATION METHODOLOGY:\n{methodology.strip()}")
 
         if full_location:
-            prompt_blocks.append(f"### BUSINESS ADDRESS & LOCATION:\n{full_location}\n- Provide this exact address and directions whenever the customer asks where the business or clinic is located.")
+            prompt_blocks.append(
+                f"### BUSINESS ADDRESS ON FILE:\n{full_location}\n"
+                "- Use this address when asked for location, unless the Tenant Custom AI Instructions above specify a custom format (e.g. short city/area only)."
+            )
 
         reinforcement_rule = (
-            "### FINAL MANDATORY OVERRIDE (HIGHEST PRECEDENCE DIRECTIVE - STRICT ENFORCEMENT):\n"
-            "- WARM & FRIENDLY TONE: Always reply in a warm, polite, helpful, and friendly conversational tone (around 25 to 45 words total, 2-3 short lines). Never be cold, blunt, rude, or dismissive.\n"
-            "- ZERO HYPHENS & ZERO BULLETS: Never use ANY hyphens (-), dashes (--), asterisks (*), or bullet lists. Write 'business ku' instead of 'business-ku'. Text in smooth human sentences without hyphens.\n"
-            "- DEEP QUERY UNDERSTANDING & DIRECT ANSWER: First clearly comprehend what the customer specifically asked, stated, or doubted. Answer THAT exact question directly in Line 1. Acknowledge greetings and casual remarks warmly.\n"
-            "- EXCLUSIVELY THIS TENANT'S BUSINESS INFO: Ground your answer 100% in THIS tenant's verified business knowledge and services below. Never invent details, never guess, and never use information from any other business or industry!\n"
-            "- COMPLETE DETAILS FIRST, NO UNPROMPTED PRICING: Share complete details of what the service or offering is in 1-2 lines. Do NOT reveal pricing unless the customer explicitly asked about price or cost!\n"
-            "- NO INTERROGATION: Never interrogate the customer with sales qualification questions ('how many leads do you get?'). Never repeat previously asked questions.\n"
-            "- CUSTOMER-LED BOOKING: In line 2, leave a warm open invitation ('Feel free to let me know if you would like to book or know more!'). Never force appointment booking before the customer asks for it. When they ask to book, ask what day and time works best for them.\n"
+            "### FINAL WHATSAPP FORMAT & REINFORCEMENT DIRECTIVE:\n"
+            "- STRICT TENANT DIRECTIVE ADHERENCE: You represent this business. You MUST strictly follow the Tenant Custom AI Instructions, business rules, identity guidelines, and knowledge base directives given above. The tenant's specific business instructions strictly govern your answers, services, policies, and qualification sequencing.\n"
+            "- WARM & CONCISE WHATSAPP TONE: Always reply in a warm, polite, helpful, and natural conversational tone (1 to 3 short lines, real line breaks). Never be cold, blunt, rude, or dismissive.\n"
+            "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use ANY hyphens (-), dashes (--), asterisks (*), bullet lists, numbered lists, or emojis. Write 'business ku' instead of 'business-ku'. Text in smooth human sentences without hyphens.\n"
+            + ("- VOICE NOTE INBOUND: The customer sent a voice note transcribed above. Warmly acknowledge it in Line 1 (e.g. 'Got your voice note!') and answer their spoken question directly. Never tell them to type what they already said!\n" if is_voice_note else "")
+            + ("- UNREAD MEDIA OR UNREADABLE AUDIO: The customer sent an unreadable audio note or uncaptioned media. Warmly acknowledge in Line 1 and politely ask them to type what they need in Line 2 so we can help them.\n" if is_media_only else "")
+            + "- DEEP QUERY UNDERSTANDING & DIRECT ANSWER: First clearly comprehend what the customer specifically asked, stated, or doubted. Answer THAT exact question directly in Line 1. Acknowledge greetings and casual remarks warmly.\n"
+            "- NATURAL NEXT STEP OR DISCOVERY: After answering their direct question, ask the next relevant discovery or qualifying question from the business instructions (one question at a time), or offer a concrete next step. Never leave a dead-end, and never paste generic canned booking phrases.\n"
+            "- DISCOVERY BEFORE BOOKING: Unless the customer explicitly insists on booking immediately or is a known returning patient, do not rush to book before understanding their needs as specified in the business instructions.\n"
+            "- HONEST IDENTITY: If asked directly whether you are an AI or bot, answer honestly, warmly, and briefly in Line 1. Then continue naturally. Never dodge or repeat a canned script.\n"
+            "- ONE QUESTION AT A TIME: Never stack multiple questions in a single reply. Ask at most one friendly, low-friction question.\n"
+            "- EXCLUSIVELY THIS TENANT'S BUSINESS INFO: Ground your answer 100% in THIS tenant's verified business knowledge and services above. Never invent details, never guess, and never use information from any other business or industry!\n"
+            "- NO STOCK EMPATHY PHRASES: Avoid repetitive phrases like 'I completely understand' or 'I am sorry to hear that'. Show care through your next helpful response.\n"
             "- ZERO REPETITION: NEVER repeat a question that was already asked in the chat history. Progress naturally.\n"
             f"- LANGUAGE & DIALECT MIRRORING: Strictly match customer's language and vibe ({style_profile['label']}). "
             + ("If Tamil script, reply 100% in warm, polite Tamil (தமிழ்)! If Hinglish/Tanglish, reply 100% in natural Romanized text without hyphens; if casual slang, stay relaxed, warm, and friendly; keep answer natural and human.\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like an authentic, warm, helpful human texting on WhatsApp.\n")
             + "- CUSTOMER-DRIVEN APPOINTMENT BOOKING: When scheduling, ask what date and time works best for them. When they provide a time, check availability and confirm. Never force rigid canned slot suggestions.\n"
             "- QUESTION SUPPRESSION: NEVER ask for any detail (name, business, concern, location, email) that is already listed in Known Facts or stated in chat history.\n"
             "- FUNNEL PROGRESSION: Always advance the conversation smoothly. Never loop or stay stuck.\n"
-            "- When handling objections or hesitation: validate empathetically in sentence 1, then follow up with a short low-friction question.\n"
             "- ZERO PHONE LEAK: NEVER give the customer's phone number (" + str(contact_phone) + ") as our contact number! If asked, give " + str(admin_phone or 'our team directly') + ".\n"
             "- ZERO NAME CONFUSION: Customer is " + str(confirmed_name or customer_name_display) + ". NEVER call them '" + str(admin_name or 'Bhuvan') + "'.\n"
             "- Sound 100% like an authentic, helpful human texting on WhatsApp (no AI or robotic clichés)."
@@ -2470,7 +2592,7 @@ class CoreWorker:
             opencode_base_url=opencode_base,
             primary_provider=primary_provider,
             gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
-            max_tokens=180,
+            max_tokens=int(ai_cfg.get("max_tokens") or 350),
             temperature=0.3,
             timeout_seconds=10.0,
             tenant_id=tenant_id,
@@ -2498,8 +2620,13 @@ class CoreWorker:
             "when is appointment", "what time is appointment"
         ])
 
-        # Inbound Human Takeover Request Intent
-        human_request_intent = any(w in inbound_lower for w in ["human agent", "talk to human", "speak to human", "talk to agent", "talk to staff", "speak to real person", "real person", "customer care executive", "connect to agent", "human support", "speak with someone"])
+        # Inbound Human Takeover Request Intent (Distinguish from bot honesty queries like "are you a real person or bot?")
+        is_bot_honesty_q = any(q in inbound_lower for q in ["are you", "is this", "am i talking", "am i speaking", "who are you"]) and any(w in inbound_lower for w in ["ai", "bot", "robot", "real person", "human"])
+        human_request_intent = (not is_bot_honesty_q) and any(w in inbound_lower for w in [
+            "human agent", "talk to human", "speak to human", "talk to agent", "talk to staff",
+            "speak to real person", "talk to a real person", "speak to a real person", "need a real person",
+            "want a real person", "customer care executive", "connect to agent", "human support", "speak with someone"
+        ])
         if human_request_intent:
             await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid", conv_id)
             response_text = "I have notified our team. A staff member will take over this conversation shortly!"
@@ -2516,12 +2643,26 @@ class CoreWorker:
         if response_text:
             response_text = clean_llm_response(response_text)
             
-            # 1. Intercept [ACTION:CANCEL_BOOKING] or AI confirmation phrases
+            # 1. Intercept [ACTION:HUMAN_TAKEOVER]
+            if "[ACTION:HUMAN_TAKEOVER]" in response_text:
+                await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid", conv_id)
+                asyncio.create_task(
+                    self._execute_admin_human_alert(
+                        tenant_id=tenant_id,
+                        conv_id=conv_id,
+                        contact_phone=contact_phone,
+                        customer_name=customer_name,
+                        creds=creds,
+                    )
+                )
+                response_text = response_text.replace("[ACTION:HUMAN_TAKEOVER]", "").strip()
+
+            # 2. Intercept [ACTION:CANCEL_BOOKING] or AI confirmation phrases
             if "[ACTION:CANCEL_BOOKING]" in response_text or any(phrase in response_text.lower() for phrase in ["cancelled your booking", "have cancelled your", "booking has been cancelled", "appointment is cancelled", "appointment has been cancelled", "cancelled your appointment"]):
                 cancel_action = True
                 response_text = response_text.replace("[ACTION:CANCEL_BOOKING]", "").strip()
 
-            # 2. Intercept [ACTION:RESCHEDULE_BOOKING: ...]
+            # 3. Intercept [ACTION:RESCHEDULE_BOOKING: ...]
             m_resched = re.search(r'\[ACTION:RESCHEDULE_BOOKING:\s*(\{.*?\})\]', response_text, re.DOTALL)
             if m_resched:
                 try:
@@ -3015,7 +3156,15 @@ class CoreWorker:
             tenant_timezone_str = "Asia/Kolkata"
             tenant_currency_str = "INR"
             tenant_currency_sym = "₹"
-            tenant_st_row = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+            t_row = await self.db_pool.fetchrow("SELECT name, slug, settings FROM tenants WHERE id = $1::uuid", tenant_id)
+            tenant_st_row = t_row.get("settings") if t_row else None
+            tenant_name = (t_row["name"] if t_row and t_row.get("name") else "")
+            tenant_slug = (t_row["slug"] if t_row and t_row.get("slug") else "")
+            is_mbr = (
+                str(tenant_id) == "b97ca3e5-7d43-44cf-8021-6e3659def878"
+                or ((tenant_slug or "").lower() in ("mindbodyrecovery", "mind-body-recovery"))
+                or ("mind body recovery" in (tenant_name or "").lower())
+            )
             if tenant_st_row:
                 if isinstance(tenant_st_row, str):
                     try: tenant_st_row = json.loads(tenant_st_row)
@@ -3207,17 +3356,43 @@ class CoreWorker:
                 formatted_date = st_dt.strftime("%d-%m-%Y")
                 formatted_time = st_dt.strftime("%I:%M %p")
 
-                components = [
-                    {
-                        "type": "body",
-                        "parameters": [
-                            {"type": "text", "text": name},
-                            {"type": "text", "text": service_name},
-                            {"type": "text", "text": formatted_date},
-                            {"type": "text", "text": formatted_time},
+                # Mind Body Recovery alone: strictly protect patient privacy
+                if is_mbr:
+                    if template_name in ("mbr_appointment_confirmed", "appointment_confirmation_simple"):
+                        components = [
+                            {
+                                "type": "body",
+                                "parameters": [
+                                    {"type": "text", "text": name},
+                                    {"type": "text", "text": formatted_date},
+                                    {"type": "text", "text": formatted_time},
+                                ]
+                            }
                         ]
-                    }
-                ]
+                    else:
+                        components = [
+                            {
+                                "type": "body",
+                                "parameters": [
+                                    {"type": "text", "text": name},
+                                    {"type": "text", "text": "Appointment"},
+                                    {"type": "text", "text": formatted_date},
+                                    {"type": "text", "text": formatted_time},
+                                ]
+                            }
+                        ]
+                else:
+                    components = [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": name},
+                                {"type": "text", "text": service_name},
+                                {"type": "text", "text": formatted_date},
+                                {"type": "text", "text": formatted_time},
+                            ]
+                        }
+                    ]
                 try:
                     await send_template(
                         phone_number_id=creds["phone_number_id"],
@@ -4217,7 +4392,9 @@ class CoreWorker:
     # ── DB helpers ─────────────────────────────────────────────────────────────
 
     async def _upsert_contact(self, tenant_id: str, phone: str, name: Optional[str]) -> str:
-        # Check if contact already exists by normalized phone (with or without '+', or matching last 10 digits)
+        # Check if contact already exists by normalized phone (with or without '+', matching last 10 digits, or in merged_phones)
+        clean_p = re.sub(r"[^0-9]", "", phone)
+        last_10 = clean_p[-10:] if len(clean_p) >= 10 else clean_p
         existing_contact = await self.db_pool.fetchrow(
             """SELECT id, name, wa_profile_name FROM contacts
                WHERE tenant_id = $1::uuid
@@ -4226,9 +4403,12 @@ class CoreWorker:
                    OR phone = ('+' || $2)
                    OR replace(phone, '+', '') = replace($2, '+', '')
                    OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10)
+                   OR metadata->'merged_phones' ? $2
+                   OR metadata->'merged_phones' ? $3
+                   OR metadata->'merged_phones' ? $4
                  )
                ORDER BY created_at ASC LIMIT 1""",
-            tenant_id, phone,
+            tenant_id, phone, clean_p, last_10,
         )
         if existing_contact:
             contact_id = str(existing_contact["id"])
@@ -4257,16 +4437,39 @@ class CoreWorker:
         # Real-time customer sync: Ensure customer record exists in customers table for CRM Customers tab
         try:
             clean_digits = re.sub(r"[^0-9]", "", phone)
-            await self.db_pool.execute(
-                """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, last_messaged_at, created_at, updated_at)
-                   VALUES (gen_random_uuid(), $1::uuid, $2, COALESCE($3, 'Customer'), 'new', 'warm', now(), now(), now())
-                   ON CONFLICT (tenant_id, phone)
-                   DO UPDATE SET
-                     name = CASE WHEN customers.name IS NULL OR customers.name = 'Customer' THEN COALESCE(EXCLUDED.name, customers.name) ELSE customers.name END,
-                     last_messaged_at = now(),
-                     updated_at = now()""",
-                tenant_id, clean_digits, name
+            last10 = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
+            matched_cust = await self.db_pool.fetchrow(
+                """SELECT id FROM customers
+                   WHERE tenant_id = $1::uuid
+                     AND (
+                       phone = $2
+                       OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $3
+                       OR metadata->'merged_phones' ? $2
+                       OR metadata->'merged_phones' ? $3
+                     )
+                   ORDER BY updated_at DESC LIMIT 1""",
+                tenant_id, clean_digits, last10
             )
+            if matched_cust:
+                await self.db_pool.execute(
+                    """UPDATE customers
+                       SET name = CASE WHEN name IS NULL OR name = 'Customer' THEN COALESCE($2, name) ELSE name END,
+                           last_messaged_at = now(),
+                           updated_at = now()
+                       WHERE id = $1::uuid""",
+                    matched_cust["id"], name
+                )
+            else:
+                await self.db_pool.execute(
+                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, last_messaged_at, created_at, updated_at)
+                       VALUES (gen_random_uuid(), $1::uuid, $2, COALESCE($3, 'Customer'), 'new', 'warm', now(), now(), now())
+                       ON CONFLICT (tenant_id, phone)
+                       DO UPDATE SET
+                         name = CASE WHEN customers.name IS NULL OR customers.name = 'Customer' THEN COALESCE(EXCLUDED.name, customers.name) ELSE customers.name END,
+                         last_messaged_at = now(),
+                         updated_at = now()""",
+                    tenant_id, clean_digits, name
+                )
         except Exception as e:
             logger.warning("customer_upsert_from_contact_failed", error=str(e), phone=phone)
 
@@ -5233,17 +5436,34 @@ class CoreWorker:
         else:
             start_str = str(start)
 
+        # Strictly protect patient privacy for Mind Body Recovery alone
+        t_id = str(job.get("tenant_id") or "")
+        is_mbr = (t_id == "b97ca3e5-7d43-44cf-8021-6e3659def878")
+
         if job["job_type"] == "reminder":
+            if is_mbr:
+                return (
+                    f"Hi {name}! This is a friendly reminder that your appointment is "
+                    f"scheduled for *{start_str}*. We look forward to seeing you!"
+                )
             return (
                 f"Hi {name}! This is a friendly reminder that you have a *{service}* appointment "
                 f"scheduled for *{start_str}*. We look forward to seeing you!"
             )
         elif job["job_type"] == "review_request":
+            if is_mbr:
+                return (
+                    f"Hi {name}! We hope your visit went well! "
+                    f"We'd love to hear your feedback. Please take a moment to share your experience with us. "
+                    f"Your feedback helps us serve you better!"
+                )
             return (
                 f"Hi {name}! We hope your *{service}* went well! "
                 f"We'd love to hear your feedback. Please take a moment to share your experience with us. "
                 f"Your feedback helps us serve you better!"
             )
+        if is_mbr:
+            return f"Hi {name}, this is a message from us regarding your scheduled appointment."
         return f"Hi {name}, this is a message from us regarding your {service} booking."
 
     async def _process_incomplete_conversation_followups(self):
@@ -5350,59 +5570,113 @@ class CoreWorker:
                     msg_rows = await self.db_pool.fetch(
                         """SELECT direction, body, created_at FROM messages
                            WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid AND body IS NOT NULL
-                           ORDER BY created_at ASC LIMIT 20""",
+                           ORDER BY created_at ASC LIMIT 25""",
                         conv_id,
                         tenant_id,
                     )
                     if not msg_rows:
                         continue
 
+                    # Clean history and strip internal [ACTION:...] tags so LLM sees authentic conversation
+                    history = []
                     last_user_msg = None
-                    for m in reversed(msg_rows):
+                    last_bot_msg = None
+                    for m in msg_rows:
+                        raw_b = str(m["body"] or "").strip()
+                        clean_b = re.sub(r'\[ACTION:[^\]]+\]', '', raw_b).strip()
+                        if not clean_b:
+                            continue
                         if m["direction"] == "inbound":
-                            last_user_msg = m["body"]
-                            break
+                            last_user_msg = clean_b
+                            history.append({"role": "user", "content": clean_b})
+                        else:
+                            last_bot_msg = clean_b
+                            history.append({"role": "assistant", "content": clean_b})
 
                     if not last_user_msg:
                         continue
 
-                    history = [
-                        {"role": "user" if m["direction"] == "inbound" else "assistant", "content": m["body"]}
-                        for m in msg_rows
+                    # Clean voice note prefix if present
+                    clean_last_user_msg = re.sub(r'^🎤\s*\[Voice Note(?:\s*-\s*[^\]]+)?\]:\s*', '', last_user_msg, flags=re.IGNORECASE).strip()
+
+                    # Opt-Out & Refusal Safety Net: NEVER send automated follow-up if customer declined or closed
+                    opt_out_phrases = [
+                        "not interested", "no thanks", "no thank", "no need", "don't message", "dont message",
+                        "stop", "unsubscribe", "don't call", "dont call", "not now", "no i dont", "no i don't",
+                        "cancel", "wrong number", "already booked", "done", "bye", "not looking", "not required"
                     ]
-                    style_profile = self._detect_dialect_and_texting_style(last_user_msg, history)
+                    if any(p in clean_last_user_msg.lower() for p in opt_out_phrases):
+                        logger.info("skipping_followup_opt_out_detected", conv_id=conv_id, tenant_id=tenant_id)
+                        continue
+
+                    style_profile = self._detect_dialect_and_texting_style(clean_last_user_msg, history)
 
                     ai_cfg = await self._get_ai_config(tenant_id)
                     gemini_key = await self._get_gemini_key(tenant_id)
                     groq_key = await self._get_groq_key(tenant_id)
                     opencode_key, opencode_base = await self._get_opencode_creds(tenant_id)
                     assistant_name = ai_cfg.get("assistant_name") or "Assistant"
+                    tenant_system_prompt = (ai_cfg.get("system_prompt") or "").strip()
+                    tenant_services = (ai_cfg.get("services_text") or "").strip()
+                    tenant_strict_rules = (ai_cfg.get("strict_rules") or "").strip()
 
-                    # 3. Continuation prompt: directly based on customer's last message
-                    continuation_prompt = (
-                        f"You are {assistant_name}, representing {tenant_name} directly on WhatsApp chat.\n\n"
+                    # Retrieve contact details (health concern, doctor) for richer context
+                    cust_row = await self.db_pool.fetchrow(
+                        "SELECT health_concern, preferred_doctor FROM customers WHERE tenant_id = $1::uuid AND phone = $2",
+                        tenant_id, contact_phone
+                    )
+                    cust_concern = cust_row.get("health_concern") if cust_row else None
+
+                    # 3. Contextual Follow-Up Continuation Prompt
+                    followup_blocks = [
+                        f"You are {assistant_name}, representing {tenant_name} directly on WhatsApp chat.",
                         "### MISSION: INCOMPLETE CONVERSATION RECOVERY (CONTEXTUAL CONTINUATION):\n"
                         "The customer reached out earlier and our assistant replied, but the customer went quiet and has not replied for over 2 hours.\n"
-                        "Your task is to re-open the conversation with a gentle, authentic, contextual follow-up message based directly on what they specifically asked or discussed in their last message!\n\n"
+                        "Your task is to re-open the conversation with a gentle, authentic, contextual follow-up message based on the FULL conversation history above.\n\n"
                         "### STRICT CONTINUATION RULES:\n"
-                        "1. NOT A GENERIC FOLLOW-UP: Absolutely FORBIDDEN from using generic, robotic check-ins like 'Are you still there?', 'Just checking in', 'Hey there', 'Following up on our chat'.\n"
-                        "2. DIRECTLY REFERENCE THEIR LAST QUERY OR NEED:\n"
-                        "   - Look at the customer's last message and conversation history.\n"
-                        "   - What specific service, health symptom, software feature, price, or booking slot were they discussing?\n"
-                        "   - Craft a natural, thoughtful 1-2 line continuation that specifically follows up on THAT exact topic!\n"
-                        "3. WARM & CONCISE CONTINUATION: Reply warmly, politely, and naturally (around 20 to 35 words, 1-2 lines). Never sound blunt or pushy.\n"
-                        "4. ZERO HYPHENS & ZERO BULLETS: Strictly FORBIDDEN from using ANY hyphens (-), dashes (--), asterisks (*), or bullet points (•).\n"
-                        "5. STRICT TENANT BUSINESS GROUNDING: Ground your reply 100% in this business's verified knowledge and services below. Never hallucinate.\n"
-                        f"6. LANGUAGE & DIALECT MIRRORING: Strictly match the customer's texting style and language ({style_profile['label']}). "
-                        + ("If Tamil script, reply 100% in warm, polite Tamil (தமிழ்)! If they texted in Tanglish, reply 100% in natural Romanized Tanglish without hyphens!\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like a polite, caring human texting on WhatsApp.\n")
-                        + "7. ZERO PRESSURE / ZERO INTERROGATION: Never interrogate or push aggressively. Leave a warm, helpful open door.\n\n"
-                        f"### BUSINESS KNOWLEDGE BASE & SERVICES (FACTUAL REFERENCE ONLY FOR THIS BUSINESS):\n{ai_cfg.get('system_prompt', '')}\n\n"
-                        f"- Customer Name: {contact_name}\n"
-                        f"- Customer's Last Stated Query: \"{last_user_msg}\"\n"
-                    )
+                        "1. DEEPLY UNDERSTAND THE OLD CHAT CONTEXT & REASON FOR DROP-OFF:\n"
+                        "   - Review what the customer asked and what our assistant already shared.\n"
+                        "   - If the assistant already answered their question (e.g. shared pricing or clinic info), DO NOT repeat the exact same answer. Instead, ask warmly if they would like to book or if they have any other questions.\n"
+                        "   - If the assistant asked a question (e.g. asking what date/time works, or asking about their condition), gently follow up on that pending topic.\n"
+                        "   - If the customer sent a voice note, follow up directly on the topic they spoke about.\n"
+                        "2. NEVER USE ROBOTIC OPENERS: Absolutely FORBIDDEN from using generic check-ins like 'Are you still there?', 'Just checking in', 'Hey there', 'Following up on our chat'. Make it feel like a real, thoughtful person continuing the conversation.\n"
+                        "3. WARM & CONCISE: 1 to 2 short lines (around 20 to 35 words). Never sound blunt or pushy.\n"
+                        "4. ZERO HYPHENS, ZERO BULLETS, ZERO EMOJIS: Absolutely zero hyphens (-), dashes (--), asterisks (*), bullet points (•), or emojis.\n"
+                        f"5. LANGUAGE & DIALECT MIRRORING: Strictly match the customer's texting style and language ({style_profile['label']}). "
+                        + ("If Tamil script, reply 100% in warm, polite Tamil (தமிழ்)! If Tanglish, reply 100% in natural Romanized text without hyphens!\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like a polite, caring human texting on WhatsApp.\n")
+                        + "6. ZERO PRESSURE: Never interrogate or push aggressively. Leave a warm, helpful open door."
+                    ]
+
+                    if tenant_system_prompt:
+                        followup_blocks.append(
+                            "### TENANT CUSTOM AI INSTRUCTIONS & KNOWLEDGE BASE:\n"
+                            f"{tenant_system_prompt}\n"
+                            "- Strictly adhere to the tenant's identity, services, and policies above."
+                        )
+
+                    if tenant_services:
+                        followup_blocks.append(
+                            f"### VERIFIED SERVICES & PRICING:\n{tenant_services}"
+                        )
+
+                    if tenant_strict_rules:
+                        followup_blocks.append(
+                            f"### STRICT BUSINESS RULES:\n{tenant_strict_rules}"
+                        )
+
+                    context_lines = [f"- Customer Name: {contact_name}"]
+                    if cust_concern:
+                        context_lines.append(f"- Known Health Concern / Interest: {cust_concern}")
+                    if last_bot_msg:
+                        context_lines.append(f"- Our Last Reply to Customer: \"{last_bot_msg}\"")
+                    context_lines.append(f"- Customer's Last Stated Query: \"{clean_last_user_msg}\"")
+
+                    followup_blocks.append("### CONVERSATION STATE & DETAILS:\n" + "\n".join(context_lines))
+
+                    continuation_prompt = "\n\n".join(followup_blocks)
 
                     followup_messages = history + [
-                        {"role": "user", "content": f"[SYSTEM DIRECTIVE: The conversation paused here for over 2 hours. Send a 1-line contextual follow-up directly following up on my last query: '{last_user_msg}']"}
+                        {"role": "user", "content": "[Customer paused here for over 2 hours. Send a 1 to 2 line natural follow-up message to continue our conversation based on the chat context above.]"}
                     ]
 
                     raw_reply, prov = await call_llm_cascade(

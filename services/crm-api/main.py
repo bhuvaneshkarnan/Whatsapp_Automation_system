@@ -50,6 +50,7 @@ def safe_json_loads(val: Any, default: Any = None) -> Any:
 
 
 KNOWN_TEMPLATES_EXPANSION: Dict[str, str] = {
+    "mbr_appointment_confirmed": "Hello {0},\n\nYour appointment has been confirmed.\nDate: {1}\nTime: {2}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you.",
     "booking_confirmationn": "Hello {0},\n\nYour appointment is confirmed.\nService: {1}\nDate: {2}\nTime: {3}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you.",
     "booking_reschedule_confirmation": "Hello {0}, Your {1} appointment has been rescheduled to {2} at {3}.\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you.",
     "cancellation_confirmation": "Hello {0},\n\nYour {1} appointment on {2} at {3} has been cancelled as requested.\n\nWhenever you would like to book again, just message us here.",
@@ -59,6 +60,7 @@ KNOWN_TEMPLATES_EXPANSION: Dict[str, str] = {
     "review_request": "Hi {0}, thank you for visiting us for your {1}!\n\nWe would really appreciate it if you could take a minute to share your experience with a quick Google review.\nLink: {2}\nThank you!",
     "admin_notification": "New appointment booked.\n\nCustomer Name: {0}\nPhone: {1}\nService: {2}\nDate: {3}\nTime: {4}",
     "utility_general_update": "Hello {0}, this is a service update from {1} regarding your {2}. Please reply to this message if you require assistance.",
+    "missed_call_followup": "Hello {0},\n\nWe noticed we just missed your call at {1}. We apologize for being unable to answer right away.\n\nPlease let us know how we can assist you, or reply to this chat anytime.",
 }
 
 def expand_template_body(template_name: Optional[str], template_params: Any, fallback_body: Optional[str] = None) -> str:
@@ -254,6 +256,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_reviews_google_uniq ON customer_r
 CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_uniq ON customers(tenant_id, phone);
                 CREATE INDEX IF NOT EXISTS idx_contacts_clean_phone ON contacts (tenant_id, (RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10)));
                 CREATE INDEX IF NOT EXISTS idx_customers_clean_phone ON customers (tenant_id, (RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10)));
+                ALTER TABLE customers ADD COLUMN IF NOT EXISTS internal_name TEXT;
+                ALTER TABLE customers ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
+                ALTER TABLE contacts ADD COLUMN IF NOT EXISTS internal_name TEXT;
+                CREATE INDEX IF NOT EXISTS idx_contacts_merged_phones ON contacts USING gin ((metadata->'merged_phones'));
+                CREATE INDEX IF NOT EXISTS idx_customers_merged_phones ON customers USING gin ((metadata->'merged_phones'));
 
                 CREATE EXTENSION IF NOT EXISTS btree_gist;
                 DO $do$
@@ -1087,6 +1094,7 @@ async def batch_update_contact_consent(
 class CustomerCreatePayload(BaseModel):
     phone: str
     name: Optional[str] = None
+    internal_name: Optional[str] = None
     age: Optional[int] = None
     location: Optional[str] = None
     preferred_doctor: Optional[str] = None
@@ -1106,6 +1114,7 @@ class CustomerCreatePayload(BaseModel):
 
 class CustomerUpdatePayload(BaseModel):
     name: Optional[str] = None
+    internal_name: Optional[str] = None
     age: Optional[int] = None
     location: Optional[str] = None
     preferred_doctor: Optional[str] = None
@@ -1121,6 +1130,12 @@ class CustomerUpdatePayload(BaseModel):
     next_action: Optional[str] = None
     primary_concerns: Optional[List[str]] = None
     interested_services: Optional[List[str]] = None
+
+
+class CustomerMergePayload(BaseModel):
+    primary_customer_id: str
+    secondary_customer_ids: List[str]
+    internal_name: Optional[str] = None
 
 
 
@@ -1279,6 +1294,7 @@ async def list_customers(
             digits_only = re.sub(r'[^0-9]', '', q_clean)
             search_parts = [
                 f"c.name ILIKE ${idx}",
+                f"COALESCE(c.internal_name, '') ILIKE ${idx}",
                 f"c.preferred_doctor ILIKE ${idx}",
                 f"c.health_concern ILIKE ${idx}",
                 f"c.location ILIKE ${idx}",
@@ -1288,6 +1304,7 @@ async def list_customers(
             ]
             if len(digits_only) >= 3:
                 search_parts.append(f"REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g') ILIKE ${idx + 1}")
+                search_parts.append(f"c.metadata->'merged_phones' ? ${idx + 1}")
                 params.extend([f"%{q_clean}%", f"%{digits_only}%"])
                 idx += 2
             else:
@@ -1330,7 +1347,7 @@ async def list_customers(
                 GROUP BY b.contact_id
             )
             SELECT 
-                c.id, c.tenant_id, c.phone, c.name, c.age, c.location, c.preferred_doctor, c.status,
+                c.id, c.tenant_id, c.phone, c.name, c.internal_name, c.metadata, c.age, c.location, c.preferred_doctor, c.status,
                 c.health_concern, c.lead_probability, c.converted, c.followup_date,
                 c.followup_time, c.google_task_id, c.google_calendar_event_id, c.last_visited_at, c.last_messaged_at, c.created_at, c.updated_at,
                 COALESCE(c.conversion_rate, CASE WHEN c.converted THEN 100 WHEN c.lead_probability = 'hot' THEN 80 WHEN c.lead_probability = 'cold' THEN 20 ELSE 50 END) AS conversion_rate,
@@ -1443,6 +1460,8 @@ async def list_customers(
             "id": str(r["id"]),
             "phone": r["phone"],
             "name": r["name"] or "Customer",
+            "internal_name": r["internal_name"] or None,
+            "metadata": r.get("metadata") or {},
             "age": r["age"],
             "location": r["location"] or None,
             "wa_profile_name": r["wa_profile_name"] or None,
@@ -1826,6 +1845,11 @@ async def update_customer(
         params.append(payload.name.strip())
         idx += 1
 
+    if payload.internal_name is not None:
+        updates.append(f"internal_name = ${idx}")
+        params.append(payload.internal_name.strip() if payload.internal_name else None)
+        idx += 1
+
     if payload.age is not None:
         updates.append(f"age = ${idx}")
         params.append(payload.age)
@@ -1961,7 +1985,7 @@ async def update_customer(
         row = await conn.fetchrow(
             f"""UPDATE customers SET {set_clause}
                 WHERE id = $1::uuid AND tenant_id = $2::uuid
-                RETURNING id, phone, name, age, location, preferred_doctor, status, health_concern, lead_probability, converted, followup_date, followup_time, conversion_rate, call_status, next_action, primary_concerns, interested_services""",
+                RETURNING id, phone, name, internal_name, metadata, age, location, preferred_doctor, status, health_concern, lead_probability, converted, followup_date, followup_time, conversion_rate, call_status, next_action, primary_concerns, interested_services""",
             *params
         )
         if not row:
@@ -2066,6 +2090,12 @@ async def update_customer(
                     customer_id, tenant_id
                 )
 
+        if payload.internal_name is not None:
+            await conn.execute("""
+                UPDATE contacts SET internal_name = $1, updated_at = now()
+                WHERE tenant_id = $2::uuid AND (phone = $3 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($3, '[^0-9]', '', 'g'), 10))
+            """, payload.internal_name.strip() if payload.internal_name else None, tenant_id, row["phone"])
+
         if payload.health_concern and row:
             await auto_route_lead_to_specialty(conn, tenant_id, row["phone"], payload.health_concern)
 
@@ -2073,6 +2103,8 @@ async def update_customer(
         "status": "ok",
         "id": str(row["id"]),
         "name": row["name"],
+        "internal_name": row["internal_name"] or None,
+        "metadata": row.get("metadata") or {},
         "phone": row["phone"],
         "preferred_doctor": row["preferred_doctor"],
         "status": row["status"],
@@ -2117,6 +2149,356 @@ async def delete_customer_followup(customer_id: str, tenant_id: str = Depends(ge
             raise HTTPException(404, "Customer not found")
 
     return {"status": "ok", "message": "Follow-up deleted successfully", "id": customer_id}
+
+
+@app.get("/customers/duplicates")
+@app.get("/api/v1/crm/customers/duplicates")
+async def get_duplicate_customers(
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
+    """Detect potential duplicate customers within the tenant (matching clean phones or names)."""
+    async with db_pool.acquire() as conn:
+        # Find duplicates by clean 10-digit phone number
+        phone_dups = await conn.fetch("""
+            WITH grouped AS (
+                SELECT 
+                    RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) as last10,
+                    array_agg(id) as ids,
+                    count(*) as cnt
+                FROM customers
+                WHERE tenant_id = $1::uuid
+                  AND length(REGEXP_REPLACE(phone, '[^0-9]', '', 'g')) >= 10
+                GROUP BY RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10)
+                HAVING count(*) > 1
+            )
+            SELECT g.last10, g.ids
+            FROM grouped g
+            LIMIT 20
+        """, tenant_id)
+
+        # Find duplicates by exact name match (excluding generic labels like 'Customer', '.', 'Valued Customer')
+        name_dups = await conn.fetch("""
+            WITH grouped AS (
+                SELECT 
+                    LOWER(TRIM(name)) as clean_name,
+                    array_agg(id) as ids,
+                    count(*) as cnt
+                FROM customers
+                WHERE tenant_id = $1::uuid
+                  AND name IS NOT NULL
+                  AND length(TRIM(name)) >= 3
+                  AND LOWER(TRIM(name)) NOT IN ('customer', 'valued customer', 'new lead', 'patient', 'lead', 'client')
+                GROUP BY LOWER(TRIM(name))
+                HAVING count(*) > 1
+            )
+            SELECT g.clean_name, g.ids
+            FROM grouped g
+            LIMIT 20
+        """, tenant_id)
+
+        all_candidate_ids = set()
+        for r in phone_dups:
+            all_candidate_ids.update([str(x) for x in r["ids"]])
+        for r in name_dups:
+            all_candidate_ids.update([str(x) for x in r["ids"]])
+
+        if not all_candidate_ids:
+            return {"duplicates": [], "total_groups": 0}
+
+        cust_rows = await conn.fetch("""
+            SELECT c.id, c.name, c.internal_name, c.phone, c.status, c.health_concern,
+                   c.preferred_doctor, c.last_messaged_at, c.created_at,
+                   (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                    WHERE b.tenant_id = c.tenant_id AND (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))) as bookings_count,
+                   (SELECT COUNT(*) FROM customer_notes cn WHERE cn.customer_id = c.id AND cn.tenant_id = c.tenant_id) as notes_count
+            FROM customers c
+            WHERE c.tenant_id = $1::uuid AND c.id = ANY($2::uuid[])
+        """, tenant_id, list(all_candidate_ids))
+
+        cust_map = {}
+        for r in cust_rows:
+            d = dict(r)
+            d["id"] = str(d["id"])
+            if d.get("last_messaged_at"):
+                d["last_messaged_at"] = d["last_messaged_at"].isoformat()
+            if d.get("created_at"):
+                d["created_at"] = d["created_at"].isoformat()
+            cust_map[d["id"]] = d
+
+        duplicate_groups = []
+        seen_pairs = set()
+
+        for r in phone_dups:
+            ids = [str(x) for x in r["ids"]]
+            pair_key = tuple(sorted(ids))
+            if pair_key not in seen_pairs:
+                seen_pairs.add(pair_key)
+                group_custs = [cust_map[x] for x in ids if x in cust_map]
+                if len(group_custs) > 1:
+                    duplicate_groups.append({
+                        "reason": f"Same 10-digit mobile number ({r['last10']})",
+                        "match_type": "phone",
+                        "match_value": r["last10"],
+                        "customers": group_custs
+                    })
+
+        for r in name_dups:
+            ids = [str(x) for x in r["ids"]]
+            pair_key = tuple(sorted(ids))
+            if pair_key not in seen_pairs:
+                seen_pairs.add(pair_key)
+                group_custs = [cust_map[x] for x in ids if x in cust_map]
+                if len(group_custs) > 1:
+                    duplicate_groups.append({
+                        "reason": f"Same patient name ('{group_custs[0].get('name')}')",
+                        "match_type": "name",
+                        "match_value": r["clean_name"],
+                        "customers": group_custs
+                    })
+
+        return {"duplicates": duplicate_groups, "total_groups": len(duplicate_groups)}
+
+
+@app.post("/customers/merge")
+@app.post("/api/v1/crm/customers/merge")
+async def merge_customers(
+    payload: CustomerMergePayload,
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
+    """Merge one or more secondary customer records into a primary customer record.
+    Consolidates bookings, WhatsApp conversations, messages, notes, tasks, reviews,
+    and stores secondary phones in metadata->'merged_phones' so future messages route here.
+    """
+    primary_id = payload.primary_customer_id
+    secondary_ids = [sid for sid in payload.secondary_customer_ids if sid != primary_id]
+    if not secondary_ids:
+        raise HTTPException(400, "At least one valid secondary customer must be specified to merge.")
+
+    async with db_pool.acquire() as conn:
+        async with conn.transaction():
+            # 1. Fetch primary customer
+            primary = await conn.fetchrow("""
+                SELECT * FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid
+            """, primary_id, tenant_id)
+            if not primary:
+                raise HTTPException(404, f"Primary customer {primary_id} not found.")
+
+            # 2. Fetch secondary customers
+            secondaries = await conn.fetch("""
+                SELECT * FROM customers WHERE id = ANY($1::uuid[]) AND tenant_id = $2::uuid
+            """, secondary_ids, tenant_id)
+            if not secondaries:
+                raise HTTPException(404, "No secondary customers found matching the IDs.")
+
+            # 3. Find primary contact
+            p_phone = primary["phone"]
+            clean_p = re.sub(r"[^0-9]", "", p_phone or "")
+            p_last10 = clean_p[-10:] if len(clean_p) >= 10 else clean_p
+
+            primary_contact = await conn.fetchrow("""
+                SELECT id, metadata FROM contacts
+                WHERE tenant_id = $1::uuid
+                  AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $3)
+                ORDER BY created_at ASC LIMIT 1
+            """, tenant_id, p_phone, p_last10)
+
+            if not primary_contact:
+                # Create contact for primary if missing
+                p_contact_id = str(uuid.uuid4())
+                await conn.execute("""
+                    INSERT INTO contacts (id, tenant_id, phone, name, internal_name, metadata)
+                    VALUES ($1::uuid, $2::uuid, $3, $4, $5, '{}'::jsonb)
+                    ON CONFLICT (tenant_id, phone) DO NOTHING
+                """, p_contact_id, tenant_id, p_phone, primary["name"], primary.get("internal_name"))
+                primary_contact = await conn.fetchrow("SELECT id, metadata FROM contacts WHERE id = $1::uuid", p_contact_id)
+            
+            p_contact_id = str(primary_contact["id"])
+
+            # 4. Find secondary contacts
+            sec_phones = [s["phone"] for s in secondaries if s["phone"]]
+            sec_last10s = [re.sub(r"[^0-9]", "", ph)[-10:] for ph in sec_phones if len(re.sub(r"[^0-9]", "", ph)) >= 10]
+            
+            sec_contacts = await conn.fetch("""
+                SELECT id, phone, metadata FROM contacts
+                WHERE tenant_id = $1::uuid
+                  AND (phone = ANY($2::text[]) OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = ANY($3::text[]))
+                  AND id != $4::uuid
+            """, tenant_id, sec_phones, sec_last10s, p_contact_id)
+            
+            sec_contact_ids = [str(sc["id"]) for sc in sec_contacts]
+
+            # 5. Reassign Bookings
+            if sec_contact_ids:
+                await conn.execute("""
+                    UPDATE bookings 
+                    SET contact_id = $1::uuid, updated_at = now()
+                    WHERE tenant_id = $2::uuid AND contact_id = ANY($3::uuid[])
+                """, p_contact_id, tenant_id, sec_contact_ids)
+
+            # 6. Reassign Conversations & Messages
+            p_conv = await conn.fetchrow("""
+                SELECT id FROM conversations WHERE tenant_id = $1::uuid AND contact_id = $2::uuid
+                ORDER BY created_at ASC LIMIT 1
+            """, tenant_id, p_contact_id)
+
+            if sec_contact_ids:
+                sec_convs = await conn.fetch("""
+                    SELECT id FROM conversations 
+                    WHERE tenant_id = $1::uuid AND contact_id = ANY($2::uuid[])
+                """, tenant_id, sec_contact_ids)
+
+                for sc in sec_convs:
+                    s_conv_id = str(sc["id"])
+                    if p_conv:
+                        p_conv_id = str(p_conv["id"])
+                        if s_conv_id != p_conv_id:
+                            # Move messages to primary conversation
+                            await conn.execute("""
+                                UPDATE messages
+                                SET conversation_id = $1::uuid
+                                WHERE conversation_id = $2::uuid AND tenant_id = $3::uuid
+                            """, p_conv_id, s_conv_id, tenant_id)
+                            # Delete empty secondary conversation
+                            await conn.execute("""
+                                DELETE FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid
+                            """, s_conv_id, tenant_id)
+                    else:
+                        # Reassign secondary conversation to primary contact
+                        await conn.execute("""
+                            UPDATE conversations
+                            SET contact_id = $1::uuid, updated_at = now()
+                            WHERE id = $2::uuid AND tenant_id = $3::uuid
+                        """, p_contact_id, s_conv_id, tenant_id)
+                        p_conv = {"id": s_conv_id}
+
+            # 7. Reassign Notes and Tasks
+            await conn.execute("""
+                UPDATE customer_notes
+                SET customer_id = $1::uuid
+                WHERE tenant_id = $2::uuid AND customer_id = ANY($3::uuid[])
+            """, primary_id, tenant_id, secondary_ids)
+
+            await conn.execute("""
+                UPDATE tasks
+                SET customer_id = $1::uuid
+                WHERE tenant_id = $2::uuid AND customer_id = ANY($3::uuid[])
+            """, primary_id, tenant_id, secondary_ids)
+
+            # 8. Reassign Customer Reviews
+            for sph in sec_phones:
+                s_l10 = re.sub(r"[^0-9]", "", sph)[-10:] if len(re.sub(r"[^0-9]", "", sph)) >= 10 else sph
+                await conn.execute("""
+                    UPDATE customer_reviews
+                    SET customer_phone = $1
+                    WHERE tenant_id = $2::uuid
+                      AND (customer_phone = $3 OR RIGHT(REGEXP_REPLACE(customer_phone, '[^0-9]', '', 'g'), 10) = $4)
+                """, p_phone, tenant_id, sph, s_l10)
+
+            # 9. Update Metadata with Merged Phones & History
+            p_meta = primary.get("metadata") or {}
+            if isinstance(p_meta, str):
+                try: p_meta = json.loads(p_meta)
+                except: p_meta = {}
+            if not isinstance(p_meta, dict):
+                p_meta = {}
+
+            existing_merged_phones = set(p_meta.get("merged_phones", []))
+            for sph in sec_phones:
+                if sph and sph != p_phone:
+                    clean = re.sub(r"[^0-9]", "", sph)
+                    if clean:
+                        existing_merged_phones.add(clean)
+                        if len(clean) >= 10:
+                            existing_merged_phones.add(clean[-10:])
+                            existing_merged_phones.add(f"91{clean[-10:]}")
+            p_meta["merged_phones"] = sorted(list(existing_merged_phones))
+
+            # Audit merge history
+            history = p_meta.get("merge_history", [])
+            sec_summaries = [f"{s.get('name') or 'Customer'} ({s.get('phone')})" for s in secondaries]
+            history.append({
+                "merged_at": datetime.now(timezone.utc).isoformat(),
+                "merged_by": caller.get("email") or caller.get("role") or "staff",
+                "absorbed_records": sec_summaries
+            })
+            p_meta["merge_history"] = history
+
+            # Combine concerns and services
+            combined_concerns = set(primary.get("primary_concerns") or [])
+            if primary.get("health_concern"): combined_concerns.add(primary["health_concern"])
+            combined_services = set(primary.get("interested_services") or [])
+            
+            for s in secondaries:
+                if s.get("primary_concerns"):
+                    combined_concerns.update(s["primary_concerns"])
+                if s.get("health_concern"):
+                    combined_concerns.add(s["health_concern"])
+                if s.get("interested_services"):
+                    combined_services.update(s["interested_services"])
+
+            new_location = primary.get("location") or next((s.get("location") for s in secondaries if s.get("location")), None)
+            new_doctor = primary.get("preferred_doctor") or next((s.get("preferred_doctor") for s in secondaries if s.get("preferred_doctor")), None)
+            new_age = primary.get("age") or next((s.get("age") for s in secondaries if s.get("age")), None)
+            new_internal_name = payload.internal_name.strip() if payload.internal_name else (primary.get("internal_name") or next((s.get("internal_name") for s in secondaries if s.get("internal_name")), None))
+
+            # Update Primary Customer
+            await conn.execute("""
+                UPDATE customers
+                SET metadata = $1::jsonb,
+                    internal_name = $2,
+                    location = $3,
+                    preferred_doctor = $4,
+                    age = $5,
+                    primary_concerns = $6::text[],
+                    interested_services = $7::text[],
+                    updated_at = now()
+                WHERE id = $8::uuid AND tenant_id = $9::uuid
+            """, json.dumps(p_meta), new_internal_name, new_location, new_doctor, new_age,
+                list(combined_concerns), list(combined_services), primary_id, tenant_id)
+
+            # Update Primary Contact
+            c_meta = primary_contact.get("metadata") or {}
+            if isinstance(c_meta, str):
+                try: c_meta = json.loads(c_meta)
+                except: c_meta = {}
+            if not isinstance(c_meta, dict): c_meta = {}
+            c_meta["merged_phones"] = p_meta["merged_phones"]
+            
+            await conn.execute("""
+                UPDATE contacts
+                SET metadata = $1::jsonb,
+                    internal_name = $2,
+                    updated_at = now()
+                WHERE id = $3::uuid AND tenant_id = $4::uuid
+            """, json.dumps(c_meta), new_internal_name, p_contact_id, tenant_id)
+
+            # 10. Log an audit note
+            absorbed_text = ", ".join(sec_summaries)
+            await conn.execute("""
+                INSERT INTO customer_notes (id, tenant_id, customer_id, author, note_text, color, created_at)
+                VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'System (Merge)', $3, 'blue', now())
+            """, tenant_id, primary_id, f"Merged duplicate profile(s): {absorbed_text}. All appointments, WhatsApp chats, and medical notes unified.")
+
+            # 11. Delete absorbed secondary records
+            await conn.execute("""
+                DELETE FROM customers WHERE id = ANY($1::uuid[]) AND tenant_id = $2::uuid
+            """, secondary_ids, tenant_id)
+
+            if sec_contact_ids:
+                await conn.execute("""
+                    DELETE FROM contacts WHERE id = ANY($1::uuid[]) AND tenant_id = $2::uuid
+                """, sec_contact_ids, tenant_id)
+
+            logger.info("customers_merged", tenant_id=tenant_id, primary_id=primary_id, absorbed_count=len(secondary_ids))
+
+            return {
+                "status": "ok",
+                "primary_id": primary_id,
+                "message": f"Successfully merged {len(secondary_ids)} record(s) into primary profile.",
+                "absorbed_records": sec_summaries
+            }
 
 
 @app.get("/dropdown-options")
@@ -3796,9 +4178,21 @@ async def create_booking(
                 creds.get("template_booking_confirmation") or
                 "booking_confirmationn"
             )
-            tpl_params = [clean_name or "Valued Customer", payload.service.strip(), date_str, clock_str]
             
-            confirmation_msg = f"Hello {clean_name},\n\nYour appointment is confirmed.\nService: {payload.service.strip()}\nDate: {date_str}\nTime: {clock_str}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you."
+            # Mind Body Recovery alone: strictly protect patient privacy (no doctor, concern, or service)
+            is_mbr = (
+                str(tenant_id) == "b97ca3e5-7d43-44cf-8021-6e3659def878"
+                or (tenant_row and (tenant_row.get("slug") or "").lower() in ("mindbodyrecovery", "mind-body-recovery"))
+            )
+            if is_mbr:
+                if tpl_name in ("mbr_appointment_confirmed", "appointment_confirmation_simple"):
+                    tpl_params = [clean_name or "Valued Customer", date_str, clock_str]
+                else:
+                    tpl_params = [clean_name or "Valued Customer", "Appointment", date_str, clock_str]
+                confirmation_msg = f"Hello {clean_name},\n\nYour appointment has been confirmed.\nDate: {date_str}\nTime: {clock_str}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you."
+            else:
+                tpl_params = [clean_name or "Valued Customer", payload.service.strip(), date_str, clock_str]
+                confirmation_msg = f"Hello {clean_name},\n\nYour appointment is confirmed.\nService: {payload.service.strip()}\nDate: {date_str}\nTime: {clock_str}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you."
 
             if creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
                 headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
@@ -4825,17 +5219,32 @@ async def update_booking_status(
         elif payload.status == "confirmed":
             delay_seconds = 0
             timing_line = f" on *{time_str}*" if time_str else ""
-            automated_text = (
-                f"Hi {patient_name}, your booking for *{service_name}*{timing_line} is officially confirmed.\n\n"
-                f"Location: {tenant_name}\n\n"
-                f"We look forward to seeing you. Reply to this chat if you have any questions or need directions."
-            )
             dispatch_template = (
                 t_settings_dict.get("template_booking_confirmation") or
                 wa_data.get("template_booking_confirmation") or
                 "booking_confirmationn"
             )
-            dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", date_str or "Today", clock_str or "Scheduled Time"]
+            is_mbr = (
+                str(tenant_id) == "b97ca3e5-7d43-44cf-8021-6e3659def878"
+                or ("mind body recovery" in (tenant_name or "").lower())
+            )
+            if is_mbr:
+                automated_text = (
+                    f"Hi {patient_name}, your appointment{timing_line} has been confirmed.\n\n"
+                    f"Location: {tenant_name}\n\n"
+                    f"We look forward to seeing you. Reply to this chat if you have any questions or need directions."
+                )
+                if dispatch_template in ("mbr_appointment_confirmed", "appointment_confirmation_simple"):
+                    dispatch_params = [patient_name or "Valued Customer", date_str or "Today", clock_str or "Scheduled Time"]
+                else:
+                    dispatch_params = [patient_name or "Valued Customer", "Appointment", date_str or "Today", clock_str or "Scheduled Time"]
+            else:
+                automated_text = (
+                    f"Hi {patient_name}, your booking for *{service_name}*{timing_line} is officially confirmed.\n\n"
+                    f"Location: {tenant_name}\n\n"
+                    f"We look forward to seeing you. Reply to this chat if you have any questions or need directions."
+                )
+                dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", date_str or "Today", clock_str or "Scheduled Time"]
 
         elif payload.status == "cancelled":
             delay_seconds = 0
@@ -9084,6 +9493,281 @@ async def handle_razorpay_webhook(
     return {"status": "processed", "event": event_type}
 
 
+# ── Missed Call Automated WhatsApp Outreach Webhook ───────────────────────────
+
+class MissedCallPayload(BaseModel):
+    caller_phone: Optional[str] = None
+    caller_name: Optional[str] = None
+    sms_text: Optional[str] = None
+    timestamp: Optional[str] = None
+    tenant: Optional[str] = None
+    token: Optional[str] = None
+
+
+@app.post("/webhooks/missed-call")
+@app.post("/api/v1/crm/webhooks/missed-call")
+@app.get("/webhooks/missed-call")
+@app.get("/api/v1/crm/webhooks/missed-call")
+async def handle_missed_call_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    tenant: Optional[str] = Query(None),
+    token: Optional[str] = Query(None),
+    caller: Optional[str] = Query(None),
+    caller_phone: Optional[str] = Query(None),
+    sms_text: Optional[str] = Query(None),
+    x_tenant_token: Optional[str] = Header(None, alias="X-Tenant-Webhook-Token"),
+):
+    """
+    Automated Missed Call Ingestion & WhatsApp Follow-up Webhook.
+    Strictly isolated per tenant. Accepts either direct caller number (e.g. from Android MacroDroid)
+    or carrier missed call alert SMS text (e.g. from iPhone Apple Shortcut).
+    """
+    body_data = {}
+    if request.method == "POST":
+        try:
+            body_data = await request.json()
+        except Exception:
+            try:
+                form = await request.form()
+                body_data = dict(form)
+            except Exception:
+                body_data = {}
+
+    t_param = (
+        tenant or 
+        body_data.get("tenant") or 
+        body_data.get("tenant_id") or 
+        body_data.get("slug") or 
+        ""
+    ).strip()
+
+    tok_param = (
+        token or 
+        x_tenant_token or 
+        body_data.get("token") or 
+        body_data.get("webhook_token") or 
+        ""
+    ).strip()
+
+    raw_phone = (
+        caller or 
+        caller_phone or 
+        body_data.get("caller_phone") or 
+        body_data.get("phone") or 
+        body_data.get("caller") or 
+        ""
+    )
+
+    raw_sms = (
+        sms_text or 
+        body_data.get("sms_text") or 
+        body_data.get("message") or 
+        body_data.get("text") or 
+        ""
+    )
+
+    if not t_param:
+        raise HTTPException(status_code=400, detail="Missing tenant identifier. Please specify ?tenant=<slug>")
+
+    async with db_pool.acquire() as conn:
+        # 1. Strictly verify tenant identity
+        tenant_row = await conn.fetchrow(
+            """SELECT id, name, slug, settings, is_active 
+               FROM tenants 
+               WHERE (slug = $1 OR id::text = $1) AND is_active = true""",
+            t_param
+        )
+        if not tenant_row:
+            raise HTTPException(status_code=404, detail="Tenant not found or inactive.")
+
+        tenant_id = str(tenant_row["id"])
+        tenant_name = tenant_row["name"] or "Our Team"
+        tenant_slug = tenant_row["slug"]
+        t_settings = tenant_row["settings"] or {}
+        if isinstance(t_settings, str):
+            try:
+                t_settings = json.loads(t_settings)
+            except Exception:
+                t_settings = {}
+
+        # 2. Strict Security Token Verification
+        expected_token = hashlib.sha256(f"{tenant_id}:{JWT_SECRET}:missed-call".encode()).hexdigest()[:16]
+        allowed_tokens = {expected_token}
+        if t_settings.get("missed_call_token"):
+            allowed_tokens.add(str(t_settings["missed_call_token"]).strip())
+        if t_settings.get("webhook_token"):
+            allowed_tokens.add(str(t_settings["webhook_token"]).strip())
+        allowed_tokens.add(f"{tenant_slug}_missed_call")
+
+        if tok_param and tok_param not in allowed_tokens:
+            raise HTTPException(status_code=403, detail="Invalid tenant security token.")
+
+        # 3. Extract and normalize phone number
+        clean_digits = ""
+        if raw_phone:
+            clean_digits = re.sub(r'[^0-9]', '', str(raw_phone))
+        elif raw_sms:
+            # Parse Indian mobile numbers from SMS text (Jio, Airtel, Vi format)
+            matches = re.findall(r'(?:(?:\+91|91|0)?([6-9]\d{9}))', str(raw_sms))
+            if matches:
+                clean_digits = matches[0]
+            else:
+                matches_any = re.findall(r'\b\d{10}\b', str(raw_sms))
+                if matches_any:
+                    clean_digits = matches_any[0]
+
+        if not clean_digits or len(clean_digits) < 10:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not extract a valid 10-digit phone number. Please provide 'caller_phone' or 'sms_text'."
+            )
+
+        last_10 = clean_digits[-10:]
+        wa_phone = f"91{last_10}"
+
+        # 4. Strict Tenant Scoping: Lookup or create customer in THIS tenant only
+        customer = await conn.fetchrow(
+            """SELECT id, name, phone, internal_name, lead_probability, health_concern
+               FROM customers
+               WHERE tenant_id = $1::uuid
+                 AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $3)
+               LIMIT 1""",
+            tenant_id, wa_phone, last_10
+        )
+
+        contact = await conn.fetchrow(
+            """SELECT id, name, phone, wa_profile_name
+               FROM contacts
+               WHERE tenant_id = $1::uuid
+                 AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $3)
+               LIMIT 1""",
+            tenant_id, wa_phone, last_10
+        )
+
+        patient_name = "there"
+        cust_id = None
+        if customer:
+            cust_id = str(customer["id"])
+            patient_name = customer["internal_name"] or customer["name"] or "there"
+
+        contact_id = None
+        if contact:
+            contact_id = str(contact["id"])
+            if patient_name == "there" and contact.get("name"):
+                patient_name = contact["name"]
+        else:
+            contact_id = str(uuid.uuid4())
+            await conn.execute(
+                """INSERT INTO contacts (id, tenant_id, phone, name, opt_in, opt_in_at, created_at, updated_at)
+                   VALUES ($1::uuid, $2::uuid, $3, $4, true, now(), now(), now())""",
+                contact_id, tenant_id, wa_phone, patient_name if patient_name != "there" else f"Caller {last_10[-4:]}"
+            )
+
+        if not cust_id:
+            cust_id = str(uuid.uuid4())
+            await conn.execute(
+                """INSERT INTO customers (id, tenant_id, name, phone, status, lead_probability, call_status, created_at, updated_at)
+                   VALUES ($1::uuid, $2::uuid, $3, $4, 'new', 'warm', 'missed', now(), now())""",
+                cust_id, tenant_id, patient_name if patient_name != "there" else f"Inquiry ({last_10[-4:]})", wa_phone
+            )
+
+        # 5. Conversation Resolution strictly under tenant_id
+        conv = await conn.fetchrow(
+            """SELECT id, last_message_at FROM conversations 
+               WHERE tenant_id = $1::uuid AND contact_id = $2::uuid 
+               ORDER BY last_message_at DESC NULLS LAST LIMIT 1""",
+            tenant_id, contact_id
+        )
+        if conv:
+            conv_id = str(conv["id"])
+        else:
+            conv_id = str(uuid.uuid4())
+            await conn.execute(
+                """INSERT INTO conversations (id, tenant_id, contact_id, status, unread_count, created_at, last_message_at)
+                   VALUES ($1::uuid, $2::uuid, $3::uuid, 'bot', 0, now(), now())""",
+                conv_id, tenant_id, contact_id
+            )
+
+        # 6. Audit Note strictly scoped to tenant_id & customer_id
+        note_id = str(uuid.uuid4())
+        note_text = f"📞 Missed cellular call detected from {last_10}. Automated WhatsApp follow-up outreach triggered."
+        await conn.execute(
+            """INSERT INTO customer_notes (id, tenant_id, customer_id, author, note_text, color, created_at)
+               VALUES ($1::uuid, $2::uuid, $3::uuid, 'System', $4, 'amber', now())""",
+            note_id, tenant_id, cust_id, note_text
+        )
+
+        # 7. Push Notification to Staff
+        background_tasks.add_task(
+            dispatch_push_notification,
+            pool=db_pool,
+            tenant_id=tenant_id,
+            title=f"📞 Missed Call: {patient_name} ({last_10})",
+            body=f"Automated WhatsApp message sent to caller. They can now chat on WhatsApp.",
+            notif_type="missed_call",
+            url=f"/dashboard#chat-{conv_id}",
+            data={"phone": wa_phone, "customer_id": cust_id}
+        )
+
+        # 8. Dispatch WhatsApp Message to Caller using THIS tenant's credentials
+        tpl_name = (
+            t_settings.get("template_missed_call") or 
+            "missed_call_followup"
+        )
+        tpl_params = [patient_name if patient_name != "there" else "there", tenant_name]
+        
+        fallback_msg = (
+            f"Hello {patient_name if patient_name != 'there' else ''}! "
+            f"We noticed we just missed your call at {tenant_name}. We apologize for not being able to answer right away. "
+            f"Please let us know how we can assist you, or reply to this chat anytime."
+        ).strip()
+
+        tpl_resp = await dispatch_whatsapp_message(
+            tenant_id=tenant_id,
+            to_phone=wa_phone,
+            template_name=tpl_name,
+            template_params=tpl_params
+        )
+
+        # If missed_call_followup template is still pending in Meta, try approved client_followup_checkin
+        if not tpl_resp:
+            alt_tpl = "client_followup_checkin"
+            alt_params = [patient_name if patient_name != "there" else "there", "our team", tenant_name]
+            tpl_resp = await dispatch_whatsapp_message(
+                tenant_id=tenant_id,
+                to_phone=wa_phone,
+                template_name=alt_tpl,
+                template_params=alt_params
+            )
+            if tpl_resp:
+                tpl_name = alt_tpl
+                tpl_params = alt_params
+
+        # Record outbound message in database if sent
+        if tpl_resp:
+            tpl_wamid = tpl_resp.get("messages", [{}])[0].get("id") if isinstance(tpl_resp, dict) else None
+            msg_id = str(uuid.uuid4())
+            await conn.execute(
+                """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, template_name, template_params, status, ai_used_fallback)
+                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'template', $5, $6, $7::jsonb, 'sent', false)""",
+                msg_id, conv_id, tenant_id, tpl_wamid, fallback_msg, tpl_name, json.dumps(tpl_params)
+            )
+            await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+            logger.info("missed_call_wa_dispatched", tenant=tenant_slug, to=wa_phone, template=tpl_name)
+
+        return {
+            "status": "success",
+            "tenant": tenant_slug,
+            "caller_phone": wa_phone,
+            "patient_name": patient_name,
+            "customer_id": cust_id,
+            "conversation_id": conv_id,
+            "whatsapp_sent": bool(tpl_resp),
+            "template_used": tpl_name if tpl_resp else None
+        }
+
+
 class AdminDueAlertRequest(BaseModel):
     super_admin_phone: str
     tenant_id: Optional[str] = None
@@ -11706,8 +12390,20 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                 wa_creds.get("template_booking_confirmation") or
                 "booking_confirmationn"
             )
-            customer_params = [clean_name, service_name, date_str, time_str]
-            wa_text = f"Appointment Confirmed! Hello {clean_name}, your appointment for {service_name} is confirmed for {date_str} at {time_str}. Location: {tenant['name']}."
+            is_mbr = (
+                str(tenant_id) == "b97ca3e5-7d43-44cf-8021-6e3659def878"
+                or ((tenant.get("slug") or "").lower() in ("mindbodyrecovery", "mind-body-recovery"))
+                or ("mind body recovery" in (tenant.get("name") or "").lower())
+            )
+            if is_mbr:
+                if customer_tpl in ("mbr_appointment_confirmed", "appointment_confirmation_simple"):
+                    customer_params = [clean_name or "Valued Customer", date_str, time_str]
+                else:
+                    customer_params = [clean_name or "Valued Customer", "Appointment", date_str, time_str]
+                wa_text = f"Appointment Confirmed! Hello {clean_name}, your appointment has been confirmed for {date_str} at {time_str}. Location: {tenant['name']}."
+            else:
+                customer_params = [clean_name, service_name, date_str, time_str]
+                wa_text = f"Appointment Confirmed! Hello {clean_name}, your appointment for {service_name} is confirmed for {date_str} at {time_str}. Location: {tenant['name']}."
 
             tpl_resp = await dispatch_whatsapp_message(
                 tenant_id,

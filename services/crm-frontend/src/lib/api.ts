@@ -360,6 +360,8 @@ export interface Customer {
   id: string;
   phone: string;
   name?: string | null;
+  internal_name?: string | null;
+  metadata?: { merged_phones?: string[]; merge_history?: any[]; [key: string]: any } | null;
   age?: number | null;
   location?: string | null;
   wa_profile_name?: string | null;
@@ -395,6 +397,27 @@ export interface Customer {
   next_action?: string | null;
   primary_concerns?: string[] | null;
   interested_services?: string[] | null;
+}
+
+export interface DuplicateCustomerCandidate {
+  id: string;
+  name?: string | null;
+  internal_name?: string | null;
+  phone: string;
+  status: string;
+  health_concern: string;
+  preferred_doctor?: string | null;
+  last_messaged_at?: string | null;
+  created_at?: string | null;
+  bookings_count: number;
+  notes_count: number;
+}
+
+export interface DuplicateCustomerGroup {
+  reason: string;
+  match_type: 'phone' | 'name';
+  match_value: string;
+  customers: DuplicateCustomerCandidate[];
 }
 
 export interface CrmDropdownOptions {
@@ -994,6 +1017,19 @@ export const crm = {
   deleteCustomerFollowup: (customerId: string) =>
     request<{ status: string; message: string; id: string }>(`/api/v1/crm/customers/${customerId}/followup`, {
       method: 'DELETE',
+    }),
+
+  getDuplicateCustomers: () =>
+    request<{ duplicates: DuplicateCustomerGroup[]; total_groups: number }>('/api/v1/crm/customers/duplicates'),
+
+  mergeCustomers: (primaryCustomerId: string, secondaryCustomerIds: string[], internalName?: string) =>
+    request<{ status: string; primary_id: string; message: string; absorbed_records: string[] }>('/api/v1/crm/customers/merge', {
+      method: 'POST',
+      body: JSON.stringify({
+        primary_customer_id: primaryCustomerId,
+        secondary_customer_ids: secondaryCustomerIds,
+        internal_name: internalName || undefined,
+      }),
     }),
 
   getCustomerBookings: async (customerId: string): Promise<{

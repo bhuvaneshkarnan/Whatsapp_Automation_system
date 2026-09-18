@@ -33,6 +33,7 @@ import {
   GoogleBusinessStatus,
 } from '@/lib/api';
 import { ModernCustomerView } from '@/components/dashboard/ModernCustomerView';
+import { MergeCustomersModal } from '@/components/dashboard/MergeCustomersModal';
 import {
   MessageSquare,
   Megaphone,
@@ -83,6 +84,7 @@ import {
   Star,
   UserX,
   RotateCcw,
+  GitMerge,
   Bell,
   BellRing,
   BellOff,
@@ -2215,11 +2217,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [showCustomerHistoryModal, setShowCustomerHistoryModal] = useState(false);
 
   // Local Concern edit state for Drawer
+  const [drawerInternalName, setDrawerInternalName] = useState('');
   const [drawerConcern, setDrawerConcern] = useState('');
   const [drawerAge, setDrawerAge] = useState('');
   const [drawerLocation, setDrawerLocation] = useState('');
   const [drawerDoctor, setDrawerDoctor] = useState('');
   const [savingDrawerAttributes, setSavingDrawerAttributes] = useState(false);
+  const [mergeModalCustomer, setMergeModalCustomer] = useState<Customer | null>(null);
+  const [mergeModalSecondaryId, setMergeModalSecondaryId] = useState<string | null>(null);
 
   // Floating Staff / Doctor Assignment Popover state (unified with Chat Header design)
   const [custAssignPopover, setCustAssignPopover] = useState<{
@@ -2391,6 +2396,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   // Sync local drawer fields when a customer is selected in the directory
   useEffect(() => {
     if (dirSelectedCust) {
+      setDrawerInternalName(dirSelectedCust.internal_name || '');
       setDrawerConcern(dirSelectedCust.health_concern || '');
       setDrawerAge(dirSelectedCust.age != null ? String(dirSelectedCust.age) : '');
       setDrawerLocation(dirSelectedCust.location || '');
@@ -4834,6 +4840,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   async function handleSelectCustomer(cust: Customer) {
     setSelectedCustomer(cust);
+    setDrawerInternalName(cust.internal_name || '');
     setDrawerConcern(cust.health_concern || '');
     setDrawerAge(cust.age != null ? String(cust.age) : '');
     setDrawerLocation(cust.location || '');
@@ -5177,6 +5184,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     try {
       const docVal = drawerDoctor.trim();
       const patch = {
+        internal_name: drawerInternalName.trim() || undefined,
         health_concern: drawerConcern.trim() || undefined,
         age: drawerAge ? parseInt(drawerAge, 10) : undefined,
         location: drawerLocation.trim() || undefined,
@@ -7837,8 +7845,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             <div className="flex items-center gap-1.5 flex-wrap">
               <h4 className="font-bold text-xs text-text-primary flex items-center gap-1.5 truncate">
                 <User className="w-3.5 h-3.5 text-accent stroke-[1.8] shrink-0" />
-                <span className="truncate">{selectedCustomer.name || 'Customer Profile'}</span>
+                <span className="truncate">{selectedCustomer.internal_name || selectedCustomer.name || 'Customer Profile'}</span>
+                {selectedCustomer.internal_name && (
+                  <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
+                    Internal
+                  </span>
+                )}
               </h4>
+              {selectedCustomer.internal_name && selectedCustomer.name && selectedCustomer.name !== selectedCustomer.internal_name && (
+                <span className="text-[10px] text-text-muted truncate">
+                  (WA: {selectedCustomer.name})
+                </span>
+              )}
               {selectedCustomer.lead_probability && (
                 <span
                   className={`text-[9px] font-bold px-1.5 py-0.2 rounded-xs uppercase tracking-wider ${
@@ -7850,6 +7868,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   }`}
                 >
                   {selectedCustomer.lead_probability}
+                </span>
+              )}
+              {Array.isArray(selectedCustomer.metadata?.merged_phones) && selectedCustomer.metadata.merged_phones.length > 0 && (
+                <span
+                  className="text-[9px] font-medium px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1 shrink-0"
+                  title={`Merged phone numbers: ${selectedCustomer.metadata.merged_phones.join(', ')}`}
+                >
+                  <GitMerge className="w-2.5 h-2.5" />
+                  +{selectedCustomer.metadata.merged_phones.length} alias
                 </span>
               )}
             </div>
@@ -7951,6 +7978,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </button>
               </div>
             )}
+
+            {/* Merge Record Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setMergeModalCustomer(selectedCustomer);
+                setMergeModalSecondaryId(null);
+              }}
+              className="px-2 py-1 text-text-muted hover:text-accent rounded-md hover:bg-accent/10 border border-border/80 hover:border-accent/40 transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-medium"
+              title="Merge duplicate customer records"
+            >
+              <GitMerge className="w-3.5 h-3.5 text-accent" />
+              <span className="hidden sm:inline">Merge</span>
+            </button>
 
             {/* Expand / Minimize */}
             <button
@@ -8217,6 +8258,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             <div className="space-y-2 p-3 bg-surface-subtle border border-border rounded-sm">
               <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Customer Details</p>
               
+              <div>
+                <label className="text-[10px] text-text-muted block mb-1">
+                  Internal Patient Name / Label (CRM Only)
+                </label>
+                <input
+                  type="text"
+                  value={drawerInternalName}
+                  onChange={(e) => setDrawerInternalName(e.target.value)}
+                  placeholder={selectedCustomer.name ? `e.g. ${selectedCustomer.name} (VIP)` : 'Internal patient label...'}
+                  className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                />
+                <span className="text-[9px] text-text-muted mt-0.5 block">
+                  Private CRM label. Does not alter the patient&apos;s external WhatsApp name.
+                </span>
+              </div>
+
               <div>
                 <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.requirement_label || 'Requirement / Concern'}</label>
                 <textarea
@@ -13608,9 +13665,38 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     setQuickNoteColor((cust.latest_note_color || 'slate').toLowerCase());
                   }}
                   onDeleteLatestNote={handleDeleteCustomerLatestNote}
+                  onOpenMergeModal={(cust, secId) => {
+                    setMergeModalCustomer(cust);
+                    setMergeModalSecondaryId(secId || null);
+                  }}
                 />
               )
             )}
+
+            {/* Merge Customers Modal */}
+            {mergeModalCustomer && (
+              <MergeCustomersModal
+                primaryCustomer={mergeModalCustomer}
+                initialSecondaryId={mergeModalSecondaryId}
+                allCustomers={customers}
+                onClose={() => {
+                  setMergeModalCustomer(null);
+                  setMergeModalSecondaryId(null);
+                }}
+                onSuccess={(primaryId) => {
+                  setMergeModalCustomer(null);
+                  setMergeModalSecondaryId(null);
+                  loadCustomers();
+                  setActionNotice('Patient profiles merged successfully.');
+                  setTimeout(() => setActionNotice(null), 3500);
+                  const updatedPrimary = customers.find((c) => c.id === primaryId);
+                  if (updatedPrimary) {
+                    setSelectedCustomer(updatedPrimary);
+                  }
+                }}
+              />
+            )}
+
 {/* ── MANAGE CRM DROPDOWN OPTIONS MODAL ───────────────────────── */}
             {dropdownOptionsModalOpen && (
               <div

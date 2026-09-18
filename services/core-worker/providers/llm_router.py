@@ -72,28 +72,18 @@ def clean_llm_response(text: str) -> str:
         flags=re.IGNORECASE
     )
 
-    # Split lines and filter out empty ones
+    # Split lines and filter out empty ones (allow 1 to 3 short lines as per global WhatsApp format)
     lines = [l.strip() for l in cleaned.split("\n") if l.strip()]
-
-    # Limit to maximum 2 lines (ensure 1-2 lines, never an essay)
-    if len(lines) > 2:
-        lines = lines[:2]
+    if len(lines) > 3:
+        lines = lines[:3]
 
     cleaned = "\n".join(lines).strip()
 
-    # Sentence-level brevity enforcement (Strict 1-2 short sentences, never an essay)
+    # Sentence-level brevity enforcement (Strict 1-3 complete short sentences, never cut mid-sentence)
     raw_sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
-    if len(raw_sentences) > 2:
-        raw_sentences = raw_sentences[:2]
-        cleaned = " ".join(raw_sentences)
-
-    # Strict word count ceiling (never exceed 26 words for authentic 1-2 line WhatsApp brevity)
-    words = cleaned.split()
-    if len(words) > 26:
-        if len(raw_sentences) > 1 and len(raw_sentences[0].split()) >= 6:
-            cleaned = raw_sentences[0]
-        else:
-            cleaned = " ".join(words[:24]).rstrip(",;:-") + "."
+    if len(raw_sentences) > 3:
+        raw_sentences = raw_sentences[:3]
+        cleaned = "\n".join(raw_sentences)
 
     # Re-attach action tags on their own line at the very end
     if action_tags:

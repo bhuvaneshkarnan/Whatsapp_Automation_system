@@ -64,6 +64,11 @@ import {
   Loader2,
   Stethoscope,
   Menu,
+  PhoneCall,
+  PhoneMissed,
+  Share2,
+  Download,
+  MoreVertical,
 } from 'lucide-react';
 import {
   admin,
@@ -800,6 +805,84 @@ export default function SuperAdminClients() {
   function triggerErrorNotice(msg: string) {
     setActionErrorNotice(msg);
     setTimeout(() => setActionErrorNotice(null), 6000);
+  }
+
+  // ── Automated Missed Call WhatsApp Outreach Helpers ──
+  const [missedCallModalTenant, setMissedCallModalTenant] = useState<ClientTenant | null>(null);
+  const [webhooksRegistryTab, setWebhooksRegistryTab] = useState<'meta' | 'missed_call'>('missed_call');
+  const [missedCallActiveDevice, setMissedCallActiveDevice] = useState<'android' | 'iphone'>('android');
+  const [actionMenuTenantId, setActionMenuTenantId] = useState<string | null>(null);
+
+  function getMissedCallUrls(slug: string) {
+    const base = 'https://crm.goboldlabs.com/api/v1/crm/webhooks/missed-call';
+    const token = `${slug}_missed_call`;
+    const androidUrl = `${base}?tenant=${slug}&token=${token}&caller=[call_number]`;
+    const iphoneUrl = `${base}?tenant=${slug}&token=${token}&sms_text=ShortcutInput`;
+    return { base, token, androidUrl, iphoneUrl };
+  }
+
+  function getMissedCallClientMessage(tenantName: string, slug: string) {
+    const { androidUrl, iphoneUrl } = getMissedCallUrls(slug);
+    return `👋 Hi from ${tenantName} Team!
+
+Here is your 15-second setup for Automated Missed Call WhatsApp Follow-ups. Whenever someone calls your phone number and you cannot answer, our CRM will automatically send them a WhatsApp message so you never lose a lead or patient!
+
+📱 If you use ANDROID (Instant):
+1. Install "MacroDroid" from Google Play Store (Free).
+2. Tap "Add Macro" -> Trigger (+): Call/SMS -> Call Missed -> Select "Any Number".
+3. Action (+): Connectivity -> Open Website / HTTP GET -> Paste this URL:
+${androidUrl}
+4. Turn Macro ON. Done!
+
+🍎 If you use IPHONE (Built-in Shortcuts):
+1. Open the built-in "Shortcuts" app -> Tap "Automation" -> New Automation (+).
+2. Select "Message" -> When Message contains: "missed call" -> Select "Run Immediately".
+3. Action (+): "Get Contents of URL" -> Paste this URL:
+${iphoneUrl}
+(Set ShortcutInput to Message).
+4. Tap Done!
+
+Any missed call will now automatically get followed up on WhatsApp!`;
+  }
+
+  function downloadMacroDroidFile(tenantName: string, slug: string) {
+    const { androidUrl } = getMissedCallUrls(slug);
+    const macroContent = {
+      macro: {
+        name: `${tenantName} - Missed Call Auto WhatsApp`,
+        description: `Automatically triggers instant WhatsApp message to missed callers via ${tenantName} CRM.`,
+        enabled: true,
+        triggerList: [
+          {
+            m_SIG: 4,
+            m_classType: 'CallMissedTrigger',
+            m_callType: 0,
+            m_contactName: 'Any Number',
+            m_contactSelection: 0
+          }
+        ],
+        actionList: [
+          {
+            m_SIG: 105,
+            m_classType: 'HttpRequestAction',
+            m_url: androidUrl,
+            m_requestMethod: 0,
+            m_contentBody: '',
+            m_contentType: 'application/json'
+          }
+        ],
+        constraintList: []
+      }
+    };
+    const blob = new Blob([JSON.stringify(macroContent, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${slug}_missed_call_setup.macro`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   // Password reset modal state
@@ -2240,62 +2323,198 @@ export default function SuperAdminClients() {
                 </div>
               </div>
 
-              {/* ── EMBEDDED META WEBHOOK REGISTRY (Directly in 1st Tab) ── */}
+              {/* ── EMBEDDED WEBHOOKS REGISTRY (Meta Inbound + Missed Call Outreach) ── */}
               {showWebhooksRegistry && (
                 <div className="p-4 bg-surface-subtle border-b border-border space-y-3 animate-in fade-in duration-150">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                     <div>
-                      <h4 className="text-xs font-semibold text-text-primary flex items-center gap-2">
-                        <Key className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                        <span>Meta WhatsApp Webhook Callback Registry</span>
-                      </h4>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                          {webhooksRegistryTab === 'missed_call' ? (
+                            <PhoneCall className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 stroke-[1.5]" />
+                          ) : (
+                            <Key className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
+                          )}
+                          <span>{webhooksRegistryTab === 'missed_call' ? 'Pre-filled Missed Call WhatsApp Outreach Registry' : 'Meta WhatsApp Inbound Webhook Registry'}</span>
+                        </h4>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-semibold">
+                          {webhooksRegistryTab === 'missed_call' ? '100% Free Mobile Setup' : 'Inbound Cloud API'}
+                        </span>
+                      </div>
                       <p className="text-[11px] text-text-muted mt-0.5">
-                        Copy each client organization's dedicated Webhook Callback URL and Verify Token into the Meta App Developer Portal (WhatsApp &rarr; Configuration).
+                        {webhooksRegistryTab === 'missed_call'
+                          ? 'Pre-filled webhook endpoints for each client. Copy or send to client owners to activate 15-second missed call auto-replies on WhatsApp.'
+                          : "Copy each client organization's dedicated Webhook Callback URL and Verify Token into the Meta App Developer Portal (WhatsApp → Configuration)."}
                       </p>
                     </div>
-                    <button
-                      onClick={() => setShowWebhooksRegistry(false)}
-                      className="p-1 text-text-muted hover:text-text-primary cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5 stroke-[1.5]" />
-                    </button>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Sub-tab Pill Switcher */}
+                      <div className="inline-flex items-center p-0.5 bg-surface border border-border rounded-sm">
+                        <button
+                          type="button"
+                          onClick={() => setWebhooksRegistryTab('missed_call')}
+                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-xs transition-colors cursor-pointer flex items-center gap-1 ${
+                            webhooksRegistryTab === 'missed_call'
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'text-text-muted hover:text-text-primary'
+                          }`}
+                        >
+                          <PhoneCall className="w-3 h-3" />
+                          <span>Missed Calls (Pre-filled)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWebhooksRegistryTab('meta')}
+                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-xs transition-colors cursor-pointer flex items-center gap-1 ${
+                            webhooksRegistryTab === 'meta'
+                              ? 'bg-accent text-white shadow-xs'
+                              : 'text-text-muted hover:text-text-primary'
+                          }`}
+                        >
+                          <Key className="w-3 h-3" />
+                          <span>Meta WhatsApp</span>
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={() => setShowWebhooksRegistry(false)}
+                        className="p-1 text-text-muted hover:text-text-primary cursor-pointer rounded hover:bg-surface"
+                      >
+                        <X className="w-3.5 h-3.5 stroke-[1.5]" />
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
-                    {tenants.map((t) => {
-                      const url = `https://crm.goboldlabs.com/webhooks/whatsapp/${t.slug}`;
-                      const token = `${t.slug}_token`;
-                      return (
-                        <div key={t.id} className="p-2.5 bg-surface border border-border rounded-sm flex items-center justify-between gap-2 shadow-2xs">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-semibold text-xs text-text-primary truncate">{t.name}</span>
-                              <span className="text-[10px] font-mono text-text-muted bg-surface-subtle px-1 rounded border border-border">/{t.slug}</span>
+                  {/* TAB 1: MISSED CALL PRE-FILLED REGISTRY */}
+                  {webhooksRegistryTab === 'missed_call' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                      {tenants.map((t) => {
+                        const { androidUrl, iphoneUrl } = getMissedCallUrls(t.slug);
+                        return (
+                          <div key={t.id} className="p-3 bg-surface border border-border rounded-md space-y-2.5 shadow-2xs">
+                            <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="font-semibold text-xs text-text-primary truncate">{t.name}</span>
+                                <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                                  /{t.slug}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  onClick={() => setMissedCallModalTenant(t)}
+                                  className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                                  title="Open full setup guide & modal"
+                                >
+                                  <PhoneCall className="w-3 h-3" />
+                                  <span>Setup Modal</span>
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    const msg = getMissedCallClientMessage(t.name, t.slug);
+                                    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                                  }}
+                                  className="p-1 bg-surface-subtle hover:bg-surface text-emerald-600 border border-border rounded text-[11px] transition-colors cursor-pointer"
+                                  title="Share to Client on WhatsApp"
+                                >
+                                  <Share2 className="w-3 h-3" />
+                                </button>
+                              </div>
                             </div>
-                            <p className="text-[11px] font-mono text-text-muted truncate mt-0.5">{url}</p>
+
+                            {/* Android Option */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-text-muted font-medium flex items-center gap-1">
+                                  <Smartphone className="w-3 h-3 text-emerald-600" />
+                                  Android (MacroDroid):
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => copyToClipboard(androidUrl, `reg-and-${t.id}`)}
+                                    className="px-1.5 py-0.5 bg-surface-subtle hover:bg-surface text-text-body border border-border rounded text-[10px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                                  >
+                                    {copiedField === `reg-and-${t.id}` ? <Check className="w-2.5 h-2.5 text-status-success" /> : <Copy className="w-2.5 h-2.5" />}
+                                    <span>Copy URL</span>
+                                  </button>
+                                  <button
+                                    onClick={() => downloadMacroDroidFile(t.name, t.slug)}
+                                    className="px-1.5 py-0.5 bg-surface-subtle hover:bg-surface text-text-body border border-border rounded text-[10px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                                    title="Download 1-Click .macro file"
+                                  >
+                                    <Download className="w-2.5 h-2.5" />
+                                    <span>.macro</span>
+                                  </button>
+                                </div>
+                              </div>
+                              <p className="p-1.5 bg-canvas border border-border rounded font-mono text-[10px] text-text-muted truncate select-all">
+                                {androidUrl}
+                              </p>
+                            </div>
+
+                            {/* iPhone Option */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-text-muted font-medium flex items-center gap-1">
+                                  <Smartphone className="w-3 h-3 text-indigo-500" />
+                                  iPhone (Shortcuts):
+                                </span>
+                                <button
+                                  onClick={() => copyToClipboard(iphoneUrl, `reg-ios-${t.id}`)}
+                                  className="px-1.5 py-0.5 bg-surface-subtle hover:bg-surface text-text-body border border-border rounded text-[10px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                                >
+                                  {copiedField === `reg-ios-${t.id}` ? <Check className="w-2.5 h-2.5 text-status-success" /> : <Copy className="w-2.5 h-2.5" />}
+                                  <span>Copy URL</span>
+                                </button>
+                              </div>
+                              <p className="p-1.5 bg-canvas border border-border rounded font-mono text-[10px] text-text-muted truncate select-all">
+                                {iphoneUrl}
+                              </p>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              onClick={() => copyToClipboard(url, `emb-url-${t.id}`)}
-                              className="px-2 py-1 bg-surface-subtle hover:bg-surface text-text-body border border-border rounded-sm text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1"
-                              title="Copy Webhook URL"
-                            >
-                              {copiedField === `emb-url-${t.id}` ? <Check className="w-3 h-3 text-status-success stroke-[1.5]" /> : <Copy className="w-3 h-3 stroke-[1.5]" />}
-                              <span>URL</span>
-                            </button>
-                            <button
-                              onClick={() => copyToClipboard(token, `emb-tok-${t.id}`)}
-                              className="px-2 py-1 bg-surface-subtle hover:bg-surface text-text-body border border-border rounded-sm text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1"
-                              title="Copy Verify Token"
-                            >
-                              {copiedField === `emb-tok-${t.id}` ? <Check className="w-3 h-3 text-status-success stroke-[1.5]" /> : <Copy className="w-3 h-3 stroke-[1.5]" />}
-                              <span>Token</span>
-                            </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* TAB 2: META INBOUND WEBHOOKS REGISTRY */}
+                  {webhooksRegistryTab === 'meta' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
+                      {tenants.map((t) => {
+                        const url = `https://crm.goboldlabs.com/webhooks/whatsapp/${t.slug}`;
+                        const token = `${t.slug}_token`;
+                        return (
+                          <div key={t.id} className="p-2.5 bg-surface border border-border rounded-sm flex items-center justify-between gap-2 shadow-2xs">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-xs text-text-primary truncate">{t.name}</span>
+                                <span className="text-[10px] font-mono text-text-muted bg-surface-subtle px-1 rounded border border-border">/{t.slug}</span>
+                              </div>
+                              <p className="text-[11px] font-mono text-text-muted truncate mt-0.5">{url}</p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => copyToClipboard(url, `emb-url-${t.id}`)}
+                                className="px-2 py-1 bg-surface-subtle hover:bg-surface text-text-body border border-border rounded-sm text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                                title="Copy Webhook URL"
+                              >
+                                {copiedField === `emb-url-${t.id}` ? <Check className="w-3 h-3 text-status-success stroke-[1.5]" /> : <Copy className="w-3 h-3 stroke-[1.5]" />}
+                                <span>URL</span>
+                              </button>
+                              <button
+                                onClick={() => copyToClipboard(token, `emb-tok-${t.id}`)}
+                                className="px-2 py-1 bg-surface-subtle hover:bg-surface text-text-body border border-border rounded-sm text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                                title="Copy Verify Token"
+                              >
+                                {copiedField === `emb-tok-${t.id}` ? <Check className="w-3 h-3 text-status-success stroke-[1.5]" /> : <Copy className="w-3 h-3 stroke-[1.5]" />}
+                                <span>Token</span>
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2445,7 +2664,7 @@ export default function SuperAdminClients() {
                               </div>
                             </td>
 
-                            {/* Actions & Configuration Toolbar */}
+                            {/* Actions — Clean 3-item layout */}
                             <td className="py-2.5 px-4 text-right whitespace-nowrap">
                               <div className="inline-flex items-center justify-end gap-1.5">
 
@@ -2459,7 +2678,7 @@ export default function SuperAdminClients() {
                                   <span>Open CRM</span>
                                 </button>
 
-                                {/* Configure Central Settings */}
+                                {/* Configure */}
                                 <button
                                   onClick={() => handleOpenConfig(t)}
                                   className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary border border-border hover:border-accent rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs shrink-0"
@@ -2469,132 +2688,164 @@ export default function SuperAdminClients() {
                                   <span>Configure</span>
                                 </button>
 
-                                {/* Staff & Sales Accounts Management */}
-                                <button
-                                  onClick={() => handleOpenConfig(t, 'team')}
-                                  className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/30 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs shrink-0"
-                                  title="Manage Sales Accounts, Doctors & Staff Permissions"
-                                >
-                                  <Users className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 stroke-[1.5]" />
-                                  <span>Sales & Staff</span>
-                                </button>
-
-                                {/* Auto-Sync Meta Templates */}
-                                <button
-                                  onClick={() => handleSyncMetaTemplates(t.id)}
-                                  disabled={isSyncingMetaTemplates}
-                                  className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50 shrink-0"
-                                  title="Auto-Provision All 11 Meta Templates as 100% Utility"
-                                >
-                                  <RefreshCw className={`w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
-                                  <span>Sync Meta</span>
-                                </button>
-
-                                {/* Send or Generate Payment Link */}
-                                {!t.razorpay_short_url ? (
+                                {/* ⋮ More Actions Dropdown */}
+                                <div className="relative">
                                   <button
-                                    onClick={() => {
-                                      setClientPaymentPhone(t.admin_whatsapp_number || '');
-                                      handleActivateBilling(t);
-                                    }}
-                                    disabled={activatingBillingId === t.id}
-                                    className="px-2 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-800 dark:text-purple-300 border border-purple-500/30 rounded text-xs font-medium transition-all cursor-pointer flex items-center gap-1 shadow-xs disabled:opacity-50 shrink-0"
-                                    title="Generate & Send Razorpay Payment Link to Client"
+                                    onClick={() => setActionMenuTenantId(actionMenuTenantId === t.id ? null : t.id)}
+                                    className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle border border-border rounded transition-colors cursor-pointer"
+                                    title="More actions"
                                   >
-                                    {activatingBillingId === t.id ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-700" />
-                                    ) : (
-                                      <CreditCard className="w-3.5 h-3.5 text-purple-700" />
-                                    )}
-                                    <span>Pay Link</span>
-                                  </button>
-                                ) : (
-                                  <button
-                                    onClick={() => {
-                                      setActivePaymentModalTenant(t);
-                                      setClientPaymentPhone(t.admin_whatsapp_number || '');
-                                    }}
-                                    className="px-2 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-800 dark:text-purple-300 border border-purple-500/30 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs shrink-0"
-                                    title="View & Send Razorpay Payment Link to Client"
-                                  >
-                                    <CreditCard className="w-3.5 h-3.5 text-purple-700" />
-                                    <span>Pay Link</span>
-                                  </button>
-                                )}
-
-                                {/* Secondary Action Icon Buttons */}
-                                <div className="inline-flex items-center gap-1 border-l border-border pl-1.5 ml-0.5 shrink-0">
-                                  {/* Public Booking Page Link */}
-                                  <a
-                                    href={`/${t.slug}/book`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="p-1.5 text-text-muted hover:text-indigo-500 hover:bg-indigo-500/10 border border-border hover:border-indigo-500/30 rounded transition-colors"
-                                    title={`Open ${t.name} Public Web Booking Page`}
-                                  >
-                                    <Calendar className="w-3.5 h-3.5" />
-                                  </a>
-
-                                  {/* Database Inspector */}
-                                  <button
-                                    onClick={() => handleOpenDatabaseView(t)}
-                                    className="p-1.5 text-text-muted hover:text-accent hover:bg-surface-subtle border border-border rounded transition-colors cursor-pointer"
-                                    title="Database Records & System Config"
-                                  >
-                                    <Database className="w-3.5 h-3.5" />
+                                    <MoreVertical className="w-3.5 h-3.5" />
                                   </button>
 
-                                  {/* View Invoices */}
-                                  {t.razorpay_subscription_id && (
-                                    <button
-                                      onClick={() => handleViewInvoices(t)}
-                                      className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle border border-border rounded transition-colors cursor-pointer"
-                                      title="View Razorpay Invoices"
-                                    >
-                                      <FileText className="w-3.5 h-3.5" />
-                                    </button>
+                                  {actionMenuTenantId === t.id && (
+                                    <>
+                                      {/* Backdrop to close */}
+                                      <div className="fixed inset-0 z-40" onClick={() => setActionMenuTenantId(null)} />
+
+                                      {/* Dropdown */}
+                                      <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-surface border border-border rounded-lg shadow-xl py-1 animate-in fade-in slide-in-from-top-1 duration-100">
+
+                                        {/* Sales & Staff */}
+                                        <button
+                                          onClick={() => { setActionMenuTenantId(null); handleOpenConfig(t, 'team'); }}
+                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                                        >
+                                          <Users className="w-3.5 h-3.5 text-amber-600" />
+                                          <span>Sales & Staff</span>
+                                        </button>
+
+                                        {/* Sync Meta Templates */}
+                                        <button
+                                          onClick={() => { setActionMenuTenantId(null); handleSyncMetaTemplates(t.id); }}
+                                          disabled={isSyncingMetaTemplates}
+                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body disabled:opacity-50"
+                                        >
+                                          <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
+                                          <span>Sync Meta Templates</span>
+                                        </button>
+
+                                        {/* Pay Link */}
+                                        {!t.razorpay_short_url ? (
+                                          <button
+                                            onClick={() => {
+                                              setActionMenuTenantId(null);
+                                              setClientPaymentPhone(t.admin_whatsapp_number || '');
+                                              handleActivateBilling(t);
+                                            }}
+                                            disabled={activatingBillingId === t.id}
+                                            className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body disabled:opacity-50"
+                                          >
+                                            <CreditCard className="w-3.5 h-3.5 text-purple-600" />
+                                            <span>Generate Pay Link</span>
+                                          </button>
+                                        ) : (
+                                          <button
+                                            onClick={() => {
+                                              setActionMenuTenantId(null);
+                                              setActivePaymentModalTenant(t);
+                                              setClientPaymentPhone(t.admin_whatsapp_number || '');
+                                            }}
+                                            className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                                          >
+                                            <CreditCard className="w-3.5 h-3.5 text-purple-600" />
+                                            <span>View Pay Link</span>
+                                          </button>
+                                        )}
+
+                                        <div className="my-1 border-t border-border" />
+
+                                        {/* Missed Call Setup */}
+                                        <button
+                                          onClick={() => { setActionMenuTenantId(null); setMissedCallModalTenant(t); }}
+                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                                        >
+                                          <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span>Missed Call Setup</span>
+                                        </button>
+
+                                        {/* Booking Page */}
+                                        <a
+                                          href={`/${t.slug}/book`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={() => setActionMenuTenantId(null)}
+                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                                        >
+                                          <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                                          <span>Booking Page</span>
+                                          <ExternalLink className="w-2.5 h-2.5 text-text-muted ml-auto" />
+                                        </a>
+
+                                        {/* Database Inspector */}
+                                        <button
+                                          onClick={() => { setActionMenuTenantId(null); handleOpenDatabaseView(t); }}
+                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                                        >
+                                          <Database className="w-3.5 h-3.5 text-text-muted" />
+                                          <span>Database Inspector</span>
+                                        </button>
+
+                                        {/* View Invoices */}
+                                        {t.razorpay_subscription_id && (
+                                          <button
+                                            onClick={() => { setActionMenuTenantId(null); handleViewInvoices(t); }}
+                                            className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                                          >
+                                            <FileText className="w-3.5 h-3.5 text-text-muted" />
+                                            <span>Invoices</span>
+                                          </button>
+                                        )}
+
+                                        <div className="my-1 border-t border-border" />
+
+                                        {/* Pause / Resume */}
+                                        <button
+                                          onClick={() => { setActionMenuTenantId(null); handleToggleStatus(t.id, t.status === 'active'); }}
+                                          disabled={togglingId === t.id}
+                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                                        >
+                                          {t.status === 'active' ? (
+                                            <><Pause className="w-3.5 h-3.5 text-amber-500" /><span>Pause Workspace</span></>
+                                          ) : (
+                                            <><Play className="w-3.5 h-3.5 text-emerald-500 fill-current" /><span>Resume Workspace</span></>
+                                          )}
+                                        </button>
+
+                                        {/* Password Reset */}
+                                        <button
+                                          onClick={() => {
+                                            setActionMenuTenantId(null);
+                                            setResetTenantId(t.id);
+                                            setResetTenantName(t.name);
+                                            setResetTenantEmail(t.admin_email || `admin@${t.slug}.com`);
+                                            setNewPassword('');
+                                            setShowResetPasswordText(true);
+                                            setResetSuccess(false);
+                                            setResetError('');
+                                          }}
+                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                                        >
+                                          <Lock className="w-3.5 h-3.5 text-text-muted" />
+                                          <span>Reset Password</span>
+                                        </button>
+
+                                        <div className="my-1 border-t border-border" />
+
+                                        {/* Delete */}
+                                        <button
+                                          onClick={() => { setActionMenuTenantId(null); setDeleteTenantTarget(t); }}
+                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-red-500/5 transition-colors cursor-pointer text-red-600"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                          <span>Delete Organization</span>
+                                        </button>
+
+                                      </div>
+                                    </>
                                   )}
-
-                                  {/* Toggle Pause / Resume Workspace */}
-                                  <button
-                                    onClick={() => handleToggleStatus(t.id, t.status === 'active')}
-                                    disabled={togglingId === t.id}
-                                    className={`p-1.5 rounded transition-colors cursor-pointer border ${
-                                      t.status === 'active'
-                                        ? 'text-text-muted hover:text-amber-500 hover:bg-amber-500/10 border-border'
-                                        : 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20'
-                                    }`}
-                                    title={t.status === 'active' ? 'Pause Organization Workspace' : 'Resume Organization Workspace'}
-                                  >
-                                    {t.status === 'active' ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                                  </button>
-
-                                  {/* Password Reset */}
-                                  <button
-                                    onClick={() => {
-                                      setResetTenantId(t.id);
-                                      setResetTenantName(t.name);
-                                      setResetTenantEmail(t.admin_email || `admin@${t.slug}.com`);
-                                      setNewPassword('');
-                                      setShowResetPasswordText(true);
-                                      setResetSuccess(false);
-                                      setResetError('');
-                                    }}
-                                    className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded transition-colors cursor-pointer border border-border"
-                                    title="Reset Client Password"
-                                  >
-                                    <Lock className="w-3.5 h-3.5" />
-                                  </button>
-
-                                  {/* Delete Organization */}
-                                  <button
-                                    onClick={() => setDeleteTenantTarget(t)}
-                                    className="p-1.5 text-text-muted hover:text-red-500 hover:bg-red-500/10 rounded transition-colors cursor-pointer border border-border hover:border-red-500/20"
-                                    title="Delete Client Organization"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
                                 </div>
+
                               </div>
                             </td>
 
@@ -7682,6 +7933,203 @@ export default function SuperAdminClients() {
           </div>
         </div>
       )}
+
+      {/* ── MODAL: MISSED CALL AUTOMATION PRE-FILLED SETUP ────────────────────── */}
+      {missedCallModalTenant && (() => {
+        const t = missedCallModalTenant;
+        const { androidUrl, iphoneUrl, token } = getMissedCallUrls(t.slug);
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+            <div className="bg-surface border border-border rounded-t-xl sm:rounded-lg w-full max-w-lg max-h-[92dvh] sm:max-h-[90vh] overflow-hidden flex flex-col shadow-2xl safe-area-pb">
+              {/* Header */}
+              <div className="h-12 px-4 sm:px-5 border-b border-border flex items-center justify-between bg-emerald-600 shrink-0">
+                <div className="flex items-center gap-2 text-white">
+                  <PhoneCall className="w-4 h-4 stroke-[1.5]" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider">
+                    Missed Call Setup — {t.name}
+                  </h3>
+                  <span className="text-[10px] font-mono bg-white/20 px-1.5 py-0.5 rounded">100% Free</span>
+                </div>
+                <button
+                  onClick={() => setMissedCallModalTenant(null)}
+                  className="p-1 text-white/80 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4 stroke-[1.5]" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+                <p className="text-[11px] text-text-muted">
+                  Pre-filled webhook URLs for <strong>{t.name}</strong>. Copy or share directly to the client owner. Setup takes under 15 seconds on their phone.
+                </p>
+
+                {/* Device Switcher */}
+                <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border rounded-sm w-full">
+                  <button
+                    type="button"
+                    onClick={() => setMissedCallActiveDevice('android')}
+                    className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                      missedCallActiveDevice === 'android'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-text-muted hover:text-text-primary'
+                    }`}
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>Android (MacroDroid)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMissedCallActiveDevice('iphone')}
+                    className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                      missedCallActiveDevice === 'iphone'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-text-muted hover:text-text-primary'
+                    }`}
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>iPhone (Shortcuts)</span>
+                  </button>
+                </div>
+
+                {/* Android Guide */}
+                {missedCallActiveDevice === 'android' && (
+                  <div className="space-y-3">
+                    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-md p-3 space-y-2">
+                      <h4 className="text-xs font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                        <Smartphone className="w-3.5 h-3.5" />
+                        Android Setup (MacroDroid — Free App)
+                      </h4>
+                      <ol className="text-[11px] text-text-body space-y-1.5 list-decimal list-inside">
+                        <li>Install <strong>MacroDroid</strong> from Google Play Store (Free).</li>
+                        <li>Tap <strong>Add Macro</strong> → Trigger (+): <strong>Call/SMS → Call Missed</strong> → Select <strong>Any Number</strong>.</li>
+                        <li>Action (+): <strong>Connectivity → Open Website / HTTP GET</strong> → Paste the URL below.</li>
+                        <li>Tap the checkmark to <strong>Save</strong> and turn the macro <strong>ON</strong>.</li>
+                      </ol>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-text-primary">Pre-filled Webhook URL</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => copyToClipboard(androidUrl, 'mc-android-url')}
+                            className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                          >
+                            {copiedField === 'mc-android-url' ? <Check className="w-2.5 h-2.5" /> : <Copy className="w-2.5 h-2.5" />}
+                            <span>Copy URL</span>
+                          </button>
+                          <button
+                            onClick={() => downloadMacroDroidFile(t.name, t.slug)}
+                            className="px-2 py-0.5 bg-surface-subtle hover:bg-surface text-text-body border border-border rounded text-[10px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                            title="Download 1-Click .macro import file"
+                          >
+                            <Download className="w-2.5 h-2.5" />
+                            <span>.macro File</span>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="p-2 bg-canvas border border-border rounded font-mono text-[10px] text-text-primary break-all select-all">
+                        {androidUrl}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* iPhone Guide */}
+                {missedCallActiveDevice === 'iphone' && (
+                  <div className="space-y-3">
+                    <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-md p-3 space-y-2">
+                      <h4 className="text-xs font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-1.5">
+                        <Smartphone className="w-3.5 h-3.5" />
+                        iPhone Setup (Built-in Shortcuts — No Download)
+                      </h4>
+                      <p className="text-[10px] text-text-muted italic">
+                        Indian carriers (Jio, Airtel, Vi, BSNL) send a free SMS for every missed call. iOS Shortcuts reads this automatically.
+                      </p>
+                      <ol className="text-[11px] text-text-body space-y-1.5 list-decimal list-inside">
+                        <li>Open <strong>Shortcuts</strong> app → <strong>Automation</strong> → Tap <strong>+</strong> (New Automation).</li>
+                        <li>Select <strong>Message</strong> → Contains: <code className="bg-surface-subtle px-1 rounded text-[10px] font-mono">missed call</code> → <strong>Run Immediately</strong>.</li>
+                        <li>Add Action: <strong>Get Contents of URL</strong> → Paste the URL below.</li>
+                        <li>Set <code className="bg-surface-subtle px-1 rounded text-[10px] font-mono">ShortcutInput</code> to <strong>Message</strong> → Tap <strong>Done</strong>.</li>
+                      </ol>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-text-primary">Pre-filled Webhook URL</span>
+                        <button
+                          onClick={() => copyToClipboard(iphoneUrl, 'mc-iphone-url')}
+                          className="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                        >
+                          {copiedField === 'mc-iphone-url' ? <Check className="w-2.5 h-2.5" /> : <Copy className="w-2.5 h-2.5" />}
+                          <span>Copy URL</span>
+                        </button>
+                      </div>
+                      <div className="p-2 bg-canvas border border-border rounded font-mono text-[10px] text-text-primary break-all select-all">
+                        {iphoneUrl}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Security Token */}
+                <div className="p-2.5 bg-surface-subtle border border-border rounded-sm space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-text-muted flex items-center gap-1">
+                      <Shield className="w-3 h-3 text-amber-500" />
+                      Security Token (Auto-Embedded)
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(token, 'mc-token')}
+                      className="px-1.5 py-0.5 bg-surface hover:bg-surface-subtle text-text-body border border-border rounded text-[10px] font-medium transition-colors cursor-pointer flex items-center gap-1"
+                    >
+                      {copiedField === 'mc-token' ? <Check className="w-2.5 h-2.5 text-status-success" /> : <Copy className="w-2.5 h-2.5" />}
+                      <span>Copy</span>
+                    </button>
+                  </div>
+                  <p className="font-mono text-[10px] text-text-primary">{token}</p>
+                </div>
+              </div>
+
+              {/* Footer Actions */}
+              <div className="px-4 sm:px-5 py-3 border-t border-border flex items-center justify-between gap-2 bg-surface-subtle shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setMissedCallModalTenant(null)}
+                  className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer"
+                >
+                  Close
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const msg = getMissedCallClientMessage(t.name, t.slug);
+                      copyToClipboard(msg, 'mc-full-msg');
+                    }}
+                    className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    {copiedField === 'mc-full-msg' ? <Check className="w-3 h-3 text-status-success" /> : <Copy className="w-3 h-3" />}
+                    <span>Copy Full Guide</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const msg = getMissedCallClientMessage(t.name, t.slug);
+                      window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                    }}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                  >
+                    <Share2 className="w-3 h-3" />
+                    <span>Share on WhatsApp</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );

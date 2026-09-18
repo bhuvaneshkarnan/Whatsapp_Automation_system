@@ -26,11 +26,11 @@ async def download_whatsapp_media(media_id: str, access_token: str, timeout: flo
     2. Download binary bytes with Authorization header.
     """
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             # 1. Get media URL
             meta_res = await client.get(
                 f"{GRAPH_BASE}/{media_id}",
-                headers={"Authorization": f"Bearer {access_token}"},
+                headers={"Authorization": f"Bearer {access_token}", "User-Agent": "curl/7.64.1"},
             )
             if meta_res.status_code != 200:
                 raise TranscriptionError(f"Meta media query failed ({meta_res.status_code}): {meta_res.text[:200]}")
@@ -45,7 +45,7 @@ async def download_whatsapp_media(media_id: str, access_token: str, timeout: flo
             # 2. Download binary payload
             audio_res = await client.get(
                 media_url,
-                headers={"Authorization": f"Bearer {access_token}"},
+                headers={"Authorization": f"Bearer {access_token}", "User-Agent": "curl/7.64.1"},
             )
             if audio_res.status_code != 200:
                 raise TranscriptionError(f"Meta media download failed ({audio_res.status_code})")

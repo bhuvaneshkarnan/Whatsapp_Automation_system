@@ -38,8 +38,9 @@ import {
   GripVertical,
   Copy,
   PhoneCall,
+  GitMerge,
 } from 'lucide-react';
-import { Customer, FollowupTask, CrmDropdownOptions, crm as api } from '@/lib/api';
+import { Customer, FollowupTask, CrmDropdownOptions, DuplicateCustomerGroup, crm as api } from '@/lib/api';
 
 // Date string helper for follow-up scheduling
 function getFollowupDateString(offsetDays: number = 0): string {
@@ -515,6 +516,7 @@ interface ModernCustomerViewProps {
   onDeleteTask?: (taskId: string) => void;
   onOpenQuickNote?: (cust: { id: string; name?: string | null; latest_note?: string | null; latest_note_id?: string | null; latest_note_color?: string | null }) => void;
   onDeleteLatestNote?: (cust: { id: string; name?: string | null; latest_note_id?: string | null }) => void;
+  onOpenMergeModal?: (cust: Customer, initialSecondaryId?: string | null) => void;
 }
 
 export function ModernCustomerView({
@@ -543,6 +545,7 @@ export function ModernCustomerView({
   onDeleteTask,
   onOpenQuickNote,
   onDeleteLatestNote,
+  onOpenMergeModal,
 }: ModernCustomerViewProps) {
   const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'tasks' | 'notes'>('table');
   const [searchQuery, setSearchQuery] = useState('');
@@ -552,6 +555,21 @@ export function ModernCustomerView({
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [schedulingCustomerId, setSchedulingCustomerId] = useState<string | null>(null);
   const [draggedCustomerId, setDraggedCustomerId] = useState<string | null>(null);
+  const [duplicates, setDuplicates] = useState<DuplicateCustomerGroup[]>([]);
+  const [showDuplicatesBanner, setShowDuplicatesBanner] = useState(true);
+
+  // Auto-detect duplicates
+  useEffect(() => {
+    let active = true;
+    api.getDuplicateCustomers()
+      .then((res) => {
+        if (active && res && Array.isArray(res.duplicates)) {
+          setDuplicates(res.duplicates);
+        }
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [customers]);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
   const [kanbanMobileStage, setKanbanMobileStage] = useState<string>('all');
@@ -608,9 +626,11 @@ export function ModernCustomerView({
       // 1. Live Search Filter
       if (q) {
         const name = (c.name || '').toLowerCase();
+        const internalName = (c.internal_name || '').toLowerCase();
         const waName = (c.wa_profile_name || '').toLowerCase();
         const phone = (c.phone || '').toLowerCase();
         const cleanPhone = phone.replace(/\D/g, '');
+        const mergedPhones = ((c.metadata?.merged_phones || []) as string[]).join(' ');
         const location = (c.location || '').toLowerCase();
         const concern = (c.health_concern || '').toLowerCase();
         const service = (c.last_visit_service || '').toLowerCase();
@@ -629,9 +649,10 @@ export function ModernCustomerView({
 
         const matches =
           name.includes(q) ||
+          internalName.includes(q) ||
           waName.includes(q) ||
           phone.includes(q) ||
-          (cleanQ.length >= 3 && cleanPhone.includes(cleanQ)) ||
+          (cleanQ.length >= 3 && (cleanPhone.includes(cleanQ) || mergedPhones.includes(cleanQ))) ||
           location.includes(q) ||
           concern.includes(q) ||
           service.includes(q) ||
@@ -1180,6 +1201,44 @@ export function ModernCustomerView({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden space-y-2">
+      {/* ── DUPLICATE PATIENT PROFILES BANNER ───────────────────────── */}
+      {duplicates.length > 0 && showDuplicatesBanner && (
+        <div className="bg-amber-500/10 border border-amber-500/25 rounded-md p-2.5 px-3 flex items-center justify-between gap-3 text-xs shrink-0 animate-in fade-in duration-200">
+          <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200 min-w-0">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span className="truncate">
+              <strong>{duplicates.length} potential duplicate patient record{duplicates.length > 1 ? 's' : ''}</strong> detected ({duplicates[0].reason}).
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {onOpenMergeModal && (
+              <button
+                type="button"
+                onClick={() => {
+                  const group = duplicates[0];
+                  if (group && group.customers.length >= 2) {
+                    const p = customers.find((c) => c.id === group.customers[0].id) || (group.customers[0] as any);
+                    onOpenMergeModal(p, group.customers[1].id);
+                  }
+                }}
+                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-[11px] rounded shadow-2xs cursor-pointer transition-colors flex items-center gap-1"
+              >
+                <GitMerge className="w-3 h-3 stroke-[2]" />
+                <span>Review & Merge</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowDuplicatesBanner(false)}
+              className="p-1 text-amber-800 hover:text-amber-950 dark:text-amber-300 rounded cursor-pointer transition-colors"
+              title="Dismiss banner"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── 1. ULTRA-SLIM KPI STATS STRIP ───────────────────────────────────── */}
       <div className="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar touch-scroll bg-surface border border-border rounded-md px-3 py-1.5 shadow-2xs shrink-0 text-xs">
         <div className="flex items-center gap-2 shrink-0">
@@ -1469,10 +1528,15 @@ export function ModernCustomerView({
                                 {initials}
                               </div>
                               <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-bold text-text-primary text-xs truncate max-w-[125px] sm:max-w-[140px]" title={cust.name || cust.wa_profile_name || 'Contact'}>
-                                    {cust.name || cust.wa_profile_name || 'Contact'}
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-bold text-text-primary text-xs truncate max-w-[125px] sm:max-w-[140px]" title={cust.internal_name || cust.name || cust.wa_profile_name || 'Contact'}>
+                                    {cust.internal_name || cust.name || cust.wa_profile_name || 'Contact'}
                                   </span>
+                                  {cust.internal_name && (
+                                    <span className="text-[8.5px] font-bold px-1 py-0.2 rounded-xs bg-purple-50 text-purple-700 border border-purple-200 shrink-0" title="Internal label set by staff">
+                                      Internal
+                                    </span>
+                                  )}
                                   {(cust.completed_bookings_count ?? 0) > 0 || cust.client_type === 'repeat' ? (
                                     <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 flex items-center gap-0.5">
                                       <UserCheck className="w-2.5 h-2.5" />
@@ -1484,6 +1548,11 @@ export function ModernCustomerView({
                                     </span>
                                   )}
                                 </div>
+                                {cust.internal_name && (cust.name || cust.wa_profile_name) && (
+                                  <div className="text-[9.5px] text-text-muted truncate max-w-[130px] font-medium" title={`WhatsApp Name: ${cust.name || cust.wa_profile_name}`}>
+                                    WA: {cust.name || cust.wa_profile_name}
+                                  </div>
+                                )}
                                 <div className="text-[10px] text-text-muted font-mono flex items-center gap-1 mt-0.5">
                                   <Phone className="w-2.5 h-2.5 text-text-muted shrink-0" />
                                   <a
@@ -1778,6 +1847,17 @@ export function ModernCustomerView({
                                   <User className="w-3 h-3 stroke-[1.5]" />
                                   <span>Details</span>
                                 </button>
+                                {onOpenMergeModal && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenMergeModal(cust)}
+                                    className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 text-[11px] font-semibold rounded-sm border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                                    title="Merge this profile with a duplicate"
+                                  >
+                                    <GitMerge className="w-3 h-3 stroke-[2]" />
+                                    <span>Merge</span>
+                                  </button>
+                                )}
                               </div>
                               <div
                                 className="text-[9px] text-text-muted font-mono flex items-center justify-end gap-1"
@@ -1983,9 +2063,16 @@ export function ModernCustomerView({
                               <div className="flex items-center gap-1 min-w-0 flex-1">
                                 <GripVertical className="w-3 h-3 text-text-muted/50 hover:text-text-muted shrink-0 -ml-0.5 cursor-grab" />
                                 <div className="min-w-0 flex-1">
-                                  <h5 className="font-bold text-[11px] text-text-primary hover:text-accent transition-colors truncate leading-tight">
-                                    {cust.name || cust.wa_profile_name || 'Contact'}
-                                  </h5>
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    <h5 className="font-bold text-[11px] text-text-primary hover:text-accent transition-colors truncate leading-tight" title={cust.internal_name || cust.name || cust.wa_profile_name || 'Contact'}>
+                                      {cust.internal_name || cust.name || cust.wa_profile_name || 'Contact'}
+                                    </h5>
+                                    {cust.internal_name && (
+                                      <span className="text-[8px] font-bold px-1 py-0.1 bg-purple-50 text-purple-700 border border-purple-200 rounded shrink-0">
+                                        Internal
+                                      </span>
+                                    )}
+                                  </div>
                                   <div className="flex items-center gap-1 mt-0.5">
                                     <a
                                       href={`tel:${cust.phone}`}
@@ -2116,6 +2203,22 @@ export function ModernCustomerView({
                                   <WhatsAppIcon className="w-2.5 h-2.5 text-[#25D366]" />
                                   <span>Chat</span>
                                 </button>
+                                {onOpenMergeModal && (
+                                  <button
+                                    type="button"
+                                    draggable={false}
+                                    onDragStart={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onOpenMergeModal(cust);
+                                    }}
+                                    className="px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 font-semibold rounded-xs border border-indigo-200 dark:border-indigo-800 transition-colors flex items-center gap-0.5 shadow-2xs text-[9.5px] cursor-pointer"
+                                    title="Merge this profile with a duplicate"
+                                  >
+                                    <GitMerge className="w-2.5 h-2.5 stroke-[2]" />
+                                    <span>Merge</span>
+                                  </button>
+                                )}
                               </div>
 
                               {/* Popover inside Kanban card */}
