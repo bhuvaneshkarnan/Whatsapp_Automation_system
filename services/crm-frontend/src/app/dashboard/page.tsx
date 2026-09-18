@@ -34,6 +34,7 @@ import {
 } from '@/lib/api';
 import { ModernCustomerView } from '@/components/dashboard/ModernCustomerView';
 import { MergeCustomersModal } from '@/components/dashboard/MergeCustomersModal';
+import { useBranding } from '@/lib/branding';
 import {
   MessageSquare,
   Megaphone,
@@ -1708,6 +1709,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const router = useRouter();
   const params = useParams();
   const pathname = usePathname();
+  const { branding } = useBranding();
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
   
   // Navigation: overview | inbox | bookings | calendar | customers | repeat_clients | followup | marketing | reviews | settings
@@ -8983,8 +8985,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         {/* Logo & Current View Title */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
+            {(settingsForm.logo_url || branding.brand_logo_url) && (
+              <img
+                src={settingsForm.logo_url || branding.brand_logo_url}
+                alt={settingsForm.name || branding.brand_name || 'Logo'}
+                className="h-7 w-auto max-w-[130px] object-contain rounded-xs"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+            )}
             <span className="font-bold text-[17px] text-text-primary tracking-tight">
-              {settingsForm.name || 'Client CRM'}
+              {settingsForm.name || branding.brand_name || 'Client CRM'}
             </span>
           </div>
 

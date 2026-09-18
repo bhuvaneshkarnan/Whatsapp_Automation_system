@@ -6951,6 +6951,8 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
 
     async with db_pool.acquire() as conn:
         tenant = None
+        partner = None
+
         if clean_domain and clean_domain not in ("crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197"):
             alt_domain = clean_domain[4:] if clean_domain.startswith("www.") else f"www.{clean_domain}"
             tenant = await conn.fetchrow(
@@ -6959,6 +6961,18 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
                 FROM tenants
                 WHERE LOWER(TRIM(COALESCE(settings->>'custom_domain', ''))) = $1
                    OR LOWER(TRIM(COALESCE(settings->>'custom_domain', ''))) = $2
+                LIMIT 1
+                """,
+                clean_domain,
+                alt_domain
+            )
+            # Also check partner agency templates for partner white-label domain
+            partner = await conn.fetchrow(
+                """
+                SELECT *
+                FROM partner_agency_templates
+                WHERE LOWER(TRIM(COALESCE(custom_domain, ''))) = $1
+                   OR LOWER(TRIM(COALESCE(custom_domain, ''))) = $2
                 LIMIT 1
                 """,
                 clean_domain,
@@ -6976,7 +6990,20 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
                 clean_slug
             )
 
-    if not tenant:
+        # If tenant has a partner_name, resolve partner template for fallback branding
+        if tenant and not partner:
+            t_settings = tenant["settings"] if tenant and tenant["settings"] else {}
+            if isinstance(t_settings, str):
+                try: t_settings = json.loads(t_settings)
+                except Exception: t_settings = {}
+            t_partner = (t_settings.get("partner_name") or "").strip()
+            if t_partner:
+                partner = await conn.fetchrow(
+                    "SELECT * FROM partner_agency_templates WHERE LOWER(partner_name) = $1 LIMIT 1",
+                    t_partner.lower()
+                )
+
+    if not tenant and not partner:
         return default_branding
 
     s = tenant["settings"] if tenant and tenant["settings"] else {}
@@ -6986,17 +7013,20 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
         except Exception:
             s = {}
 
-    c_dom = (s.get("custom_domain") or "").strip().lower()
-    b_name = (s.get("brand_name") or tenant["name"] or "").strip()
-    b_logo = (s.get("brand_logo_url") or s.get("logo_url") or "").strip()
-    b_fav = (s.get("brand_favicon_url") or "").strip()
-    b_color = (s.get("brand_primary_color") or "#059669").strip()
-    b_email = (s.get("brand_support_email") or "").strip()
-    b_phone = (s.get("brand_support_phone") or "").strip()
-    hide_platform = bool(s.get("hide_platform_branding", True if c_dom else False))
+    p_dict = dict(partner) if partner else {}
+    c_dom = (s.get("custom_domain") or p_dict.get("custom_domain") or "").strip().lower()
+    b_name = (s.get("brand_name") or p_dict.get("brand_name") or (tenant["name"] if tenant else "") or p_dict.get("partner_name") or "Boldlabs CRM").strip()
+    b_logo = (s.get("brand_logo_url") or s.get("logo_url") or p_dict.get("brand_logo_url") or "").strip()
+    b_fav = (s.get("brand_favicon_url") or p_dict.get("brand_favicon_url") or "/favicon.ico").strip()
+    b_color = (s.get("brand_primary_color") or p_dict.get("brand_primary_color") or "#059669").strip()
+    b_email = (s.get("brand_support_email") or p_dict.get("brand_support_email") or "").strip()
+    b_phone = (s.get("brand_support_phone") or p_dict.get("brand_support_phone") or "").strip()
+
+    hide_platform = bool(s.get("hide_platform_branding", p_dict.get("hide_platform_branding", True if (c_dom or partner) else False)))
+    is_wl = bool(c_dom or partner)
 
     return {
-        "is_whitelabel": bool(c_dom),
+        "is_whitelabel": is_wl,
         "brand_name": b_name,
         "brand_logo_url": b_logo,
         "brand_favicon_url": b_fav or "/favicon.ico",
@@ -7005,9 +7035,10 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
         "brand_support_phone": b_phone,
         "hide_platform_branding": hide_platform,
         "custom_domain": c_dom or clean_domain or None,
-        "tenant_id": str(tenant["id"]),
-        "tenant_slug": tenant["slug"],
-        "tenant_name": tenant["name"],
+        "tenant_id": str(tenant["id"]) if tenant else None,
+        "tenant_slug": tenant["slug"] if tenant else None,
+        "tenant_name": tenant["name"] if tenant else b_name,
+        "partner_name": (s.get("partner_name") or p_dict.get("partner_name") or "").strip() or None,
     }
 
 
