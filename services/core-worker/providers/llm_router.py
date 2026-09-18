@@ -101,18 +101,29 @@ def clean_llm_response(text: str, single_line: bool = False) -> str:
             flags=re.IGNORECASE
         )
 
-        # Split lines and filter out empty ones (allow 1 to 3 short lines as per global WhatsApp format)
+        # 1 LINE MOSTLY, 2-3 LINES ONLY WHEN GENUINELY NEEDED:
         lines = [l.strip() for l in cleaned.split("\n") if l.strip()]
-        if len(lines) > 3:
-            lines = lines[:3]
+        words = cleaned.split()
+        # If the whole message is short (<= 25 words), keep it as 1 single clean line
+        if len(words) <= 25 and len(lines) > 1:
+            cleaned = " ".join(lines)
+        else:
+            # For detailed replies that naturally require separate lines, cap at 3 lines max
+            if len(lines) > 3:
+                lines = lines[:3]
+            cleaned = "\n".join(lines).strip()
 
-        cleaned = "\n".join(lines).strip()
-
-        # Sentence-level brevity enforcement (Strict 1-3 complete short sentences, never cut mid-sentence)
+        # Sentence cap: maximum 3 sentences across the message
         raw_sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
         if len(raw_sentences) > 3:
-            raw_sentences = raw_sentences[:3]
-            cleaned = " ".join(raw_sentences).strip()
+            sentences_kept = set(raw_sentences[:3])
+            rebuilt = []
+            for l in cleaned.split("\n"):
+                l_sents = [s.strip() for s in re.split(r'(?<=[.!?])\s+', l) if s.strip()]
+                kept = [s for s in l_sents if s in sentences_kept]
+                if kept:
+                    rebuilt.append(" ".join(kept))
+            cleaned = "\n".join(rebuilt[:3]).strip()
 
     # Re-attach action tags on their own line at the very end
     if action_tags:

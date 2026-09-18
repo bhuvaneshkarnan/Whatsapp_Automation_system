@@ -1753,13 +1753,9 @@ class CoreWorker:
 
         # Clean humanized conversational WhatsApp texting format directive (Global Mandatory Rules for All Tenants)
         format_section = (
-            "7. FORMATTING (STRICT 1-LINE RESPONSE DIRECTIVE):\n"
-            "   - STRICT SINGLE LINE: The business configured a strict 1-line reply style. You MUST reply in EXACTLY 1 single line with ZERO newlines or line breaks.\n"
-            "   - Maximum 18 to 25 words total. Seamlessly combine your brief acknowledgment and your single next question into ONE single line.\n"
-            "   - ABSOLUTELY ZERO hyphens (-), dashes (--), asterisks (*), bullet points (•), numbered lists (1. 2. 3.), or emojis.\n\n"
-            if is_single_line else
-            "7. FORMATTING (APPLIES TO EVERY SINGLE REPLY):\n"
-            "   - Real line breaks. Most replies: one to three short lines. Two separate ideas go on separate lines rather than merging into one long sentence.\n"
+            "7. FORMATTING & LENGTH (1 LINE MOSTLY, 2-3 LINES ONLY WHEN NEEDED):\n"
+            "   - 1 LINE MOSTLY (DEFAULT): Most of your replies must be EXACTLY 1 single short line (under 25 words). For casual greetings, simple acknowledgments, scheduling/slot questions, clarifying questions, and quick updates, reply in 1 crisp line without extra line breaks.\n"
+            "   - 2 TO 3 SHORT LINES ONLY WHEN GENUINELY NEEDED: Use 2 to 3 short lines ONLY when the content genuinely requires separation (e.g. sharing multiple distinct pricing options/packages, contrasting services, or answering a detailed multi-part inquiry). Never pad or split a simple sentence into multiple lines.\n"
             "   - ABSOLUTELY ZERO hyphens (-), dashes (--), asterisks (*), bullet points (•), numbered lists (1. 2. 3.), or emojis. Real humans texting on WhatsApp type in smooth conversational sentences without hyphens.\n\n"
         )
 
@@ -2559,8 +2555,8 @@ class CoreWorker:
         reinforcement_rule = (
             "### FINAL WHATSAPP FORMAT & REINFORCEMENT DIRECTIVE:\n"
             "- STRICT TENANT DIRECTIVE ADHERENCE: You represent this business. You MUST strictly follow the Tenant Custom AI Instructions, business rules, identity guidelines, and knowledge base directives given above. The tenant's specific business instructions strictly govern your answers, services, policies, and qualification sequencing.\n"
-            + ("- STRICT 1-LINE WHATSAPP DIRECTIVE: The business configured a strict 1-line reply style. You MUST reply in EXACTLY 1 single line with ZERO newlines, line breaks, or paragraphs (maximum 20 to 25 words total). Never send multiple lines.\n" if is_single_line else "- WARM & CONCISE WHATSAPP TONE: Always reply in a warm, polite, helpful, and natural conversational tone (1 to 3 short lines, real line breaks). Never be cold, blunt, rude, or dismissive.\n")
-            + "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use ANY hyphens (-), dashes (--), asterisks (*), bullet lists, numbered lists, or emojis. Write 'business ku' instead of 'business-ku'. Text in smooth human sentences without hyphens.\n"
+            "- 1 LINE MOSTLY, 2-3 LINES ONLY WHEN NEEDED: Default to 1 single concise line (under 25 words) for most replies (acknowledgments, casual remarks, scheduling/slot questions, clarifying questions, and quick answers). Use 2 to 3 short lines ONLY when genuinely needed (e.g. presenting distinct pricing options/packages, contrasting services, or answering a detailed multi-part inquiry). Never use filler sentences or fluff to artificially create multiple lines.\n"
+            "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use ANY hyphens (-), dashes (--), asterisks (*), bullet lists, numbered lists, or emojis. Write 'business ku' instead of 'business-ku'. Text in smooth human sentences without hyphens.\n"
             + ("- VOICE NOTE INBOUND: The customer sent a voice note transcribed above. Warmly acknowledge it in Line 1 (e.g. 'Got your voice note!') and answer their spoken question directly. Never tell them to type what they already said!\n" if is_voice_note else "")
             + ("- UNREAD MEDIA OR UNREADABLE AUDIO: The customer sent an unreadable audio note or uncaptioned media. Warmly acknowledge in Line 1 and politely ask them to type what they need in Line 2 so we can help them.\n" if is_media_only else "")
             + "- DEEP QUERY UNDERSTANDING & DIRECT ANSWER: First clearly comprehend what the customer specifically asked, stated, or doubted. Answer THAT exact question directly in Line 1. Acknowledge greetings and casual remarks warmly.\n"
@@ -2606,11 +2602,11 @@ class CoreWorker:
             opencode_base_url=opencode_base,
             primary_provider=primary_provider,
             gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
-            max_tokens=65 if is_single_line else int(ai_cfg.get("max_tokens") or 350),
+            max_tokens=150,
             temperature=0.3,
             timeout_seconds=10.0,
             tenant_id=tenant_id,
-            single_line=is_single_line,
+            single_line=False,
         )
 
         booking_action = None
@@ -2656,7 +2652,7 @@ class CoreWorker:
             )
 
         if response_text:
-            response_text = clean_llm_response(response_text, single_line=is_single_line)
+            response_text = clean_llm_response(response_text, single_line=False)
             
             # 1. Intercept [ACTION:HUMAN_TAKEOVER]
             if "[ACTION:HUMAN_TAKEOVER]" in response_text:
@@ -5713,14 +5709,14 @@ class CoreWorker:
                         opencode_base_url=opencode_base,
                         primary_provider="gemini" if gemini_key else "groq",
                         gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
-                        max_tokens=65 if followup_is_single_line else 150,
+                        max_tokens=150,
                         temperature=0.3,
                         timeout_seconds=10.0,
                         tenant_id=tenant_id,
-                        single_line=followup_is_single_line,
+                        single_line=False,
                     )
 
-                    followup_text = clean_llm_response(raw_reply, single_line=followup_is_single_line)
+                    followup_text = clean_llm_response(raw_reply, single_line=False)
                     if not followup_text:
                         continue
 
