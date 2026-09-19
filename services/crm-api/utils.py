@@ -129,7 +129,7 @@ def expand_template_body(template_name: Optional[str], template_params: Any, fal
     return fallback_body or f"[Template: {template_name}]"
 
 
-﻿def sanitize_and_fix_email(email: str) -> str:
+def sanitize_and_fix_email(email: str) -> str:
     if not email:
         return ""
     email = str(email).strip().lower()

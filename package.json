@@ -6,5 +6,9 @@
     "dev": "npm run dev --prefix services/crm-frontend",
     "build": "npm run build --prefix services/crm-frontend && node -e \"require('fs').cpSync('services/crm-frontend/out', 'out', {recursive: true})\"",
     "start": "npm run start --prefix services/crm-frontend"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2"
   }
 }

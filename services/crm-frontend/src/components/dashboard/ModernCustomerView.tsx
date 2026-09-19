@@ -319,7 +319,7 @@ function FollowupSchedulerPopover({
                     const newH = parseInt(e.target.value, 10);
                     setTimeInput(formatFollowupTime(newH, parsedTime.minute, parsedTime.period));
                   }}
-                  className="w-full px-2 py-1.5 text-base sm:text-xs bg-surface-subtle border border-border rounded text-text-primary focus:outline-none focus:border-accent font-mono cursor-pointer transition-colors"
+                  className="w-full px-2 py-1.5 text-xs bg-surface-subtle border border-border rounded text-text-primary focus:outline-none focus:border-accent font-mono cursor-pointer transition-colors"
                 >
                   {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((h) => (
                     <option key={h} value={h}>{h} hr</option>
@@ -337,7 +337,7 @@ function FollowupSchedulerPopover({
                     const newM = parseInt(e.target.value, 10);
                     setTimeInput(formatFollowupTime(parsedTime.hour, newM, parsedTime.period));
                   }}
-                  className="w-full px-2 py-1.5 text-base sm:text-xs bg-surface-subtle border border-border rounded text-text-primary focus:outline-none focus:border-accent font-mono cursor-pointer transition-colors"
+                  className="w-full px-2 py-1.5 text-xs bg-surface-subtle border border-border rounded text-text-primary focus:outline-none focus:border-accent font-mono cursor-pointer transition-colors"
                 >
                   {minuteOptions.map((m) => (
                     <option key={m} value={m}>{m} min</option>
@@ -1401,7 +1401,7 @@ export function ModernCustomerView({
           <select
             value={stageFilter}
             onChange={(e) => setStageFilter(e.target.value)}
-            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-base sm:text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8"
+            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8"
             title="Filter by stage"
           >
             <option value="all">All Stages</option>
@@ -1415,7 +1415,7 @@ export function ModernCustomerView({
           <select
             value={warmthFilter}
             onChange={(e) => setWarmthFilter(e.target.value)}
-            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-base sm:text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8"
+            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8"
             title="Filter by buying intent"
           >
             <option value="all">All Intent</option>
@@ -1609,7 +1609,7 @@ export function ModernCustomerView({
                                       value={cust.lead_probability || 'warm'}
                                       onChange={(e) => handleQuickUpdate(cust.id, { lead_probability: e.target.value as any })}
                                       disabled={updatingId === cust.id}
-                                      className="bg-transparent text-base sm:text-[9px] font-bold uppercase tracking-wider cursor-pointer focus:outline-none border-none p-0 pr-0.5 text-inherit leading-none"
+                                      className="bg-transparent text-[9px] font-bold uppercase tracking-wider cursor-pointer focus:outline-none border-none p-0 pr-0.5 text-inherit leading-none"
                                     >
                                       <option value="hot">Hot</option>
                                       <option value="warm">Warm</option>
@@ -1681,7 +1681,7 @@ export function ModernCustomerView({
                               value={cust.status || 'new'}
                               onChange={(e) => handleQuickUpdate(cust.id, { status: e.target.value as any })}
                               disabled={updatingId === cust.id}
-                              className={`text-base sm:text-[10.5px] font-semibold px-1.5 py-1 h-9 sm:h-7 rounded-sm border cursor-pointer transition-all shadow-2xs w-full min-w-[130px] max-w-[145px] truncate ${stageObj.bg} ${stageObj.text} ${stageObj.border}`}
+                              className={`text-[10.5px] font-semibold px-1.5 py-1 h-7 rounded-sm border cursor-pointer transition-all shadow-2xs w-full min-w-[130px] max-w-[145px] truncate ${stageObj.bg} ${stageObj.text} ${stageObj.border}`}
                             >
                               {STAGES.map((st) => (
                                 <option key={st.id} value={st.id}>
@@ -1717,7 +1717,7 @@ export function ModernCustomerView({
                               value={cust.preferred_doctor || ''}
                               onChange={(e) => handleQuickUpdate(cust.id, { preferred_doctor: e.target.value })}
                               disabled={updatingId === cust.id}
-                              className="text-base sm:text-[10.5px] font-medium px-1.5 py-1 h-9 sm:h-7 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer w-full max-w-[105px] truncate shadow-2xs"
+                              className="text-[10.5px] font-medium px-1.5 py-1 h-7 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer w-full max-w-[105px] truncate shadow-2xs"
                             >
                               <option value="">Unassigned</option>
                               {staffList.map((st) => (
@@ -1767,7 +1767,7 @@ export function ModernCustomerView({
                                 value={cust.next_action || 'Call Again'}
                                 onChange={(e) => handleQuickUpdate(cust.id, { next_action: e.target.value })}
                                 disabled={updatingId === cust.id}
-                                className="text-base sm:text-[9.5px] text-text-secondary bg-surface-subtle hover:bg-surface border border-border/70 px-1 py-0.5 h-9 sm:h-6 rounded-xs font-medium cursor-pointer focus:outline-none focus:border-accent transition-colors w-full max-w-[105px] truncate shadow-2xs"
+                                className="text-[9.5px] text-text-secondary bg-surface-subtle hover:bg-surface border border-border/70 px-1 py-0.5 h-6 rounded-xs font-medium cursor-pointer focus:outline-none focus:border-accent transition-colors w-full max-w-[105px] truncate shadow-2xs"
                                 title="Next Action"
                               >
                                 {nextActions.length > 0 ? (

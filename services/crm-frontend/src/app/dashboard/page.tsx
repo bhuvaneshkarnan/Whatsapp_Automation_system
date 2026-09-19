@@ -8941,7 +8941,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       type="date"
                       value={repeatScheduleDate}
                       onChange={(e) => setRepeatScheduleDate(e.target.value)}
-                      className="w-full p-2 bg-surface border border-border rounded-md text-base sm:text-xs text-text-primary focus:outline-none focus:border-amber-500"
+                      className="w-full p-2 bg-surface border border-border rounded-md text-xs text-text-primary focus:outline-none focus:border-amber-500"
                     />
                   </div>
                   <div>
@@ -8953,7 +8953,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       value={repeatScheduleTime}
                       onChange={(e) => setRepeatScheduleTime(e.target.value)}
                       placeholder="e.g. 10:00 AM"
-                      className="w-full p-2 bg-surface border border-border rounded-md text-base sm:text-xs text-text-primary focus:outline-none focus:border-amber-500"
+                      className="w-full p-2 bg-surface border border-border rounded-md text-xs text-text-primary focus:outline-none focus:border-amber-500"
                     />
                   </div>
                 </div>
@@ -8966,7 +8966,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     rows={3}
                     value={repeatTaskNotes}
                     onChange={(e) => setRepeatTaskNotes(e.target.value)}
-                    className="w-full p-2.5 bg-surface border border-border rounded-md text-base sm:text-xs text-text-primary focus:outline-none focus:border-amber-500 font-sans"
+                    className="w-full p-2.5 bg-surface border border-border rounded-md text-xs text-text-primary focus:outline-none focus:border-amber-500 font-sans"
                     placeholder="Enter specific follow-up instructions..."
                   />
                 </div>
@@ -9060,7 +9060,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               <select
                 value={selectedDepartment}
                 onChange={(e) => setSelectedDepartment(e.target.value)}
-                className="bg-surface-subtle border border-border rounded-sm px-2 py-1 text-base sm:text-base sm:text-xs text-text-primary focus:outline-none focus:border-accent cursor-pointer font-medium"
+                className="bg-surface-subtle border border-border rounded-sm px-2 py-1 text-base sm:text-xs text-text-primary focus:outline-none focus:border-accent cursor-pointer font-medium"
                 title="Filter entire CRM workspace by team or staff"
               >
                 <option value="all">All Departments (Admin View)</option>
@@ -12669,7 +12669,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               placeholder={selectedMediaFile ? "Add an optional caption..." : "Type WhatsApp reply..."}
                               value={newMessage}
                               onChange={(e) => setNewMessage(e.target.value)}
-                              className="flex-1 px-3.5 py-2 bg-surface-subtle border border-border rounded-full text-base sm:text-xs text-text-primary focus:outline-none focus:bg-white focus:border-accent font-sans transition-colors duration-150"
+                              className="flex-1 px-3.5 py-2 bg-surface-subtle border border-border rounded-full text-xs text-text-primary focus:outline-none focus:bg-white focus:border-accent font-sans transition-colors duration-150"
                             />
                             <button
                               type="submit"
@@ -13629,7 +13629,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 setFollowupSearch(followupSearchInput);
                               }
                             }}
-                            className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-base sm:text-xs text-text-primary focus:outline-none focus:border-accent w-64"
+                            className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-64"
                           />
                         </div>
 
@@ -14018,7 +14018,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             placeholder="Search all notes..."
                             value={allNotesSearch}
                             onChange={(e) => setAllNotesSearch(e.target.value)}
-                            className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-base sm:text-xs text-text-primary focus:outline-none focus:border-accent w-48"
+                            className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-48"
                           />
                         </div>
                         <button
@@ -16022,11 +16022,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <div className="space-y-3 text-xs">
                             <div className="space-y-1">
                               <label className="font-medium text-text-primary">Trigger Name *</label>
-                              <input type="text" placeholder="e.g. 3-Month Re-activation" value={triggerForm.name} onChange={(e) => setTriggerForm({ ...triggerForm, name: e.target.value })} className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-base sm:text-xs" />
+                              <input type="text" placeholder="e.g. 3-Month Re-activation" value={triggerForm.name} onChange={(e) => setTriggerForm({ ...triggerForm, name: e.target.value })} className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-xs" />
                             </div>
                             <div className="space-y-1">
                               <label className="font-medium text-text-primary">Trigger Type *</label>
-                              <select value={triggerForm.trigger_type} onChange={(e) => setTriggerForm({ ...triggerForm, trigger_type: e.target.value })} className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-base sm:text-xs">
+                              <select value={triggerForm.trigger_type} onChange={(e) => setTriggerForm({ ...triggerForm, trigger_type: e.target.value })} className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-xs">
                                 <option value="recall_reminder">Recall Reminder</option>
                                 <option value="birthday_greeting">Birthday Greeting</option>
                                 <option value="post_treatment_followup">Post-Treatment Follow-up</option>
@@ -16035,15 +16035,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             </div>
                             <div className="space-y-1">
                               <label className="font-medium text-text-primary">Condition Description *</label>
-                              <input type="text" placeholder="e.g. No visit in 90 days" value={triggerForm.condition_label} onChange={(e) => setTriggerForm({ ...triggerForm, condition_label: e.target.value })} className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-base sm:text-xs" />
+                              <input type="text" placeholder="e.g. No visit in 90 days" value={triggerForm.condition_label} onChange={(e) => setTriggerForm({ ...triggerForm, condition_label: e.target.value })} className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-xs" />
                             </div>
                             <div className="space-y-1">
                               <label className="font-medium text-text-primary">Days Condition</label>
-                              <input type="number" min={0} value={triggerForm.condition_days} onChange={(e) => setTriggerForm({ ...triggerForm, condition_days: parseInt(e.target.value) || 0 })} className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-base sm:text-xs" />
+                              <input type="number" min={0} value={triggerForm.condition_days} onChange={(e) => setTriggerForm({ ...triggerForm, condition_days: parseInt(e.target.value) || 0 })} className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-xs" />
                             </div>
                             <div className="space-y-1">
                               <label className="font-medium text-text-primary">WhatsApp Template Name *</label>
-                              <select value={triggerForm.template_name} onChange={(e) => setTriggerForm({ ...triggerForm, template_name: e.target.value })} className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-base sm:text-xs">
+                              <select value={triggerForm.template_name} onChange={(e) => setTriggerForm({ ...triggerForm, template_name: e.target.value })} className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-sm text-xs">
                                 {customTemplates.map((t) => <option key={t.id} value={t.name}>{t.label}</option>)}
                               </select>
                             </div>
@@ -17316,7 +17316,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               value={replyText}
                               onChange={(e) => setReplyText(e.target.value)}
                               placeholder="Type your official owner response..."
-                              className="w-full p-2.5 bg-surface border border-border rounded-lg text-base sm:text-xs text-text-primary focus:outline-none focus:border-accent resize-none leading-relaxed"
+                              className="w-full p-2.5 bg-surface border border-border rounded-lg text-xs text-text-primary focus:outline-none focus:border-accent resize-none leading-relaxed"
                             />
                           </div>
 
@@ -21198,7 +21198,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           placeholder="e.g. Appointment Reminder"
                           value={newTemplateForm.label}
                           onChange={(e) => setNewTemplateForm({ ...newTemplateForm, label: e.target.value })}
-                          className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-base sm:text-xs text-text-primary focus:outline-none focus:border-accent"
+                          className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent"
                         />
                       </div>
 
@@ -21235,7 +21235,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           const detected = Array.from(new Set(bodyVal.match(/\{\{(\d+)\}\}/g) || [])).length;
                           setNewTemplateForm({ ...newTemplateForm, body: bodyVal, variables_count: detected || 1 });
                         }}
-                        className="w-full p-2.5 bg-surface border border-border rounded-sm text-base sm:text-xs text-text-primary focus:outline-none focus:border-accent font-sans"
+                        className="w-full p-2.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent font-sans"
                       />
 
                       {/* Quick Variable Helpers */}
@@ -21359,7 +21359,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               <form onSubmit={handleCreateTask} className="p-4 space-y-3.5 text-xs">
                 <div>
                   <label className="text-[10px] text-text-muted block mb-1 font-medium">Task Title *</label>
-                  <input type="text" required value={addTaskTitle} onChange={e => setAddTaskTitle(e.target.value)} placeholder="e.g. Follow-up call with customer" className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-base sm:text-xs" />
+                  <input type="text" required value={addTaskTitle} onChange={e => setAddTaskTitle(e.target.value)} placeholder="e.g. Follow-up call with customer" className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs" />
                 </div>
                 <div>
                   <label className="text-[10px] text-text-muted block mb-1 font-medium">Notes / Description</label>
@@ -21368,16 +21368,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-text-muted block mb-1 font-medium">Due Date</label>
-                    <input type="date" value={addTaskDueDate} onChange={e => setAddTaskDueDate(e.target.value)} className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-base sm:text-xs" />
+                    <input type="date" value={addTaskDueDate} onChange={e => setAddTaskDueDate(e.target.value)} className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs" />
                   </div>
                   <div>
                     <label className="text-[10px] text-text-muted block mb-1 font-medium">Time</label>
-                    <input type="time" value={addTaskDueTime} onChange={e => setAddTaskDueTime(e.target.value)} className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-base sm:text-xs" />
+                    <input type="time" value={addTaskDueTime} onChange={e => setAddTaskDueTime(e.target.value)} className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs" />
                   </div>
                 </div>
                 <div>
                   <label className="text-[10px] text-text-muted block mb-1 font-medium">Link to Customer (optional)</label>
-                  <select value={addTaskCustomerId} onChange={e => setAddTaskCustomerId(e.target.value)} className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-base sm:text-xs">
+                  <select value={addTaskCustomerId} onChange={e => setAddTaskCustomerId(e.target.value)} className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs">
                     <option value="">— No customer linked —</option>
                     {customers.map(c => (<option key={c.id} value={c.id}>{c.name} ({c.phone})</option>))}
                   </select>
@@ -21418,7 +21418,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     required
                     value={overallNoteCustomerId}
                     onChange={e => setOverallNoteCustomerId(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-base sm:text-xs"
+                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
                   >
                     <option value="">— Choose Customer —</option>
                     {customers.map(c => (
@@ -21434,7 +21434,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     value={overallNoteAuthor}
                     onChange={e => setOverallNoteAuthor(e.target.value)}
                     placeholder="e.g. Staff Name"
-                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-base sm:text-xs"
+                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
                   />
                 </div>
 
@@ -21815,7 +21815,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     value={quickCrmName}
                     onChange={e => setQuickCrmName(e.target.value)}
                     placeholder="e.g. John Doe"
-                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-base sm:text-xs"
+                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
                   />
                 </div>
                 <div>
@@ -21825,7 +21825,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     value={quickCrmConcern}
                     onChange={e => setQuickCrmConcern(e.target.value)}
                     placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
-                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-base sm:text-xs"
+                    className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
                   />
                   {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
                     ? settingsForm.taxonomy.requirement_presets
@@ -21859,7 +21859,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <select
                       value={quickCrmLead}
                       onChange={e => setQuickCrmLead(e.target.value as any)}
-                      className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-base sm:text-xs"
+                      className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
                     >
                       <option value="hot">Hot (Ready to convert)</option>
                       <option value="warm">Warm (Interested)</option>
