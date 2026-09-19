@@ -1706,6 +1706,7 @@ class CoreWorker:
 
         # Get AI config and all tenant keys
         ai_cfg = await self._get_ai_config(tenant_id)
+        assistant_name = ai_cfg.get("assistant_name") or "Assistant"
         gemini_key = await self._get_gemini_key(tenant_id)
         groq_key = await self._get_groq_key(tenant_id)
         opencode_key, opencode_base = await self._get_opencode_creds(tenant_id)
