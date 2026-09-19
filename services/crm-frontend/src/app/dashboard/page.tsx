@@ -1715,6 +1715,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
   
   // Navigation: overview | inbox | bookings | calendar | customers | repeat_clients | followup | marketing | reviews | settings
+  const [customerStats, setCustomerStats] = useState<{total: number, pending: number, hot_leads: number, converted: number} | null>(null);
   const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'repeat_clients' | 'followup' | 'marketing' | 'reviews' | 'settings' | 'team'>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -4736,14 +4737,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       // Auto two-way sync: purge any tasks/followups marked completed or deleted in Google Tasks
       await crm.syncGoogleTasksCompleted().catch(() => null);
 
-      const [bData, cData, tData, gData] = await Promise.all([
-        crm.getBookings(undefined, 500).catch(() => []),
-        crm.getCustomers({ limit: 1000 }).catch(() => []),
-        isMindBodyRecovery ? crm.getTasks('all').catch(() => []) : Promise.resolve([]),
-        crm.getLiveCalendarAvailability().catch(() => null),
-      ]);
-      if (Array.isArray(bData)) setBookings(bData);
-      if (Array.isArray(cData) && cData.length > 0) setCustomers(cData);
+      const [bData, cData, tData, gData, statsData] = await Promise.all([
+          crm.getBookings(undefined, 500).catch(() => []),
+          crm.getCustomers({ limit: 1000 }).catch(() => []),
+          isMindBodyRecovery ? crm.getTasks('all').catch(() => []) : Promise.resolve([]),
+          crm.getLiveCalendarAvailability().catch(() => null),
+          crm.getCustomerStats().catch(() => null),
+        ]);
+        if (Array.isArray(bData)) setBookings(bData);
+        if (Array.isArray(cData) && cData.length > 0) setCustomers(cData);
+        if (statsData) setCustomerStats(statsData);
       if (Array.isArray(tData)) setTasks(tData);
       if (gData && Array.isArray(gData.busy_slots)) {
         const googleOnly = gData.busy_slots.filter((s: LiveCalendarSlot) => s.source === 'Google Calendar');
@@ -4847,15 +4850,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         }
       }
 
-      const data = await crm.getCustomers({
-        status: followupStatusFilter,
-        lead_probability: followupProbabilityFilter,
-        preferred_doctor: depDoctor || followupDoctorFilter,
-        health_concern: depConcern,
-        next_action: followupActionFilter,
-        q: followupSearch,
-        limit: 1000,
-      });
+      const [data, statsData] = await Promise.all([
+        crm.getCustomers({
+          status: followupStatusFilter,
+          lead_probability: followupProbabilityFilter,
+          preferred_doctor: depDoctor || followupDoctorFilter,
+          health_concern: depConcern,
+          next_action: followupActionFilter,
+          q: followupSearch,
+          limit: 1000,
+        }),
+        crm.getCustomerStats().catch(() => null)
+      ]);
+      if (statsData) setCustomerStats(statsData);
       if (Array.isArray(data)) {
         if (data.length === 0 && !followupSearch.trim()) {
           setCustomers((prev) => (prev.length === 0 ? [] : prev));
@@ -13048,23 +13055,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <div className="flex items-center gap-1.5">
                           <Users className="w-3.5 h-3.5 text-text-muted stroke-[1.8]" />
                           <span className="text-[11px] text-text-muted">Total:</span>
-                          <span className="font-bold text-text-primary font-mono text-xs">{customers.length}</span>
+                            <span className="font-bold text-text-primary font-mono text-xs">{customerStats?.total ?? customers.length}</span>
                         </div>
                         <span className="text-border text-xs hidden sm:inline">•</span>
                         <div className="flex items-center gap-1.5">
                           <Clock3 className="w-3.5 h-3.5 text-amber-600 stroke-[1.8]" />
                           <span className="text-[11px] text-amber-800 font-medium">Pending:</span>
-                          <span className="font-bold text-amber-900 font-mono text-xs">
-                            {customers.filter(c => c.status === 'follow-up' || c.status === 'new').length}
-                          </span>
+                            <span className="font-bold text-amber-900 font-mono text-xs">
+                              {customerStats?.pending ?? customers.filter(c => c.status === 'follow-up' || c.status === 'new').length}
+                            </span>
                         </div>
                         <span className="text-border text-xs hidden sm:inline">•</span>
                         <div className="flex items-center gap-1.5">
                           <Flame className="w-3.5 h-3.5 text-rose-500 fill-rose-500/20 stroke-[1.8]" />
                           <span className="text-[11px] text-rose-700 font-medium">Hot Leads:</span>
-                          <span className="font-bold text-rose-900 font-mono text-xs">
-                            {customers.filter(c => c.lead_probability === 'hot').length}
-                          </span>
+                            <span className="font-bold text-rose-900 font-mono text-xs">
+                              {customerStats?.hot_leads ?? customers.filter(c => c.lead_probability === 'hot').length}
+                            </span>
                         </div>
                         <span className="text-border text-xs hidden sm:inline">•</span>
                         <div className="flex items-center gap-1.5">

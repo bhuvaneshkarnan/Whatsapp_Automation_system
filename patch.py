@@ -1,68 +1,105 @@
-import re
-
-file_path = 'e:/AI Whatsapp automation system/services/crm-frontend/src/app/dashboard/page.tsx'
-
-with open(file_path, 'r', encoding='utf-8') as f:
+﻿with open(r'e:\AI Whatsapp automation system\services\crm-frontend\src\app\dashboard\page.tsx', 'r', encoding='utf-8') as f:
     content = f.read()
 
-# Standard Shopify-like Card layout class for standard views
-std_class = 'flex-1 flex flex-col overflow-y-auto space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5'
-std_hidden_class = 'flex-1 flex flex-col overflow-hidden space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5'
+import re
 
-# Replace View 0-A
+# Initial fetch
 content = re.sub(
-    r'(\{\s*/\*\s*-- VIEW 0-A.*?\n\s*\{activeNav === \'overview\' && settingsForm.plan === \'review_only\' && \(\n\s*)<div className=\"flex-1 flex flex-col overflow-y-auto space-y-[^\"]+\">',
-    r'\g<1><div className=\"' + std_class + '\">',
+    r"const \[bData, cData, tData, gData\] = await Promise\.all\(\[\s+crm\.getBookings\(undefined, 500\)\.catch\(\(\) => \[\]\),\s+crm\.getCustomers\(\{ limit: 1000 \}\)\.catch\(\(\) => \[\]\),\s+isMindBodyRecovery \? crm\.getTasks\('all'\)\.catch\(\(\) => \[\]\) : Promise\.resolve\(\[\]\),\s+crm\.getLiveCalendarAvailability\(\)\.catch\(\(\) => null\),\s+\]\);\s+if \(Array\.isArray\(bData\)\) setBookings\(bData\);\s+if \(Array\.isArray\(cData\) && cData\.length > 0\) setCustomers\(cData\);",
+    r"""const [bData, cData, tData, gData, statsData] = await Promise.all([
+          crm.getBookings(undefined, 500).catch(() => []),
+          crm.getCustomers({ limit: 1000 }).catch(() => []),
+          isMindBodyRecovery ? crm.getTasks('all').catch(() => []) : Promise.resolve([]),
+          crm.getLiveCalendarAvailability().catch(() => null),
+          crm.getCustomerStats().catch(() => null),
+        ]);
+        if (Array.isArray(bData)) setBookings(bData);
+        if (Array.isArray(cData) && cData.length > 0) setCustomers(cData);
+        if (statsData) setCustomerStats(statsData);""",
     content
 )
 
-# Replace View 0-B
+# LoadCustomers fetch
 content = re.sub(
-    r'(\{\s*/\*\s*-- VIEW 0-B.*?\n\s*\{activeNav === \'overview\' && settingsForm.plan !== \'review_only\' && \(\n\s*)<div className=\"flex-1 flex flex-col overflow-y-auto space-y-[^\"]+\">',
-    r'\g<1><div className=\"' + std_class + '\">',
+    r"const data = await crm\.getCustomers\(\{\s+status: followupStatusFilter,\s+lead_probability: followupProbabilityFilter,\s+preferred_doctor: depDoctor \|\| followupDoctorFilter,\s+health_concern: depConcern,\s+next_action: followupActionFilter,\s+q: followupSearch,\s+limit: 1000,\s+\}\);\s+const list = Array\.isArray\(data\) \? data : \[\];\s+setCustomers\(list\);",
+    r"""const [data, statsData] = await Promise.all([
+        crm.getCustomers({
+          status: followupStatusFilter,
+          lead_probability: followupProbabilityFilter,
+          preferred_doctor: depDoctor || followupDoctorFilter,
+          health_concern: depConcern,
+          next_action: followupActionFilter,
+          q: followupSearch,
+          limit: 1000,
+        }),
+        crm.getCustomerStats().catch(() => null)
+      ]);
+      const list = Array.isArray(data) ? data : [];
+      setCustomers(list);
+      if (statsData) setCustomerStats(statsData);""",
     content
 )
 
-# Replace View 1
+# Interval fetch
 content = re.sub(
-    r'(\{\s*/\*\s*-- VIEW 1: BOOKINGS.*?\n\s*\{activeNav === \'bookings\' && \(\n\s*)<div className=\"flex-1 flex flex-col overflow-hidden space-y-[^\"]+\">',
-    r'\g<1><div className=\"' + std_hidden_class + '\">',
+    r"const fresh = await crm\.getCustomers\(\{\s+status: followupStatusFilter,\s+lead_probability: followupProbabilityFilter,\s+preferred_doctor: followupDoctorFilter,\s+next_action: followupActionFilter,\s+q: followupSearch,\s+limit: 1000,\s+\}\);\s+if \(isMounted\) \{\s+const freshList = Array\.isArray\(fresh\) \? fresh : \[\];\s+setCustomers\(freshList\);",
+    r"""const [fresh, statsData] = await Promise.all([
+              crm.getCustomers({
+                status: followupStatusFilter,
+                lead_probability: followupProbabilityFilter,
+                preferred_doctor: followupDoctorFilter,
+                next_action: followupActionFilter,
+                q: followupSearch,
+                limit: 1000,
+              }),
+              crm.getCustomerStats().catch(() => null)
+            ]);
+            if (isMounted) {
+              const freshList = Array.isArray(fresh) ? fresh : [];
+              setCustomers(freshList);
+              if (statsData) setCustomerStats(statsData);""",
     content
 )
 
-# Replace View 2
+# UI block
 content = re.sub(
-    r'(\{\s*/\*\s*-- VIEW 2: CALENDAR.*?\n\s*\{activeNav === \'calendar\' && \(\n\s*)<div className=\"flex-1 flex flex-col overflow-hidden space-y-[^\"]+\">',
-    r'\g<1><div className=\"' + std_hidden_class + '\">',
+    r'<div className="flex items-center gap-1\.5">\s+<Users className="w-3\.5 h-3\.5 text-text-muted stroke-\[1\.8\]" />\s+<span className="text-\[11px\] text-text-muted">Total:</span>\s+<span className="font-bold text-text-primary font-mono text-xs">\{customers\.length\}</span>\s+</div>\s+<span className="text-border text-xs hidden sm:inline">•</span>\s+<div className="flex items-center gap-1\.5">\s+<Clock3 className="w-3\.5 h-3\.5 text-amber-600 stroke-\[1\.8\]" />\s+<span className="text-\[11px\] text-amber-800 font-medium">Pending:</span>\s+<span className="font-bold text-amber-900 font-mono text-xs">\s+\{customers\.filter\(c => c\.status === \'follow-up\' \|\| c\.status === \'new\'\)\.length\}\s+</span>\s+</div>\s+<span className="text-border text-xs hidden sm:inline">•</span>\s+<div className="flex items-center gap-1\.5">\s+<Flame className="w-3\.5 h-3\.5 text-rose-500 fill-rose-500/20 stroke-\[1\.8\]" />\s+<span className="text-\[11px\] text-rose-700 font-medium">Hot Leads:</span>\s+<span className="font-bold text-rose-900 font-mono text-xs">\s+\{customers\.filter\(c => c\.lead_probability === \'hot\'\)\.length\}\s+</span>\s+</div>\s+<span className="text-border text-xs hidden sm:inline">•</span>\s+<div className="flex items-center gap-1\.5">\s+<CheckCircle2 className="w-3\.5 h-3\.5 text-emerald-600 stroke-\[1\.8\]" />\s+<span className="text-\[11px\] text-emerald-700 font-medium">Converted:</span>\s+<span className="font-bold text-emerald-900 font-mono text-xs flex items-center gap-1">\s+\{customers\.filter\(c => c\.status === \'converted\' \|\| c\.converted\)\.length\}\s+<span className="text-\[9px\] text-emerald-700/80 font-semibold tracking-tighter">\s+\(\{Math\.round\(\(customers\.filter\(c => c\.status === \'converted\' \|\| c\.converted\)\.length / \(customers\.length \|\| 1\)\) \* 100\)\}%\)\s+</span>\s+</span>\s+</div>',
+    r"""<div className="flex items-center gap-1.5">
+                            <Users className="w-3.5 h-3.5 text-text-muted stroke-[1.8]" />
+                            <span className="text-[11px] text-text-muted">Total:</span>
+                            <span className="font-bold text-text-primary font-mono text-xs">{customerStats?.total ?? customers.length}</span>
+                          </div>
+                          <span className="text-border text-xs hidden sm:inline">•</span>
+                          <div className="flex items-center gap-1.5">
+                            <Clock3 className="w-3.5 h-3.5 text-amber-600 stroke-[1.8]" />
+                            <span className="text-[11px] text-amber-800 font-medium">Pending:</span>
+                            <span className="font-bold text-amber-900 font-mono text-xs">
+                              {customerStats?.pending ?? customers.filter(c => c.status === 'follow-up' || c.status === 'new').length}
+                            </span>
+                          </div>
+                          <span className="text-border text-xs hidden sm:inline">•</span>
+                          <div className="flex items-center gap-1.5">
+                            <Flame className="w-3.5 h-3.5 text-rose-500 fill-rose-500/20 stroke-[1.8]" />
+                            <span className="text-[11px] text-rose-700 font-medium">Hot Leads:</span>
+                            <span className="font-bold text-rose-900 font-mono text-xs">
+                              {customerStats?.hot_leads ?? customers.filter(c => c.lead_probability === 'hot').length}
+                            </span>
+                          </div>
+                          <span className="text-border text-xs hidden sm:inline">•</span>
+                          <div className="flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 stroke-[1.8]" />
+                            <span className="text-[11px] text-emerald-700 font-medium">Converted:</span>
+                            <span className="font-bold text-emerald-900 font-mono text-xs flex items-center gap-1">
+                              {customerStats?.converted ?? customers.filter(c => c.status === 'converted' || c.converted).length}
+                              <span className="text-[9px] text-emerald-700/80 font-semibold tracking-tighter">
+                                ({customerStats ? Math.round((customerStats.converted / (customerStats.total || 1)) * 100) : Math.round((customers.filter(c => c.status === 'converted' || c.converted).length / (customers.length || 1)) * 100)}%)
+                              </span>
+                            </span>
+                          </div>""",
     content
 )
 
-# Replace View 3
-content = re.sub(
-    r'(\{\s*/\*\s*-- VIEW 3: INBOX.*?\n\s*\{activeNav === \'inbox\' && \(\n\s*)<div className=\"flex-1 flex overflow-hidden border border-border md:rounded-md bg-surface h-full\">',
-    r'\g<1><div className=\"flex-1 flex overflow-hidden border border-border shadow-sm md:rounded-xl bg-surface h-full\">',
-    content
-)
-
-# Replace View 5 (Reviews and Settings)
-content = re.sub(
-    r'(\{activeNav === \'reviews\' && \(\n\s*)<div className=\"flex-1 flex flex-col min-h-0 overflow-y-auto space-y-[^\"]+\">',
-    r'\g<1><div className=\"' + std_class + ' min-h-0\">',
-    content
-)
-content = re.sub(
-    r'(\{activeNav === \'settings\' && \(\n\s*)<div className=\"flex-1 overflow-y-auto space-y-[^\"]+\">',
-    r'\g<1><div className=\"' + std_class.replace('flex flex-col ', '') + '\">',
-    content
-)
-
-# Replace View 6
-content = re.sub(
-    r'(\{activeNav === \'marketing\' && canManageMarketing && \(settingsForm.plan !== \'review_only\'\) && \(\n\s*)<div className=\"flex-1 flex flex-col overflow-y-auto space-y-[^\"]+\">',
-    r'\g<1><div className=\"' + std_class + ' max-w-7xl mx-auto w-full\">',
-    content
-)
-
-with open(file_path, 'w', encoding='utf-8') as f:
+with open(r'e:\AI Whatsapp automation system\services\crm-frontend\src\app\dashboard\page.tsx', 'w', encoding='utf-8') as f:
     f.write(content)
-print('Done!')
+
+print("Updated with regex")

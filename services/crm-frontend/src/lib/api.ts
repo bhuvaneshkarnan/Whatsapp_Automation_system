@@ -977,7 +977,9 @@ export const crm = {
     }),
 
   // Customer Follow-up & Tasks
+getCustomerStats: () => request<{total: number, pending: number, hot_leads: number, converted: number}>('/api/v1/crm/customers/stats'),
   getCustomers: async (filters?: {
+
     status?: string;
     lead_probability?: string;
     preferred_doctor?: string;
