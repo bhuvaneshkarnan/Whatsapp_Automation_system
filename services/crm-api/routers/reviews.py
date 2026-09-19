@@ -132,18 +132,18 @@ def clean_human_review_text(text: str) -> str:
 def extract_city(full_loc: str) -> str:
     if not full_loc or not isinstance(full_loc, str):
         return ""
-    m = re.search(r'([a-zA-Z\s]+)(?:-\s*\d{5,6}|\b\d{5,6}\b)', full_loc)
-    if m:
-        candidate = m.group(1).strip().strip(',').strip()
-        words = candidate.split()
-        if words:
-            return words[-1].title()
     parts = [p.strip() for p in full_loc.split(',') if p.strip()]
-    if parts:
-        cleaned = re.sub(r'[-\d]+', '', parts[-1]).strip()
-        if cleaned:
-            return cleaned.title()
-    return ""
+    if not parts:
+        return ""
+    
+    if len(parts) >= 2:
+        if re.search(r'\d{5,6}', parts[-1]):
+            return parts[-2].title()
+        else:
+            return parts[-1].title()
+    else:
+        cleaned = re.sub(r'[-\d]+', '', parts[0]).strip()
+        return cleaned.title()
 
 
 def generate_varied_human_review_fallback(
