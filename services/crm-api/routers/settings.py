@@ -300,6 +300,58 @@ async def get_tenant_settings(
 
 
 
+@router.get("/settings/ai-usage")
+async def get_ai_usage_stats(
+    tenant_id: str = Depends(get_tenant_id),
+    target_tenant_id: Optional[str] = Query(None),
+    caller: dict = Depends(get_caller_context)
+):
+    """Retrieve 30-day AI message usage stats (without exposing model names)."""
+    caller_role = caller.get("role") if isinstance(caller, dict) else "admin"
+    if isinstance(target_tenant_id, str) and target_tenant_id.strip() and caller_role == "super_admin":
+        tenant_id = target_tenant_id.strip()
+        
+    async with database.db_pool.acquire() as conn:
+        totals_row = await conn.fetchrow("""
+            SELECT 
+                COUNT(*) as total_replies,
+                AVG(processing_ms) as avg_speed_ms
+            FROM messages 
+            WHERE tenant_id = $1::uuid 
+              AND direction = 'outbound' 
+              AND ai_model_used IS NOT NULL
+              AND created_at >= NOW() - INTERVAL '30 days'
+        """, tenant_id)
+
+        daily_rows = await conn.fetch("""
+            SELECT 
+                DATE(timezone('Asia/Kolkata', created_at)) as date,
+                COUNT(*) as count
+            FROM messages
+            WHERE tenant_id = $1::uuid 
+              AND direction = 'outbound' 
+              AND ai_model_used IS NOT NULL
+              AND created_at >= NOW() - INTERVAL '30 days'
+            GROUP BY DATE(timezone('Asia/Kolkata', created_at))
+            ORDER BY date ASC
+        """, tenant_id)
+        
+        daily_stats = []
+        for r in daily_rows:
+            daily_stats.append({
+                "date": r["date"].isoformat() if r["date"] else "",
+                "count": r["count"]
+            })
+
+    total_replies = totals_row["total_replies"] if totals_row and totals_row["total_replies"] else 0
+    avg_speed_ms = totals_row["avg_speed_ms"] if totals_row and totals_row["avg_speed_ms"] else 0
+
+    return {
+        "total_replies_30d": total_replies,
+        "avg_speed_ms": float(avg_speed_ms) if avg_speed_ms else 0.0,
+        "daily_stats": daily_stats
+    }
+
 @router.get("/public/branding")
 @router.get("/api/public/branding")
 @router.get("/api/v1/crm/public/branding")
