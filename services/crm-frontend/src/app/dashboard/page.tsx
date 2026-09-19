@@ -13917,12 +13917,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </button>
                     </div>
 
-                    <div className="space-y-2">
-                      {loadingTasks ? (
-                        <p className="text-xs text-text-muted text-center py-8">Loading tasks...</p>
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                        {loadingTasks ? (
+                        <p className="col-span-full text-xs text-text-muted text-center py-8">Loading tasks...</p>
                       ) : filteredTasks.length === 0 ? (
-                        <div className="p-8 text-center bg-surface border border-border rounded-sm space-y-1">
-                          <CheckSquare className="w-8 h-8 text-text-muted mx-auto stroke-[1]" />
+                        <div className="col-span-full p-8 text-center bg-surface border border-border rounded-sm space-y-1">
+                            <CheckSquare className="w-8 h-8 text-text-muted mx-auto stroke-[1]" />
                           <p className="text-xs text-text-secondary font-medium">No tasks found</p>
                           <p className="text-[11px] text-text-muted">You have no tasks matching this filter.</p>
                         </div>
@@ -14047,8 +14047,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {loadingAllNotes ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                        {loadingAllNotes ? (
                         <p className="text-xs text-text-muted col-span-full text-center py-8">Loading notes...</p>
                       ) : filteredAllNotes.length === 0 ? (
                         <div className="col-span-full p-8 text-center bg-surface border border-border rounded-sm space-y-1">
