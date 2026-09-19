@@ -231,7 +231,7 @@ async def list_customers(
 
         if lead_probability and lead_probability != "all":
             lp_lower = lead_probability.strip().lower()
-            conditions.append(f"LOWER(c.lead_probability) = LOWER(${idx})")
+            conditions.append(f"(LOWER(c.lead_probability) = LOWER(${idx}) AND COALESCE(c.status, '') NOT IN ('converted', 'lost') AND COALESCE(c.converted, false) = false)")
             params.append(lp_lower)
             idx += 1
 
