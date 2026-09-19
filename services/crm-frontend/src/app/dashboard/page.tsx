@@ -12884,33 +12884,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             );
                           })}
                         </div>
-
-                        {/* Specific Outcome Dropdown */}
-                        <select
-                          value={
-                            ['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase())
-                              ? ''
-                              : followupStatusFilter
-                          }
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              setFollowupStatusFilter(e.target.value);
-                            } else {
-                              setFollowupStatusFilter('all');
-                            }
-                          }}
-                          className={`px-1.5 py-0.5 text-[11px] rounded-sm border transition-colors cursor-pointer max-w-[105px] truncate h-[26px] ${
-                            !['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) && followupStatusFilter !== ''
-                              ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary shadow-2xs'
-                              : 'bg-surface border-border text-text-secondary hover:text-text-primary'
-                          }`}
-                          title="Filter by specific outcome status"
-                        >
-                          <option value="">More...</option>
-                          {crmDropdowns.outcome_statuses.map((st) => (
-                            <option key={st} value={st}>{st}</option>
-                          ))}
-                        </select>
                       </div>
 
                       {/* Divider */}
@@ -12952,6 +12925,27 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       {/* Staff & Next Action Selectors & Search */}
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Specific Outcome Dropdown (Moved here for clarity) */}
+                        <div className="shrink-0">
+                          <select
+                            value={
+                              ['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase())
+                                ? 'all'
+                                : followupStatusFilter
+                            }
+                            onChange={(e) => setFollowupStatusFilter(e.target.value)}
+                            className={`px-2 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[140px] h-[26px] cursor-pointer ${
+                              !['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? 'border-text-primary font-semibold' : ''
+                            }`}
+                            title="Filter by specific outcome status"
+                          >
+                            <option value="all">All Outcomes</option>
+                            {crmDropdowns.outcome_statuses.map((st) => (
+                              <option key={st} value={st}>{st}</option>
+                            ))}
+                          </select>
+                        </div>
+                        
                         {/* Staff / Doctor Selector */}
                         <div className="flex items-center gap-0.5">
                           <select
@@ -13665,6 +13659,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </select>
 
                         <select
+                            value={
+                              ['all', 'new', 'follow-up', 'converted', 'contacted', 'lost'].includes(followupStatusFilter.toLowerCase())
+                                ? 'all'
+                                : followupStatusFilter
+                            }
+                            onChange={(e) => setFollowupStatusFilter(e.target.value)}
+                            className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                          >
+                            <option value="all">All Outcomes</option>
+                            {crmDropdowns.outcome_statuses.map((st) => (
+                              <option key={st} value={st}>{st}</option>
+                            ))}
+                          </select>
+
+                          <select
                           value={followupActionFilter}
                           onChange={(e) => setFollowupActionFilter(e.target.value)}
                           className={`px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent ${
