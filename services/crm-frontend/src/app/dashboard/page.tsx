@@ -13297,7 +13297,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                               }
                                             }}
                                             className={`h-6 px-2 rounded-md border flex items-center gap-1 text-[10px] font-bold transition-all shadow-2xs cursor-pointer ${
-                                              cust.converted || cust.status === 'converted'
+                                              cust.converted || (cust.status === 'converted' || cust.converted === true || (cust.call_status || '').toLowerCase().includes('confirm') || (cust.call_status || '').toLowerCase().includes('convert'))
                                                   ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300'
                                                   : cust.lead_probability === 'hot' || (!cust.lead_probability && rate >= 75)
                                                   ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 dark:bg-rose-950 dark:border-rose-800 dark:text-rose-300'
@@ -13305,9 +13305,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                   ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300'
                                                   : 'bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-700 dark:bg-sky-950 dark:border-sky-800 dark:text-sky-300'
                                             }`}
-                                            title={`Lead Status: ${cust.converted || cust.status === 'converted' ? 'Converted' : cust.lead_probability ? cust.lead_probability.charAt(0).toUpperCase() + cust.lead_probability.slice(1) : 'Unknown'} (${rate}%) — Click to change`}
+                                            title={`Lead Status: ${cust.converted || (cust.status === 'converted' || cust.converted === true || (cust.call_status || '').toLowerCase().includes('confirm') || (cust.call_status || '').toLowerCase().includes('convert')) ? 'Converted' : cust.lead_probability ? cust.lead_probability.charAt(0).toUpperCase() + cust.lead_probability.slice(1) : 'Unknown'} (${rate}%) — Click to change`}
                                           >
-                                            {cust.converted || cust.status === 'converted' ? (
+                                            {cust.converted || (cust.status === 'converted' || cust.converted === true || (cust.call_status || '').toLowerCase().includes('confirm') || (cust.call_status || '').toLowerCase().includes('convert')) ? (
                                                 <CheckCircle2 className="w-3 h-3 text-emerald-600 stroke-[2.2]" />
                                               ) : cust.lead_probability === 'hot' || (!cust.lead_probability && rate >= 75) ? (
                                                 <Flame className="w-3 h-3 text-rose-600 stroke-[2.2]" />
@@ -13317,7 +13317,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                 <Snowflake className="w-3 h-3 text-sky-600 stroke-[2.2]" />
                                               )}
                                             <span>
-                                              {cust.converted || cust.status === 'converted'
+                                              {cust.converted || (cust.status === 'converted' || cust.converted === true || (cust.call_status || '').toLowerCase().includes('confirm') || (cust.call_status || '').toLowerCase().includes('convert'))
                                                   ? 'Converted'
                                                   : cust.lead_probability === 'hot' || (!cust.lead_probability && rate >= 75)
                                                   ? `Hot (${rate}%)`
@@ -13382,7 +13382,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         {/* Outcome Status Dropdown */}
                                         <div className="relative">
                                           <select
-                                            value={cust.call_status || (cust.status === 'converted' ? 'Converted' : (cust.status === 'follow-up' ? 'Info Given & Taken' : (cust.status === 'contacted' ? 'Requirements Gathered' : 'New (Fresh)')))}
+                                            value={cust.call_status || ((cust.status === 'converted' || cust.converted === true || (cust.call_status || '').toLowerCase().includes('confirm') || (cust.call_status || '').toLowerCase().includes('convert')) ? 'Converted' : (cust.status === 'follow-up' ? 'Info Given & Taken' : (cust.status === 'contacted' ? 'Requirements Gathered' : 'New (Fresh)')))}
                                             onChange={(e) => {
                                               const val = e.target.value;
                                               const lower = val.toLowerCase();
@@ -13815,7 +13815,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </td>
                                     <td className="p-2.5" onClick={(e) => e.stopPropagation()}>
                                       <span className={`px-2 py-0.5 rounded-sm text-[10px] font-medium uppercase border ${
-                                        cust.status === 'converted'
+                                        (cust.status === 'converted' || cust.converted === true || (cust.call_status || '').toLowerCase().includes('confirm') || (cust.call_status || '').toLowerCase().includes('convert'))
                                           ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                           : cust.status === 'follow-up'
                                           ? 'bg-amber-50 text-amber-800 border-amber-200'
@@ -20723,7 +20723,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               </span>
                             )}
                             {/* Converted Badge */}
-                            {selectedCustomer.converted ? (
+                            {(selectedCustomer.converted || selectedCustomer.status === 'converted' || (selectedCustomer.call_status || '').toLowerCase().includes('confirm') || (selectedCustomer.call_status || '').toLowerCase().includes('convert')) ? (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800">
                                 <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                                 <span>Converted</span>
