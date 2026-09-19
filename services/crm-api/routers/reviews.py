@@ -219,12 +219,10 @@ async def generate_ai_smart_review(
         logger.debug("fetch_prev_reviews_failed", error=str(_e))
 
     archetypes = [
-        f"Focus on operational speed, instant automated customer replies, and saving hours every single week.",
-        f"Focus on local credibility and recommending {b_name} as the go-to automation specialist {f'in {loc}' if loc else ''}.",
-        f"Focus on hands-on guidance and how patient and clear {c_name if c_name else 'the team'} was during onboarding.",
-        f"Focus on lead conversion and how much easier it is to manage client inquiries now without missing messages.",
-        f"A punchy, casual 2-sentence mobile review highlighting quick turnaround and zero glitches.",
-        f"Focus on relief and solving communication bottlenecks {f'for our local operations in {loc}' if loc else ''}."
+        f"A brief, simple 1-2 sentence review focusing directly on the service received.",
+        f"A direct, casual review in natural Indian English highlighting the quality of work.",
+        f"Focus entirely on the helpfulness of {c_name if c_name else 'the staff'}.",
+        f"A straightforward, minimal recommendation mentioning the shop and location."
     ]
     chosen_archetype = random.choice(archetypes)
 
@@ -256,11 +254,11 @@ async def generate_ai_smart_review(
     if not groq_key:
         groq_key = os.getenv("GROQ_API_KEY", "")
 
-    prompt = f"""You are a genuine, happy customer writing an authentic Google review for {b_name}.
+    prompt = f"""You are a genuine, satisfied customer writing a brief, realistic Google review for {b_name}.
 Service experienced: {s_name}
 Location: {loc if loc else "local area"}
-Reviewer or Staff name: {c_name if c_name else "the team"}
-Customer highlights: {clean_notes if clean_notes else "prompt and friendly service"}
+Staff/Team: {c_name if c_name else "the team"}
+Customer highlights/Tags: {clean_notes if clean_notes else "good service"}
 
 REVIEW PERSPECTIVE TO ADOPT:
 {chosen_archetype}
@@ -268,13 +266,12 @@ REVIEW PERSPECTIVE TO ADOPT:
 {avoid_block}
 
 CRITICAL SEO & AUTHENTICITY RULES:
-- Write like a real human typing casually on their phone, 2 to 3 natural sentences.
-- Naturally include the location ({loc}) and brand name ({b_name}) for Google Maps Local SEO.
-- Naturally weave in the name ({c_name}) or the support received.
-- STRICTLY UNIQUE: Never begin with standard cliches like "Just set up", "Had a great experience", or "Super happy".
-- STRICTLY NO quotation marks (no double quotes, no single quotes).
-- STRICTLY NO hyphens (no -, no em dashes, no en dashes). Use commas or spaces instead.
-- NEVER use labels like Highlights, Notes, or Service.
+- Write like a real person typing casually on their phone in natural Indian English (simple, polite, straightforward).
+- STRICTLY 1 to 2 short sentences MAX. Do not over-explain.
+- Naturally include the location ({loc}) and the brand name ({b_name}) for Google Maps Local SEO.
+- Mention the service ({s_name}) and the specific highlights/tags provided.
+- NO dramatic or overly enthusiastic storytelling (e.g., avoid "chaotic day", "saved my life", "absolute rockstars").
+- STRICTLY NO quotation marks and NO hyphens.
 - Output ONLY the review text. Nothing else."""
 
     if gem_key:
