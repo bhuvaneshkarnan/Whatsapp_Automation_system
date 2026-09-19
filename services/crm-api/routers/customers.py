@@ -98,10 +98,13 @@ async def batch_update_contact_consent(
 
 @router.get("/customers/stats")
 @router.get("/api/v1/crm/customers/stats")
-async def get_customer_global_stats(tenant_id: str = Depends(get_tenant_id)):
+async def get_customer_global_stats(
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
     """Get real global KPI stats for all customers regardless of current table filters."""
     async with database.db_pool.acquire() as conn:
-        row = await conn.fetchrow("""
+        query = """
             SELECT 
                 COUNT(*) as total,
                 COUNT(*) FILTER (WHERE status IN ('new', 'follow-up') OR call_status ILIKE '%new%' OR call_status ILIKE '%info%') as pending,
@@ -109,7 +112,15 @@ async def get_customer_global_stats(tenant_id: str = Depends(get_tenant_id)):
                 COUNT(*) FILTER (WHERE status = 'converted' OR converted = true) as converted
             FROM customers
             WHERE tenant_id = $1::uuid
-        """, tenant_id)
+        """
+        args = [tenant_id]
+        
+        caller_concerns = caller.get("assigned_health_concerns", [])
+        if caller_concerns and caller.get("role") not in ("admin", "super_admin", "owner"):
+            query += " AND health_concern = ANY($2::text[])"
+            args.append(caller_concerns)
+            
+        row = await conn.fetchrow(query, *args)
         
         return {
             "total": row["total"] or 0,
