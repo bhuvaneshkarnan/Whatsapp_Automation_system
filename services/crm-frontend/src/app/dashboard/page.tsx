@@ -9506,7 +9506,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <Star className={`w-4 h-4 stroke-[1.5] shrink-0 ${activeNav === 'reviews' ? 'text-amber-500 fill-amber-400' : 'text-text-muted'}`} />
+                    <Star className={`w-4 h-4 stroke-[1.5] shrink-0 ${activeNav === 'reviews' ? 'text-text-primary' : 'text-text-muted'}`} />
                     <span>Reviews & GMB</span>
                   </div>
                 </button>
@@ -9545,13 +9545,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             
             {/* ── VIEW 0-A: DEDICATED GOOGLE REVIEWS & REPUTATION OVERVIEW (review_only) ── */}
             {activeNav === 'overview' && settingsForm.plan === 'review_only' && (
-              <div className="flex-1 flex flex-col overflow-y-auto space-y-3.5 pr-1">
+              <div className="flex-1 flex flex-col overflow-y-auto space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5">
                 {/* Header */}
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 pb-2.5 border-b border-border">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h2 className="text-base sm:text-lg font-bold text-text-primary flex items-center gap-1.5 whitespace-nowrap">
-                        <Star className="w-4 h-4 text-amber-500 fill-amber-400 stroke-[1.8] shrink-0" />
+                        <Star className="w-4 h-4 text-text-primary stroke-[1.8] shrink-0" />
                         <span>Google Reviews & Reputation</span>
                       </h2>
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 shrink-0">
@@ -9617,7 +9617,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-medium text-xs rounded border border-amber-500/30 transition-colors cursor-pointer flex items-center gap-1"
                         title="Open your live Google Maps review page"
                       >
-                        <Star className="w-3 h-3 text-amber-500 fill-amber-400 stroke-[1.5]" />
+                        <Star className="w-3 h-3 text-text-primary stroke-[1.5]" />
                         <span>Maps Page</span>
                       </a>
                     )}
@@ -9655,7 +9655,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">Average Rating</span>
                       <div className="w-6 h-6 rounded bg-amber-500/10 text-amber-600 flex items-center justify-center">
-                        <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400 stroke-[1.8]" />
+                        <Star className="w-3.5 h-3.5 text-text-primary stroke-[1.8]" />
                       </div>
                     </div>
                     <div className="flex items-baseline justify-between gap-1.5">
@@ -9705,7 +9705,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     className="bg-surface border border-border hover:border-emerald-500/50 rounded-lg p-3 transition-all duration-150 cursor-pointer space-y-1 shadow-2xs group"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">Google 5★ Boosted</span>
+                      <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">Google 5 Star Boosted</span>
                       <div className="w-6 h-6 rounded bg-emerald-50 text-emerald-600 flex items-center justify-center">
                         <CheckCircle2 className="w-3.5 h-3.5 stroke-[1.8]" />
                       </div>
@@ -9743,7 +9743,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </span>
                     </div>
                     <p className="text-[10px] text-text-muted truncate">
-                      1-3★ caught privately
+                      1-3 Stars caught privately
                     </p>
                   </div>
                 </div>
@@ -9893,7 +9893,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       {reviewStats.recent.length === 0 ? (
                         <div className="py-10 text-center space-y-2">
                           <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
-                            <Star className="w-5 h-5 fill-amber-400 stroke-[1.5]" />
+                            <Star className="w-5 h-5 text-text-muted stroke-[1.5]" />
                           </div>
                           <p className="text-xs font-bold text-text-primary">No Customer Reviews Yet</p>
                           <p className="text-[11px] text-text-muted max-w-sm mx-auto">
@@ -9974,7 +9974,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
             {/* ── VIEW 0-B: STANDARD WORKSPACE OVERVIEW (WhatsApp, Funnel & ROI) ── */}
             {activeNav === 'overview' && settingsForm.plan !== 'review_only' && (
-              <div className="flex-1 flex flex-col overflow-y-auto space-y-6 pr-1">
+              <div className="flex-1 flex flex-col overflow-y-auto space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5">
                 {/* Welcome & Period Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-border">
                   <div>
@@ -10308,7 +10308,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
             {/* ── VIEW 1: BOOKINGS LIST & ATTENDANCE ───────────────────────────── */}
             {activeNav === 'bookings' && (
-              <div className="flex-1 flex flex-col overflow-hidden space-y-4">
+              <div className="flex-1 flex flex-col overflow-hidden space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5">
                 {/* Breadcrumb & Action Toolbar */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
                   <div className="flex items-center gap-2 text-xs text-text-muted">
@@ -10615,7 +10615,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
             {/* ── VIEW 2: CALENDAR VIEW ───────────────────────────────────────── */}
             {activeNav === 'calendar' && (
-              <div className="flex-1 flex flex-col overflow-hidden space-y-3">
+              <div className="flex-1 flex flex-col overflow-hidden space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5">
                 {/* Calendar Top Controls & Unified Filter Layer */}
                 <div className="flex flex-col gap-2 pt-1 pb-0.5">
                   {/* Row 1: Date Navigation on Left, View Switcher & Action Buttons on Right */}
@@ -11635,7 +11635,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
             {/* ── VIEW 3: INBOX / CONVERSATIONS ───────────────────────────────── */}
             {activeNav === 'inbox' && (
-              <div className="flex-1 flex overflow-hidden border border-border md:rounded-md bg-surface h-full">
+              <div className="flex-1 flex overflow-hidden border border-border shadow-sm md:rounded-xl bg-surface h-full">
                 {/* Conversations List */}
                 <div className={`${selectedConv ? 'hidden md:flex' : 'flex'} w-full md:w-80 bg-surface border-r border-border flex-col shrink-0 h-full`}>
                   <div className="p-3 border-b border-border space-y-2.5 bg-surface">
@@ -15339,7 +15339,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
 {/* ── VIEW 6: MARKETING HUB ─────────────────────────────────────── */}
             {activeNav === 'marketing' && canManageMarketing && (settingsForm.plan !== 'review_only') && (
-              <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-6xl pb-8">
+              <div className="flex-1 flex flex-col overflow-y-auto space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5 max-w-7xl mx-auto w-full">
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
                   <div>
@@ -16381,18 +16381,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {/* TAB: REVIEWS & GMB FEEDBACK HUB                                            */}
             {/* ========================================================================= */}
             {activeNav === 'reviews' && (
-              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto space-y-2.5 pr-1 pb-2">
+              <div className="flex-1 flex flex-col overflow-y-auto space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5 min-h-0">
 
                 {/* ── 1. COMPACT HEADER & ACTIONS ─────────────────────── */}
                 <div className="flex flex-wrap items-center justify-between gap-2 px-1">
                   <div className="flex items-center gap-2">
                     <h2 className="text-sm font-bold text-text-primary flex items-center gap-1.5 shrink-0">
-                      <Star className="w-4 h-4 text-amber-500 fill-amber-400 stroke-[1.5]" />
+                      <Star className="w-4 h-4 text-text-primary stroke-[1.5]" />
                       <span>Customer Reviews</span>
                     </h2>
                     {customerReviews.length > 0 && (
                       <span className="text-[11px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 px-2 py-0.5 rounded-full flex items-center gap-1 font-mono">
-                        <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-500" />
+                        <Star className="w-2.5 h-2.5 text-text-primary" />
                         <span>{(customerReviews.reduce((s, r) => s + (r.rating || 0), 0) / customerReviews.length).toFixed(1)}</span>
                         <span className="text-text-muted">•</span>
                         <span>{customerReviews.length} Total</span>
@@ -16418,10 +16418,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setGoogleConnectModalOpen(true)}
-                        className="px-2.5 py-1 bg-surface hover:bg-surface-subtle border border-border hover:border-blue-400 text-text-secondary hover:text-blue-600 rounded-md text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+                        className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle border border-border text-text-primary rounded-md text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
                         title="Connect Google Business Profile to sync reviews and reply live"
                       >
-                        <Globe className="w-3.5 h-3.5 text-blue-500" />
+                        <Globe className="w-3.5 h-3.5 text-text-muted" />
                         <span className="hidden sm:inline">Connect Google</span>
                       </button>
                     )}
@@ -16435,7 +16435,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         setReviewCopied(true);
                         setTimeout(() => setReviewCopied(false), 2000);
                       }}
-                      className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] rounded-md transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
+                      className="px-2.5 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-md transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
                       title="Copy public review link to clipboard"
                     >
                       {reviewCopied ? <CheckCircle2 className="w-3 h-3 stroke-[2]" /> : <Copy className="w-3 h-3 stroke-[2]" />}
@@ -16447,7 +16447,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       href={typeof window !== 'undefined' ? `/${settingsForm.slug || 'tenant'}/review` : '#'}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="p-1 text-text-muted hover:text-text-primary bg-surface hover:bg-surface-subtle rounded-md border border-border transition-colors cursor-pointer"
+                      className="p-1.5 text-text-muted hover:text-text-primary bg-surface hover:bg-surface-subtle rounded-md border border-border transition-colors cursor-pointer shadow-xs"
                       title="Open public review portal in new tab"
                     >
                       <ArrowUpRight className="w-3.5 h-3.5" />
@@ -16457,10 +16457,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <button
                       type="button"
                       onClick={() => setQrStandeeModalOpen(true)}
-                      className="px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-primary rounded-md border border-border text-[11px] font-semibold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary rounded-md border border-border text-xs font-medium flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                       title="Generate & Print Google Review Standee / Counter Poster"
                     >
-                      <QrCode className="w-3.5 h-3.5 text-blue-600 stroke-[2]" />
+                      <QrCode className="w-3.5 h-3.5 text-text-muted" />
                       <Printer className="w-3.5 h-3.5 text-text-muted" />
                       <span>QR Standee & Print</span>
                     </button>
@@ -16469,14 +16469,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <button
                       type="button"
                       onClick={() => setShowReviewConfig((prev) => !prev)}
-                      className={`px-2 py-1 rounded-md border text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer ${
+                      className={`px-2.5 py-1.5 rounded-md border text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs ${
                         showReviewConfig
-                          ? 'bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700 font-semibold'
+                          ? 'bg-surface-subtle text-text-primary font-medium'
                           : 'bg-surface hover:bg-surface-subtle border border-border text-text-secondary'
                       }`}
                       title="Configure services and experience tags for customer review portal"
                     >
-                      <Tag className="w-3 h-3 text-violet-500" />
+                      <Tag className="w-3.5 h-3.5 text-text-muted" />
                       <span className="hidden sm:inline">Page Config</span>
                       <ChevronDown className={`w-3 h-3 text-text-muted transition-transform ${showReviewConfig ? 'rotate-180' : ''}`} />
                     </button>
@@ -16690,19 +16690,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
                     {/* Source Tabs: Google vs Private vs All */}
-                    <div className="flex items-center p-0.5 bg-surface rounded-md border border-border shrink-0 shadow-2xs">
+                    <div className="flex items-center p-0.5 bg-surface-subtle rounded-md border border-border shrink-0">
                       <button
                         type="button"
                         onClick={() => { setReviewSourceTab('google'); setReviewRatingFilter('all'); }}
-                        className={`px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        className={`px-2.5 py-1 rounded-sm text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer border ${
                           reviewSourceTab === 'google'
-                            ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200 font-bold border border-emerald-300 dark:border-emerald-700'
+                            ? 'bg-surface text-text-primary font-medium shadow-xs border-border'
                             : 'text-text-secondary hover:text-text-primary'
                         }`}
                       >
-                        <Globe className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                        <span>Google (4–5★)</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-300">
+                        <Globe className="w-3.5 h-3.5 text-text-muted" />
+                        <span>Google</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-surface-subtle border border-border text-text-muted">
                           {customerReviews.filter(r => (r.rating || 0) >= 4).length}
                         </span>
                       </button>
@@ -16710,15 +16710,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => { setReviewSourceTab('local_store'); setReviewRatingFilter('all'); }}
-                        className={`px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        className={`px-2.5 py-1 rounded-sm text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer border ${
                           reviewSourceTab === 'local_store'
-                            ? 'bg-rose-50 text-rose-800 dark:bg-rose-950/60 dark:text-rose-200 font-bold border border-rose-300 dark:border-rose-700'
+                            ? 'bg-surface text-text-primary font-medium shadow-xs border-border'
                             : 'text-text-secondary hover:text-text-primary'
                         }`}
                       >
-                        <Building2 className="w-3 h-3 text-rose-600 dark:text-rose-400" />
-                        <span>Private (1–3★)</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-rose-100 dark:bg-rose-900 text-rose-800 dark:text-rose-300">
+                        <Building2 className="w-3.5 h-3.5 text-text-muted" />
+                        <span>Private</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-surface-subtle border border-border text-text-muted">
                           {customerReviews.filter(r => (r.rating || 0) <= 3).length}
                         </span>
                       </button>
@@ -16726,9 +16726,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => { setReviewSourceTab('all'); setReviewRatingFilter('all'); }}
-                        className={`px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        className={`px-2.5 py-1 rounded-sm text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer border ${
                           reviewSourceTab === 'all'
-                            ? 'bg-surface-subtle text-text-primary font-bold border border-border'
+                            ? 'bg-surface text-text-primary font-medium shadow-xs border-border'
                             : 'text-text-secondary hover:text-text-primary'
                         }`}
                       >
@@ -16753,14 +16753,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             key={String(s)}
                             type="button"
                             onClick={() => setReviewRatingFilter(s)}
-                            className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors cursor-pointer flex items-center gap-0.5 ${
-                              reviewRatingFilter === s ? 'bg-amber-500 text-slate-950 font-bold' : 'text-text-secondary hover:text-text-primary'
+                            className={`px-2.5 py-1 rounded-sm text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 border ${
+                              reviewRatingFilter === s ? 'bg-surface text-text-primary shadow-xs border-border' : 'text-text-secondary hover:text-text-primary border-transparent'
                             }`}
                           >
-                            {s === 'all' ? 'All★' : (
+                            {s === 'all' ? 'All Ratings' : (
                               <>
                                 <span>{s}</span>
-                                <Star className="w-2.5 h-2.5 fill-current" />
+                                <Star className="w-3 h-3 text-text-muted fill-transparent" />
                               </>
                             )}
                           </button>
@@ -16775,8 +16775,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           key={st}
                           type="button"
                           onClick={() => setReviewStatusFilter(st)}
-                          className={`px-2 py-0.5 rounded text-[10px] font-semibold capitalize transition-colors cursor-pointer ${
-                            reviewStatusFilter === st ? 'bg-accent text-white font-bold' : 'text-text-secondary hover:text-text-primary'
+                          className={`px-2.5 py-1 rounded-sm text-xs font-medium capitalize transition-colors cursor-pointer border ${
+                            reviewStatusFilter === st ? 'bg-surface text-text-primary shadow-xs border-border' : 'text-text-secondary hover:text-text-primary border-transparent'
                           }`}
                         >
                           {st === 'all' ? 'All Status' : st === 'pending' ? 'Needs Reply' : 'Replied'}
@@ -16834,7 +16834,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             <Globe className="w-5 h-5 stroke-[1.8]" />
                           </div>
                           <p className="font-bold text-text-primary text-sm">
-                            {loadingReviews ? 'Loading reviews...' : 'No Google Reviews (4–5★) Found'}
+                            {loadingReviews ? 'Loading reviews...' : 'No Google Reviews Found'}
                           </p>
                           {!loadingReviews && (
                             <p className="text-[11px] text-text-muted max-w-sm">
@@ -16848,7 +16848,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             <Building2 className="w-5 h-5 stroke-[1.8]" />
                           </div>
                           <p className="font-bold text-text-primary text-sm">
-                            {loadingReviews ? 'Loading reviews...' : 'No Local Store Reviews (1–3★) Found'}
+                            {loadingReviews ? 'Loading reviews...' : 'No Private Reviews Found'}
                           </p>
                           {!loadingReviews && (
                             <p className="text-[11px] text-text-muted max-w-sm">
@@ -16881,7 +16881,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           )}
                         </div>
                         <span className="text-[10px] text-text-muted font-mono">
-                          {reviewRatingFilter !== 'all' ? `${reviewRatingFilter}★ Filtered` : 'All Ratings'}
+                          {reviewRatingFilter !== 'all' ? `${reviewRatingFilter} Star Filtered` : 'All Ratings'}
                         </span>
                       </div>
 
@@ -17031,7 +17031,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           className="px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1 transition-colors"
                                           title="Open Google Maps review page"
                                         >
-                                          <Star className="w-2.5 h-2.5 text-amber-500 fill-amber-400" />
+                                          <Star className="w-2.5 h-2.5 text-text-primary" />
                                           <span className="hidden lg:inline">Google Maps</span>
                                         </a>
                                       )}
@@ -17478,7 +17478,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             )}
 
             {activeNav === 'settings' && (
-              <div className="flex-1 overflow-y-auto space-y-6 w-full">
+              <div className="flex-1 overflow-y-auto space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5">
                 
                 {/* System Payment Alert Card - ONLY shown if payment is overdue/failed */}
                 {(settingsForm.subscription_status === 'payment_failed' || settingsForm.last_payment_status === 'failed') && (
@@ -18000,7 +18000,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <div className="p-4 bg-amber-500/5 rounded-md border border-amber-500/20 space-y-2">
                             <div className="flex items-center justify-between">
                               <label className="text-xs font-bold text-text-primary flex items-center gap-1.5">
-                                <Star className="w-4 h-4 text-amber-500 fill-amber-400" />
+                                <Star className="w-4 h-4 text-text-primary" />
                                 <span>Google Maps / GMB Review Destination Link</span>
                               </label>
                               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
@@ -18188,7 +18188,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <div className="pt-1">
                                 <div className="p-3 bg-amber-500/5 rounded-md border border-amber-500/20 space-y-1.5">
                                   <label className="block text-[11px] font-semibold text-text-primary flex items-center gap-1.5">
-                                    <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
+                                    <Star className="w-3.5 h-3.5 text-text-primary" />
                                     <span>Google / GMB Review Link</span>
                                   </label>
                                   <div className="flex gap-2 items-center">

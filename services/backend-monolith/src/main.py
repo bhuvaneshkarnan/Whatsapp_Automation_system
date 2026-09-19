@@ -87,6 +87,22 @@ async def startup():
     
     # Propagate pool to all sub-apps
     crm_mod.db_pool = db_pool
+    import crm_api.database
+    crm_api.database.db_pool = db_pool
+    import sys
+    for k, v in sys.modules.items():
+        if 'database' in k:
+            logger.info('module_debug', key=k, pool=getattr(v, 'db_pool', 'missing'))
+    import database
+    database.db_pool = db_pool
+    import crm_api.tasks_service
+    crm_api.tasks_service.set_tasks_db_pool(db_pool)
+    import tasks_service
+    tasks_service.set_tasks_db_pool(db_pool)
+    import sys
+    for k, v in sys.modules.items():
+        if 'database' in k:
+            logger.info('module_debug', key=k, pool=getattr(v, 'db_pool', 'missing'))
     auth_mod.db_pool = db_pool
     booking_mod.db_pool = db_pool
     calendar_mod.db_pool = db_pool
