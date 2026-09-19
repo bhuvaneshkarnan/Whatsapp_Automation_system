@@ -107,9 +107,26 @@ async def get_customer_global_stats(
         query = """
             SELECT 
                 COUNT(*) as total,
-                COUNT(*) FILTER (WHERE status IN ('new', 'follow-up') OR call_status ILIKE '%new%' OR call_status ILIKE '%info%') as pending,
-                COUNT(*) FILTER (WHERE LOWER(lead_probability) = 'hot' AND (status IS NULL OR status NOT IN ('converted', 'lost'))) as hot_leads,
-                COUNT(*) FILTER (WHERE status = 'converted' OR converted = true) as converted
+                COUNT(*) FILTER (
+                    WHERE (status IN ('new', 'follow-up') OR call_status ILIKE '%new%' OR call_status ILIKE '%info%')
+                    AND COALESCE(converted, false) = false
+                    AND COALESCE(status, '') NOT IN ('converted', 'lost')
+                    AND COALESCE(call_status, '') NOT ILIKE '%convert%'
+                    AND COALESCE(call_status, '') NOT ILIKE '%confirm%'
+                ) as pending,
+                COUNT(*) FILTER (
+                    WHERE LOWER(lead_probability) = 'hot' 
+                    AND COALESCE(converted, false) = false
+                    AND COALESCE(status, '') NOT IN ('converted', 'lost')
+                    AND COALESCE(call_status, '') NOT ILIKE '%convert%'
+                    AND COALESCE(call_status, '') NOT ILIKE '%confirm%'
+                ) as hot_leads,
+                COUNT(*) FILTER (
+                    WHERE status = 'converted' 
+                    OR converted = true 
+                    OR call_status ILIKE '%convert%' 
+                    OR call_status ILIKE '%confirm%'
+                ) as converted
             FROM customers
             WHERE tenant_id = $1::uuid
         """
@@ -188,6 +205,10 @@ async def list_customers(
                         (c.status = 'new' OR c.call_status ILIKE '%new%')
                         AND COALESCE(c.converted, false) = false
                         AND COALESCE(c.status, '') NOT IN ('converted', 'lost')
+                        AND COALESCE(c.call_status, '') NOT ILIKE '%convert%'
+                        AND COALESCE(c.call_status, '') NOT ILIKE '%confirm%'
+                        AND COALESCE(c.call_status, '') NOT ILIKE '%lost%'
+                        AND COALESCE(c.call_status, '') NOT ILIKE '%wrong%'
                     )""")
                 elif status_lower == "converted":
                     conditions.append("""(
@@ -201,6 +222,10 @@ async def list_customers(
                         (c.status = 'follow-up' OR c.call_status ILIKE '%info%' OR c.call_status ILIKE '%requirement%' OR c.call_status ILIKE '%pricing%' OR c.call_status ILIKE '%follow%')
                         AND COALESCE(c.converted, false) = false
                         AND COALESCE(c.status, '') NOT IN ('converted', 'lost')
+                        AND COALESCE(c.call_status, '') NOT ILIKE '%convert%'
+                        AND COALESCE(c.call_status, '') NOT ILIKE '%confirm%'
+                        AND COALESCE(c.call_status, '') NOT ILIKE '%lost%'
+                        AND COALESCE(c.call_status, '') NOT ILIKE '%wrong%'
                     )""")
                 elif status_lower == "lost":
                     conditions.append("""(
@@ -214,6 +239,10 @@ async def list_customers(
                         (c.status = 'contacted' OR c.call_status ILIKE '%contact%' OR c.call_status ILIKE '%picked%')
                         AND COALESCE(c.converted, false) = false
                         AND COALESCE(c.status, '') NOT IN ('converted', 'lost')
+                        AND COALESCE(c.call_status, '') NOT ILIKE '%convert%'
+                        AND COALESCE(c.call_status, '') NOT ILIKE '%confirm%'
+                        AND COALESCE(c.call_status, '') NOT ILIKE '%lost%'
+                        AND COALESCE(c.call_status, '') NOT ILIKE '%wrong%'
                     )""")
             else:
                 conditions.append(f"(c.call_status ILIKE ${idx} OR c.status ILIKE ${idx})")
@@ -231,7 +260,7 @@ async def list_customers(
 
         if lead_probability and lead_probability != "all":
             lp_lower = lead_probability.strip().lower()
-            conditions.append(f"(LOWER(c.lead_probability) = LOWER(${idx}) AND COALESCE(c.status, '') NOT IN ('converted', 'lost') AND COALESCE(c.converted, false) = false)")
+            conditions.append(f"(LOWER(c.lead_probability) = LOWER(${idx}) AND COALESCE(c.status, '') NOT IN ('converted', 'lost') AND COALESCE(c.converted, false) = false AND COALESCE(c.call_status, '') NOT ILIKE '%convert%' AND COALESCE(c.call_status, '') NOT ILIKE '%confirm%')")
             params.append(lp_lower)
             idx += 1
 
