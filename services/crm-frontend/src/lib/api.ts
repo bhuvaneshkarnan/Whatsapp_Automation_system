@@ -769,6 +769,14 @@ export const crm = {
       `/api/v1/crm/messages/search?q=${encodeURIComponent(q)}&limit=${limit}`
     ),
 
+  getAIUsageStats: (targetTenantId?: string) => {
+    const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
+    return request<AIUsageResponse>(
+      `/api/v1/crm/settings/ai-usage${qs}`,
+      targetTenantId ? { headers: { 'X-Tenant-ID': targetTenantId } } : undefined
+    );
+  },
+
   getSettings: (targetTenantId?: string) => {
     const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
     return request<TenantSettingsResponse>(
@@ -1200,6 +1208,16 @@ export const crm = {
   deleteStaff: (userId: string) =>
     request<{ status: string; id: string }>(`/api/v1/crm/staff/${userId}`, { method: 'DELETE' }),
 };
+
+export interface AIUsageDailyStat {
+  date: string;
+  count: number;
+}
+export interface AIUsageResponse {
+  total_replies_30d: number;
+  avg_speed_ms: number;
+  daily_stats: AIUsageDailyStat[];
+}
 
 export interface TenantSettingsResponse {
   tenant_id: string;

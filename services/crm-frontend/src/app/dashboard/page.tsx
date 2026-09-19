@@ -1714,7 +1714,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const { branding } = useBranding();
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
   
+  // AI Usage Stats
+  const [aiUsageStats, setAiUsageStats] = useState<any>(null);
+  const [aiUsageLoading, setAiUsageLoading] = useState(false);
+  
   // Navigation: overview | inbox | bookings | calendar | customers | repeat_clients | followup | marketing | reviews | settings
+  const [customerStats, setCustomerStats] = useState<{total: number, pending: number, hot_leads: number, converted: number} | null>(null);
   const [activeNav, setActiveNav] = useState<'overview' | 'inbox' | 'bookings' | 'calendar' | 'customers' | 'repeat_clients' | 'followup' | 'marketing' | 'reviews' | 'settings' | 'team'>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -4403,6 +4408,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (activeNav === 'settings' && settingsTab === 'billing') {
       loadInvoices();
     }
+    if (activeNav === 'settings' && settingsTab === 'ai_usage') {
+      loadAIUsage();
+    }
   }, [activeNav, settingsTab, isAuthChecking, user]);
 
   useEffect(() => {
@@ -4736,14 +4744,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       // Auto two-way sync: purge any tasks/followups marked completed or deleted in Google Tasks
       await crm.syncGoogleTasksCompleted().catch(() => null);
 
-      const [bData, cData, tData, gData] = await Promise.all([
-        crm.getBookings(undefined, 500).catch(() => []),
-        crm.getCustomers({ limit: 1000 }).catch(() => []),
-        isMindBodyRecovery ? crm.getTasks('all').catch(() => []) : Promise.resolve([]),
-        crm.getLiveCalendarAvailability().catch(() => null),
-      ]);
-      if (Array.isArray(bData)) setBookings(bData);
-      if (Array.isArray(cData) && cData.length > 0) setCustomers(cData);
+      const [bData, cData, tData, gData, statsData] = await Promise.all([
+          crm.getBookings(undefined, 500).catch(() => []),
+          crm.getCustomers({ limit: 1000 }).catch(() => []),
+          isMindBodyRecovery ? crm.getTasks('all').catch(() => []) : Promise.resolve([]),
+          crm.getLiveCalendarAvailability().catch(() => null),
+          crm.getCustomerStats().catch(() => null),
+        ]);
+        if (Array.isArray(bData)) setBookings(bData);
+        if (Array.isArray(cData) && cData.length > 0) setCustomers(cData);
+        if (statsData) setCustomerStats(statsData);
       if (Array.isArray(tData)) setTasks(tData);
       if (gData && Array.isArray(gData.busy_slots)) {
         const googleOnly = gData.busy_slots.filter((s: LiveCalendarSlot) => s.source === 'Google Calendar');
@@ -5574,6 +5584,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       setSettingsError(err instanceof Error ? err.message : 'Failed to load client settings.');
     } finally {
       setSettingsLoading(false);
+    }
+  }
+
+  async function loadAIUsage() {
+    setAiUsageLoading(true);
+    try {
+      const res = await crm.getAIUsageStats();
+      setAiUsageStats(res);
+    } catch (err: any) {
+      console.error('Failed to load AI usage:', err);
+    } finally {
+      setAiUsageLoading(false);
     }
   }
 
@@ -7383,6 +7405,79 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             </button>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  function renderAIUsageTab() {
+    return (
+      <div className="space-y-5 bg-surface p-5 rounded-md border border-border">
+        <div className="pb-2 border-b border-border">
+          <h3 className="text-sm font-semibold text-text-primary">AI Auto-Replies Usage & ROI</h3>
+          <p className="text-xs text-text-secondary mt-1">Track the volume of automated WhatsApp responses handled by the Smart Assistant over the last 30 days.</p>
+        </div>
+        
+        {aiUsageLoading ? (
+          <div className="text-xs text-text-secondary">Loading analytics...</div>
+        ) : aiUsageStats ? (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="p-4 rounded-lg border border-border bg-surface shadow-xs">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 flex items-center justify-center shrink-0">
+                    <MessageSquare className="w-4 h-4" />
+                  </div>
+                  <h4 className="text-xs font-semibold text-text-primary">Total Auto-Replies</h4>
+                </div>
+                <div className="text-2xl font-bold text-text-primary">{aiUsageStats.total_replies_30d || 0}</div>
+                <p className="text-[10px] text-text-secondary mt-1">Messages sent in the last 30 days</p>
+              </div>
+              <div className="p-4 rounded-lg border border-border bg-surface shadow-xs">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 flex items-center justify-center shrink-0">
+                    <Zap className="w-4 h-4" />
+                  </div>
+                  <h4 className="text-xs font-semibold text-text-primary">Avg Response Speed</h4>
+                </div>
+                <div className="text-2xl font-bold text-text-primary">
+                  {aiUsageStats.avg_speed_ms ? (aiUsageStats.avg_speed_ms / 1000).toFixed(1) + 's' : '0.0s'}
+                </div>
+                <p className="text-[10px] text-text-secondary mt-1">From receiving to sending</p>
+              </div>
+            </div>
+
+            {aiUsageStats.daily_stats && aiUsageStats.daily_stats.length > 0 && (
+              <div className="pt-4 border-t border-border">
+                <h4 className="text-xs font-semibold text-text-primary mb-3">Messages Per Day (Last 30 Days)</h4>
+                <div className="h-40 flex items-end gap-1.5 pt-4 pb-1 overflow-x-auto no-scrollbar">
+                  {aiUsageStats.daily_stats.map((stat: any, idx: number) => {
+                    const maxCount = Math.max(...aiUsageStats.daily_stats.map((s: any) => s.count));
+                    const heightPercent = maxCount > 0 ? (stat.count / maxCount) * 100 : 0;
+                    return (
+                      <div key={idx} className="flex flex-col items-center flex-1 min-w-[20px] gap-2 group">
+                        <div className="w-full relative h-full flex items-end bg-surface-subtle/30 rounded-t-sm">
+                          <div 
+                            className="w-full bg-accent/80 hover:bg-accent rounded-t-sm transition-all relative"
+                            style={{ height: `${Math.max(5, heightPercent)}%` }}
+                          >
+                            <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-surface-inverted text-text-inverted text-[10px] px-2 py-0.5 rounded-sm opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-10">
+                              {stat.count} msg
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-[9px] text-text-secondary rotate-45 origin-top-left -ml-2 whitespace-nowrap hidden sm:block">
+                          {new Date(stat.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-xs text-text-secondary">No analytics available yet.</div>
+        )}
       </div>
     );
   }
@@ -13045,39 +13140,40 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {/* Compact KPI Summary Strip */}
                     <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1 bg-surface border border-border rounded-sm text-xs">
                       <div className="flex items-center gap-3.5 flex-wrap">
-                        <div className="flex items-center gap-1.5">
-                          <Users className="w-3.5 h-3.5 text-text-muted stroke-[1.8]" />
-                          <span className="text-[11px] text-text-muted">Total:</span>
-                          <span className="font-bold text-text-primary font-mono text-xs">{customers.length}</span>
-                        </div>
-                        <span className="text-border text-xs hidden sm:inline">•</span>
-                        <div className="flex items-center gap-1.5">
-                          <Clock3 className="w-3.5 h-3.5 text-amber-600 stroke-[1.8]" />
-                          <span className="text-[11px] text-amber-800 font-medium">Pending:</span>
-                          <span className="font-bold text-amber-900 font-mono text-xs">
-                            {customers.filter(c => c.status === 'follow-up' || c.status === 'new').length}
-                          </span>
-                        </div>
-                        <span className="text-border text-xs hidden sm:inline">•</span>
-                        <div className="flex items-center gap-1.5">
-                          <Flame className="w-3.5 h-3.5 text-rose-500 fill-rose-500/20 stroke-[1.8]" />
-                          <span className="text-[11px] text-rose-700 font-medium">Hot Leads:</span>
-                          <span className="font-bold text-rose-900 font-mono text-xs">
-                            {customers.filter(c => c.lead_probability === 'hot').length}
-                          </span>
-                        </div>
-                        <span className="text-border text-xs hidden sm:inline">•</span>
-                        <div className="flex items-center gap-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 stroke-[1.8]" />
-                          <span className="text-[11px] text-emerald-800 font-medium">Converted:</span>
-                          <span className="font-bold text-emerald-900 font-mono text-xs">
-                            {customers.filter(c => c.converted).length}
-                            <span className="text-[10px] text-emerald-600 ml-1 font-normal">
-                              ({customers.length ? Math.round((customers.filter(c => c.converted).length / customers.length) * 100) : 0}%)
+                          <div className="flex items-center gap-1.5">
+                            <Users className="w-3.5 h-3.5 text-text-muted stroke-[1.8]" />
+                            <span className="text-[11px] text-text-muted">Total:</span>
+                            <span className="font-bold text-text-primary font-mono text-xs">{customerStats?.total ?? customers.length}</span>
+                          </div>
+                          <span className="text-border text-xs hidden sm:inline">â€¢</span>
+                          <div className="flex items-center gap-1.5">
+                            <Clock3 className="w-3.5 h-3.5 text-amber-600 stroke-[1.8]" />
+                            <span className="text-[11px] text-amber-800 font-medium">Pending:</span>
+                            <span className="font-bold text-amber-900 font-mono text-xs">
+                              {customerStats?.pending ?? customers.filter(c => c.status === 'follow-up' || c.status === 'new').length}
                             </span>
-                          </span>
+                          </div>
+                          <span className="text-border text-xs hidden sm:inline">â€¢</span>
+                          <div className="flex items-center gap-1.5">
+                            <Flame className="w-3.5 h-3.5 text-rose-500 fill-rose-500/20 stroke-[1.8]" />
+                            <span className="text-[11px] text-rose-700 font-medium">Hot Leads:</span>
+                            <span className="font-bold text-rose-900 font-mono text-xs">
+                              {customerStats?.hot_leads ?? customers.filter(c => c.lead_probability === 'hot').length}
+                            </span>
+                          </div>
+                          <span className="text-border text-xs hidden sm:inline">â€¢</span>
+                          <div className="flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 stroke-[1.8]" />
+                            <span className="text-[11px] text-emerald-700 font-medium">Converted:</span>
+                            <span className="font-bold text-emerald-900 font-mono text-xs flex items-center gap-1">
+                              {customerStats?.converted ?? customers.filter(c => c.status === 'converted' || c.converted).length}
+                              <span className="text-[9px] text-emerald-700/80 font-semibold tracking-tighter">
+                                ({customerStats ? Math.round((customerStats.converted / (customerStats.total || 1)) * 100) : Math.round((customers.filter(c => c.status === 'converted' || c.converted).length / (customers.length || 1)) * 100)}%)
+                              </span>
+                            </span>
+                          </div>
                         </div>
-                      </div>
+                        </div>
                     </div>
 
                     {/* Main Table + Customer Detail Drawer */}
@@ -17541,6 +17637,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       { id: 'localization', label: 'Regional & Currency', icon: Globe },
                       ...(!isReviewOnly ? [{ id: 'terminology', label: 'CRM Terminology', icon: Sliders }] : []),
                       { id: 'account', label: 'Account & Session', icon: LogOut },
+                      { id: 'ai_usage', label: 'AI Auto-Replies', icon: Activity },
                     ];
                   })().map((tab) => {
                     const Icon = tab.icon;
@@ -19690,6 +19787,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                   {/* ── 5. TEAM & ROLES SUBTAB ─────────────────────────────────── */}
                   {settingsTab === 'team' && renderTeamManagementView()}
+                  {settingsTab === 'ai_usage' && renderAIUsageTab()}
 
                   {/* Save Button */}
                   {settingsTab !== 'account' && settingsTab !== 'team' && (

@@ -96,6 +96,28 @@ async def batch_update_contact_consent(
 
 # ── Customer Follow-up, Notes, Chat History & Task Calendar ────────────────────
 
+@router.get("/customers/stats")
+@router.get("/api/v1/crm/customers/stats")
+async def get_customer_global_stats(tenant_id: str = Depends(get_tenant_id)):
+    """Get real global KPI stats for all customers regardless of current table filters."""
+    async with database.db_pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT 
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE status IN ('new', 'follow-up') OR call_status ILIKE '%new%' OR call_status ILIKE '%info%') as pending,
+                COUNT(*) FILTER (WHERE LOWER(lead_probability) = 'hot') as hot_leads,
+                COUNT(*) FILTER (WHERE status = 'converted' OR converted = true) as converted
+            FROM customers
+            WHERE tenant_id = $1::uuid
+        """, tenant_id)
+        
+        return {
+            "total": row["total"] or 0,
+            "pending": row["pending"] or 0,
+            "hot_leads": row["hot_leads"] or 0,
+            "converted": row["converted"] or 0
+        }
+
 @router.get("/customers")
 @router.get("/api/v1/crm/customers")
 async def list_customers(
@@ -198,16 +220,9 @@ async def list_customers(
 
         if lead_probability and lead_probability != "all":
             lp_lower = lead_probability.strip().lower()
-            if lp_lower == "hot":
-                conditions.append("(LOWER(c.lead_probability) = 'hot' OR COALESCE(c.conversion_rate, 0) >= 75)")
-            elif lp_lower == "warm":
-                conditions.append("(LOWER(c.lead_probability) = 'warm' OR (c.conversion_rate >= 35 AND c.conversion_rate < 75))")
-            elif lp_lower == "cold":
-                conditions.append("(LOWER(c.lead_probability) = 'cold' OR (c.conversion_rate IS NOT NULL AND c.conversion_rate < 35))")
-            else:
-                conditions.append(f"LOWER(c.lead_probability) = LOWER(${idx})")
-                params.append(lp_lower)
-                idx += 1
+            conditions.append(f"LOWER(c.lead_probability) = LOWER(${idx})")
+            params.append(lp_lower)
+            idx += 1
 
         if preferred_doctor and preferred_doctor != "all":
             pref_doc_clean = preferred_doctor.strip()
