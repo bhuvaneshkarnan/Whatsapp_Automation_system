@@ -25,6 +25,7 @@ from dependencies import get_tenant_id, get_caller_context, verify_super_admin
 from models import *
 from tasks_service import dispatch_push_notification
 import utils
+from utils import expand_template_body
 from utils import KNOWN_TEMPLATES_EXPANSION
 
 router = APIRouter()
