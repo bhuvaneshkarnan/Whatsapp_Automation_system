@@ -173,15 +173,7 @@ export default function ReviewClient() {
     if (e) e.preventDefault();
     if (rating < 1) return;
 
-    if (!customerName.trim()) {
-      setFormError('Please enter your name so we can attribute your review.');
-      return;
-    }
 
-    if (rating <= 3 && !customerPhone.trim()) {
-      setFormError('Please enter your phone number so our senior team can contact you.');
-      return;
-    }
 
     setSubmitting(true);
     setFormError(null);
@@ -685,48 +677,7 @@ export default function ReviewClient() {
                 />
               </div>
 
-              {/* Customer Name & Phone */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="block text-[11px] font-bold text-text-secondary flex items-center justify-between">
-                    <span>Your Name</span>
-                    <span className="text-[10px] text-rose-500 font-semibold">*Required</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={customerName}
-                    onChange={(e) => {
-                      setCustomerName(e.target.value);
-                      if (formError) setFormError('');
-                    }}
-                    placeholder="e.g. John Doe"
-                    className={`w-full p-2.5 text-xs bg-surface border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all ${
-                      formError && !customerName.trim() ? 'border-rose-400 bg-rose-50/20' : 'border-border'
-                    }`}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[11px] font-bold text-text-secondary flex items-center justify-between">
-                    <span>WhatsApp Number</span>
-                    <span className={`text-[10px] font-semibold ${rating <= 3 ? 'text-rose-500' : 'text-text-muted'}`}>
-                      {rating <= 3 ? '*Required to Resolve' : 'Optional'}
-                    </span>
-                  </label>
-                  <input
-                    type="tel"
-                    value={customerPhone}
-                    onChange={(e) => {
-                      setCustomerPhone(e.target.value);
-                      if (formError) setFormError('');
-                    }}
-                    placeholder="e.g. 98765 43210"
-                    className={`w-full p-2.5 text-xs bg-surface border rounded-xl text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent font-mono transition-all ${
-                      formError && rating <= 3 && !customerPhone.trim() ? 'border-rose-400 bg-rose-50/20' : 'border-border'
-                    }`}
-                  />
-                </div>
-              </div>
+              
 
               {/* Form Validation Error Banner */}
               {formError && (
