@@ -701,7 +701,16 @@ async def reset_admin_tenant_password(tenant_id: str, payload: PasswordReset, ad
 @router.get("/admin/tenants/{tenant_id}/settings")
 async def get_admin_tenant_settings(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
     """Retrieve full settings for a specific client organization as Super Admin."""
+    from routers.settings import get_tenant_settings
     return await get_tenant_settings(tenant_id=tenant_id, target_tenant_id=tenant_id, caller={"role": "super_admin"})
+
+
+@router.put("/admin/tenants/{tenant_id}/settings")
+@router.patch("/admin/tenants/{tenant_id}/settings")
+async def update_admin_tenant_settings(tenant_id: str, payload: TenantSettingsUpdate, admin_user: dict = Depends(verify_super_admin)):
+    """Update all settings & credentials for a specific client organization directly from Super Admin."""
+    from routers.settings import update_tenant_settings
+    return await update_tenant_settings(payload=payload, tenant_id=tenant_id, target_tenant_id=tenant_id, caller={"role": "super_admin"})
 
 
 @router.put("/admin/tenants/{tenant_id}/settings")
