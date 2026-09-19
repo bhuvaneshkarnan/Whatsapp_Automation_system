@@ -13070,7 +13070,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <Flame className="w-3.5 h-3.5 text-rose-500 fill-rose-500/20 stroke-[1.8]" />
                           <span className="text-[11px] text-rose-700 font-medium">Hot Leads:</span>
                             <span className="font-bold text-rose-900 font-mono text-xs">
-                              {customerStats?.hot_leads ?? customers.filter(c => c.lead_probability === 'hot').length}
+                              {customerStats?.hot_leads ?? customers.filter(c => c.lead_probability === 'hot' && c.status !== 'converted' && c.status !== 'lost').length}
                             </span>
                         </div>
                         <span className="text-border text-xs hidden sm:inline">•</span>

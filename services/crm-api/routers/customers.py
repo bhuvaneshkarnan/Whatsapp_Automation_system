@@ -108,7 +108,7 @@ async def get_customer_global_stats(
             SELECT 
                 COUNT(*) as total,
                 COUNT(*) FILTER (WHERE status IN ('new', 'follow-up') OR call_status ILIKE '%new%' OR call_status ILIKE '%info%') as pending,
-                COUNT(*) FILTER (WHERE LOWER(lead_probability) = 'hot') as hot_leads,
+                COUNT(*) FILTER (WHERE LOWER(lead_probability) = 'hot' AND (status IS NULL OR status NOT IN ('converted', 'lost'))) as hot_leads,
                 COUNT(*) FILTER (WHERE status = 'converted' OR converted = true) as converted
             FROM customers
             WHERE tenant_id = $1::uuid
