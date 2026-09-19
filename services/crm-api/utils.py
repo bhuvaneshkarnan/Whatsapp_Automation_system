@@ -128,3 +128,12 @@ def expand_template_body(template_name: Optional[str], template_params: Any, fal
         return f"[{template_name}]: {', '.join(params_list)}"
     return fallback_body or f"[Template: {template_name}]"
 
+
+﻿def sanitize_and_fix_email(email: str) -> str:
+    if not email:
+        return ""
+    email = str(email).strip().lower()
+    # Basic fix for common typos like .con -> .com
+    if email.endswith(".con"):
+        email = email[:-4] + ".com"
+    return email
