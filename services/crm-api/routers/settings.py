@@ -755,17 +755,280 @@ async def update_tenant_settings(
     return await get_tenant_settings(tenant_id, target_tenant_id=tenant_id, caller=caller if isinstance(caller, dict) else {"role": "admin"})
 
 
-# ── Google OAuth 2.0 1-Click Calendar Sync ────────────────────────────────────
+# ── WhatsApp Connection Status & Health Monitor ──────────────────────────────
+
+from pydantic import BaseModel
+
+class WhatsAppCredentialsPayload(BaseModel):
+    phone_number_id: str
+    waba_id: str
+    access_token: str
+    app_secret: Optional[str] = None
+    verify_token: Optional[str] = None
+    target_tenant_id: Optional[str] = None
+
+class WhatsAppTestMessagePayload(BaseModel):
+    recipient_phone: str
+    target_tenant_id: Optional[str] = None
 
 
+@router.get("/settings/whatsapp/status")
+@router.get("/api/v1/crm/settings/whatsapp/status")
+async def get_whatsapp_status(
+    tenant_id: str = Depends(get_tenant_id),
+    target_tenant_id: Optional[str] = Query(None),
+    caller: dict = Depends(get_caller_context)
+):
+    """
+    Live WhatsApp Business API health monitor:
+    - Queries Meta Graph API live to verify token, phone number ID, verified name, quality rating.
+    - Queries DB for last inbound & outbound message times and message totals.
+    - Returns structured health metrics.
+    """
+    caller_role = caller.get("role") if isinstance(caller, dict) else "admin"
+    if isinstance(target_tenant_id, str) and target_tenant_id.strip() and caller_role in ("super_admin", "owner"):
+        tenant_id = target_tenant_id.strip()
+
+    async with database.db_pool.acquire() as conn:
+        tenant_row = await conn.fetchrow("SELECT id, name, slug FROM tenants WHERE id = $1::uuid", tenant_id)
+        if not tenant_row:
+            raise HTTPException(404, "Tenant not found")
+
+        tenant_slug = tenant_row["slug"]
+        webhook_url = f"{APP_BASE_URL}/webhooks/whatsapp/{tenant_slug}"
+
+        wa_cred_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+            tenant_id
+        )
+        wa_data = {}
+        if wa_cred_row and wa_cred_row["credential_data"]:
+            d = wa_cred_row["credential_data"]
+            if isinstance(d, str):
+                try: d = json.loads(d)
+                except Exception: d = {}
+            wa_data = dict(d)
+
+        # Query messaging activity stats
+        msg_stats = await conn.fetchrow("""
+            SELECT 
+                MAX(created_at) FILTER (WHERE direction = 'inbound') as last_inbound_at,
+                MAX(created_at) FILTER (WHERE direction = 'outbound') as last_outbound_at,
+                COUNT(*) FILTER (WHERE direction = 'inbound') as total_inbound,
+                COUNT(*) FILTER (WHERE direction = 'outbound') as total_outbound
+            FROM messages
+            WHERE tenant_id = $1::uuid
+        """, tenant_id)
+
+    last_inbound = msg_stats["last_inbound_at"].isoformat() if msg_stats and msg_stats["last_inbound_at"] else None
+    last_outbound = msg_stats["last_outbound_at"].isoformat() if msg_stats and msg_stats["last_outbound_at"] else None
+    total_inbound = int(msg_stats["total_inbound"]) if msg_stats and msg_stats["total_inbound"] else 0
+    total_outbound = int(msg_stats["total_outbound"]) if msg_stats and msg_stats["total_outbound"] else 0
+
+    phone_number_id = str(wa_data.get("phone_number_id") or "").strip()
+    waba_id = str(wa_data.get("waba_id") or "").strip()
+    access_token = str(wa_data.get("access_token") or "").strip()
+    verify_token = str(wa_data.get("verify_token") or "").strip()
+
+    if not phone_number_id or not access_token or access_token.lower() == "none":
+        return {
+            "is_configured": False,
+            "is_connected": False,
+            "phone_number_id": phone_number_id or None,
+            "waba_id": waba_id or None,
+            "webhook_url": webhook_url,
+            "verify_token": verify_token or None,
+            "last_inbound_at": last_inbound,
+            "last_outbound_at": last_outbound,
+            "total_inbound": total_inbound,
+            "total_outbound": total_outbound,
+            "message": "WhatsApp Business API credentials are not configured for this workspace."
+        }
+
+    # Query Meta Graph API live
+    import httpx
+    meta_url = f"https://graph.facebook.com/v21.0/{phone_number_id}?fields=display_phone_number,verified_name,code_verification_status,quality_rating,status"
+    try:
+        async with httpx.AsyncClient(timeout=7.0) as client:
+            resp = await client.get(meta_url, headers={"Authorization": f"Bearer {access_token}"})
+            if resp.status_code == 200:
+                meta_res = resp.json()
+                return {
+                    "is_configured": True,
+                    "is_connected": True,
+                    "phone_number_id": phone_number_id,
+                    "waba_id": waba_id,
+                    "display_phone_number": meta_res.get("display_phone_number"),
+                    "verified_name": meta_res.get("verified_name"),
+                    "quality_rating": meta_res.get("quality_rating", "UNKNOWN"),
+                    "status": meta_res.get("status", "CONNECTED"),
+                    "code_verification_status": meta_res.get("code_verification_status"),
+                    "webhook_url": webhook_url,
+                    "verify_token": verify_token,
+                    "last_inbound_at": last_inbound,
+                    "last_outbound_at": last_outbound,
+                    "total_inbound": total_inbound,
+                    "total_outbound": total_outbound
+                }
+            else:
+                err_data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+                err_obj = err_data.get("error", {})
+                err_msg = err_obj.get("message") or f"Meta API returned status {resp.status_code}"
+                err_code = err_obj.get("code")
+                return {
+                    "is_configured": True,
+                    "is_connected": False,
+                    "phone_number_id": phone_number_id,
+                    "waba_id": waba_id,
+                    "webhook_url": webhook_url,
+                    "verify_token": verify_token,
+                    "error_code": err_code,
+                    "error_message": err_msg,
+                    "last_inbound_at": last_inbound,
+                    "last_outbound_at": last_outbound,
+                    "total_inbound": total_inbound,
+                    "total_outbound": total_outbound
+                }
+    except Exception as e:
+        logger.warning("whatsapp_health_check_meta_error", tenant_id=tenant_id, error=str(e))
+        return {
+            "is_configured": True,
+            "is_connected": False,
+            "phone_number_id": phone_number_id,
+            "waba_id": waba_id,
+            "webhook_url": webhook_url,
+            "verify_token": verify_token,
+            "error_message": f"Failed to connect to Meta Graph API: {str(e)}",
+            "last_inbound_at": last_inbound,
+            "last_outbound_at": last_outbound,
+            "total_inbound": total_inbound,
+            "total_outbound": total_outbound
+        }
 
 
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
+@router.post("/settings/whatsapp/credentials")
+@router.post("/api/v1/crm/settings/whatsapp/credentials")
+async def update_whatsapp_credentials(
+    payload: WhatsAppCredentialsPayload,
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
+    """
+    Update WhatsApp credentials with pre-validation against Meta Graph API:
+    - Validates token & phone number with Meta before saving.
+    - Saves to tenant_credentials.
+    - Fires background template sync.
+    """
+    caller_role = caller.get("role") if isinstance(caller, dict) else "admin"
+    if payload.target_tenant_id and payload.target_tenant_id.strip() and caller_role in ("super_admin", "owner"):
+        tenant_id = payload.target_tenant_id.strip()
+    elif caller_role not in ("admin", "owner", "super_admin"):
+        raise HTTPException(403, "Admin privileges required to update WhatsApp credentials.")
+
+    clean_phone_id = payload.phone_number_id.strip()
+    clean_waba_id = payload.waba_id.strip()
+    clean_token = payload.access_token.strip()
+
+    if not clean_phone_id or not clean_token:
+        raise HTTPException(400, "Phone Number ID and Access Token are required.")
+
+    # Validate against Meta Graph API
+    import httpx
+    meta_url = f"https://graph.facebook.com/v21.0/{clean_phone_id}?fields=display_phone_number,verified_name,quality_rating,status"
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(meta_url, headers={"Authorization": f"Bearer {clean_token}"})
+            if resp.status_code != 200:
+                err_data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+                err_msg = err_data.get("error", {}).get("message") or f"Meta returned HTTP {resp.status_code}"
+                raise HTTPException(400, f"Meta validation failed: {err_msg}")
+            meta_data = resp.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, f"Failed to verify credentials with Meta: {str(e)}")
+
+    # Update database
+    async with database.db_pool.acquire() as conn:
+        wa_row = await conn.fetchrow(
+            "SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp'",
+            tenant_id
+        )
+        wa_data = {}
+        wa_cred_id = str(wa_row["id"]) if wa_row else str(uuid.uuid4())
+        if wa_row and wa_row["credential_data"]:
+            d = wa_row["credential_data"]
+            if isinstance(d, str):
+                try: d = json.loads(d)
+                except Exception: d = {}
+            wa_data = dict(d)
+
+        wa_data["phone_number_id"] = clean_phone_id
+        wa_data["waba_id"] = clean_waba_id
+        wa_data["access_token"] = clean_token
+        if payload.app_secret is not None:
+            wa_data["app_secret"] = payload.app_secret.strip()
+        if payload.verify_token is not None:
+            wa_data["verify_token"] = payload.verify_token.strip()
+
+        if wa_row:
+            await conn.execute(
+                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true, updated_at = now() WHERE id = $2::uuid",
+                json.dumps(wa_data), wa_cred_id
+            )
+        else:
+            await conn.execute(
+                "INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'whatsapp', $3::jsonb, true)",
+                wa_cred_id, tenant_id, json.dumps(wa_data)
+            )
+
+    # Trigger background template sync
+    if clean_waba_id and clean_token:
+        try:
+            asyncio.create_task(execute_meta_template_sync(tenant_id, database.db_pool))
+        except Exception as e:
+            logger.warning("template_sync_after_cred_update_warn", tenant_id=tenant_id, error=str(e))
+
+    return {
+        "status": "success",
+        "message": "WhatsApp credentials verified and updated successfully.",
+        "display_phone_number": meta_data.get("display_phone_number"),
+        "verified_name": meta_data.get("verified_name"),
+        "quality_rating": meta_data.get("quality_rating")
+    }
 
 
+@router.post("/settings/whatsapp/test-message")
+@router.post("/api/v1/crm/settings/whatsapp/test-message")
+async def send_whatsapp_test_message(
+    payload: WhatsAppTestMessagePayload,
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
+    """
+    Send a live test message to verify outbound WhatsApp delivery.
+    """
+    caller_role = caller.get("role") if isinstance(caller, dict) else "admin"
+    if payload.target_tenant_id and payload.target_tenant_id.strip() and caller_role in ("super_admin", "owner"):
+        tenant_id = payload.target_tenant_id.strip()
+    elif caller_role not in ("admin", "owner", "super_admin"):
+        raise HTTPException(403, "Admin privileges required to send test messages.")
 
-# ── REVIEWS & GMB FEEDBACK SYSTEM ─────────────────────────────────────────────
+    phone = payload.recipient_phone.strip()
+    if not phone:
+        raise HTTPException(400, "Recipient phone number is required.")
+
+    from services.whatsapp_service import dispatch_whatsapp_message
+    test_text = "🟢 Test message from your WhatsApp CRM: Meta WhatsApp Business API connection is active and healthy!"
+    result = await dispatch_whatsapp_message(tenant_id=tenant_id, to_phone=phone, text=test_text)
+
+    if result:
+        return {
+            "status": "success",
+            "message": f"Test message dispatched successfully to {phone}.",
+            "details": result
+        }
+    else:
+        raise HTTPException(400, "Failed to dispatch test message. Please ensure your WhatsApp credentials are valid and the recipient phone number is formatted with country code.")
+
 

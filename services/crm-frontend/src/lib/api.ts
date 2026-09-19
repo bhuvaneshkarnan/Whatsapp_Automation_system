@@ -859,6 +859,36 @@ export const crm = {
       method: 'POST',
     }),
 
+  getWhatsAppHealth: (targetTenantId?: string) => {
+    const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
+    return request<WhatsAppHealthStatus>(
+      `/api/v1/crm/settings/whatsapp/status${qs}`,
+      targetTenantId ? { headers: { 'X-Tenant-ID': targetTenantId } } : undefined
+    );
+  },
+
+  updateWhatsAppCredentials: (data: WhatsAppCredentialsUpdate) => {
+    return request<{ status: string; message: string; display_phone_number?: string; verified_name?: string; quality_rating?: string }>(
+      '/api/v1/crm/settings/whatsapp/credentials',
+      {
+        method: 'POST',
+        headers: data.target_tenant_id ? { 'X-Tenant-ID': data.target_tenant_id } : undefined,
+        body: JSON.stringify(data),
+      }
+    );
+  },
+
+  sendWhatsAppTestMessage: (recipientPhone: string, targetTenantId?: string) => {
+    return request<{ status: string; message: string; details?: any }>(
+      '/api/v1/crm/settings/whatsapp/test-message',
+      {
+        method: 'POST',
+        headers: targetTenantId ? { 'X-Tenant-ID': targetTenantId } : undefined,
+        body: JSON.stringify({ recipient_phone: recipientPhone, target_tenant_id: targetTenantId }),
+      }
+    );
+  },
+
   // Customer Smart Reviews & GMB Feedback
   submitPublicReview: (data: {
     tenant_slug: string;
@@ -977,7 +1007,32 @@ export const crm = {
     }),
 
   // Customer Follow-up & Tasks
-getCustomerStats: () => request<{total: number, pending: number, hot_leads: number, converted: number}>('/api/v1/crm/customers/stats'),
+getCustomerStats: async (filters?: {
+    status?: string;
+    lead_probability?: string;
+    preferred_doctor?: string;
+    client_type?: string;
+    health_concern?: string;
+    next_action?: string;
+    q?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters?.status && filters.status !== 'all') {
+      if (['new', 'follow-up', 'converted', 'lost', 'contacted'].includes(filters.status)) {
+        params.set('status', filters.status);
+      } else {
+        params.set('call_status', filters.status);
+      }
+    }
+    if (filters?.lead_probability && filters.lead_probability !== 'all') params.set('lead_probability', filters.lead_probability);
+    if (filters?.preferred_doctor && filters.preferred_doctor !== 'all') params.set('preferred_doctor', filters.preferred_doctor);
+    if (filters?.client_type && filters.client_type !== 'all') params.set('client_type', filters.client_type);
+    if (filters?.health_concern && filters.health_concern !== 'all') params.set('health_concern', filters.health_concern);
+    if (filters?.next_action && filters.next_action !== 'all') params.set('next_action', filters.next_action);
+    if (filters?.q) params.set('q', filters.q);
+    const qs = params.toString();
+    return request<{total: number, pending: number, hot_leads: number, converted: number}>(`/api/v1/crm/customers/stats${qs ? `?${qs}` : ''}`);
+  },
   getCustomers: async (filters?: {
 
     status?: string;
@@ -991,7 +1046,13 @@ getCustomerStats: () => request<{total: number, pending: number, hot_leads: numb
   }): Promise<Customer[]> => {
     try {
       const params = new URLSearchParams();
-      if (filters?.status && filters.status !== 'all') params.set('status', filters.status);
+      if (filters?.status && filters.status !== 'all') {
+      if (['new', 'follow-up', 'converted', 'lost', 'contacted'].includes(filters.status)) {
+        params.set('status', filters.status);
+      } else {
+        params.set('call_status', filters.status);
+      }
+    }
       if (filters?.lead_probability && filters.lead_probability !== 'all') params.set('lead_probability', filters.lead_probability);
       if (filters?.preferred_doctor && filters.preferred_doctor !== 'all') params.set('preferred_doctor', filters.preferred_doctor);
       if (filters?.client_type && filters.client_type !== 'all') params.set('client_type', filters.client_type);
@@ -1343,6 +1404,36 @@ export interface TenantSettingsResponse {
   brand_support_email?: string;
   brand_support_phone?: string;
   hide_platform_branding?: boolean;
+}
+
+export interface WhatsAppHealthStatus {
+  is_configured: boolean;
+  is_connected: boolean;
+  phone_number_id?: string | null;
+  waba_id?: string | null;
+  display_phone_number?: string | null;
+  verified_name?: string | null;
+  quality_rating?: 'GREEN' | 'YELLOW' | 'RED' | 'UNKNOWN' | string;
+  status?: string;
+  code_verification_status?: string;
+  webhook_url?: string;
+  verify_token?: string | null;
+  last_inbound_at?: string | null;
+  last_outbound_at?: string | null;
+  total_inbound?: number;
+  total_outbound?: number;
+  error_code?: number;
+  error_message?: string;
+  message?: string;
+}
+
+export interface WhatsAppCredentialsUpdate {
+  phone_number_id: string;
+  waba_id: string;
+  access_token: string;
+  app_secret?: string;
+  verify_token?: string;
+  target_tenant_id?: string;
 }
 
 export interface CustomerReview {

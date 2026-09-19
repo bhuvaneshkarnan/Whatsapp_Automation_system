@@ -31,6 +31,8 @@ import {
   getCachedTenantId,
   CrmDropdownOptions,
   GoogleBusinessStatus,
+  WhatsAppHealthStatus,
+  WhatsAppCredentialsUpdate,
 } from '@/lib/api';
 import { ModernCustomerView } from '@/components/dashboard/ModernCustomerView';
 import { MergeCustomersModal } from '@/components/dashboard/MergeCustomersModal';
@@ -1733,7 +1735,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     return 'overview';
   });
   const [sidebarFilter, setSidebarFilter] = useState<'all' | 'recent' | 'favorites' | 'active'>('all');
-  const [settingsTab, setSettingsTab] = useState<'branding' | 'billing' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team' | 'ai_usage'>('billing');
+  const [settingsTab, setSettingsTab] = useState<'branding' | 'billing' | 'whatsapp' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team' | 'ai_usage'>('billing');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentTxnRef, setPaymentTxnRef] = useState('');
   const [submittingPaymentProof, setSubmittingPaymentProof] = useState(false);
@@ -2815,6 +2817,34 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       }
     }
   }, []);
+
+  // ── WhatsApp Health Monitor & Credentials State ─────────────────────────────
+  const [whatsappHealth, setWhatsappHealth] = useState<WhatsAppHealthStatus | null>(null);
+  const [whatsappHealthLoading, setWhatsappHealthLoading] = useState(false);
+  const [whatsappHealthError, setWhatsappHealthError] = useState<string | null>(null);
+
+  // WhatsApp Credential Update Modal State
+  const [showWhatsAppCredsModal, setShowWhatsAppCredsModal] = useState(false);
+  const [whatsappCredsForm, setWhatsappCredsForm] = useState<WhatsAppCredentialsUpdate>({
+    phone_number_id: '',
+    waba_id: '',
+    access_token: '',
+    app_secret: '',
+    verify_token: '',
+  });
+  const [whatsappCredsSaving, setWhatsappCredsSaving] = useState(false);
+  const [whatsappCredsError, setWhatsappCredsError] = useState<string | null>(null);
+  const [whatsappCredsSuccess, setWhatsappCredsSuccess] = useState<string | null>(null);
+
+  // WhatsApp Test Message Modal State
+  const [showWhatsAppTestModal, setShowWhatsAppTestModal] = useState(false);
+  const [whatsappTestPhone, setWhatsappTestPhone] = useState('');
+  const [whatsappTestSending, setWhatsappTestSending] = useState(false);
+  const [whatsappTestResult, setWhatsappTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Webhook copy feedback
+  const [webhookCopied, setWebhookCopied] = useState(false);
+  const [verifyTokenCopied, setVerifyTokenCopied] = useState(false);
 
   // ── Quick Preferred Doctors / Staff Presets Editor Modal ───────────────────
   const [doctorEditModalOpen, setDoctorEditModalOpen] = useState(false);
@@ -4403,6 +4433,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (activeNav === 'settings' && settingsTab === 'team') {
       loadTeamList();
     }
+    if (activeNav === 'settings' && settingsTab === 'whatsapp') {
+      loadWhatsAppHealth();
+    }
     if (activeNav === 'settings' && settingsTab === 'billing') {
       loadInvoices();
     }
@@ -4590,8 +4623,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             });
             if (isMounted && Array.isArray(fresh)) {
               setCustomers((prev) => {
-                // Critical safeguard: Never wipe out existing customers during a background sync poll
-                if (fresh.length === 0 && prev.length > 0 && !followupSearch.trim()) {
+                // Critical safeguard: Only preserve prev during background polling if there are NO active filters
+                const hasActiveFilter = (followupStatusFilter && followupStatusFilter !== 'all') ||
+                  (followupDoctorFilter && followupDoctorFilter !== 'all') ||
+                  (followupProbabilityFilter && followupProbabilityFilter !== 'all') ||
+                  (followupActionFilter && followupActionFilter !== 'all') ||
+                  Boolean(followupSearch.trim());
+                if (fresh.length === 0 && prev.length > 0 && !hasActiveFilter) {
                   return prev;
                 }
                 const isDiff =
@@ -4748,7 +4786,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           crm.getCustomers({ limit: 1000 }).catch(() => []),
           isMindBodyRecovery ? crm.getTasks('all').catch(() => []) : Promise.resolve([]),
           crm.getLiveCalendarAvailability().catch(() => null),
-          crm.getCustomerStats().catch(() => null),
+          crm.getCustomerStats({
+            status: followupStatusFilter,
+            lead_probability: followupProbabilityFilter,
+            preferred_doctor: depDoctor || followupDoctorFilter,
+            health_concern: depConcern,
+            next_action: followupActionFilter,
+            q: followupSearch,
+          }).catch(() => null),
         ]);
         if (Array.isArray(bData)) setBookings(bData);
         if (Array.isArray(cData) && cData.length > 0) setCustomers(cData);
@@ -4866,15 +4911,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           q: followupSearch,
           limit: 1000,
         }),
-        crm.getCustomerStats().catch(() => null)
+        crm.getCustomerStats({
+            status: followupStatusFilter,
+            lead_probability: followupProbabilityFilter,
+            preferred_doctor: depDoctor || followupDoctorFilter,
+            health_concern: depConcern,
+            next_action: followupActionFilter,
+            q: followupSearch,
+          }).catch(() => null)
       ]);
       if (statsData) setCustomerStats(statsData);
       if (Array.isArray(data)) {
-        if (data.length === 0 && !followupSearch.trim()) {
-          setCustomers((prev) => (prev.length === 0 ? [] : prev));
-        } else {
-          setCustomers(data);
-        }
+        setCustomers(data);
       }
     } catch (err) {
       console.error('Error fetching customers:', err);
@@ -5899,6 +5947,67 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       setSettingsError(err instanceof Error ? err.message : 'Failed to save settings.');
     } finally {
       setSettingsSaving(false);
+    }
+  }
+
+  // ── WhatsApp Health & Credential Handlers ──────────────────────────────────
+  async function loadWhatsAppHealth(silent = false) {
+    if (!silent) setWhatsappHealthLoading(true);
+    setWhatsappHealthError(null);
+    try {
+      const data = await crm.getWhatsAppHealth();
+      setWhatsappHealth(data);
+      if (data) {
+        setWhatsappCredsForm((prev) => ({
+          ...prev,
+          phone_number_id: data.phone_number_id || prev.phone_number_id,
+          waba_id: data.waba_id || prev.waba_id,
+          verify_token: data.verify_token || prev.verify_token,
+        }));
+      }
+    } catch (err: unknown) {
+      console.error('Failed to load WhatsApp health:', err);
+      setWhatsappHealthError(err instanceof Error ? err.message : 'Failed to fetch WhatsApp connection health.');
+    } finally {
+      if (!silent) setWhatsappHealthLoading(false);
+    }
+  }
+
+  async function handleSaveWhatsAppCredentials(e: React.FormEvent) {
+    e.preventDefault();
+    setWhatsappCredsSaving(true);
+    setWhatsappCredsError(null);
+    setWhatsappCredsSuccess(null);
+    try {
+      const res = await crm.updateWhatsAppCredentials(whatsappCredsForm);
+      setWhatsappCredsSuccess(res.message || 'WhatsApp credentials verified and updated successfully!');
+      await loadWhatsAppHealth(true);
+      await loadSettings();
+      setTimeout(() => {
+        setShowWhatsAppCredsModal(false);
+        setWhatsappCredsSuccess(null);
+      }, 1500);
+    } catch (err: unknown) {
+      console.error('Save WhatsApp credentials error:', err);
+      setWhatsappCredsError(err instanceof Error ? err.message : 'Failed to save credentials.');
+    } finally {
+      setWhatsappCredsSaving(false);
+    }
+  }
+
+  async function handleSendWhatsAppTest(e: React.FormEvent) {
+    e.preventDefault();
+    if (!whatsappTestPhone.trim()) return;
+    setWhatsappTestSending(true);
+    setWhatsappTestResult(null);
+    try {
+      const res = await crm.sendWhatsAppTestMessage(whatsappTestPhone.trim());
+      setWhatsappTestResult({ success: true, message: res.message || 'Test message dispatched successfully!' });
+    } catch (err: unknown) {
+      console.error('Send WhatsApp test message error:', err);
+      setWhatsappTestResult({ success: false, message: err instanceof Error ? err.message : 'Failed to send test message.' });
+    } finally {
+      setWhatsappTestSending(false);
     }
   }
 
@@ -12934,14 +13043,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         {/* Specific Outcome Dropdown (Moved here for clarity) */}
                         <div className="shrink-0">
                           <select
-                            value={
-                              ['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase())
-                                ? 'all'
-                                : followupStatusFilter
-                            }
+                            value={crmDropdowns.outcome_statuses.includes(followupStatusFilter) ? followupStatusFilter : (['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? 'all' : followupStatusFilter)}
                             onChange={(e) => setFollowupStatusFilter(e.target.value)}
                             className={`px-2 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[140px] h-[26px] cursor-pointer ${
-                              !['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? 'border-text-primary font-semibold' : ''
+                              crmDropdowns.outcome_statuses.includes(followupStatusFilter) || !['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? 'border-text-primary font-semibold' : ''
                             }`}
                             title="Filter by specific outcome status"
                           >
@@ -13401,6 +13506,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             }}
                                             className="w-full h-7 px-2 py-0.5 rounded-md text-[11px] leading-tight font-semibold bg-surface border border-border shadow-2xs text-text-primary hover:border-border-hover focus:outline-none focus:ring-1 focus:ring-accent transition-colors table-control"
                                           >
+                                            {cust.call_status && !crmDropdowns.outcome_statuses.includes(cust.call_status) && (
+                                              <option key={cust.call_status} value={cust.call_status}>{cust.call_status}</option>
+                                            )}
                                             {crmDropdowns.outcome_statuses.map((st) => (
                                               <option key={st} value={st}>{st}</option>
                                             ))}
@@ -13598,6 +13706,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           onChange={(e) => handleUpdateCustomer(cust.id, { next_action: e.target.value })}
                                           className="w-full h-7 px-2 py-0.5 rounded-md text-[11px] leading-tight font-semibold bg-surface-subtle border border-border text-text-primary hover:border-border-hover shadow-2xs focus:outline-none focus:ring-1 focus:ring-accent transition-colors table-control cursor-pointer"
                                         >
+                                          {cust.next_action && !crmDropdowns.next_actions.includes(cust.next_action) && (
+                                            <option key={cust.next_action} value={cust.next_action}>{cust.next_action}</option>
+                                          )}
                                           {crmDropdowns.next_actions.map((act) => (
                                             <option key={act} value={act}>{act}</option>
                                           ))}
@@ -13665,11 +13776,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </select>
 
                         <select
-                            value={
-                              ['all', 'new', 'follow-up', 'converted', 'contacted', 'lost'].includes(followupStatusFilter.toLowerCase())
-                                ? 'all'
-                                : followupStatusFilter
-                            }
+                            value={crmDropdowns.outcome_statuses.includes(followupStatusFilter) ? followupStatusFilter : (['all', 'new', 'follow-up', 'converted', 'contacted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? 'all' : followupStatusFilter)}
                             onChange={(e) => setFollowupStatusFilter(e.target.value)}
                             className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
                           >
@@ -17558,6 +17665,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     return [
                       { id: 'billing', label: 'Subscription & Payments', icon: CreditCard },
                       { id: 'branding', label: isReviewOnly ? 'Business & Google Review Profile' : 'Profile & Branding', icon: Building2 },
+                      { id: 'whatsapp', label: 'WhatsApp & Meta API', icon: MessageSquare },
                       ...(!isReviewOnly ? [{ id: 'calendar', label: 'Google Calendar & Scheduling', icon: CalendarDays }] : []),
                       { id: 'notifications', label: isReviewOnly ? 'Review Notification Alerts' : 'Alert Channels', icon: Bell },
                       { id: 'localization', label: 'Regional & Currency', icon: Globe },
@@ -18255,6 +18363,328 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {/* ── WHATSAPP & META API HEALTH MONITOR ─────────────────────── */}
+                  {settingsTab === 'whatsapp' && (
+                    <div className="space-y-6">
+                      {/* Main Connection Status Card */}
+                      <div className="bg-surface p-5 rounded-lg border border-border space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-sm text-text-primary flex items-center gap-2">
+                                <MessageSquare className="w-4 h-4 text-emerald-600" />
+                                <span>Meta WhatsApp Business API Health</span>
+                              </h4>
+                              {whatsappHealth?.is_connected ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                  Connected & Healthy
+                                </span>
+                              ) : whatsappHealth?.is_configured ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                  Disconnected / Invalid Token
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                  Not Configured
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-text-muted mt-0.5">
+                              Live Meta Graph API connection status, phone number health, quality rating, and messaging activity.
+                            </p>
+                          </div>
+
+                          {/* Quick Action Buttons */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => loadWhatsAppHealth()}
+                              disabled={whatsappHealthLoading}
+                              className="px-3 py-1.5 bg-surface-subtle hover:bg-surface border border-border text-text-primary text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${whatsappHealthLoading ? 'animate-spin text-accent' : 'text-text-muted'}`} />
+                              <span>{whatsappHealthLoading ? 'Checking...' : 'Refresh Health'}</span>
+                            </button>
+
+                            {whatsappHealth?.is_connected && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setWhatsappTestResult(null);
+                                  setShowWhatsAppTestModal(true);
+                                }}
+                                className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
+                              >
+                                <SendHorizontal className="w-3.5 h-3.5" />
+                                <span>Send Test Ping</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setWhatsappCredsError(null);
+                                setWhatsappCredsSuccess(null);
+                                setShowWhatsAppCredsModal(true);
+                              }}
+                              className="px-3.5 py-1.5 bg-accent hover:bg-accent/90 text-white text-xs font-bold rounded-md shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Key className="w-3.5 h-3.5" />
+                              <span>{whatsappHealth?.is_configured ? 'Update Credentials' : 'Configure WhatsApp'}</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Error Callout if Meta connection failed */}
+                        {whatsappHealth?.is_configured && !whatsappHealth.is_connected && (
+                          <div className="p-3.5 rounded-md bg-rose-50 border border-rose-200 text-rose-800 text-xs space-y-1">
+                            <div className="flex items-center gap-2 font-bold text-rose-900">
+                              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                              <span>Meta WhatsApp Business API Connection Error</span>
+                            </div>
+                            <p className="pl-6 text-rose-700">
+                              {whatsappHealth.error_message || 'Could not verify connection with Meta. The access token may have expired or lacks whatsapp_business_messaging permissions.'}
+                            </p>
+                            <div className="pl-6 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => setShowWhatsAppCredsModal(true)}
+                                className="text-xs font-bold text-rose-900 underline hover:no-underline cursor-pointer"
+                              >
+                                Reconnect / Update System User Token &rarr;
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Unconfigured Callout */}
+                        {!whatsappHealth?.is_configured && !whatsappHealthLoading && (
+                          <div className="p-4 rounded-md bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2">
+                            <div className="flex items-center gap-2 font-bold">
+                              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                              <span>WhatsApp Business API Not Yet Connected</span>
+                            </div>
+                            <p className="text-amber-800">
+                              Connect your Meta WhatsApp Business Account to enable 2-way live chat, automated appointment confirmations, and AI replies.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setShowWhatsAppCredsModal(true)}
+                              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded text-xs transition-colors cursor-pointer"
+                            >
+                              + Enter Meta WABA Credentials
+                            </button>
+                          </div>
+                        )}
+
+                        {/* 4 Diagnostic Metrics Cards */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          {/* Card 1: Verified Business Name */}
+                          <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
+                                Verified Business
+                              </span>
+                              {whatsappHealth?.verified_name ? (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                  Verified
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="text-sm font-bold text-text-primary truncate">
+                              {whatsappHealth?.verified_name || (whatsappHealth?.is_configured ? 'Unverified Name' : 'Not Set')}
+                            </div>
+                            <span className="text-[10px] text-text-muted block truncate">
+                              Phone: {whatsappHealth?.display_phone_number || 'No number'}
+                            </span>
+                          </div>
+
+                          {/* Card 2: Quality Rating */}
+                          <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
+                            <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
+                              Quality Rating
+                            </span>
+                            <div className="flex items-center gap-1.5 pt-0.5">
+                              {whatsappHealth?.quality_rating === 'GREEN' ? (
+                                <>
+                                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                                  <span className="text-sm font-bold text-emerald-600">High (Green)</span>
+                                </>
+                              ) : whatsappHealth?.quality_rating === 'YELLOW' ? (
+                                <>
+                                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                                  <span className="text-sm font-bold text-amber-600">Medium (Yellow)</span>
+                                </>
+                              ) : whatsappHealth?.quality_rating === 'RED' ? (
+                                <>
+                                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                                  <span className="text-sm font-bold text-rose-600">Low (Red)</span>
+                                </>
+                              ) : (
+                                <span className="text-sm font-bold text-text-secondary">
+                                  {whatsappHealth?.quality_rating || (whatsappHealth?.is_configured ? 'Checking...' : 'N/A')}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-text-muted block">
+                              {whatsappHealth?.quality_rating === 'GREEN' ? 'Optimal delivery rate' : whatsappHealth?.quality_rating === 'YELLOW' ? 'Monitor spam reports' : 'Risk of messaging restrictions'}
+                            </span>
+                          </div>
+
+                          {/* Card 3: Inbound Messages */}
+                          <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
+                            <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
+                              Inbound Activity
+                            </span>
+                            <div className="text-sm font-bold font-mono text-text-primary">
+                              {whatsappHealth?.total_inbound?.toLocaleString() || 0} msgs
+                            </div>
+                            <span className="text-[10px] text-text-muted block truncate">
+                              {whatsappHealth?.last_inbound_at ? `Last: ${formatRelativeTime(whatsappHealth.last_inbound_at)}` : 'No inbound msgs'}
+                            </span>
+                          </div>
+
+                          {/* Card 4: Outbound Messages */}
+                          <div className="p-3.5 bg-surface-subtle/80 rounded-md border border-border space-y-1">
+                            <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
+                              Outbound Activity
+                            </span>
+                            <div className="text-sm font-bold font-mono text-text-primary">
+                              {whatsappHealth?.total_outbound?.toLocaleString() || 0} msgs
+                            </div>
+                            <span className="text-[10px] text-text-muted block truncate">
+                              {whatsappHealth?.last_outbound_at ? `Last: ${formatRelativeTime(whatsappHealth.last_outbound_at)}` : 'No outbound msgs'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* ID Details Row */}
+                        {whatsappHealth?.is_configured && (
+                          <div className="p-3 bg-surface-subtle/40 rounded-md border border-border grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                            <div>
+                              <span className="text-text-muted text-[10px] font-semibold uppercase tracking-wider block">Phone Number ID</span>
+                              <span className="font-mono text-text-primary font-bold select-all">{whatsappHealth.phone_number_id || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-text-muted text-[10px] font-semibold uppercase tracking-wider block">WhatsApp Business Account ID (WABA)</span>
+                              <span className="font-mono text-text-primary font-bold select-all">{whatsappHealth.waba_id || 'N/A'}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Webhook Configuration Box */}
+                      <div className="bg-surface p-5 rounded-lg border border-border space-y-4">
+                        <div className="flex items-center gap-2 pb-2 border-b border-border">
+                          <Radio className="w-4 h-4 text-accent" />
+                          <h4 className="font-bold text-sm text-text-primary">Meta Developer Webhook Configuration</h4>
+                        </div>
+                        <p className="text-xs text-text-muted">
+                          To receive inbound WhatsApp messages, configure this Callback URL and Verify Token in your Meta Developer App.
+                        </p>
+
+                        <div className="space-y-3">
+                          {/* Callback URL */}
+                          <div>
+                            <label className="block text-xs font-semibold text-text-secondary mb-1">Callback URL</label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                readOnly
+                                value={whatsappHealth?.webhook_url || settingsForm.webhook_url || ''}
+                                className="flex-1 px-3 py-2 bg-surface-subtle border border-border rounded-md text-xs font-mono text-text-primary select-all cursor-text focus:outline-hidden"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const url = whatsappHealth?.webhook_url || settingsForm.webhook_url || '';
+                                  if (url) {
+                                    navigator.clipboard.writeText(url);
+                                    setWebhookCopied(true);
+                                    setTimeout(() => setWebhookCopied(false), 2000);
+                                  }
+                                }}
+                                className="px-3 py-2 bg-surface-subtle hover:bg-surface border border-border text-text-primary text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                              >
+                                {webhookCopied ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                    <span className="text-emerald-500 font-bold">Copied!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5 text-text-muted" />
+                                    <span>Copy URL</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Verify Token */}
+                          <div>
+                            <label className="block text-xs font-semibold text-text-secondary mb-1">Verify Token</label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                readOnly
+                                value={whatsappHealth?.verify_token || settingsForm.verify_token || 'mindbody_crm_2024'}
+                                className="flex-1 px-3 py-2 bg-surface-subtle border border-border rounded-md text-xs font-mono text-text-primary select-all cursor-text focus:outline-hidden"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const tok = whatsappHealth?.verify_token || settingsForm.verify_token || 'mindbody_crm_2024';
+                                  if (tok) {
+                                    navigator.clipboard.writeText(tok);
+                                    setVerifyTokenCopied(true);
+                                    setTimeout(() => setVerifyTokenCopied(false), 2000);
+                                  }
+                                }}
+                                className="px-3 py-2 bg-surface-subtle hover:bg-surface border border-border text-text-primary text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                              >
+                                {verifyTokenCopied ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                    <span className="text-emerald-500 font-bold">Copied!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5 text-text-muted" />
+                                    <span>Copy Token</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Subscribed Fields Badge */}
+                          <div className="pt-1 flex items-center gap-2 text-xs text-text-muted">
+                            <span className="font-semibold text-text-secondary">Required Webhook Field:</span>
+                            <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-surface-subtle border border-border font-bold text-text-primary">
+                              messages (v21.0)
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Step-by-Step Instructions */}
+                        <div className="p-3.5 bg-surface-subtle/50 rounded-md border border-border text-xs space-y-2">
+                          <h5 className="font-bold text-text-primary">Meta Portal Setup Steps:</h5>
+                          <ol className="list-decimal list-inside space-y-1 text-text-secondary text-[11px]">
+                            <li>Open <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" className="text-accent underline font-semibold">developers.facebook.com</a> and select your WhatsApp App.</li>
+                            <li>Go to <strong>WhatsApp &rarr; Configuration</strong> in the left sidebar.</li>
+                            <li>Click <strong>Edit</strong> in the Webhook section, paste the Callback URL and Verify Token above.</li>
+                            <li>Click <strong>Verify and Save</strong>.</li>
+                            <li>Under <strong>Webhook fields</strong>, click <strong>Manage</strong> and check <strong>messages</strong>.</li>
+                          </ol>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -22960,6 +23390,229 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         gmbReviewUrl={settingsForm.gmb_review_url || settingsForm.google_review_link}
         customDomain={settingsForm.custom_domain || (typeof window !== 'undefined' ? window.location.hostname : '')}
       />
+
+      {/* WhatsApp Credential Update Modal */}
+      {showWhatsAppCredsModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface border border-border rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600">
+                  <Key className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-text-primary">Meta WhatsApp Credentials</h3>
+                  <p className="text-xs text-text-muted">Validated live with Meta before saving.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWhatsAppCredsModal(false)}
+                className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-subtle cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {whatsappCredsError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-md font-medium flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <span>{whatsappCredsError}</span>
+              </div>
+            )}
+
+            {whatsappCredsSuccess && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs rounded-md font-medium flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{whatsappCredsSuccess}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveWhatsAppCredentials} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-text-primary mb-1">
+                  Phone Number ID <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={whatsappCredsForm.phone_number_id}
+                  onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, phone_number_id: e.target.value }))}
+                  placeholder="e.g. 1266808993181338"
+                  className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
+                />
+                <span className="text-[10px] text-text-muted mt-0.5 block">From Meta App &rarr; WhatsApp &rarr; API Setup</span>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-text-primary mb-1">
+                  WhatsApp Business Account ID (WABA) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={whatsappCredsForm.waba_id}
+                  onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, waba_id: e.target.value }))}
+                  placeholder="e.g. 1070376042350055"
+                  className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-text-primary mb-1">
+                  Permanent System User Access Token <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={whatsappCredsForm.access_token}
+                  onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, access_token: e.target.value }))}
+                  placeholder="EAAB..."
+                  className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
+                />
+                <span className="text-[10px] text-text-muted mt-0.5 block">Generated from Meta Business Manager &rarr; System Users</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-text-primary mb-1">App Secret (Optional)</label>
+                  <input
+                    type="password"
+                    value={whatsappCredsForm.app_secret || ''}
+                    onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, app_secret: e.target.value }))}
+                    placeholder="Optional"
+                    className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-text-primary mb-1">Verify Token (Optional)</label>
+                  <input
+                    type="text"
+                    value={whatsappCredsForm.verify_token || ''}
+                    onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, verify_token: e.target.value }))}
+                    placeholder="e.g. mindbody_crm_2024"
+                    className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setShowWhatsAppCredsModal(false)}
+                  className="px-4 py-2 bg-surface-subtle hover:bg-surface border border-border text-text-secondary text-xs font-semibold rounded-md cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={whatsappCredsSaving}
+                  className="px-4 py-2 bg-accent hover:bg-accent/90 text-white text-xs font-bold rounded-md shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {whatsappCredsSaving ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Verifying with Meta...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Verify & Save Credentials</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp Test Message Modal */}
+      {showWhatsAppTestModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-surface border border-border rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600">
+                  <SendHorizontal className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-text-primary">Send Test WhatsApp Ping</h3>
+                  <p className="text-xs text-text-muted">Verify live outbound messaging.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWhatsAppTestModal(false)}
+                className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-subtle cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {whatsappTestResult && (
+              <div className={`p-3 rounded-md text-xs font-medium flex items-start gap-2 ${
+                whatsappTestResult.success
+                  ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border border-rose-200 text-rose-700'
+              }`}>
+                {whatsappTestResult.success ? (
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                )}
+                <span>{whatsappTestResult.message}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSendWhatsAppTest} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-text-primary mb-1">
+                  Recipient Phone Number (with Country Code) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={whatsappTestPhone}
+                  onChange={(e) => setWhatsappTestPhone(e.target.value)}
+                  placeholder="e.g. 919876543210"
+                  className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
+                />
+                <span className="text-[10px] text-text-muted mt-0.5 block">
+                  Include country code without '+' (e.g. 91 for India).
+                </span>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setShowWhatsAppTestModal(false)}
+                  className="px-4 py-2 bg-surface-subtle hover:bg-surface border border-border text-text-secondary text-xs font-semibold rounded-md cursor-pointer"
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  disabled={whatsappTestSending || !whatsappTestPhone.trim()}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {whatsappTestSending ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Sending Ping...</span>
+                    </>
+                  ) : (
+                    <>
+                      <SendHorizontal className="w-3.5 h-3.5" />
+                      <span>Send Test Ping</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       </div>
   );

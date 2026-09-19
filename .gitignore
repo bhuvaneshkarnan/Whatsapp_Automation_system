@@ -36,3 +36,6 @@ Thumbs.db
 *.tar.gz
 .vercel
 .env*
+backups/
+*.sql
+*.sql.gz
