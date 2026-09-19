@@ -13078,9 +13078,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 stroke-[1.8]" />
                           <span className="text-[11px] text-emerald-800 font-medium">Converted:</span>
                           <span className="font-bold text-emerald-900 font-mono text-xs">
-                            {customers.filter(c => c.converted).length}
+                            {customerStats?.converted ?? customers.filter(c => c.converted).length}
                             <span className="text-[10px] text-emerald-600 ml-1 font-normal">
-                              ({customers.length ? Math.round((customers.filter(c => c.converted).length / customers.length) * 100) : 0}%)
+                              ({customerStats ? Math.round((customerStats.converted / (customerStats.total || 1)) * 100) : (customers.length ? Math.round((customers.filter(c => c.converted).length / customers.length) * 100) : 0)}%)
                             </span>
                           </span>
                         </div>
