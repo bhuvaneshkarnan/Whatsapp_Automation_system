@@ -1733,10 +1733,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     return 'overview';
   });
   const [sidebarFilter, setSidebarFilter] = useState<'all' | 'recent' | 'favorites' | 'active'>('all');
-  const [settingsTab, setSettingsTab] = useState<'branding' | 'billing' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team'>('billing');
+  const [settingsTab, setSettingsTab] = useState<'branding' | 'billing' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team' | 'ai_usage'>('billing');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentTxnRef, setPaymentTxnRef] = useState('');
   const [submittingPaymentProof, setSubmittingPaymentProof] = useState(false);
+  const [aiUsageData, setAiUsageData] = useState<any>(null);
+  const [loadingAiUsage, setLoadingAiUsage] = useState(false);
   const [paymentProofNotice, setPaymentProofNotice] = useState<string | null>(null);
   const [drawerPhoneCopied, setDrawerPhoneCopied] = useState(false);
   const [chatHeaderPhoneCopied, setChatHeaderPhoneCopied] = useState(false);
@@ -4403,6 +4405,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
     if (activeNav === 'settings' && settingsTab === 'billing') {
       loadInvoices();
+    }
+    if (activeNav === 'settings' && settingsTab === 'ai_usage') {
+      setLoadingAiUsage(true);
+      crm.getAIUsageStats().then(data => setAiUsageData(data)).catch(() => {}).finally(() => setLoadingAiUsage(false));
     }
   }, [activeNav, settingsTab, isAuthChecking, user]);
 
@@ -17555,6 +17561,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       ...(!isReviewOnly ? [{ id: 'calendar', label: 'Google Calendar & Scheduling', icon: CalendarDays }] : []),
                       { id: 'notifications', label: isReviewOnly ? 'Review Notification Alerts' : 'Alert Channels', icon: Bell },
                       { id: 'localization', label: 'Regional & Currency', icon: Globe },
+                      { id: 'ai_usage', label: 'AI Usage & Speed', icon: Zap },
                       ...(!isReviewOnly ? [{ id: 'terminology', label: 'CRM Terminology', icon: Sliders }] : []),
                       { id: 'account', label: 'Account & Session', icon: LogOut },
                     ];
@@ -19705,10 +19712,73 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   )}
 
                   {/* ── 5. TEAM & ROLES SUBTAB ─────────────────────────────────── */}
-                  {settingsTab === 'team' && renderTeamManagementView()}
+                  
+                {settingsTab === 'ai_usage' && (
+                  <div className="space-y-6 max-w-4xl">
+                    <div>
+                      <h4 className="text-sm font-semibold text-text-primary">Automated Usage & Performance Analytics</h4>
+                      <p className="text-xs text-text-muted mt-0.5">Track your intelligent agent reply volume and response latency over the last 30 days.</p>
+                    </div>
+
+                    {loadingAiUsage ? (
+                      <p className="text-xs text-text-muted py-8 text-center">Loading usage statistics...</p>
+                    ) : aiUsageData ? (
+                      <div className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="p-4 border border-border bg-surface rounded-lg flex items-center justify-between shadow-2xs">
+                            <div>
+                              <p className="text-xs font-medium text-text-secondary">Automated Replies (Last 30 Days)</p>
+                              <p className="text-2xl font-semibold text-text-primary mt-1">{aiUsageData.total_replies_30d}</p>
+                            </div>
+                            <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent">
+                              <MessageSquare className="w-5 h-5" />
+                            </div>
+                          </div>
+                          
+                          <div className="p-4 border border-border bg-surface rounded-lg flex items-center justify-between shadow-2xs">
+                            <div>
+                              <p className="text-xs font-medium text-text-secondary">Average Response Speed</p>
+                              <p className="text-2xl font-semibold text-text-primary mt-1">{aiUsageData.avg_speed_ms ? `${(aiUsageData.avg_speed_ms / 1000).toFixed(1)}s` : 'N/A'}</p>
+                            </div>
+                            <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600">
+                              <Zap className="w-5 h-5" />
+                            </div>
+                          </div>
+                        </div>
+
+                        {aiUsageData.daily_stats && aiUsageData.daily_stats.length > 0 && (
+                          <div className="p-4 border border-border bg-surface rounded-lg shadow-2xs">
+                            <h5 className="text-xs font-semibold text-text-primary mb-4">Daily Activity</h5>
+                            <div className="h-48 flex items-end gap-2 max-w-full overflow-x-auto pb-6">
+                              {aiUsageData.daily_stats.map((stat: any, i: number) => {
+                                const maxCount = Math.max(...aiUsageData.daily_stats.map((s: any) => s.count), 1);
+                                const heightPercent = (stat.count / maxCount) * 100;
+                                return (
+                                  <div key={i} className="flex flex-col items-center gap-1 flex-1 min-w-[24px]">
+                                    <div 
+                                      className="w-full bg-accent rounded-t-sm transition-all hover:bg-accent-hover" 
+                                      style={{ height: `${heightPercent}%`, minHeight: '4px' }}
+                                      title={`${stat.date}: ${stat.count} replies`}
+                                    />
+                                    <span className="text-[9px] text-text-muted rotate-45 origin-left truncate mt-1">{stat.date.split('-').slice(1).join('/')}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-text-muted py-8 text-center">Failed to load usage statistics.</p>
+                    )}
+                  </div>
+                )}
+
+                {settingsTab === 'team' && renderTeamManagementView()}
+
 
                   {/* Save Button */}
-                  {settingsTab !== 'account' && settingsTab !== 'team' && (
+                  {settingsTab !== 'account' && settingsTab !== 'team' && settingsTab !== 'ai_usage' && (
                     <div className="pt-2 flex items-center gap-3">
                       <button
                         type="submit"
