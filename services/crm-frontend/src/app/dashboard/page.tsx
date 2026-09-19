@@ -10675,7 +10675,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => navigateTo('bookings')}
-                        className="px-2 py-1 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1 cursor-pointer font-medium shadow-2xs whitespace-nowrap"
+                        className="px-3 py-1.5 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer font-medium shadow-2xs whitespace-nowrap shrink-0"
                         title="Switch to Bookings Table list view"
                       >
                         <List className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -10686,7 +10686,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         type="button"
                         onClick={handleSyncGoogleTasks}
                         disabled={syncingGoogleTasks}
-                        className="px-2 py-1 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1 cursor-pointer font-medium shadow-2xs whitespace-nowrap disabled:opacity-50"
+                        className="px-3 py-1.5 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer font-medium shadow-2xs whitespace-nowrap disabled:opacity-50 shrink-0"
                         title="Sync with Google Tasks: automatically remove completed tasks & follow-ups"
                       >
                         <RotateCcw className={`w-3.5 h-3.5 stroke-[1.5] text-accent ${syncingGoogleTasks ? 'animate-spin' : ''}`} />
@@ -10697,7 +10697,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <button
                           type="button"
                           onClick={() => setShowAddTaskModal(true)}
-                          className="px-2 py-1 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                          className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
                           title="Create a new task"
                         >
                           <CheckSquare className="w-3.5 h-3.5 stroke-[1.5] text-amber-600" />
@@ -10708,7 +10708,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setIsAddBookingOpen(true)}
-                        className="px-2.5 py-1 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1 cursor-pointer shadow-xs whitespace-nowrap"
+                        className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap shrink-0"
                       >
                         <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
                         <span>{currentTaxonomy.booking_cta || '+ Appointment'}</span>
@@ -10717,7 +10717,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
 
                   {/* Row 2: Unified Layer / Filter Selector Pills (All, Appointments, Follow-ups, Tasks) */}
-                  <div className="flex items-center gap-1.5 bg-surface-subtle border border-border rounded-sm p-0.5 w-fit flex-wrap overflow-x-auto max-w-full">
+                  <div className="flex items-center gap-1.5 bg-surface-subtle border border-border rounded-sm p-0.5 w-full sm:w-fit flex-nowrap overflow-x-auto no-scrollbar max-w-full">
                     {[
                       { key: 'all', label: 'All Schedule', icon: LayoutGrid, count: (bookings?.length || 0) + (customers?.filter(c => c.followup_date).length || 0) + (isMindBodyRecovery ? (tasks?.filter(t => !t.completed).length || 0) : 0) + (liveGcalEvents?.length || 0) },
                       { key: 'bookings', label: currentTaxonomy.event_label || 'Appointments', icon: Calendar, count: bookings?.length || 0 },
@@ -10749,7 +10749,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* ── 1. MONTH VIEW (Unified Schedule) ────────────────────────── */}
                 {calendarViewMode === 'month' && (
                   <div className="flex-1 overflow-y-auto border border-border rounded-md bg-surface flex flex-col">
-                    <div className="grid grid-cols-7 bg-surface-subtle border-b border-border text-center text-xs font-medium text-text-muted py-2">
+                    <div className="grid grid-cols-7 bg-surface-subtle border-b border-border text-center text-xs font-medium text-text-muted py-2 min-w-[700px]">
                       <span>Sun</span>
                       <span>Mon</span>
                       <span>Tue</span>
@@ -10759,7 +10759,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <span>Sat</span>
                     </div>
 
-                    <div className="grid grid-cols-7 auto-rows-fr divide-x divide-y divide-border flex-1">
+                    <div className="grid grid-cols-7 auto-rows-fr divide-x divide-y divide-border flex-1 min-w-[700px]">
                       {Array.from({ length: firstDayOfMonth }).map((_, i) => (
                         <div key={`offset-${i}`} className="min-h-[100px] p-2 bg-surface-subtle/30" />
                       ))}
