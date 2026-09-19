@@ -218,14 +218,6 @@ async def generate_ai_smart_review(
     except Exception as _e:
         logger.debug("fetch_prev_reviews_failed", error=str(_e))
 
-    archetypes = [
-        f"A brief, simple 1-2 sentence review focusing directly on the service received.",
-        f"A direct, casual review in natural Indian English highlighting the quality of work.",
-        f"Focus entirely on the helpfulness of {c_name if c_name else 'the staff'}.",
-        f"A straightforward, minimal recommendation mentioning the shop and location."
-    ]
-    chosen_archetype = random.choice(archetypes)
-
     gem_key = ""
     groq_key = ""
     try:
@@ -254,12 +246,14 @@ async def generate_ai_smart_review(
     if not groq_key:
         groq_key = os.getenv("GROQ_API_KEY", "")
 
+    target_sentences = random.randint(2, 5)
+
     archetypes = [
-        f"A brief 1-sentence casual review focusing on how quick and easy the {s_name} was.",
-        f"A 2-sentence review from a happy customer visiting {b_name}, focusing on pricing and quality.",
-        f"A very short, direct shoutout emphasizing how good the {s_name} was.",
-        f"A polite 2-sentence feedback emphasizing the professionalism of the team.",
-        f"Start with a short punchy phrase like 'Great place.' or 'Nice service.', followed by a sentence about the {s_name}.",
+        f"A casual review focusing on how quick and easy the {s_name} was.",
+        f"A review from a happy customer visiting {b_name}, focusing on pricing and quality.",
+        f"A direct shoutout emphasizing how good the {s_name} was.",
+        f"A polite feedback emphasizing the professionalism of the team.",
+        f"Start with a short punchy phrase like 'Great place.' or 'Nice service.', followed by a few thoughts about the {s_name}.",
         f"A completely natural recommendation that casually mentions being in or near {loc if loc else 'the area'}."
     ]
     chosen_archetype = random.choice(archetypes)
@@ -277,7 +271,7 @@ REVIEW STYLE / ARCHETYPE TO ADOPT:
 CRITICAL RULES FOR UNIQUENESS & AUTHENTICITY:
 - Write like a real person typing casually on their phone in natural Indian English.
 - DO NOT start with "I bought" or "Bought" every time. Vary the opening words completely!
-- Keep it concise (1 to 2 short sentences).
+- STRICTLY write EXACTLY {target_sentences} sentences. This is critical to ensure length variation across different reviews so Google does not flag them as AI generated.
 - Mention the service ({s_name}).
 - It is OPTIONAL to include the location ({loc}). Only include it if it flows perfectly naturally, otherwise leave it out.
 - NO dramatic storytelling ("saved my life", "absolute rockstars"). Keep it grounded and polite.
