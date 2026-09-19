@@ -13883,7 +13883,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                 {/* ── SUB-VIEW C: TASK CALENDAR VIEW ─────────────────────────── */}
                 {followupView === 'tasks' && (
-                  <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-5xl">
+                    <div className="flex-1 flex flex-col overflow-y-auto space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface border border-border rounded-sm">
                       <div className="flex items-center gap-1">
                         <span className="text-[11px] font-medium text-text-muted mr-1">Filter:</span>
@@ -13975,7 +13975,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       isTaskOverdue ? 'text-rose-600 font-semibold' : isTaskToday ? 'text-amber-600 font-semibold' : ''
                                     }`}>
                                       <Clock className="w-3 h-3 stroke-[1.5]" />
-                                      <span>Due: {task.due_date}</span>
+                                      <span>Due: {new Date(task.due_date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
                                     </span>
                                   )}
                                   {task.customer_name && (
@@ -14005,7 +14005,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                 {/* ── SUB-VIEW D: OVERALL NOTES VIEW ──────────────────────────── */}
                 {followupView === 'notes' && (
-                  <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-w-5xl">
+                    <div className="flex-1 flex flex-col overflow-y-auto space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface border border-border rounded-sm">
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] font-medium text-text-muted">Color:</span>
