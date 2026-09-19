@@ -254,25 +254,35 @@ async def generate_ai_smart_review(
     if not groq_key:
         groq_key = os.getenv("GROQ_API_KEY", "")
 
-    prompt = f"""You are a genuine, satisfied customer writing a brief, realistic Google review for {b_name}.
-Service experienced: {s_name}
+    archetypes = [
+        f"A brief 1-sentence casual review focusing on how quick and easy the {s_name} was.",
+        f"A 2-sentence review from a happy customer visiting {b_name}, focusing on pricing and quality.",
+        f"A very short, direct shoutout emphasizing how good the {s_name} was.",
+        f"A polite 2-sentence feedback emphasizing the professionalism of the team.",
+        f"Start with a short punchy phrase like 'Great place.' or 'Nice service.', followed by a sentence about the {s_name}.",
+        f"A completely natural recommendation that casually mentions being in or near {loc if loc else 'the area'}."
+    ]
+    chosen_archetype = random.choice(archetypes)
+
+    prompt = f"""You are a genuine customer writing a completely unique, realistic Google Maps review for {b_name}.
+Service: {s_name}
 Location: {loc if loc else "local area"}
-Staff/Team: {c_name if c_name else "the team"}
 Customer highlights/Tags: {clean_notes if clean_notes else "good service"}
 
-REVIEW PERSPECTIVE TO ADOPT:
+REVIEW STYLE / ARCHETYPE TO ADOPT:
 {chosen_archetype}
 
 {avoid_block}
 
-CRITICAL SEO & AUTHENTICITY RULES:
-- Write like a real person typing casually on their phone in natural Indian English (simple, polite, straightforward).
-- STRICTLY 1 to 2 short sentences MAX. Do not over-explain.
-- Naturally include the location ({loc}) and the brand name ({b_name}) for Google Maps Local SEO.
-- Mention the service ({s_name}) and the specific highlights/tags provided.
-- NO dramatic or overly enthusiastic storytelling (e.g., avoid "chaotic day", "saved my life", "absolute rockstars").
+CRITICAL RULES FOR UNIQUENESS & AUTHENTICITY:
+- Write like a real person typing casually on their phone in natural Indian English.
+- DO NOT start with "I bought" or "Bought" every time. Vary the opening words completely!
+- Keep it concise (1 to 2 short sentences).
+- Mention the service ({s_name}).
+- It is OPTIONAL to include the location ({loc}). Only include it if it flows perfectly naturally, otherwise leave it out.
+- NO dramatic storytelling ("saved my life", "absolute rockstars"). Keep it grounded and polite.
 - STRICTLY NO quotation marks and NO hyphens.
-- Output ONLY the review text. Nothing else."""
+- Output ONLY the review text."""
 
     if gem_key:
         for model in ["gemini-flash-lite-latest", "gemini-flash-latest", "gemini-2.5-flash-preview"]:
