@@ -104,26 +104,36 @@ def clean_llm_response(text: str, single_line: bool = False) -> str:
         # 1 LINE MOSTLY, 2-3 LINES ONLY WHEN GENUINELY NEEDED:
         lines = [l.strip() for l in cleaned.split("\n") if l.strip()]
         words = cleaned.split()
-        # If the whole message is short (<= 25 words), keep it as 1 single clean line
-        if len(words) <= 25 and len(lines) > 1:
-            cleaned = " ".join(lines)
-        else:
-            # For detailed replies that naturally require separate lines, cap at 3 lines max
-            if len(lines) > 3:
-                lines = lines[:3]
-            cleaned = "\n".join(lines).strip()
-
-        # Sentence cap: maximum 3 sentences across the message
+        
+        # Sentence cap: limit to max 2 sentences across the message to respect "1-2 lines only" prompt.
+        # But if the message contains options/lists naturally, keep them short.
         raw_sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
-        if len(raw_sentences) > 3:
-            sentences_kept = set(raw_sentences[:3])
+        if len(raw_sentences) > 2:
+            # If the last sentence is a question, keep first + question. Otherwise keep first two.
+            if raw_sentences[-1].endswith('?'):
+                sentences_kept = set([raw_sentences[0], raw_sentences[-1]])
+            else:
+                sentences_kept = set(raw_sentences[:2])
+            
             rebuilt = []
-            for l in cleaned.split("\n"):
+            for l in lines:
                 l_sents = [s.strip() for s in re.split(r'(?<=[.!?])\s+', l) if s.strip()]
                 kept = [s for s in l_sents if s in sentences_kept]
                 if kept:
                     rebuilt.append(" ".join(kept))
-            cleaned = "\n".join(rebuilt[:3]).strip()
+            lines = rebuilt
+            
+        # Re-evaluate words after sentence capping
+        words = " ".join(lines).split()
+        
+        # If the whole message is short (<= 30 words), try to keep it compact
+        if len(words) <= 30 and len(lines) == 2 and sum(len(l) for l in lines) < 80:
+            cleaned = "\n\n".join(lines).strip() # Always use double newlines for separated thoughts
+        else:
+            # For detailed replies that naturally require separate lines, cap at 2 paragraphs max
+            if len(lines) > 2:
+                lines = lines[:2]
+            cleaned = "\n\n".join(lines).strip() # Double newlines!
 
     # Re-attach action tags on their own line at the very end
     if action_tags:
