@@ -12,6 +12,7 @@ import hashlib
 import html
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Union
+from utils import safe_json_loads
 
 import json
 import uuid
