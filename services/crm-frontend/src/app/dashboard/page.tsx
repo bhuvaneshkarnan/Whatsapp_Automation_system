@@ -10748,7 +10748,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                 {/* ── 1. MONTH VIEW (Unified Schedule) ────────────────────────── */}
                 {calendarViewMode === 'month' && (
-                  <div className="flex-1 overflow-y-auto border border-border rounded-md bg-surface flex flex-col">
+                  <div className="flex-1 overflow-auto border border-border rounded-md bg-surface flex flex-col">
                     <div className="grid grid-cols-7 bg-surface-subtle border-b border-border text-center text-xs font-medium text-text-muted py-2 min-w-[700px]">
                       <span>Sun</span>
                       <span>Mon</span>
@@ -10961,9 +10961,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                 {/* ── 2. WEEK VIEW (Unified Schedule) ─────────────────────────── */}
                 {calendarViewMode === 'week' && (
-                  <div className="flex-1 overflow-y-auto border border-border rounded-md bg-surface flex flex-col">
+                  <div className="flex-1 overflow-auto border border-border rounded-md bg-surface flex flex-col">
                     {/* Week Days Header */}
-                    <div className="grid grid-cols-8 bg-surface-subtle border-b border-border text-center py-2 shrink-0">
+                    <div className="grid grid-cols-8 bg-surface-subtle border-b border-border text-center py-2 shrink-0 min-w-[700px]">
                       <div className="text-xs font-medium text-text-muted font-mono flex items-center justify-center">Time</div>
                       {currentWeekDays.map((day, idx) => {
                         const isToday = isSameDay(new Date(), day);
@@ -10992,7 +10992,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
 
                     {/* All-Day / Anytime Row */}
-                    <div className="grid grid-cols-8 min-h-[38px] divide-x divide-border bg-surface-subtle/30 border-b border-border shrink-0">
+                    <div className="grid grid-cols-8 min-h-[38px] divide-x divide-border bg-surface-subtle/30 border-b border-border shrink-0 min-w-[700px]">
                       <div className="p-1.5 text-right text-[10px] font-medium text-text-muted bg-surface-subtle/50 flex items-center justify-end">
                         All-Day
                       </div>
@@ -11081,7 +11081,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {/* Week Hours Grid (6 AM to 11 PM) */}
                     <div className="divide-y divide-border flex-1 overflow-y-auto">
                       {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23].map((hour) => (
-                        <div key={hour} className="grid grid-cols-8 min-h-[64px] divide-x divide-border">
+                        <div key={hour} className="grid grid-cols-8 min-h-[64px] divide-x divide-border min-w-[700px]">
                           {/* Hour Label */}
                           <div className="p-2 text-right text-xs font-mono text-text-muted bg-surface-subtle/30">
                             {hour % 12 === 0 ? 12 : hour % 12} {hour >= 12 ? 'PM' : 'AM'}
@@ -14975,7 +14975,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                 {/* ── Repeat Clients Fixed Table Container (Single View Zero Horizontal Scroll) ── */}
                 <div className="flex-1 border border-border rounded-sm bg-surface overflow-hidden flex flex-col min-h-0">
-                  <div className="flex-1 overflow-y-auto touch-scroll">
+                  <div className="flex-1 overflow-auto touch-scroll">
                     <table className="table-fixed w-full text-left text-xs">
                       <thead className="bg-surface-subtle border-b border-border text-text-secondary font-medium text-[11px] sticky top-0 z-10">
                         <tr>
