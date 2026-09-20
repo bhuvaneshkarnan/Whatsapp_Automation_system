@@ -1249,6 +1249,19 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     }
   };
 
+  const handleCopyGoogleCalendarLink = async () => {
+    if (!editingConfigTenant) return;
+    try {
+      const res = await admin.getGoogleShareableLink(editingConfigTenant.id);
+      if (res.auth_url) {
+        navigator.clipboard.writeText(res.auth_url);
+        alert('Copied 1-Click Google Calendar Link to clipboard!\n\nSend this link to your client via WhatsApp or Email. When they sign into their Google account, their calendar will automatically connect and sync with your CRM!');
+      }
+    } catch (err: any) {
+      alert(`Failed to generate Google Calendar link: ${err?.message || err}`);
+    }
+  };
+
   const handleTestLiveCalendar = async (tenantId: string) => {
     if (!tenantId) return;
     setTesterLoading(true);
@@ -5436,6 +5449,26 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                               <span>Disconnect Calendar</span>
                             </button>
                           )}
+                        </div>
+
+                        {/* Shareable Client Google Calendar Link */}
+                        <div className="mt-3 p-3 bg-surface border border-blue-300/60 dark:border-blue-700/60 rounded-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                          <div className="space-y-0.5">
+                            <span className="font-semibold text-text-primary flex items-center gap-1.5">
+                              <span>🔗 Shareable Client Calendar Link</span>
+                            </span>
+                            <p className="text-[11px] text-text-muted">
+                              Send this link to your client via WhatsApp or Email. They click it, sign into their Google account, and their calendar will automatically link and sync with your CRM!
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleCopyGoogleCalendarLink}
+                            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/60 border border-blue-300 dark:border-blue-700 font-semibold rounded-sm text-xs shrink-0 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Copy Link for Client</span>
+                          </button>
                         </div>
                       </div>
 

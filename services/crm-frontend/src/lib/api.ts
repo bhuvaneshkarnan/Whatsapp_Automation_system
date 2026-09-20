@@ -1867,6 +1867,8 @@ export const admin = {
     request<{ status: string }>(`/api/v1/crm/admin/tenants/${tenantId}/oauth/google/disconnect`, {
       method: 'POST',
     }),
+  getGoogleShareableLink: (tenantId: string) =>
+    request<{ auth_url: string }>(`/api/v1/crm/admin/tenants/${tenantId}/oauth/google/shareable-link`),
   getPartnerTemplates: () =>
     request<PartnerAgencyTemplate[]>('/api/v1/crm/admin/partner-templates'),
   savePartnerTemplate: (data: PartnerAgencyTemplate) =>

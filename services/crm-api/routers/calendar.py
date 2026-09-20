@@ -165,6 +165,7 @@ async def google_oauth_callback(
         return await google_business_oauth_callback(code=code, state=state, error=error)
 
     is_admin = (state_data.get("source") == "admin")
+    is_shareable = (state_data.get("source") == "shareable")
     ret_origin = (state_data.get("return_origin") or "").rstrip("/")
 
     async with database.db_pool.acquire() as conn:
@@ -177,29 +178,41 @@ async def google_oauth_callback(
 
         if error or not code:
             logger.error("google_oauth_callback_error", error=error, state=state)
+            if is_shareable:
+                return RedirectResponse(f"https://crm.goboldlabs.com/calendar-connected?error={error or 'missing_code'}")
             return RedirectResponse(f"{base_redir}?gcal_error={error or 'missing_code'}{t_param}")
 
     async with database.db_pool.acquire() as conn:
         tenant_slug = await conn.fetchval("SELECT slug FROM tenants WHERE id = $1::uuid", tenant_id)
-        if not is_admin and tenant_slug:
+        if not is_admin and not is_shareable and tenant_slug:
             base_redir = f"{utils.APP_BASE_URL}/{tenant_slug}"
 
         g_row = await conn.fetchrow(
             "SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar'",
             tenant_id
         )
-        if not g_row or not g_row["credential_data"]:
-            return RedirectResponse(f"{base_redir}?gcal_error=no_credentials{t_param}")
 
-        g_data = g_row["credential_data"]
-        if isinstance(g_data, str):
-            try: g_data = json.loads(g_data)
-            except: g_data = {}
+        # Load existing credential data (or start fresh)
+        g_data = {}
+        g_id = None
+        if g_row and g_row["credential_data"]:
+            d = g_row["credential_data"]
+            if isinstance(d, str):
+                try: d = json.loads(d)
+                except: d = {}
+            g_data = dict(d)
+            g_id = str(g_row["id"])
 
-        client_id = g_data.get("client_id")
-        client_secret = g_data.get("client_secret")
+        # Use stored client keys, or fall back to platform env credentials (for shareable links)
+        client_id = g_data.get("client_id") or os.getenv("GOOGLE_CLIENT_ID", "").strip()
+        client_secret = g_data.get("client_secret") or os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
         if not client_id or not client_secret:
+            if is_shareable:
+                return RedirectResponse(f"https://crm.goboldlabs.com/calendar-connected?error=missing_client_keys")
             return RedirectResponse(f"{base_redir}?gcal_error=missing_client_keys{t_param}")
+
+        g_data["client_id"] = client_id
+        g_data["client_secret"] = client_secret
 
         # Exchange code with Google
         async with httpx.AsyncClient() as client:
@@ -217,6 +230,8 @@ async def google_oauth_callback(
 
         if token_res.status_code != 200:
             logger.error("google_token_exchange_failed", status=token_res.status_code, body=token_res.text)
+            if is_shareable:
+                return RedirectResponse(f"https://crm.goboldlabs.com/calendar-connected?error=token_exchange_failed")
             return RedirectResponse(f"{base_redir}?gcal_error=token_exchange_failed{t_param}")
 
         token_data = token_res.json()
@@ -245,11 +260,21 @@ async def google_oauth_callback(
             except Exception as e:
                 logger.warning("google_userinfo_fetch_failed", error=str(e))
 
-        await conn.execute(
-            "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid",
-            json.dumps(g_data), str(g_row["id"])
-        )
+        # Upsert credential row — insert if new (shareable link with no prior google row)
+        if g_id:
+            await conn.execute(
+                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid",
+                json.dumps(g_data), g_id
+            )
+        else:
+            new_cred_id = str(uuid.uuid4())
+            await conn.execute(
+                "INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'google_calendar', $3::jsonb, true)",
+                new_cred_id, tenant_id, json.dumps(g_data)
+            )
 
+    if is_shareable:
+        return RedirectResponse("https://crm.goboldlabs.com/calendar-connected?success=true")
     return RedirectResponse(f"{base_redir}?gcal_success=true{t_param}")
 
 
@@ -300,6 +325,59 @@ async def admin_disconnect_google_oauth(
 ):
     """Super Admin disconnects Google Calendar sync for a specific client organization."""
     return await disconnect_google_calendar(tenant_id=target_tenant_id, caller={"role": "super_admin"})
+
+
+@router.get("/admin/tenants/{target_tenant_id}/oauth/google/shareable-link")
+async def get_google_calendar_shareable_link(
+    target_tenant_id: str,
+    admin_user: dict = Depends(verify_super_admin)
+):
+    """Generate a shareable Google OAuth link for a client tenant.
+    
+    The client clicks this link, signs into their Google account,
+    and their Google Calendar is auto-connected to the CRM without
+    them needing to log into the CRM dashboard.
+    """
+    c_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    c_sec = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+    if not c_id or not c_sec:
+        raise HTTPException(400, "Platform GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured in .env")
+
+    scopes = (
+        "https://www.googleapis.com/auth/calendar "
+        "https://www.googleapis.com/auth/calendar.events "
+        "https://www.googleapis.com/auth/gmail.send "
+        "https://www.googleapis.com/auth/tasks "
+        "https://www.googleapis.com/auth/userinfo.email "
+        "https://www.googleapis.com/auth/userinfo.profile "
+        "openid"
+    )
+
+    # Sign state with HMAC-SHA256 — 7-day expiry so client can use it later
+    state_nonce = os.urandom(16).hex()
+    state_exp = int(datetime.now(timezone.utc).timestamp()) + 604800  # 7 days
+    state_payload_dict = {
+        "tenant_id": target_tenant_id,
+        "source": "shareable",
+        "nonce": state_nonce,
+        "exp": state_exp,
+    }
+    state_raw_json = json.dumps(state_payload_dict, separators=(',', ':'))
+    state_b64 = base64.urlsafe_b64encode(state_raw_json.encode("utf-8")).decode("utf-8").rstrip("=")
+    state_sig = hmac.new(JWT_SECRET.encode("utf-8"), state_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+    state_payload = f"{state_b64}.{state_sig}"
+
+    oauth_params = {
+        "client_id": c_id,
+        "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
+        "response_type": "code",
+        "scope": scopes,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state_payload
+    }
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(oauth_params)}"
+    return {"auth_url": auth_url}
 
 
 @router.get("/calendar/live-availability")
