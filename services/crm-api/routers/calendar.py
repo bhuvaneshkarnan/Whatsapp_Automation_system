@@ -544,6 +544,39 @@ async def get_live_calendar_availability(
             ct_parts = ["20", "00"]
             op_hours_str = "09:00 AM – 08:00 PM"
 
+        # Read scheduling config from tenant settings
+        slot_dur = int(tenant_st.get("slot_duration_mins") or 30)
+        buffer_mins_cal = int(tenant_st.get("buffer_mins") or 0)
+        lunch_start_cal = tenant_st.get("lunch_break_start") or ""
+        lunch_end_cal = tenant_st.get("lunch_break_end") or ""
+        doctors_cal = tenant_st.get("doctors") or []
+
+        # Expand busy slots with buffer
+        effective_busy_cal = []
+        for b in busy_slots:
+            b_end_str = b["end"]
+            if buffer_mins_cal > 0:
+                try:
+                    from datetime import datetime as _dt
+                    b_end_dt = _dt.fromisoformat(b_end_str.replace("Z", "+00:00"))
+                    b_end_dt = b_end_dt + timedelta(minutes=buffer_mins_cal)
+                    b_end_str = b_end_dt.strftime('%Y-%m-%dT%H:%M:%S%z')
+                except Exception:
+                    pass
+            effective_busy_cal.append({**b, "end": b_end_str})
+
+        # Parse lunch break
+        lb_s_h = lb_s_m = lb_e_h = lb_e_m = None
+        has_lunch_cal = bool(lunch_start_cal and lunch_end_cal)
+        if has_lunch_cal:
+            try:
+                _lbs = lunch_start_cal.split(":")
+                lb_s_h, lb_s_m = int(_lbs[0]), int(_lbs[1]) if len(_lbs) > 1 else 0
+                _lbe = lunch_end_cal.split(":")
+                lb_e_h, lb_e_m = int(_lbe[0]), int(_lbe[1]) if len(_lbe) > 1 else 0
+            except Exception:
+                has_lunch_cal = False
+
         # Compute exact verified live empty slots for next 7 days from Google Calendar and CRM
         empty_slots = []
         try:
@@ -551,20 +584,55 @@ async def get_live_calendar_availability(
             op_m = int(ot_parts[1]) if len(ot_parts) > 1 else 0
             cl_h = int(ct_parts[0])
             cl_m = int(ct_parts[1]) if len(ct_parts) > 1 else 0
-            slot_dur = 30
             for d in range(7):
                 day_d = (now_dt + timedelta(days=d)).date()
+                day_name_str = day_d.strftime("%A")
                 d_start = datetime.combine(day_d, time(op_h, op_m), tzinfo=tenant_tz)
                 d_end = datetime.combine(day_d, time(cl_h, cl_m), tzinfo=tenant_tz)
+
+                # Per-day lunch block
+                d_lunch_start = d_lunch_end = None
+                if has_lunch_cal:
+                    d_lunch_start = datetime.combine(day_d, time(lb_s_h, lb_s_m), tzinfo=tenant_tz)
+                    d_lunch_end = datetime.combine(day_d, time(lb_e_h, lb_e_m), tzinfo=tenant_tz)
+
                 cur_slot = d_start
                 while cur_slot + timedelta(minutes=slot_dur) <= d_end:
                     s_end = cur_slot + timedelta(minutes=slot_dur)
                     if d == 0 and cur_slot <= now_dt + timedelta(minutes=15):
                         cur_slot += timedelta(minutes=slot_dur)
                         continue
+
+                    # Lunch break block
+                    if d_lunch_start and d_lunch_end:
+                        if not (s_end <= d_lunch_start or cur_slot >= d_lunch_end):
+                            cur_slot += timedelta(minutes=slot_dur)
+                            continue
+
+                    # Doctor availability filter
+                    if doctors_cal:
+                        doc_ok = False
+                        for doc in doctors_cal:
+                            days_off = [x.strip() for x in (doc.get("days_off") or [])]
+                            if day_name_str in days_off:
+                                continue
+                            try:
+                                _ds = doc.get("start", ot_raw).split(":")
+                                _de = doc.get("end", ct_raw).split(":")
+                                doc_st = datetime.combine(day_d, time(int(_ds[0]), int(_ds[1]) if len(_ds) > 1 else 0), tzinfo=tenant_tz)
+                                doc_et = datetime.combine(day_d, time(int(_de[0]), int(_de[1]) if len(_de) > 1 else 0), tzinfo=tenant_tz)
+                                if cur_slot >= doc_st and s_end <= doc_et:
+                                    doc_ok = True
+                                    break
+                            except Exception:
+                                continue
+                        if not doc_ok:
+                            cur_slot += timedelta(minutes=slot_dur)
+                            continue
+
                     overlaps = any(
                         not (s_end.strftime('%Y-%m-%dT%H:%M:%S%z') <= b["start"] or cur_slot.strftime('%Y-%m-%dT%H:%M:%S%z') >= b["end"])
-                        for b in busy_slots
+                        for b in effective_busy_cal
                     )
                     if not overlaps:
                         empty_slots.append({
@@ -587,6 +655,11 @@ async def get_live_calendar_availability(
             "calendar_id": cal_id,
             "notification_email": notif_email,
             "timezone": tz_str,
+            "slot_duration_mins": slot_dur,
+            "buffer_mins": buffer_mins_cal,
+            "lunch_break_start": lunch_start_cal,
+            "lunch_break_end": lunch_end_cal,
+            "doctors": doctors_cal,
             "total_occupied_slots": len(busy_slots),
             "occupied_slots": busy_slots,
             "total_empty_slots": len(empty_slots),

@@ -1371,43 +1371,100 @@ class CoreWorker:
         closing_time_str: str = "20:00",
         slot_duration_mins: int = 30,
         days_ahead: int = 5,
+        buffer_mins: int = 0,
+        lunch_break_start: str = "",
+        lunch_break_end: str = "",
+        doctors: list = None,
     ) -> dict[str, list[datetime.datetime]]:
         """
         Deterministically calculates exact open, verified empty time slots from Google Calendar and CRM.
-        Iterates day by day across business operating hours, checking collision against all busy slots.
+        Supports:
+          - buffer_mins: sanitation/turnaround gap enforced after each booking
+          - lunch_break_start/end: blocked period per day (e.g. 13:00-14:00)
+          - doctors: per-doctor schedules [{name, start, end, days_off:[]}]
+            Slot is offered only if ≥1 doctor is available during it.
         """
-        now_dt = datetime.datetime.now(tenant_tz)
-        try:
-            op_parts = str(opening_time_str).split(":")
-            op_h, op_m = int(op_parts[0]), int(op_parts[1]) if len(op_parts) > 1 else 0
-        except Exception:
-            op_h, op_m = 9, 0
+        if doctors is None:
+            doctors = []
 
-        try:
-            cl_parts = str(closing_time_str).split(":")
-            cl_h, cl_m = int(cl_parts[0]), int(cl_parts[1]) if len(cl_parts) > 1 else 0
-        except Exception:
-            cl_h, cl_m = 20, 0
+        now_dt = datetime.datetime.now(tenant_tz)
+
+        def _parse_hm(t_str: str, default_h: int, default_m: int):
+            try:
+                parts = str(t_str).split(":")
+                return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
+            except Exception:
+                return default_h, default_m
+
+        op_h, op_m = _parse_hm(opening_time_str, 9, 0)
+        cl_h, cl_m = _parse_hm(closing_time_str, 20, 0)
+
+        # Parse lunch break once
+        lb_start_h = lb_start_m = lb_end_h = lb_end_m = None
+        has_lunch = bool(lunch_break_start and lunch_break_end)
+        if has_lunch:
+            lb_start_h, lb_start_m = _parse_hm(lunch_break_start, 13, 0)
+            lb_end_h, lb_end_m = _parse_hm(lunch_break_end, 14, 0)
+
+        # Expand busy slots: add buffer to each booking's end time
+        effective_busy = []
+        for b in busy_slots:
+            effective_busy.append({
+                'start': b['start'],
+                'end': b['end'] + datetime.timedelta(minutes=buffer_mins) if buffer_mins > 0 else b['end'],
+            })
 
         empty_slots_by_day = {}
         for d in range(days_ahead):
             day_date = (now_dt + datetime.timedelta(days=d)).date()
+            day_name_str = day_date.strftime("%A")  # e.g. "Sunday"
             day_start = datetime.datetime.combine(day_date, datetime.time(op_h, op_m), tzinfo=tenant_tz)
             day_end = datetime.datetime.combine(day_date, datetime.time(cl_h, cl_m), tzinfo=tenant_tz)
+
+            # Build per-day lunch block
+            day_lunch_start = day_lunch_end = None
+            if has_lunch:
+                day_lunch_start = datetime.datetime.combine(day_date, datetime.time(lb_start_h, lb_start_m), tzinfo=tenant_tz)
+                day_lunch_end = datetime.datetime.combine(day_date, datetime.time(lb_end_h, lb_end_m), tzinfo=tenant_tz)
 
             cur = day_start
             slots_for_day = []
             while cur + datetime.timedelta(minutes=slot_duration_mins) <= day_end:
                 slot_end = cur + datetime.timedelta(minutes=slot_duration_mins)
+
                 # For today, slot must start at least 15 mins in future
                 if d == 0 and cur <= now_dt + datetime.timedelta(minutes=15):
                     cur += datetime.timedelta(minutes=slot_duration_mins)
                     continue
 
-                # Check collision against all busy slots from GCal and CRM
+                # Block lunch break
+                if day_lunch_start and day_lunch_end:
+                    if not (slot_end <= day_lunch_start or cur >= day_lunch_end):
+                        cur += datetime.timedelta(minutes=slot_duration_mins)
+                        continue
+
+                # Doctor availability check: if doctors configured, ≥1 must cover this slot
+                if doctors:
+                    doctor_available = False
+                    for doc in doctors:
+                        days_off = [d_off.strip() for d_off in (doc.get("days_off") or [])]
+                        if day_name_str in days_off:
+                            continue
+                        doc_h_start, doc_m_start = _parse_hm(doc.get("start", opening_time_str), op_h, op_m)
+                        doc_h_end, doc_m_end = _parse_hm(doc.get("end", closing_time_str), cl_h, cl_m)
+                        doc_start_dt = datetime.datetime.combine(day_date, datetime.time(doc_h_start, doc_m_start), tzinfo=tenant_tz)
+                        doc_end_dt = datetime.datetime.combine(day_date, datetime.time(doc_h_end, doc_m_end), tzinfo=tenant_tz)
+                        if cur >= doc_start_dt and slot_end <= doc_end_dt:
+                            doctor_available = True
+                            break
+                    if not doctor_available:
+                        cur += datetime.timedelta(minutes=slot_duration_mins)
+                        continue
+
+                # Check collision against all busy slots (with buffer already applied)
                 has_collision = any(
                     not (slot_end <= b['start'] or cur >= b['end'])
-                    for b in busy_slots
+                    for b in effective_busy
                 )
                 if not has_collision:
                     slots_for_day.append(cur)
@@ -2109,6 +2166,13 @@ class CoreWorker:
 
         op_hours_display = f"{_fmt_ampm(opening_time_raw, '09:00 AM')} to {_fmt_ampm(closing_time_raw, '08:00 PM')}"
 
+        # Extract slot scheduling config from tenant settings
+        slot_duration_mins = int(tenant_st_row.get("slot_duration_mins") or 30) if tenant_st_row else 30
+        buffer_mins = int(tenant_st_row.get("buffer_mins") or 0) if tenant_st_row else 0
+        lunch_break_start = (tenant_st_row.get("lunch_break_start") or "") if tenant_st_row else ""
+        lunch_break_end = (tenant_st_row.get("lunch_break_end") or "") if tenant_st_row else ""
+        doctors = (tenant_st_row.get("doctors") or []) if tenant_st_row else []
+
         # Retrieve all currently booked/occupied slots for this business (next 7 days) from Google Calendar and CRM
         busy_slots, gcal_connected = await self._get_live_occupied_slots(tenant_id, tenant_tz)
 
@@ -2118,8 +2182,12 @@ class CoreWorker:
             tenant_tz=tenant_tz,
             opening_time_str=opening_time_raw,
             closing_time_str=closing_time_raw,
-            slot_duration_mins=30,
+            slot_duration_mins=slot_duration_mins,
             days_ahead=5,
+            buffer_mins=buffer_mins,
+            lunch_break_start=lunch_break_start,
+            lunch_break_end=lunch_break_end,
+            doctors=doctors,
         )
 
         empty_slot_lines = []
