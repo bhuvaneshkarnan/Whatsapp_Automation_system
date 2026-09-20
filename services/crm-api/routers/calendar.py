@@ -203,9 +203,14 @@ async def google_oauth_callback(
             g_data = dict(d)
             g_id = str(g_row["id"])
 
-        # Use stored client keys, or fall back to platform env credentials (for shareable links)
-        client_id = g_data.get("client_id") or os.getenv("GOOGLE_CLIENT_ID", "").strip()
-        client_secret = g_data.get("client_secret") or os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+        # Use platform env credentials for shareable links, or stored client keys for custom setups
+        if is_shareable:
+            client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+            client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+        else:
+            client_id = g_data.get("client_id") or os.getenv("GOOGLE_CLIENT_ID", "").strip()
+            client_secret = g_data.get("client_secret") or os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+
         if not client_id or not client_secret:
             if is_shareable:
                 return RedirectResponse(f"https://crm.goboldlabs.com/calendar-connected?error=missing_client_keys")
