@@ -838,6 +838,23 @@ export const crm = {
     });
   },
 
+  optimizePrompt: (rawDump: string) =>
+    request<{
+      success: boolean;
+      optimized: {
+        assistant_name: string;
+        ai_prompt: string;
+        services_text: string;
+        bot_goal: string;
+        strict_rules: string;
+        objection_handling: string;
+        response_style: string;
+      };
+    }>('/api/v1/crm/settings/optimize-prompt', {
+      method: 'POST',
+      body: JSON.stringify({ raw_dump: rawDump }),
+    }),
+
   initGoogleOAuth: (data?: { client_id?: string; client_secret?: string }) =>
     request<{ auth_url: string; redirect_uri: string }>('/api/v1/crm/oauth/google/init', {
       method: 'POST',
@@ -1895,6 +1912,24 @@ export const admin = {
         body: JSON.stringify(payload),
       }
     );
+  },
+  optimizePrompt: (rawDump: string, targetTenantId?: string) => {
+    const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
+    return request<{
+      success: boolean;
+      optimized: {
+        assistant_name: string;
+        ai_prompt: string;
+        services_text: string;
+        bot_goal: string;
+        strict_rules: string;
+        objection_handling: string;
+        response_style: string;
+      };
+    }>(`/api/v1/crm/settings/optimize-prompt${qs}`, {
+      method: 'POST',
+      body: JSON.stringify({ raw_dump: rawDump }),
+    });
   },
 };
 

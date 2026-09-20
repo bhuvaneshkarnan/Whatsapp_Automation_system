@@ -420,6 +420,21 @@ export default function SuperAdminClients() {
   const [configError, setConfigError] = useState('');
   const [configSavedNotice, setConfigSavedNotice] = useState(false);
 
+  // ── AI PROMPT OPTIMIZER STATE ──────────────────────────────────
+  const [showOptimizerModal, setShowOptimizerModal] = useState(false);
+  const [optimizerDump, setOptimizerDump] = useState('');
+  const [optimizerLoading, setOptimizerLoading] = useState(false);
+  const [optimizerError, setOptimizerError] = useState('');
+  const [optimizerPreview, setOptimizerPreview] = useState<{
+    assistant_name: string;
+    ai_prompt: string;
+    services_text: string;
+    bot_goal: string;
+    strict_rules: string;
+    objection_handling: string;
+    response_style: string;
+  } | null>(null);
+
   // ── STAFF & ROLES PERMISSIONS STATE ──────────────────────────
   const [staffList, setStaffList] = useState<StaffUser[]>([]);
   const [staffLoading, setStaffLoading] = useState(false);
@@ -4398,7 +4413,23 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                             <label className="text-xs font-medium text-text-primary">
                               AI instructions & knowledge base
                             </label>
-                            <span className="text-xs text-text-muted">Master prompt</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-text-muted">Master prompt</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOptimizerDump('');
+                                  setOptimizerPreview(null);
+                                  setOptimizerError('');
+                                  setShowOptimizerModal(true);
+                                }}
+                                className="flex items-center gap-1 px-2 py-0.5 rounded-sm bg-accent/10 hover:bg-accent/20 border border-accent/30 text-accent text-[11px] font-semibold transition-colors cursor-pointer"
+                                title="Dump raw business info and let AI structure it into all prompt fields"
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.364.293A1 1 0 0014 17H10a1 1 0 01-.707-.293l-.364-.293z" /></svg>
+                                Smart Fill
+                              </button>
+                            </div>
                           </div>
                           <textarea
                             rows={10}
@@ -4408,6 +4439,168 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                             className="w-full px-3.5 py-2.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans leading-relaxed resize-y transition-colors duration-150"
                           />
                         </div>
+
+                        {/* ── AI PROMPT OPTIMIZER MODAL ── */}
+                        {showOptimizerModal && (
+                          <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+                            <div className="bg-surface border border-border rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+
+                              {/* Header */}
+                              <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-7 h-7 rounded-md bg-accent/10 border border-accent/20 flex items-center justify-center">
+                                    <svg className="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.364.293A1 1 0 0014 17H10a1 1 0 01-.707-.293l-.364-.293z" /></svg>
+                                  </div>
+                                  <div>
+                                    <h3 className="text-sm font-semibold text-text-primary">AI Prompt Optimizer</h3>
+                                    <p className="text-[11px] text-text-muted">Dump raw business info. AI structures it into all 7 prompt fields.</p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => { setShowOptimizerModal(false); setOptimizerPreview(null); }}
+                                  className="p-1.5 hover:bg-surface-subtle rounded-sm text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                              </div>
+
+                              {/* Body */}
+                              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                                <div className="p-3 bg-surface-subtle border border-border rounded-sm">
+                                  <p className="text-[11px] font-semibold text-text-primary mb-1">Auto-injected by system — do NOT include:</p>
+                                  <p className="text-[11px] text-text-muted leading-relaxed">
+                                    Date/time, calendar slots, booking tags, customer names/phone, format rules (no emojis, 1-2 lines), anti-hallucination, language mirroring — all handled globally.
+                                  </p>
+                                  <p className="text-[11px] font-semibold text-accent mt-1.5">
+                                    Just dump: clinic name, services + prices, doctor info, rules, tone, discovery flow.
+                                  </p>
+                                </div>
+
+                                {!optimizerPreview ? (
+                                  <div className="space-y-3">
+                                    <label className="block text-xs font-semibold text-text-primary">Paste everything about the business:</label>
+                                    <textarea
+                                      rows={14}
+                                      autoFocus
+                                      placeholder={"Example:\n\nWe are Dr. Priya's Dermatology Clinic in Coimbatore. Dr. Priya Shankar has 12 years exp in skin & hair.\n\nServices:\n- Acne treatment: Rs 800/session\n- Hair PRP: Rs 2500/session (3-session pack Rs 6500)\n- Laser hair removal: Rs 1200-3500 depending on area\n\nHours: Mon-Sat 10am-7pm.\n\nRules: Only book after asking skin concern. No home visits. Don't quote laser prices upfront.\n\nGoal: Get first consultation booking (free for new patients this month)."}
+                                      value={optimizerDump}
+                                      onChange={(e) => setOptimizerDump(e.target.value)}
+                                      className="w-full px-3.5 py-2.5 bg-canvas border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans leading-relaxed resize-y transition-colors duration-150"
+                                    />
+                                    {optimizerError && (
+                                      <p className="text-xs text-status-error bg-status-error-bg border border-status-error-border rounded-sm px-3 py-2">{optimizerError}</p>
+                                    )}
+                                    <button
+                                      type="button"
+                                      disabled={optimizerLoading || optimizerDump.trim().length < 30}
+                                      onClick={async () => {
+                                        setOptimizerLoading(true);
+                                        setOptimizerError('');
+                                        try {
+                                          const res = await admin.optimizePrompt(optimizerDump);
+                                          if (res?.success && res?.optimized) {
+                                            setOptimizerPreview(res.optimized);
+                                          } else {
+                                            setOptimizerError('Unexpected response. Please try again.');
+                                          }
+                                        } catch (err: any) {
+                                          setOptimizerError(err?.message || 'AI optimization failed. Please try again.');
+                                        } finally {
+                                          setOptimizerLoading(false);
+                                        }
+                                      }}
+                                      className="w-full py-2.5 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white rounded-sm text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                                    >
+                                      {optimizerLoading ? (
+                                        <>
+                                          <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                          Optimizing with Gemini...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.364.293A1 1 0 0014 17H10a1 1 0 01-.707-.293l-.364-.293z" /></svg>
+                                          Optimize &amp; Structure with AI
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                      <p className="text-xs font-semibold text-status-success">AI structured into 7 fields. Review before applying:</p>
+                                      <button
+                                        type="button"
+                                        onClick={() => setOptimizerPreview(null)}
+                                        className="text-[11px] text-text-muted hover:text-accent transition-colors cursor-pointer underline"
+                                      >
+                                        Edit dump
+                                      </button>
+                                    </div>
+                                    {(
+                                      [
+                                        { key: 'assistant_name', label: 'Assistant Name' },
+                                        { key: 'ai_prompt', label: 'AI Instructions & Knowledge Base' },
+                                        { key: 'services_text', label: 'Services & Pricing' },
+                                        { key: 'bot_goal', label: 'Bot Goal' },
+                                        { key: 'strict_rules', label: 'Strict Rules' },
+                                        { key: 'objection_handling', label: 'Objection Handling' },
+                                        { key: 'response_style', label: 'Response Style' },
+                                      ] as const
+                                    ).map(({ key, label }) => {
+                                      const val = optimizerPreview[key as keyof typeof optimizerPreview];
+                                      if (!val) return null;
+                                      return (
+                                        <div key={key} className="p-3 bg-surface-subtle border border-border rounded-sm space-y-1.5">
+                                          <p className="text-[11px] font-semibold text-text-primary">{label}</p>
+                                          <pre className="text-[11px] text-text-body font-sans whitespace-pre-wrap leading-relaxed max-h-28 overflow-y-auto">{val}</pre>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Footer */}
+                              {optimizerPreview && (
+                                <div className="px-5 py-3.5 border-t border-border bg-surface flex items-center justify-between shrink-0 gap-3">
+                                  <p className="text-[11px] text-text-muted">Overwrites current form values (not saved until you click Save Config).</p>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => { setShowOptimizerModal(false); setOptimizerPreview(null); }}
+                                      className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body text-xs font-medium rounded-sm border border-border transition-colors cursor-pointer"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const p = optimizerPreview;
+                                        setConfigForm((prev) => ({
+                                          ...prev,
+                                          ...(p.assistant_name ? { assistant_name: p.assistant_name } : {}),
+                                          ...(p.ai_prompt ? { ai_prompt: p.ai_prompt } : {}),
+                                          ...(p.services_text ? { services_text: p.services_text } : {}),
+                                          ...(p.bot_goal ? { bot_goal: p.bot_goal } : {}),
+                                          ...(p.strict_rules ? { strict_rules: p.strict_rules } : {}),
+                                          ...(p.objection_handling ? { objection_handling: p.objection_handling } : {}),
+                                          ...(p.response_style ? { response_style: p.response_style } : {}),
+                                        }));
+                                        setShowOptimizerModal(false);
+                                        setOptimizerPreview(null);
+                                      }}
+                                      className="px-4 py-1.5 bg-accent hover:bg-accent/90 text-white text-xs font-semibold rounded-sm transition-colors cursor-pointer flex items-center gap-1.5"
+                                    >
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                      Apply to Config
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
 
                         {/* Location Box */}
                         <div className="p-4 bg-surface rounded-md border border-border space-y-2">
