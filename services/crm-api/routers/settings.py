@@ -15,11 +15,13 @@ import json
 import asyncio
 import hashlib
 import html
+import httpx
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Union
 
 import json
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from typing import Optional
 import database
 from models import TenantSettingsUpdate
@@ -753,6 +755,143 @@ async def update_tenant_settings(
             )
 
     return await get_tenant_settings(tenant_id, target_tenant_id=tenant_id, caller=caller if isinstance(caller, dict) else {"role": "admin"})
+
+
+# ── AI Prompt Optimizer ──────────────────────────────────────────────────────
+
+class OptimizePromptRequest(BaseModel):
+    raw_dump: str  # The free-form business brain-dump text
+
+@router.post("/settings/optimize-prompt")
+@router.post("/api/v1/crm/settings/optimize-prompt")
+async def optimize_ai_prompt(
+    payload: OptimizePromptRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context),
+):
+    """
+    Admin-only: Convert a raw business brain-dump into structured ai_config fields.
+    Uses Gemini Flash to intelligently extract and structure the content.
+    Returns the 7 prompt fields ready to paste/save.
+    """
+    caller_role = caller.get("role") if isinstance(caller, dict) else "agent"
+    if caller_role not in ("admin", "super_admin", "owner"):
+        raise HTTPException(status_code=403, detail="Admin access required.")
+
+    raw_dump = (payload.raw_dump or "").strip()
+    if len(raw_dump) < 30:
+        raise HTTPException(status_code=400, detail="Please provide more business details (at least 30 characters).")
+
+    # Get tenant's Gemini key (fallback to platform key)
+    gem_key = ""
+    async with database.db_pool.acquire() as conn:
+        gem_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'gemini' AND is_active = true",
+            tenant_id
+        )
+        if gem_row and gem_row["credential_data"]:
+            d = gem_row["credential_data"]
+            if isinstance(d, str):
+                try: d = json.loads(d)
+                except: d = {}
+            gem_key = d.get("api_key", "")
+    if not gem_key:
+        gem_key = os.getenv("GEMINI_API_KEY", "")
+    if not gem_key:
+        raise HTTPException(status_code=503, detail="No Gemini API key configured. Please add a Gemini API key in AI Settings.")
+
+    # Meta-prompt: what NOT to include (auto-injected by the system)
+    meta_prompt = """You are an expert AI assistant configuration specialist for a WhatsApp CRM platform.
+
+A business owner has provided raw business information below. Your job is to extract and structure this into exactly 7 configuration fields for their WhatsApp AI receptionist.
+
+IMPORTANT — The following are ALREADY auto-injected by the system and must NEVER be included in your output:
+- Current date/time and timezone
+- Live calendar availability / appointment slots
+- Booking confirmation / reschedule / cancellation action tags
+- Customer's name, phone, existing bookings
+- Conversation history
+- Format rules (no emojis, 1-2 lines, no bullets) — these are global
+- Anti-hallucination directives
+- Security/injection defense rules
+- Universal objection handling fallback (auto-applied if field is empty)
+- Language/dialect mirroring logic
+
+OUTPUT FORMAT — Return ONLY a valid JSON object with these exact 7 keys. No markdown, no explanation:
+{
+  "assistant_name": "String. The AI receptionist's first name (e.g. Aadhi, Priya, Alex). Pick a name that fits the business tone if not explicitly stated.",
+  "ai_prompt": "String. The PRIMARY business knowledge base and persona. Include: who they are, what they offer, tone/personality, discovery questions to qualify leads, what NOT to say, any custom workflows. This is the most important field.",
+  "services_text": "String. Formatted services + pricing catalog. Each service on its own line. Format: Service Name — Description (Duration) — ₹Price. If currency not specified, use ₹.",
+  "bot_goal": "String. 2-3 sentences describing the AI's primary goal (e.g. qualify leads, book appointments, handle inquiries, upsell specific services).",
+  "strict_rules": "String. Hard business rules and absolute restrictions the AI must never violate (e.g. no home visits, never quote unconfirmed prices, only book during clinic hours). One rule per line.",
+  "objection_handling": "String. How to handle price resistance, 'will think about it', skepticism, or hesitation — specific to THIS business. If nothing relevant in the dump, return empty string.",
+  "response_style": "String. Tone directive for the AI persona — e.g. 'Warm, professional, and knowledgeable. Speaks like a caring healthcare expert. Never clinical or robotic.' Keep it concise (1-2 sentences)."
+}
+
+RULES:
+- Extract information only from the business dump below. Do not invent facts.
+- If a field has no relevant info in the dump, return an empty string "" for it.
+- ai_prompt should be thorough — include persona, discovery flow, what to ask and when, any qualification criteria.
+- services_text should be clean and scannable — one service per line.
+- Do NOT include operating hours, timezone, or location in ai_prompt (those are separate settings).
+- Do NOT add generic tips like "always be polite" — the global engine handles that.
+- Output ONLY the JSON. No preamble, no explanation, no markdown fences.
+
+--- BUSINESS INFORMATION DUMP ---
+""" + raw_dump
+
+    # Call Gemini Flash
+    result_text = ""
+    for model in ["gemini-2.5-flash-lite-preview-06-17", "gemini-flash-lite-latest", "gemini-flash-latest"]:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gem_key}"
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as client:
+                res = await client.post(
+                    url,
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "contents": [{"parts": [{"text": meta_prompt}]}],
+                        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 2048}
+                    }
+                )
+                if res.status_code == 200:
+                    raw = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    result_text = raw.strip()
+                    break
+        except Exception as _err:
+            logger.warning("optimize_prompt_gemini_error", model=model, error=str(_err))
+            continue
+
+    if not result_text:
+        raise HTTPException(status_code=502, detail="AI generation failed. Please try again.")
+
+    # Parse and validate the JSON response
+    try:
+        # Strip markdown fences if model wrapped it anyway
+        cleaned = re.sub(r'^```(?:json)?\s*', '', result_text, flags=re.MULTILINE)
+        cleaned = re.sub(r'\s*```$', '', cleaned, flags=re.MULTILINE).strip()
+        structured = json.loads(cleaned)
+    except Exception:
+        raise HTTPException(status_code=502, detail="AI returned malformed response. Please try again.")
+
+    # Validate expected keys exist
+    expected_keys = {"assistant_name", "ai_prompt", "services_text", "bot_goal", "strict_rules", "objection_handling", "response_style"}
+    for key in expected_keys:
+        if key not in structured:
+            structured[key] = ""
+
+    return {
+        "success": True,
+        "optimized": {
+            "assistant_name": str(structured.get("assistant_name", "")).strip(),
+            "ai_prompt": str(structured.get("ai_prompt", "")).strip(),
+            "services_text": str(structured.get("services_text", "")).strip(),
+            "bot_goal": str(structured.get("bot_goal", "")).strip(),
+            "strict_rules": str(structured.get("strict_rules", "")).strip(),
+            "objection_handling": str(structured.get("objection_handling", "")).strip(),
+            "response_style": str(structured.get("response_style", "")).strip(),
+        }
+    }
 
 
 # ── WhatsApp Connection Status & Health Monitor ──────────────────────────────

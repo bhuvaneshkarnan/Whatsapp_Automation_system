@@ -93,20 +93,24 @@ def clean_llm_response(text: str, single_line: bool = False) -> str:
             else:
                 cleaned = " ".join(words[:24]) + "?"
     else:
-        # Connect short conversational openers that have artificial double newlines (e.g. "Awesome\n\nI have..." -> "Awesome, I have...")
+        # Connect short conversational openers that have artificial double newlines (e.g. "Great!\n\nWould you..." -> "Great! Would you...")
+        def _join_opener(m):
+            opener = m.group(1).rstrip()
+            next_char = m.group(2)
+            if opener.endswith(('!', '.', '?')):
+                return f"{opener} {next_char}"
+            return f"{opener}, {next_char}"
+
         cleaned = re.sub(
-            r'^(Awesome|Got it|Sure thing|Sure|Thanks|Thanks for sharing that|Great|Hey there|Hey|Hello|Hi)\s*\n+([A-Z0-9])',
-            r'\1, \2',
-            cleaned,
-            flags=re.IGNORECASE
+            r'^([A-Za-z\s]{1,25}[.!?]?)\s*\n+([A-Za-z0-9])',
+            lambda m: _join_opener(m) if len(m.group(1).split()) <= 4 else f"{m.group(1)}\n\n{m.group(2)}",
+            cleaned
         )
 
-        # 1 LINE MOSTLY, 2-3 LINES ONLY WHEN GENUINELY NEEDED:
+        # 1 LINE MOSTLY, 2 LINES ONLY WHEN GENUINELY NEEDED:
         lines = [l.strip() for l in cleaned.split("\n") if l.strip()]
-        words = cleaned.split()
         
         # Sentence cap: limit to max 2 sentences across the message to respect "1-2 lines only" prompt.
-        # But if the message contains options/lists naturally, keep them short.
         raw_sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
         if len(raw_sentences) > 2:
             # If the last sentence is a question, keep first + question. Otherwise keep first two.
@@ -122,18 +126,18 @@ def clean_llm_response(text: str, single_line: bool = False) -> str:
                 if kept:
                     rebuilt.append(" ".join(kept))
             lines = rebuilt
-            
-        # Re-evaluate words after sentence capping
-        words = " ".join(lines).split()
-        
-        # If the whole message is short (<= 30 words), try to keep it compact
-        if len(words) <= 30 and len(lines) == 2 and sum(len(l) for l in lines) < 80:
-            cleaned = "\n\n".join(lines).strip() # Always use double newlines for separated thoughts
+
+        # If lines == 2, only keep double newline if both lines are substantial (e.g. detailed answer + separate call to action)
+        # If line 0 is a short opener (<= 5 words or <= 30 chars), or if total words <= 25, join into a single continuous message
+        if len(lines) == 2:
+            if len(lines[0].split()) <= 5 or len(lines[0]) <= 30 or len(" ".join(lines).split()) <= 25:
+                cleaned = f"{lines[0]} {lines[1]}"
+            else:
+                cleaned = "\n\n".join(lines)
+        elif len(lines) > 2:
+            cleaned = "\n\n".join(lines[:2])
         else:
-            # For detailed replies that naturally require separate lines, cap at 2 paragraphs max
-            if len(lines) > 2:
-                lines = lines[:2]
-            cleaned = "\n\n".join(lines).strip() # Double newlines!
+            cleaned = "\n".join(lines)
 
     # Re-attach action tags on their own line at the very end
     if action_tags:

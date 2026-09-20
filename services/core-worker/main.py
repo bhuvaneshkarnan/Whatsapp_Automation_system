@@ -1842,9 +1842,9 @@ class CoreWorker:
 
         # Clean humanized conversational WhatsApp texting format directive (Global Mandatory Rules for All Tenants)
         format_section = (
-            "7. FORMATTING & LENGTH (1 LINE MOSTLY, 2-3 LINES ONLY WHEN NEEDED):\n"
-            "   - 1 LINE MOSTLY (DEFAULT): Most of your replies must be EXACTLY 1 single short line (under 25 words). For casual greetings, simple acknowledgments, scheduling/slot questions, clarifying questions, and quick updates, reply in 1 crisp line without extra line breaks.\n"
-            "   - 2 TO 3 SHORT LINES ONLY WHEN GENUINELY NEEDED: Use 2 to 3 short lines ONLY when the content genuinely requires separation (e.g. sharing multiple distinct pricing options/packages, contrasting services, or answering a detailed multi-part inquiry). Never pad or split a simple sentence into multiple lines.\n"
+            "7. FORMATTING & LENGTH (NATURAL TEXTING, LINE GAPS ONLY WHEN GENUINELY NEEDED):\n"
+            "   - CONTINUOUS NATURAL FLOW (DEFAULT): Reply in a single natural, continuous message without artificial blank lines. For quick acknowledgments, greetings, scheduling questions, and direct answers, write smoothly together (e.g. 'Great! Would you like to schedule a call tomorrow?'). Do NOT isolate short greetings like 'Great!' or 'Sure!' on their own line with a blank line.\n"
+            "   - LINE GAPS ONLY WHEN GENUINELY NEEDED: Use an empty line gap (blank line) ONLY when presenting distinct options (e.g. comparing two service packages) or when a longer explanation genuinely benefits from separation before a closing question. Never insert line gaps between casual sentences.\n"
             "   - ABSOLUTELY ZERO hyphens (-), dashes (--), asterisks (*), bullet points (•), numbered lists (1. 2. 3.), or emojis. Real humans texting on WhatsApp type in smooth conversational sentences without hyphens.\n\n"
         )
 
@@ -2655,7 +2655,8 @@ class CoreWorker:
         reinforcement_rule = (
             "### FINAL WHATSAPP FORMAT & REINFORCEMENT DIRECTIVE:\n"
             "- STRICT TENANT DIRECTIVE ADHERENCE: You represent this business. You MUST strictly follow the Tenant Custom AI Instructions, business rules, identity guidelines, and knowledge base directives given above. The tenant's specific business instructions strictly govern your answers, services, policies, and qualification sequencing.\n"
-            "- EXTREMELY CONCISE (1-2 SENTENCES MAX): You must be ultra-brief. Limit your entire response to 1 or 2 short sentences maximum. Never write long paragraphs. Never over-explain. If answering a question, just give the direct answer and ask one follow-up. Do not combine multiple thoughts into huge blocks.\n- MANDATORY WHATSAPP SPACING: If your response contains more than one sentence or switches topics (e.g., answering a question, then asking one), you MUST use a full empty line break (`\n\n`) to separate them. NEVER use a single line break. Always use double line breaks for readability.\n"
+            "- CONCISE & NATURAL (1-2 SENTENCES): Limit your entire response to 1 or 2 short sentences. Never write long essays or over-explain. If answering a question, give the direct answer and ask one follow-up.\n"
+            "- NATURAL WHATSAPP SPACING (NO UNNECESSARY LINE GAPS): Write in smooth, continuous conversational WhatsApp style. Do NOT insert artificial blank lines after short acknowledgments or greetings (e.g. write 'Great! Would you like to...' together, NOT split by an empty line). Use a line gap (`\\n\\n`) ONLY when genuinely separating distinct options (like packages) or when a longer explanation needs separation from a closing question. Most direct replies should be a single compact message.\n"
             "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use ANY hyphens (-), dashes (--), asterisks (*), bullet lists, numbered lists, or emojis. Write 'business ku' instead of 'business-ku'. Text in smooth human sentences without hyphens.\n"
             + ("- VOICE NOTE INBOUND: The customer sent a voice note transcribed above. Warmly acknowledge it in Line 1 (e.g. 'Got your voice note!') and answer their spoken question directly. Never tell them to type what they already said!\n" if is_voice_note else "")
             + ("- UNREAD MEDIA OR UNREADABLE AUDIO: The customer sent an unreadable audio note or uncaptioned media. Warmly acknowledge in Line 1 and politely ask them to type what they need in Line 2 so we can help them.\n" if is_media_only else "")
