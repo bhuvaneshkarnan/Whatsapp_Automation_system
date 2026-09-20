@@ -1206,17 +1206,15 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
   const handleAdminInitGoogleOAuth = async () => {
     if (!editingConfigTenant) return;
-    const cId = configForm.google_client_id?.trim();
-    const cSec = configForm.google_client_secret?.trim();
-    if (!cId || !cSec) {
-      setConfigError('Please enter both Google OAuth Client ID and Client Secret before signing in with Google.');
-      return;
-    }
+    const cId = configForm.google_client_id?.trim() || '';
+    const cSec = configForm.google_client_secret?.trim() || '';
     setOauthConnecting(true);
     setConfigError('');
     try {
-      // Auto-save form first
-      await admin.updateTenantSettings(editingConfigTenant.id, configForm);
+      // Auto-save form first if custom keys were typed
+      if (cId || cSec) {
+        await admin.updateTenantSettings(editingConfigTenant.id, configForm);
+      }
       const res = await admin.initGoogleOAuth(editingConfigTenant.id, {
         client_id: cId,
         client_secret: cSec,
@@ -5337,8 +5335,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                         </div>
 
                         <p className="text-xs text-text-secondary leading-relaxed">
-                          Save Client ID & Secret above, then click below to authorize Google Calendar synchronization. 
-                          The OAuth screen will request Calendar Free/Busy and Event access.
+                          1-Click authorization connects Google Calendar & Tasks via the central platform Google App (or enter custom credentials above). Click below to authorize.
                         </p>
 
                         <div className="flex items-center gap-2.5 pt-1">

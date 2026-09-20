@@ -241,8 +241,8 @@ class TenantPaymentLinkUpdate(BaseModel):
 
 
 class GoogleOAuthInitPayload(BaseModel):
-    client_id: str
-    client_secret: str
+    client_id: Optional[str] = ""
+    client_secret: Optional[str] = ""
     target_tenant_id: Optional[str] = None
     source: Optional[str] = "dashboard"
 

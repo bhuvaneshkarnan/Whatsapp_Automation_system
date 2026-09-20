@@ -42,7 +42,7 @@ GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", f"{utils.APP_
 @router.post("/oauth/google/init")
 async def init_google_oauth(
     payload: GoogleOAuthInitPayload,
-    request: Request,
+    request: Optional[Request] = None,
     tenant_id: str = Depends(get_tenant_id)
 ):
     """Save Google Client ID & Secret, and return the Google OAuth authorization URL."""
@@ -84,11 +84,13 @@ async def init_google_oauth(
     scopes = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile openid"
     src = (payload.source or "dashboard").strip()
 
-    req_origin = request.headers.get("origin") or ""
-    if not req_origin and request.headers.get("referer"):
-        parsed = urllib.parse.urlparse(request.headers.get("referer"))
-        if parsed.scheme and parsed.netloc:
-            req_origin = f"{parsed.scheme}://{parsed.netloc}"
+    req_origin = ""
+    if request:
+        req_origin = request.headers.get("origin") or ""
+        if not req_origin and request.headers.get("referer"):
+            parsed = urllib.parse.urlparse(request.headers.get("referer"))
+            if parsed.scheme and parsed.netloc:
+                req_origin = f"{parsed.scheme}://{parsed.netloc}"
 
     # Sign state parameter with HMAC-SHA256 containing tenant_id, a random nonce, and an expiry timestamp
     state_nonce = os.urandom(16).hex()
@@ -282,12 +284,13 @@ async def disconnect_google_calendar(
 async def admin_init_google_oauth(
     target_tenant_id: str,
     payload: GoogleOAuthInitPayload,
+    request: Optional[Request] = None,
     admin_user: dict = Depends(verify_super_admin)
 ):
     """Super Admin initiates Google OAuth for a specific client organization."""
     payload.target_tenant_id = target_tenant_id
     payload.source = "admin"
-    return await init_google_oauth(payload, tenant_id=target_tenant_id)
+    return await init_google_oauth(payload, request=request, tenant_id=target_tenant_id)
 
 
 @router.post("/admin/tenants/{target_tenant_id}/oauth/google/disconnect")

@@ -838,10 +838,10 @@ export const crm = {
     });
   },
 
-  initGoogleOAuth: (data: { client_id: string; client_secret: string }) =>
+  initGoogleOAuth: (data?: { client_id?: string; client_secret?: string }) =>
     request<{ auth_url: string; redirect_uri: string }>('/api/v1/crm/oauth/google/init', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(data || {}),
     }),
 
   disconnectGoogleCalendar: () =>
@@ -1838,10 +1838,10 @@ export const admin = {
         method: 'DELETE',
       }
     ),
-  initGoogleOAuth: (tenantId: string, data: { client_id: string; client_secret: string }) =>
+  initGoogleOAuth: (tenantId: string, data?: { client_id?: string; client_secret?: string }) =>
     request<{ auth_url: string; redirect_uri: string }>(`/api/v1/crm/admin/tenants/${tenantId}/oauth/google/init`, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(data || {}),
     }),
   disconnectGoogleCalendar: (tenantId: string) =>
     request<{ status: string }>(`/api/v1/crm/admin/tenants/${tenantId}/oauth/google/disconnect`, {

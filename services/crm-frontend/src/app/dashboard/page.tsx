@@ -3238,15 +3238,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   }
 
   const handleConnectGoogle = async () => {
-    if (!settingsForm.google_client_id?.trim() || !settingsForm.google_client_secret?.trim()) {
-      alert('Please enter your Google OAuth Client ID and Client Secret first.');
-      return;
-    }
+    const cId = settingsForm.google_client_id?.trim() || '';
+    const cSec = settingsForm.google_client_secret?.trim() || '';
     setConnectingGoogle(true);
     try {
       const res = await crm.initGoogleOAuth({
-        client_id: settingsForm.google_client_id.trim(),
-        client_secret: settingsForm.google_client_secret.trim(),
+        client_id: cId,
+        client_secret: cSec,
       });
       if (res.auth_url) {
         window.location.href = res.auth_url;
@@ -6086,15 +6084,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   }
 
   async function handleDashboardInitGoogleOAuth() {
-    const cId = settingsForm.google_client_id?.trim();
-    const cSec = settingsForm.google_client_secret?.trim();
-    if (!cId || !cSec) {
-      alert('Please enter both Google OAuth Client ID and Client Secret before signing in with Google.');
-      return;
-    }
+    const cId = settingsForm.google_client_id?.trim() || '';
+    const cSec = settingsForm.google_client_secret?.trim() || '';
     setConnectingGoogle(true);
     try {
-      await handleSaveSettings();
+      if (cId && cSec) {
+        await handleSaveSettings();
+      }
       const res = await crm.initGoogleOAuth({
         client_id: cId,
         client_secret: cSec,
@@ -19153,7 +19149,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
 
                           <p className="text-xs text-text-secondary leading-relaxed">
-                            Save Client ID & Secret above, then click below to authorize Google Calendar synchronization with your account.
+                            1-Click authorization connects Google Calendar & Tasks with your account (or enter custom credentials above). Click below to authorize.
                           </p>
 
                           <div className="flex items-center gap-2.5 pt-1">
