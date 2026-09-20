@@ -69,6 +69,7 @@ import {
   Share2,
   Download,
   MoreVertical,
+  ListChecks,
 } from 'lucide-react';
 import {
   admin,
@@ -89,6 +90,8 @@ import {
   LiveCalendarAvailabilityResponse,
   LiveCalendarSlot,
   PartnerAgencyTemplate,
+  TenantOnboardingStatus,
+  OnboardingStep,
 } from '@/lib/api';
 
 
@@ -805,6 +808,25 @@ export default function SuperAdminClients() {
   function triggerErrorNotice(msg: string) {
     setActionErrorNotice(msg);
     setTimeout(() => setActionErrorNotice(null), 6000);
+  }
+
+  // ── Tenant Onboarding Checklist Modal State ──
+  const [onboardingModalTenant, setOnboardingModalTenant] = useState<ClientTenant | null>(null);
+  const [onboardingStatusData, setOnboardingStatusData] = useState<TenantOnboardingStatus | null>(null);
+  const [loadingOnboardingStatus, setLoadingOnboardingStatus] = useState(false);
+
+  async function openTenantOnboardingModal(tenant: ClientTenant) {
+    setOnboardingModalTenant(tenant);
+    setLoadingOnboardingStatus(true);
+    setOnboardingStatusData(null);
+    try {
+      const data = await crm.getOnboardingStatus(tenant.id);
+      setOnboardingStatusData(data);
+    } catch (err) {
+      console.error('Failed to load onboarding status for tenant:', err);
+    } finally {
+      setLoadingOnboardingStatus(false);
+    }
   }
 
   // ── Automated Missed Call WhatsApp Outreach Helpers ──
@@ -2689,6 +2711,16 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                 >
                                   <ExternalLink className="w-3 h-3 stroke-[1.5]" />
                                   <span>Open CRM</span>
+                                </button>
+
+                                {/* Onboarding Checklist Quick Button */}
+                                <button
+                                  onClick={() => openTenantOnboardingModal(t)}
+                                  className="px-2 py-1 bg-surface hover:bg-surface-subtle text-accent border border-border hover:border-accent rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs shrink-0"
+                                  title="Inspect 4-Step Onboarding Checklist for this workspace"
+                                >
+                                  <ListChecks className="w-3.5 h-3.5 text-accent" />
+                                  <span>Checklist</span>
                                 </button>
 
                                 {/* Configure */}
@@ -8154,6 +8186,209 @@ Any missed call will now automatically get followed up on WhatsApp!`;
           </div>
         );
       })()}
+
+      {/* ── Onboarding Checklist Quick Modal ── */}
+      {onboardingModalTenant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-surface border border-border rounded-xl shadow-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-border flex items-center justify-between gap-3 bg-surface-subtle/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                  <ListChecks className="w-5 h-5 stroke-[1.8]" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm text-text-primary">
+                      {onboardingModalTenant.name}
+                    </h3>
+                    <span className="text-[10px] font-mono text-text-muted bg-surface px-1.5 py-0.5 rounded border border-border">
+                      /{onboardingModalTenant.slug}
+                    </span>
+                  </div>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    Tenant Onboarding & Readiness Checklist
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openTenantOnboardingModal(onboardingModalTenant)}
+                  disabled={loadingOnboardingStatus}
+                  className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface rounded border border-border transition-colors cursor-pointer"
+                  title="Refresh Status"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingOnboardingStatus ? 'animate-spin text-accent' : ''}`} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOnboardingModalTenant(null)}
+                  className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface rounded border border-border transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-4">
+              {loadingOnboardingStatus ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-3">
+                  <Loader2 className="w-8 h-8 text-accent animate-spin" />
+                  <span className="text-xs text-text-muted">Evaluating workspace onboarding readiness...</span>
+                </div>
+              ) : onboardingStatusData ? (
+                <>
+                  {/* Progress Banner */}
+                  <div className={`p-4 rounded-lg border ${
+                    onboardingStatusData.is_fully_onboarded
+                      ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900'
+                      : 'bg-surface-subtle border-border text-text-primary'
+                  }`}>
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <div className="flex items-center gap-2">
+                        {onboardingStatusData.is_fully_onboarded ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        ) : (
+                          <Sparkles className="w-4 h-4 text-accent" />
+                        )}
+                        <span className="font-bold text-xs">
+                          {onboardingStatusData.is_fully_onboarded
+                            ? '100% Client Workspace Ready'
+                            : `${onboardingStatusData.completed_steps} of ${onboardingStatusData.total_steps} Setup Steps Completed`}
+                        </span>
+                      </div>
+                      <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
+                        onboardingStatusData.is_fully_onboarded
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-accent/10 text-accent'
+                      }`}>
+                        {onboardingStatusData.completion_percentage}%
+                      </span>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full bg-border/50 h-2 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          onboardingStatusData.is_fully_onboarded ? 'bg-emerald-600' : 'bg-accent'
+                        }`}
+                        style={{ width: `${onboardingStatusData.completion_percentage}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Steps List */}
+                  <div className="space-y-3">
+                    {onboardingStatusData.steps.map((step, idx) => {
+                      const isDone = step.is_completed;
+                      const StepIcon =
+                        step.id === 'whatsapp' ? MessageSquare :
+                        step.id === 'calendar' ? CalendarDays :
+                        step.id === 'ai_persona' ? Bot :
+                        Send;
+
+                      return (
+                        <div
+                          key={step.id}
+                          className={`p-3.5 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                            isDone
+                              ? 'bg-emerald-50/30 border-emerald-200/80'
+                              : 'bg-surface border-border'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 ${
+                              isDone
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-surface-subtle text-text-muted border border-border'
+                            }`}>
+                              <StepIcon className="w-3.5 h-3.5 stroke-[1.8]" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-xs font-bold text-text-primary">
+                                  {idx + 1}. {step.title}
+                                </h4>
+                                {isDone ? (
+                                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-1.5 py-0.2 rounded border border-emerald-300">
+                                    ✓ Completed
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
+                                    Pending
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-text-muted mt-0.5">
+                                {step.description}
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const t = onboardingModalTenant;
+                              setOnboardingModalTenant(null);
+                              if (step.id === 'whatsapp') handleOpenConfig(t, 'whatsapp');
+                              else if (step.id === 'calendar') handleOpenConfig(t, 'calendar');
+                              else if (step.id === 'ai_persona') handleOpenConfig(t, 'ai');
+                              else handleImpersonateTenant(t);
+                            }}
+                            className={`px-3 py-1.5 rounded text-xs font-semibold shrink-0 cursor-pointer flex items-center gap-1.5 ${
+                              isDone
+                                ? 'bg-surface hover:bg-surface-subtle border border-border text-text-secondary'
+                                : 'bg-accent hover:bg-accent-hover text-white shadow-2xs'
+                            }`}
+                          >
+                            <span>
+                              {step.id === 'test_ping'
+                                ? (isDone ? 'Send Test' : 'Open CRM to Ping')
+                                : (isDone ? 'Edit Config' : step.action_label)}
+                            </span>
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-8 text-xs text-text-muted">
+                  Failed to load onboarding checklist for this workspace.
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-border flex items-center justify-between gap-2 bg-surface-subtle/50">
+              <button
+                type="button"
+                onClick={() => setOnboardingModalTenant(null)}
+                className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary border border-border rounded hover:bg-surface transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const t = onboardingModalTenant;
+                  setOnboardingModalTenant(null);
+                  handleImpersonateTenant(t);
+                }}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open Client Workspace CRM</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
