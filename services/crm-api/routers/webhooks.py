@@ -128,6 +128,7 @@ async def handle_razorpay_webhook(
                 SET subscription_status = 'active',
                     org_lifecycle_stage = 'billing_active',
                     last_charge_at = now(),
+                    next_charge_at = now() + INTERVAL '30 days',
                     last_payment_status = 'success',
                     reminder_stage = 0,
                     is_active = true,
@@ -264,7 +265,7 @@ async def handle_razorpay_webhook(
                 SET subscription_status = 'active',
                     org_lifecycle_stage = 'billing_active',
                     last_charge_at = now(),
-                    next_charge_at = COALESCE($1, next_charge_at),
+                    next_charge_at = COALESCE($1, now() + INTERVAL '30 days'),
                     last_payment_status = 'success',
                     reminder_stage = 0,
                     is_active = true,
@@ -275,7 +276,7 @@ async def handle_razorpay_webhook(
             )
 
             inv_id = invoice_entity.get("id") or f"inv_sub_{sub_id}_{int(time.time())}"
-            amount = float(sub_entity.get("plan_id", {}).get("amount", 349900) if isinstance(sub_entity.get("plan_id"), dict) else 3499.0)
+            amount = float(sub_entity.get("plan_id", {}).get("amount", 249900) if isinstance(sub_entity.get("plan_id"), dict) else 2499.0)
             if amount > 10000: amount = amount / 100.0
             
             pay_id = payment_entity.get("id")

@@ -34,8 +34,59 @@ logger = structlog.get_logger('crm-api-billing')
 async def get_client_billing_invoices(
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Retrieve billing invoice receipts and history for the authenticated tenant."""
+    """
+    Retrieve authentic Razorpay billing invoice receipts and history for the authenticated tenant.
+    Syncs live from Razorpay API whenever a subscription exists, ensuring genuine Razorpay receipts.
+    """
     async with database.db_pool.acquire() as conn:
+        tenant = await conn.fetchrow(
+            """
+            SELECT id, name, slug, settings, subscription_status,
+                   razorpay_customer_id, razorpay_subscription_id, razorpay_short_url
+            FROM tenants WHERE id = $1::uuid
+            """,
+            tenant_id
+        )
+        if not tenant:
+            return []
+
+        sub_id = (tenant.get("razorpay_subscription_id") or "").strip()
+
+        # If tenant has a real Razorpay subscription (sub_...), sync latest invoices from Razorpay
+        if sub_id and sub_id.startswith("sub_"):
+            try:
+                rzp_invoices = await razorpay_client.fetch_invoices_for_subscription(sub_id)
+                for rzp_inv in rzp_invoices:
+                    inv_id = rzp_inv.get("id")
+                    if not inv_id:
+                        continue
+                    amt_val = float(rzp_inv.get("amount", 249900))
+                    amt = amt_val / 100.0 if amt_val > 10000 else amt_val
+                    inv_status = rzp_inv.get("status", "paid")
+                    short_url = rzp_inv.get("short_url") or rzp_inv.get("invoice_pdf") or ""
+                    
+                    paid_ts = rzp_inv.get("paid_at")
+                    paid_dt = datetime.fromtimestamp(paid_ts, tz=timezone.utc) if paid_ts else None
+                    issued_ts = rzp_inv.get("issued_at") or rzp_inv.get("date")
+                    issued_dt = datetime.fromtimestamp(issued_ts, tz=timezone.utc) if issued_ts else datetime.now(timezone.utc)
+                    pay_id = rzp_inv.get("payment_id") or ""
+
+                    await conn.execute(
+                        """
+                        INSERT INTO invoices (id, tenant_id, razorpay_invoice_id, razorpay_payment_id, razorpay_subscription_id, amount, currency, status, invoice_pdf_url, paid_at, created_at)
+                        VALUES (gen_random_uuid(), $1::uuid, $2, $3, $4, $5, 'INR', $6, $7, $8, $9)
+                        ON CONFLICT (razorpay_invoice_id) DO UPDATE
+                        SET status = EXCLUDED.status,
+                            razorpay_payment_id = COALESCE(EXCLUDED.razorpay_payment_id, invoices.razorpay_payment_id),
+                            invoice_pdf_url = COALESCE(EXCLUDED.invoice_pdf_url, invoices.invoice_pdf_url),
+                            paid_at = COALESCE(EXCLUDED.paid_at, invoices.paid_at)
+                        """,
+                        tenant_id, inv_id, pay_id, sub_id, amt, inv_status, short_url, paid_dt, issued_dt
+                    )
+            except Exception as e:
+                logger.warning("razorpay_invoice_sync_warn", tenant_id=tenant_id, sub_id=sub_id, error=str(e))
+
+        # Query authentic invoices from database
         rows = await conn.fetch(
             """
             SELECT id, razorpay_invoice_id, razorpay_payment_id, razorpay_subscription_id,
@@ -46,40 +97,15 @@ async def get_client_billing_invoices(
             """,
             tenant_id
         )
-        t_row = await conn.fetchrow("SELECT name, slug, created_at, settings, subscription_status FROM tenants WHERE id = $1::uuid", tenant_id)
-        if not rows and t_row:
-            # Only provide initial verified invoice record if the tenant's subscription is actually active!
-            if t_row.get("subscription_status") == "active":
-                s_dict = t_row["settings"] if t_row and t_row["settings"] else {}
-                if isinstance(s_dict, str):
-                    try: s_dict = json.loads(s_dict)
-                    except Exception: s_dict = {}
-                base_amount = float(s_dict.get("monthly_price") or 3499.0)
-                c_date = t_row["created_at"] or datetime.now(timezone.utc)
-                auto_inv_id = f"INV-{c_date.strftime('%Y%m%d')}-{t_row['slug'][:4].upper()}"
-                return [
-                    {
-                        "id": auto_inv_id,
-                        "razorpay_invoice_id": auto_inv_id,
-                        "razorpay_payment_id": f"pay_{t_row['slug']}_active",
-                        "razorpay_subscription_id": f"sub_{t_row['slug']}",
-                        "amount": base_amount,
-                        "currency": "INR",
-                        "status": "paid",
-                        "invoice_pdf_url": "",
-                        "created_at": c_date.isoformat(),
-                        "paid_at": c_date.isoformat(),
-                    }
-                ]
-            return []
 
+        # Return only genuine invoices (never fake mock records)
         return [
             {
                 "id": str(r["id"]),
-                "razorpay_invoice_id": r["razorpay_invoice_id"] or f"INV-{str(r['id'])[:8].upper()}",
+                "razorpay_invoice_id": r["razorpay_invoice_id"] or "",
                 "razorpay_payment_id": r["razorpay_payment_id"] or "",
                 "razorpay_subscription_id": r["razorpay_subscription_id"] or "",
-                "amount": float(r["amount"] or 3499.0),
+                "amount": float(r["amount"] or 2499.0),
                 "currency": r["currency"] or "INR",
                 "status": r["status"] or "paid",
                 "invoice_pdf_url": r["invoice_pdf_url"] or "",
@@ -87,6 +113,7 @@ async def get_client_billing_invoices(
                 "paid_at": r["paid_at"].isoformat() if r["paid_at"] else None,
             }
             for r in rows
+            if not str(r["razorpay_invoice_id"]).startswith("INV-20260830")  # filter any legacy mock data
         ]
 
 
@@ -130,7 +157,7 @@ async def initiate_tenant_payment(
             try: cfg = json.loads(cfg)
             except: cfg = {}
 
-        monthly_price = float(cfg.get("monthly_price", 3499.0))
+        monthly_price = float(cfg.get("monthly_price", 2499.0))
         amount_paisa = int(monthly_price * 100)
 
         # Check Razorpay credentials
@@ -188,6 +215,81 @@ async def initiate_tenant_payment(
             "tenant_slug": tenant["slug"],
             "amount": monthly_price,
             "message": "Payment link generated successfully"
+        }
+
+
+@router.post("/tenant/billing/create-subscription")
+async def create_tenant_subscription(
+    force_new: bool = Query(False),
+    plan_id: Optional[str] = Query(None),
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """
+    Creates an authentic Razorpay Recurring Subscription (sub_...) for auto-debit on renewal.
+    When the client completes authentication via UPI Autopay or Card, Razorpay automatically
+    charges the client on every renewal date.
+    """
+    async with database.db_pool.acquire() as conn:
+        tenant = await conn.fetchrow(
+            """
+            SELECT id, name, slug, settings, subscription_status, org_lifecycle_stage,
+                   razorpay_customer_id, razorpay_subscription_id, razorpay_short_url
+            FROM tenants WHERE id = $1::uuid
+            """,
+            tenant_id
+        )
+        if not tenant:
+            raise HTTPException(404, "Tenant workspace not found")
+
+        existing_sub_id = tenant.get("razorpay_subscription_id") or ""
+        existing_short_url = tenant.get("razorpay_short_url") or ""
+
+        # If already has an active recurring subscription link and not forced, return it
+        if not force_new and existing_sub_id.startswith("sub_") and existing_short_url.startswith("https://rzp.io/"):
+            return {
+                "status": "active",
+                "short_url": existing_short_url,
+                "subscription_id": existing_sub_id,
+                "tenant_id": tenant_id,
+                "tenant_slug": tenant["slug"],
+                "message": "Existing recurring subscription is active"
+            }
+
+        target_plan = plan_id or os.getenv("RAZORPAY_PLAN_ID", "plan_TeICRz2cZId1i2")
+        customer_id = tenant.get("razorpay_customer_id")
+
+        try:
+            sub_res = await razorpay_client.create_subscription(
+                plan_id=target_plan,
+                customer_id=customer_id,
+                org_slug=tenant["slug"]
+            )
+        except Exception as e:
+            logger.error("tenant_subscription_creation_error", tenant_id=tenant_id, error=str(e))
+            raise HTTPException(status_code=502, detail=f"Failed to create recurring subscription with Razorpay: {str(e)}")
+
+        sub_id = sub_res.get("id")
+        short_url = sub_res.get("short_url")
+
+        await conn.execute(
+            """
+            UPDATE tenants
+            SET razorpay_subscription_id = $1,
+                razorpay_short_url = $2,
+                updated_at = now()
+            WHERE id = $3::uuid
+            """,
+            sub_id, short_url, tenant_id
+        )
+
+        logger.info("tenant_recurring_subscription_created", tenant_id=tenant_id, sub_id=sub_id, short_url=short_url)
+        return {
+            "status": "created",
+            "short_url": short_url,
+            "subscription_id": sub_id,
+            "tenant_id": tenant_id,
+            "tenant_slug": tenant["slug"],
+            "message": "Recurring subscription created successfully for auto-debit"
         }
 
 
