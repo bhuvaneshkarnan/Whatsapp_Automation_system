@@ -387,8 +387,8 @@ async def get_live_calendar_availability(
                             token=g_data.get("access_token"),
                             refresh_token=g_data.get("refresh_token"),
                             token_uri="https://oauth2.googleapis.com/token",
-                            client_id=g_data.get("client_id"),
-                            client_secret=g_data.get("client_secret"),
+                            client_id=g_data.get("client_id") or os.getenv("GOOGLE_CLIENT_ID", "").strip(),
+                            client_secret=g_data.get("client_secret") or os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
                         )
                         service = build("calendar", "v3", credentials=g_creds, cache_discovery=False)
                         events_res = service.events().list(

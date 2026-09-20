@@ -19080,54 +19080,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                       {/* Google Calendar Credentials Settings */}
                       <div className="space-y-4 pt-2">
-                        <div className="bg-surface rounded-md border border-border p-4 space-y-2">
-                          <div className="flex justify-between items-center">
-                            <label className="text-xs font-medium text-text-primary">
-                              Authorized redirect URI (for Google Cloud Console)
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(typeof window !== 'undefined' ? `${window.location.origin}/api/v1/crm/oauth/google/callback` : '', 'gcal_redirect')}
-                              className="text-xs font-medium text-accent hover:text-accent-hover flex items-center gap-1 cursor-pointer"
-                            >
-                              {copiedKey === 'gcal_redirect' ? <Check className="w-3.5 h-3.5 stroke-[1.5]" /> : <Copy className="w-3.5 h-3.5 stroke-[1.5]" />}
-                              <span>{copiedKey === 'gcal_redirect' ? 'Copied' : 'Copy URI'}</span>
-                            </button>
-                          </div>
-                          <p className="font-mono text-xs text-text-secondary break-all select-all bg-surface-subtle p-2.5 rounded-sm border border-border">
-                            https://crm.goboldlabs.com/api/v1/crm/oauth/google/callback
-                          </p>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">Google OAuth Client ID</label>
-                            <input
-                              type="text"
-                              placeholder="...apps.googleusercontent.com"
-                              value={settingsForm.google_client_id || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, google_client_id: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-medium text-text-primary mb-1">Google OAuth Client Secret</label>
-                            <input
-                              type="password"
-                              placeholder="GOCSPX-..."
-                              value={settingsForm.google_client_secret || ''}
-                              onChange={(e) => setSettingsForm({ ...settingsForm, google_client_secret: e.target.value })}
-                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Google 1-Click OAuth Authorization Button */}
-                        <div className="bg-surface-subtle border border-border rounded-md p-4 space-y-3">
+                        <div className="bg-surface-subtle border border-border rounded-md p-5 space-y-4">
                           <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <div className="w-5 h-5 flex items-center justify-center">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-7 h-7 rounded-md bg-white dark:bg-zinc-800 border border-border flex items-center justify-center shadow-xs">
                                 <svg className="w-4 h-4" viewBox="0 0 24 24">
                                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                                   <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -19135,32 +19091,36 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
                                 </svg>
                               </div>
-                              <h5 className="text-xs font-semibold text-text-primary">Google Calendar Authorization (1-Click OAuth)</h5>
+                              <div>
+                                <h5 className="text-sm font-semibold text-text-primary">Google Calendar & Tasks Synchronization</h5>
+                                <p className="text-xs text-text-muted">1-Click integration via Platform Master App — No API keys or Google Cloud setup needed.</p>
+                              </div>
                             </div>
                             {settingsForm.google_calendar_configured ? (
-                              <span className="text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-sm">
-                                Authorized & Live
+                              <span className="text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-sm flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Authorized & Live</span>
                               </span>
                             ) : (
-                              <span className="text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-sm">
-                                Authorization Required
+                              <span className="text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-sm">
+                                Not Connected
                               </span>
                             )}
                           </div>
 
                           <p className="text-xs text-text-secondary leading-relaxed">
-                            1-Click authorization connects Google Calendar & Tasks with your account (or enter custom credentials above). Click below to authorize.
+                            Click below to sign in with Google. The system will automatically connect your Google Calendar, read real-time availability to avoid conflicts, and auto-sync WhatsApp bookings.
                           </p>
 
-                          <div className="flex items-center gap-2.5 pt-1">
+                          <div className="flex items-center gap-3 pt-1">
                             <button
                               type="button"
                               onClick={handleDashboardInitGoogleOAuth}
                               disabled={connectingGoogle}
-                              className="px-3.5 py-2 bg-white hover:bg-gray-50 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-800 dark:text-gray-100 border border-gray-300 dark:border-zinc-600 rounded-sm text-xs font-medium shadow-xs transition-colors duration-150 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                              className="px-4 py-2.5 bg-white hover:bg-gray-50 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-gray-800 dark:text-gray-100 border border-gray-300 dark:border-zinc-600 rounded-sm text-xs font-medium shadow-xs transition-colors duration-150 flex items-center gap-2.5 cursor-pointer disabled:opacity-50"
                             >
                               {connectingGoogle ? (
-                                <RefreshCw className="w-3.5 h-3.5 animate-spin text-accent" />
+                                <RefreshCw className="w-4 h-4 animate-spin text-accent" />
                               ) : (
                                 <svg className="w-4 h-4" viewBox="0 0 24 24">
                                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -19169,7 +19129,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
                                 </svg>
                               )}
-                              <span>{settingsForm.google_calendar_configured ? 'Re-authorize with Google' : 'Sign in with Google'}</span>
+                              <span className="font-semibold">{settingsForm.google_calendar_configured ? 'Re-authorize with Google' : 'Sign in with Google'}</span>
                             </button>
 
                             {settingsForm.google_calendar_configured && (
@@ -19185,6 +19145,59 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             )}
                           </div>
                         </div>
+
+                        {/* Advanced Accordion: Custom Google Cloud Credentials (Optional) */}
+                        <details className="group border border-border/70 rounded-md bg-surface p-3.5 text-xs">
+                          <summary className="cursor-pointer font-medium text-text-muted hover:text-text-primary flex items-center justify-between select-none">
+                            <span className="flex items-center gap-1.5">
+                              <span>⚙️ Advanced: Custom Google Cloud Project (Optional)</span>
+                            </span>
+                            <span className="text-[10px] text-text-muted group-open:rotate-180 transition-transform">▼</span>
+                          </summary>
+                          <div className="mt-3 pt-3 border-t border-border/50 space-y-3">
+                            <p className="text-text-secondary leading-relaxed">
+                              Optional: Only configure these if your organization requires its own Google Cloud Project.
+                            </p>
+                            <div className="bg-surface-subtle rounded-md border border-border p-3 space-y-1.5">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[11px] font-medium text-text-primary">Authorized redirect URI</label>
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(typeof window !== 'undefined' ? `${window.location.origin}/api/v1/crm/oauth/google/callback` : '', 'gcal_redirect')}
+                                  className="text-[11px] font-medium text-accent hover:text-accent-hover flex items-center gap-1 cursor-pointer"
+                                >
+                                  {copiedKey === 'gcal_redirect' ? <Check className="w-3 h-3 stroke-[1.5]" /> : <Copy className="w-3 h-3 stroke-[1.5]" />}
+                                  <span>{copiedKey === 'gcal_redirect' ? 'Copied' : 'Copy URI'}</span>
+                                </button>
+                              </div>
+                              <p className="font-mono text-[11px] text-text-secondary break-all select-all bg-white dark:bg-zinc-800 p-2 rounded-sm border border-border">
+                                https://crm.goboldlabs.com/api/v1/crm/oauth/google/callback
+                              </p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-[11px] font-medium text-text-primary mb-1">Custom Client ID</label>
+                                <input
+                                  type="text"
+                                  placeholder="...apps.googleusercontent.com"
+                                  value={settingsForm.google_client_id || ''}
+                                  onChange={(e) => setSettingsForm({ ...settingsForm, google_client_id: e.target.value })}
+                                  className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-medium text-text-primary mb-1">Custom Client Secret</label>
+                                <input
+                                  type="password"
+                                  placeholder="GOCSPX-..."
+                                  value={settingsForm.google_client_secret || ''}
+                                  onChange={(e) => setSettingsForm({ ...settingsForm, google_client_secret: e.target.value })}
+                                  className="w-full px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </details>
 
                         {/* Shop Operating Hours */}
                         <div className="bg-surface rounded-md border border-border p-4 space-y-3">
