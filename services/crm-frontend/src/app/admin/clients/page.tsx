@@ -4842,6 +4842,35 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                             }}
                           />
                         </div>
+
+                        {/* Shareable Client Onboarding Link */}
+                        <div className="mt-3 p-3 bg-surface border border-emerald-300/60 dark:border-emerald-700/60 rounded-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                          <div className="space-y-0.5">
+                            <span className="font-semibold text-text-primary flex items-center gap-1.5">
+                              <span>🔗 Shareable Client Onboarding Link</span>
+                            </span>
+                            <p className="text-[11px] text-text-muted">
+                              Send this link to your client via WhatsApp or Email. They click it, sign into their own Meta account, and their WhatsApp is instantly activated in your CRM without them sharing passwords with you!
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const extras = JSON.stringify({
+                                version: "v4",
+                                sessionInfoVersion: "3",
+                                featureType: "whatsapp_business_app_onboarding"
+                              });
+                              const link = `https://business.facebook.com/messaging/whatsapp/onboard/?app_id=966476346452663&config_id=2164202260830085&extras=${encodeURIComponent(extras)}&redirect_uri=${encodeURIComponent('https://crm.goboldlabs.com/dashboard')}&state=${encodeURIComponent(JSON.stringify({ target_tenant_id: editingConfigTenant.id }))}`;
+                              navigator.clipboard.writeText(link);
+                              alert('Copied 1-Click WhatsApp Onboarding Link to clipboard!\n\nYou can now send this link directly to your client via WhatsApp or Email.');
+                            }}
+                            className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60 border border-emerald-300 dark:border-emerald-700 font-semibold rounded-sm text-xs shrink-0 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Copy Link for Client</span>
+                          </button>
+                        </div>
                       </div>
 
                       {/* Advanced Accordion: Custom Meta App Credentials (Optional) */}
