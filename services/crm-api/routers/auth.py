@@ -281,7 +281,7 @@ async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
         if isinstance(cfg, str):
             try: cfg = json.loads(cfg)
             except: cfg = {}
-        monthly_price = float(cfg.get("monthly_price", 999.0 if (r["plan"] or "").lower() == "starter" else (9999.0 if (r["plan"] or "").lower() == "enterprise" else 3499.0)))
+        monthly_price = float(cfg.get("monthly_price", 999.0 if (r["plan"] or "").lower() == "starter" else (9999.0 if (r["plan"] or "").lower() == "enterprise" else 2630.0)))
         billing_day = int(cfg.get("billing_cycle_day", 1))
         razorpay_sub_id = r["razorpay_subscription_id"] or cfg.get("razorpay_subscription_id", "")
         next_renewal = r["next_charge_at"].strftime("%d %b %Y") if r["next_charge_at"] else cfg.get("next_renewal_date", f"Day {billing_day} of every month")
@@ -420,7 +420,7 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
             compiled_prompt = payload.ai_prompt.strip() or f"You are {assistant_name}, the official WhatsApp assistant for {payload.name.strip()}. Assist customers politely and accurately."
 
         # Prepare Billing Settings
-        m_price = payload.monthly_price if payload.monthly_price is not None else (999.0 if (payload.plan or "").lower() == "starter" else (9999.0 if (payload.plan or "").lower() == "enterprise" else 3499.0))
+        m_price = payload.monthly_price if payload.monthly_price is not None else (999.0 if (payload.plan or "").lower() == "starter" else (9999.0 if (payload.plan or "").lower() == "enterprise" else 2630.0))
         b_day = payload.billing_cycle_day or 1
         ind = (payload.industry or "clinic").strip().lower()
         admin_display_name = (payload.admin_name or "").strip() or payload.name.strip()
@@ -791,7 +791,7 @@ async def get_platform_admin_stats(admin_user: dict = Depends(verify_super_admin
         # Calculate MRR using per-tenant monthly_price from settings, falling back to plan defaults
         plan_defaults = {
             "starter": 999.0,
-            "pro": 3499.0,
+            "pro": 2630.0,
             "enterprise": 9999.0
         }
         total_mrr = 0.0
@@ -802,7 +802,7 @@ async def get_platform_admin_stats(admin_user: dict = Depends(verify_super_admin
             if isinstance(t_cfg, str):
                 try: t_cfg = json.loads(t_cfg)
                 except: t_cfg = {}
-            price = float(t_cfg.get("monthly_price", 0)) if isinstance(t_cfg, dict) and t_cfg.get("monthly_price") else plan_defaults.get((t["plan"] or "pro").lower(), 3499.0)
+            price = float(t_cfg.get("monthly_price", 0)) if isinstance(t_cfg, dict) and t_cfg.get("monthly_price") else plan_defaults.get((t["plan"] or "pro").lower(), 2630.0)
             total_mrr += price
         
     return {
@@ -1082,7 +1082,7 @@ async def activate_tenant_billing(
 
         customer_name = tenant["name"]
         customer_email = admin_contact["email"] if admin_contact else f"{tenant['slug']}@boldlabs.ai"
-        monthly_price = float(cfg.get("monthly_price", 3499.0))
+        monthly_price = float(cfg.get("monthly_price", 2630.0))
         amount_paisa = int(monthly_price * 100)
         
         cust_id = None
@@ -1185,7 +1185,7 @@ async def sync_tenant_billing(tenant_id: str, admin_user: dict = Depends(verify_
             payments = plink_data.get("payments", [])
             for pay in payments:
                 pay_id = pay.get("payment_id") or pay.get("id")
-                pay_amount = float(pay.get("amount", 349900)) / 100.0
+                pay_amount = float(pay.get("amount", 263000)) / 100.0
                 pay_status = pay.get("status", "captured")
                 if pay_id and pay_status in ("captured", "paid"):
                     await conn.execute(

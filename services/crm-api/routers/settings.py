@@ -251,7 +251,7 @@ async def get_tenant_settings(
 
         # Razorpay Subscription & Organization Lifecycle
         "plan": tenant.get("plan") or "pro",
-        "monthly_price": float(tenant_settings.get("monthly_price") or (999.0 if (tenant.get("plan") or "").lower() == "starter" else (9999.0 if (tenant.get("plan") or "").lower() == "enterprise" else 3499.0))),
+        "monthly_price": float(tenant_settings.get("monthly_price") or (999.0 if (tenant.get("plan") or "").lower() == "starter" else (9999.0 if (tenant.get("plan") or "").lower() == "enterprise" else 2630.0))),
         "currency": tenant_settings.get("currency", "INR"),
         "currency_symbol": tenant_settings.get("currency_symbol") or "₹",
         "org_lifecycle_stage": tenant.get("org_lifecycle_stage") or "setup",

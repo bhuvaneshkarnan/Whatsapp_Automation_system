@@ -343,7 +343,7 @@ class PasswordReset(BaseModel):
 
 
 class PaymentReminderRequest(BaseModel):
-    amount: float = 3499.0
+    amount: float = 2630.0
     currency: str = "INR"
     due_date: str = "in 3 days"
     payment_link: Optional[str] = ""

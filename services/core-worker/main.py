@@ -1448,7 +1448,7 @@ class CoreWorker:
                 logger.warn("cross_tenant_sanitized_marketing_copy", tenant_slug=clean_slug)
                 text = f"Hello! How can I assist you with {tenant_name or 'our services'} today?"
 
-            if "3499 per month" in text.lower() or "rs 3499" in text.lower() or "₹3499" in text.lower() or "₹3,499" in text.lower():
+            if any(p in text.lower() for p in ["3499 per month", "rs 3499", "₹3499", "₹3,499", "2630 per month", "rs 2630", "₹2630", "₹2,630", "2499"]):
                 logger.warn("cross_tenant_sanitized_pricing_copy", tenant_slug=clean_slug)
                 text = f"I would be happy to share our pricing details with you. Which of our services are you interested in?"
 

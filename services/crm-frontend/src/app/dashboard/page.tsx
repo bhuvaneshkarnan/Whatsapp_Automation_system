@@ -18302,7 +18302,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           CRM & WhatsApp Suite (Monthly)
                                         </td>
                                         <td className="py-3 px-3 font-bold text-text-primary">
-                                          {settingsForm.currency_symbol || '₹'}{(Number(inv.amount) || 2499).toLocaleString('en-IN')}
+                                          {settingsForm.currency_symbol || '₹'}{(Number(inv.amount) || 2630).toLocaleString('en-IN')}
                                         </td>
                                         <td className="py-3 px-3">
                                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 capitalize">

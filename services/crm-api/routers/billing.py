@@ -60,7 +60,7 @@ async def get_client_billing_invoices(
                     inv_id = rzp_inv.get("id")
                     if not inv_id:
                         continue
-                    amt_val = float(rzp_inv.get("amount", 249900))
+                    amt_val = float(rzp_inv.get("amount", 263000))
                     amt = amt_val / 100.0 if amt_val > 10000 else amt_val
                     inv_status = rzp_inv.get("status", "paid")
                     short_url = rzp_inv.get("short_url") or rzp_inv.get("invoice_pdf") or ""
@@ -105,7 +105,7 @@ async def get_client_billing_invoices(
                 "razorpay_invoice_id": r["razorpay_invoice_id"] or "",
                 "razorpay_payment_id": r["razorpay_payment_id"] or "",
                 "razorpay_subscription_id": r["razorpay_subscription_id"] or "",
-                "amount": float(r["amount"] or 2499.0),
+                "amount": float(r["amount"] or 2630.0),
                 "currency": r["currency"] or "INR",
                 "status": r["status"] or "paid",
                 "invoice_pdf_url": r["invoice_pdf_url"] or "",
@@ -157,7 +157,7 @@ async def initiate_tenant_payment(
             try: cfg = json.loads(cfg)
             except: cfg = {}
 
-        monthly_price = float(cfg.get("monthly_price", 2499.0))
+        monthly_price = float(cfg.get("monthly_price", 2630.0))
         amount_paisa = int(monthly_price * 100)
 
         # Check Razorpay credentials

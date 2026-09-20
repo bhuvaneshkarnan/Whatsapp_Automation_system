@@ -117,7 +117,7 @@ async def handle_razorpay_webhook(
             if not pay_id and plink_entity.get("payments"):
                 pay_id = plink_entity["payments"][0].get("payment_id")
             
-            amount_val = plink_entity.get("amount_paid") or payment_entity.get("amount") or 349900
+            amount_val = plink_entity.get("amount_paid") or payment_entity.get("amount") or 263000
             amount = float(amount_val) / 100.0 if float(amount_val) > 10000 else float(amount_val)
             inv_id = f"inv_{sub_id or tenant_id}_{int(time.time())}"
             pdf_url = plink_entity.get("short_url") or short_url
@@ -276,7 +276,7 @@ async def handle_razorpay_webhook(
             )
 
             inv_id = invoice_entity.get("id") or f"inv_sub_{sub_id}_{int(time.time())}"
-            amount = float(sub_entity.get("plan_id", {}).get("amount", 249900) if isinstance(sub_entity.get("plan_id"), dict) else 2499.0)
+            amount = float(sub_entity.get("plan_id", {}).get("amount", 263000) if isinstance(sub_entity.get("plan_id"), dict) else 2630.0)
             if amount > 10000: amount = amount / 100.0
             
             pay_id = payment_entity.get("id")
@@ -339,7 +339,7 @@ async def handle_razorpay_webhook(
         elif event_type == "invoice.paid":
             inv_id = invoice_entity.get("id")
             if inv_id:
-                amount = float(invoice_entity.get("amount", 349900)) / 100.0
+                amount = float(invoice_entity.get("amount", 263000)) / 100.0
                 pay_id = invoice_entity.get("payment_id")
                 pdf_url = invoice_entity.get("short_url") or invoice_entity.get("invoice_pdf")
                 await conn.execute(

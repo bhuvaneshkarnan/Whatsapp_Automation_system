@@ -24,7 +24,7 @@ logger = structlog.get_logger("razorpay-client")
 
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
-RAZORPAY_PLAN_ID = os.getenv("RAZORPAY_PLAN_ID", "plan_TeICRz2cZId1i2")
+RAZORPAY_PLAN_ID = os.getenv("RAZORPAY_PLAN_ID", "plan_TeIaa7OueqVKIK")
 RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET")
 
 def validate_razorpay_config():
@@ -150,7 +150,7 @@ async def fetch_invoices_for_subscription(subscription_id: str) -> List[Dict[str
         return data.get("items", [])
 
 async def create_payment_link(
-    amount: int = 249900,  # in paise: 249900 = ₹2,499
+    amount: int = 263000,  # in paise: 263000 = ₹2,630 (net ~₹2,500 after Razorpay fees)
     currency: str = "INR",
     customer_name: Optional[str] = None,
     customer_email: Optional[str] = None,
