@@ -46,10 +46,10 @@ async def init_google_oauth(
     tenant_id: str = Depends(get_tenant_id)
 ):
     """Save Google Client ID & Secret, and return the Google OAuth authorization URL."""
-    c_id = payload.client_id.strip()
-    c_sec = payload.client_secret.strip()
+    c_id = (payload.client_id or "").strip() or os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    c_sec = (payload.client_secret or "").strip() or os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
     if not c_id or not c_sec:
-        raise HTTPException(400, "Google Client ID and Client Secret are required")
+        raise HTTPException(400, "Google Client ID and Client Secret are required. Please configure master GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env or enter them manually.")
 
     effective_tenant_id = tenant_id
 
