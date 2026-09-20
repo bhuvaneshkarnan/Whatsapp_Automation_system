@@ -4449,13 +4449,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
     if (activeNav === 'settings' && settingsTab === 'whatsapp') {
       loadWhatsAppHealth();
+      setLoadingAiUsage(true);
+      crm.getAIUsageStats().then(data => setAiUsageData(data)).catch(() => {}).finally(() => setLoadingAiUsage(false));
     }
     if (activeNav === 'settings' && settingsTab === 'billing') {
       loadInvoices();
-    }
-    if (activeNav === 'settings' && settingsTab === 'ai_usage') {
-      setLoadingAiUsage(true);
-      crm.getAIUsageStats().then(data => setAiUsageData(data)).catch(() => {}).finally(() => setLoadingAiUsage(false));
     }
   }, [activeNav, settingsTab, isAuthChecking, user]);
 
@@ -17924,11 +17922,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     return [
                       { id: 'billing', label: 'Subscription & Payments', icon: CreditCard },
                       { id: 'branding', label: isReviewOnly ? 'Business & Google Review Profile' : 'Profile & Branding', icon: Building2 },
-                      { id: 'whatsapp', label: 'WhatsApp & Meta API', icon: MessageSquare },
+                      { id: 'whatsapp', label: 'WhatsApp & AI Performance', icon: MessageSquare },
                       ...(!isReviewOnly ? [{ id: 'calendar', label: 'Google Calendar & Scheduling', icon: CalendarDays }] : []),
                       { id: 'notifications', label: isReviewOnly ? 'Review Notification Alerts' : 'Alert Channels', icon: Bell },
                       { id: 'localization', label: 'Regional & Currency', icon: Globe },
-                      { id: 'ai_usage', label: 'AI Usage & Speed', icon: Zap },
                       ...(!isReviewOnly ? [{ id: 'terminology', label: 'CRM Terminology', icon: Sliders }] : []),
                       { id: 'account', label: 'Account & Session', icon: LogOut },
                     ];
@@ -18841,111 +18838,79 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         )}
                       </div>
 
-                      {/* Webhook Configuration Box */}
-                      <div className="bg-surface p-5 rounded-lg border border-border space-y-4">
-                        <div className="flex items-center gap-2 pb-2 border-b border-border">
-                          <Radio className="w-4 h-4 text-accent" />
-                          <h4 className="font-bold text-sm text-text-primary">Meta Developer Webhook Configuration</h4>
-                        </div>
-                        <p className="text-xs text-text-muted">
-                          To receive inbound WhatsApp messages, configure this Callback URL and Verify Token in your Meta Developer App.
-                        </p>
-
-                        <div className="space-y-3">
-                          {/* Callback URL */}
+                      {/* Automated AI Usage & Speed Analytics */}
+                      <div className="bg-surface p-5 rounded-lg border border-border space-y-5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
                           <div>
-                            <label className="block text-xs font-semibold text-text-secondary mb-1">Callback URL</label>
                             <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                readOnly
-                                value={whatsappHealth?.webhook_url || settingsForm.webhook_url || ''}
-                                className="flex-1 px-3 py-2 bg-surface-subtle border border-border rounded-md text-xs font-mono text-text-primary select-all cursor-text focus:outline-hidden"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const url = whatsappHealth?.webhook_url || settingsForm.webhook_url || '';
-                                  if (url) {
-                                    navigator.clipboard.writeText(url);
-                                    setWebhookCopied(true);
-                                    setTimeout(() => setWebhookCopied(false), 2000);
-                                  }
-                                }}
-                                className="px-3 py-2 bg-surface-subtle hover:bg-surface border border-border text-text-primary text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-                              >
-                                {webhookCopied ? (
-                                  <>
-                                    <Check className="w-3.5 h-3.5 text-emerald-500" />
-                                    <span className="text-emerald-500 font-bold">Copied!</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="w-3.5 h-3.5 text-text-muted" />
-                                    <span>Copy URL</span>
-                                  </>
-                                )}
-                              </button>
+                              <Zap className="w-4 h-4 text-amber-500" />
+                              <h4 className="font-bold text-sm text-text-primary">Automated AI Usage & Performance</h4>
                             </div>
-                          </div>
-
-                          {/* Verify Token */}
-                          <div>
-                            <label className="block text-xs font-semibold text-text-secondary mb-1">Verify Token</label>
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                readOnly
-                                value={whatsappHealth?.verify_token || settingsForm.verify_token || 'mindbody_crm_2024'}
-                                className="flex-1 px-3 py-2 bg-surface-subtle border border-border rounded-md text-xs font-mono text-text-primary select-all cursor-text focus:outline-hidden"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const tok = whatsappHealth?.verify_token || settingsForm.verify_token || 'mindbody_crm_2024';
-                                  if (tok) {
-                                    navigator.clipboard.writeText(tok);
-                                    setVerifyTokenCopied(true);
-                                    setTimeout(() => setVerifyTokenCopied(false), 2000);
-                                  }
-                                }}
-                                className="px-3 py-2 bg-surface-subtle hover:bg-surface border border-border text-text-primary text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-                              >
-                                {verifyTokenCopied ? (
-                                  <>
-                                    <Check className="w-3.5 h-3.5 text-emerald-500" />
-                                    <span className="text-emerald-500 font-bold">Copied!</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="w-3.5 h-3.5 text-text-muted" />
-                                    <span>Copy Token</span>
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Subscribed Fields Badge */}
-                          <div className="pt-1 flex items-center gap-2 text-xs text-text-muted">
-                            <span className="font-semibold text-text-secondary">Required Webhook Field:</span>
-                            <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-surface-subtle border border-border font-bold text-text-primary">
-                              messages (v21.0)
-                            </span>
+                            <p className="text-xs text-text-muted mt-0.5">
+                              Track your intelligent agent reply volume and response latency over the last 30 days.
+                            </p>
                           </div>
                         </div>
 
-                        {/* Step-by-Step Instructions */}
-                        <div className="p-3.5 bg-surface-subtle/50 rounded-md border border-border text-xs space-y-2">
-                          <h5 className="font-bold text-text-primary">Meta Portal Setup Steps:</h5>
-                          <ol className="list-decimal list-inside space-y-1 text-text-secondary text-[11px]">
-                            <li>Open <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" className="text-accent underline font-semibold">developers.facebook.com</a> and select your WhatsApp App.</li>
-                            <li>Go to <strong>WhatsApp &rarr; Configuration</strong> in the left sidebar.</li>
-                            <li>Click <strong>Edit</strong> in the Webhook section, paste the Callback URL and Verify Token above.</li>
-                            <li>Click <strong>Verify and Save</strong>.</li>
-                            <li>Under <strong>Webhook fields</strong>, click <strong>Manage</strong> and check <strong>messages</strong>.</li>
-                          </ol>
-                        </div>
+                        {loadingAiUsage ? (
+                          <div className="p-8 text-center text-xs text-text-muted flex items-center justify-center gap-2">
+                            <RefreshCw className="w-4 h-4 animate-spin text-accent" />
+                            <span>Loading AI usage statistics...</span>
+                          </div>
+                        ) : aiUsageData ? (
+                          <div className="space-y-5">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="p-4 border border-border bg-surface-subtle/70 rounded-lg flex items-center justify-between shadow-2xs">
+                                <div>
+                                  <p className="text-xs font-medium text-text-secondary">Automated Replies (Last 30 Days)</p>
+                                  <p className="text-2xl font-bold text-text-primary mt-1 font-mono">{aiUsageData.total_replies_30d?.toLocaleString() || 0}</p>
+                                </div>
+                                <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent">
+                                  <MessageSquare className="w-5 h-5" />
+                                </div>
+                              </div>
+                              
+                              <div className="p-4 border border-border bg-surface-subtle/70 rounded-lg flex items-center justify-between shadow-2xs">
+                                <div>
+                                  <p className="text-xs font-medium text-text-secondary">Average Response Speed</p>
+                                  <p className="text-2xl font-bold text-text-primary mt-1 font-mono">{aiUsageData.avg_speed_ms ? `${(aiUsageData.avg_speed_ms / 1000).toFixed(1)}s` : 'N/A'}</p>
+                                </div>
+                                <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600">
+                                  <Zap className="w-5 h-5" />
+                                </div>
+                              </div>
+                            </div>
+
+                            {aiUsageData.daily_stats && aiUsageData.daily_stats.length > 0 && (
+                              <div className="p-4 border border-border bg-surface-subtle/40 rounded-lg shadow-2xs">
+                                <div className="flex items-center justify-between mb-4">
+                                  <h5 className="text-xs font-bold text-text-primary">Daily Automated Reply Volume</h5>
+                                  <span className="text-[11px] text-text-muted">Last 30 Days</span>
+                                </div>
+                                <div className="h-44 flex items-end gap-2 max-w-full overflow-x-auto pb-6">
+                                  {aiUsageData.daily_stats.map((stat: any, i: number) => {
+                                    const maxCount = Math.max(...aiUsageData.daily_stats.map((s: any) => s.count), 1);
+                                    const heightPercent = (stat.count / maxCount) * 100;
+                                    return (
+                                      <div key={i} className="flex flex-col items-center gap-1 flex-1 min-w-[24px]">
+                                        <div 
+                                          className="w-full bg-accent rounded-t-sm transition-all hover:bg-accent-hover" 
+                                          style={{ height: `${heightPercent}%`, minHeight: '4px' }}
+                                          title={`${stat.date}: ${stat.count} replies`}
+                                        />
+                                        <span className="text-[9px] text-text-muted rotate-45 origin-left truncate mt-1">{stat.date.split('-').slice(1).join('/')}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="p-6 text-center text-xs text-text-muted bg-surface-subtle/40 rounded-lg border border-border">
+                            No automated reply data recorded yet.
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -20418,72 +20383,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                   {/* ── 5. TEAM & ROLES SUBTAB ─────────────────────────────────── */}
                   
-                {settingsTab === 'ai_usage' && (
-                  <div className="space-y-6 max-w-4xl">
-                    <div>
-                      <h4 className="text-sm font-semibold text-text-primary">Automated Usage & Performance Analytics</h4>
-                      <p className="text-xs text-text-muted mt-0.5">Track your intelligent agent reply volume and response latency over the last 30 days.</p>
-                    </div>
-
-                    {loadingAiUsage ? (
-                      <p className="text-xs text-text-muted py-8 text-center">Loading usage statistics...</p>
-                    ) : aiUsageData ? (
-                      <div className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="p-4 border border-border bg-surface rounded-lg flex items-center justify-between shadow-2xs">
-                            <div>
-                              <p className="text-xs font-medium text-text-secondary">Automated Replies (Last 30 Days)</p>
-                              <p className="text-2xl font-semibold text-text-primary mt-1">{aiUsageData.total_replies_30d}</p>
-                            </div>
-                            <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent">
-                              <MessageSquare className="w-5 h-5" />
-                            </div>
-                          </div>
-                          
-                          <div className="p-4 border border-border bg-surface rounded-lg flex items-center justify-between shadow-2xs">
-                            <div>
-                              <p className="text-xs font-medium text-text-secondary">Average Response Speed</p>
-                              <p className="text-2xl font-semibold text-text-primary mt-1">{aiUsageData.avg_speed_ms ? `${(aiUsageData.avg_speed_ms / 1000).toFixed(1)}s` : 'N/A'}</p>
-                            </div>
-                            <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600">
-                              <Zap className="w-5 h-5" />
-                            </div>
-                          </div>
-                        </div>
-
-                        {aiUsageData.daily_stats && aiUsageData.daily_stats.length > 0 && (
-                          <div className="p-4 border border-border bg-surface rounded-lg shadow-2xs">
-                            <h5 className="text-xs font-semibold text-text-primary mb-4">Daily Activity</h5>
-                            <div className="h-48 flex items-end gap-2 max-w-full overflow-x-auto pb-6">
-                              {aiUsageData.daily_stats.map((stat: any, i: number) => {
-                                const maxCount = Math.max(...aiUsageData.daily_stats.map((s: any) => s.count), 1);
-                                const heightPercent = (stat.count / maxCount) * 100;
-                                return (
-                                  <div key={i} className="flex flex-col items-center gap-1 flex-1 min-w-[24px]">
-                                    <div 
-                                      className="w-full bg-accent rounded-t-sm transition-all hover:bg-accent-hover" 
-                                      style={{ height: `${heightPercent}%`, minHeight: '4px' }}
-                                      title={`${stat.date}: ${stat.count} replies`}
-                                    />
-                                    <span className="text-[9px] text-text-muted rotate-45 origin-left truncate mt-1">{stat.date.split('-').slice(1).join('/')}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-text-muted py-8 text-center">Failed to load usage statistics.</p>
-                    )}
-                  </div>
-                )}
-
                 {settingsTab === 'team' && renderTeamManagementView()}
 
-
                   {/* Save Button */}
-                  {settingsTab !== 'account' && settingsTab !== 'team' && settingsTab !== 'ai_usage' && (
+                  {settingsTab !== 'account' && settingsTab !== 'team' && settingsTab !== 'whatsapp' && (
                     <div className="pt-2 flex items-center gap-3">
                       <button
                         type="submit"
