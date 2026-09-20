@@ -6797,8 +6797,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                 </div>
               </form>
             ) : (
-            {/* Modal Form */}
-            <form onSubmit={handleCreateClient} className="p-4 sm:p-5 overflow-y-auto safari-scroll space-y-3.5 flex-1">
+              <form onSubmit={handleCreateClient} className="p-4 sm:p-5 overflow-y-auto safari-scroll space-y-3.5 flex-1">
               {formError && (
                 <div className="p-3 bg-status-error-bg border border-status-error-border text-status-error text-xs rounded-sm font-medium">
                   {formError}
