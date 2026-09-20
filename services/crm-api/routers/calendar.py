@@ -81,7 +81,7 @@ async def init_google_oauth(
                 g_id, effective_tenant_id, json.dumps(g_data)
             )
 
-    scopes = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile openid"
+    scopes = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile openid"
     src = (payload.source or "dashboard").strip()
 
     req_origin = ""
@@ -351,7 +351,6 @@ async def get_google_calendar_shareable_link(
     scopes = (
         "https://www.googleapis.com/auth/calendar "
         "https://www.googleapis.com/auth/calendar.events "
-        "https://www.googleapis.com/auth/gmail.send "
         "https://www.googleapis.com/auth/tasks "
         "https://www.googleapis.com/auth/userinfo.email "
         "https://www.googleapis.com/auth/userinfo.profile "
