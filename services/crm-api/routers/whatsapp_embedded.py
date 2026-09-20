@@ -15,14 +15,14 @@ logger = structlog.get_logger("crm-api-whatsapp-embedded")
 
 META_APP_ID = os.getenv("META_APP_ID", "966476346452663").strip()
 META_APP_SECRET = os.getenv("META_APP_SECRET", "41f3800785777866e283d53195b7e5b6").strip()
-META_CONFIG_ID = os.getenv("META_CONFIG_ID", "").strip()
+META_CONFIG_ID = os.getenv("META_CONFIG_ID", "2164202260830085").strip()
 META_GRAPH_API_VERSION = os.getenv("META_GRAPH_API_VERSION", "v19.0").strip()
 
 
 class WhatsAppEmbeddedSignupPayload(BaseModel):
     code: str
-    waba_id: str
-    phone_number_id: str
+    waba_id: Optional[str] = ""
+    phone_number_id: Optional[str] = ""
     target_tenant_id: Optional[str] = None
 
 
@@ -37,7 +37,7 @@ async def get_whatsapp_oauth_config():
     }
 
 
-async def execute_embedded_signup(conn, tenant_id: str, code: str, waba_id: str, phone_number_id: str) -> dict:
+async def execute_embedded_signup(conn, tenant_id: str, code: str, waba_id: Optional[str] = "", phone_number_id: Optional[str] = "") -> dict:
     """
     Exchanges Meta authorization code for an access token, subscribes webhook to WABA,
     registers the phone number on WhatsApp Cloud API, and saves credentials in PostgreSQL.
@@ -46,10 +46,10 @@ async def execute_embedded_signup(conn, tenant_id: str, code: str, waba_id: str,
     clean_waba = (waba_id or "").strip()
     clean_phone_id = (phone_number_id or "").strip()
 
-    if not clean_code or not clean_waba or not clean_phone_id:
+    if not clean_code:
         raise HTTPException(
             status_code=400,
-            detail="Missing required parameters from Meta Embedded Signup (code, waba_id, or phone_number_id)."
+            detail="Missing required authorization code from Meta Embedded Signup."
         )
 
     # 1. Exchange authorization code for system/access token
@@ -81,6 +81,45 @@ async def execute_embedded_signup(conn, tenant_id: str, code: str, waba_id: str,
     access_token = token_data.get("access_token")
     if not access_token:
         raise HTTPException(status_code=400, detail="Meta response did not contain an access_token.")
+
+    # 1b. If waba_id or phone_number_id is missing, auto-discover from Meta token
+    if not clean_waba or not clean_phone_id:
+        async with httpx.AsyncClient() as client:
+            try:
+                debug_url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/debug_token"
+                d_resp = await client.get(
+                    debug_url,
+                    params={"input_token": access_token, "access_token": f"{META_APP_ID}|{META_APP_SECRET}"},
+                    timeout=10.0
+                )
+                if d_resp.status_code == 200:
+                    scopes = d_resp.json().get("data", {}).get("granular_scopes", [])
+                    for s in scopes:
+                        if s.get("scope") in ("whatsapp_business_management", "whatsapp_business_messaging"):
+                            target_ids = s.get("target_ids", [])
+                            if target_ids and not clean_waba:
+                                clean_waba = str(target_ids[0])
+            except Exception as ex_waba:
+                logger.warning("meta_autodiscover_waba_warn", error=str(ex_waba))
+
+        if clean_waba and not clean_phone_id:
+            async with httpx.AsyncClient() as client:
+                try:
+                    p_url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{clean_waba}/phone_numbers"
+                    p_resp = await client.get(p_url, headers={"Authorization": f"Bearer {access_token}"}, timeout=10.0)
+                    if p_resp.status_code == 200:
+                        numbers = p_resp.json().get("data", [])
+                        if numbers:
+                            clean_phone_id = str(numbers[0].get("id", ""))
+                except Exception as ex_phone:
+                    logger.warning("meta_autodiscover_phone_warn", error=str(ex_phone))
+
+    if not clean_waba or not clean_phone_id:
+        logger.warning("meta_signup_missing_ids", waba=clean_waba, phone=clean_phone_id)
+        raise HTTPException(
+            status_code=400,
+            detail="Could not resolve WhatsApp Business Account (WABA) or Phone Number ID from Meta. Please ensure your WhatsApp Business number is set up in your Meta Business Manager."
+        )
 
     # 2. Subscribe Boldlabs Webhook to client's WABA
     # Allows our platform to receive inbound webhook messages from this WhatsApp account

@@ -4459,6 +4459,35 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }, [activeNav, settingsTab, isAuthChecking, user]);
 
+  // ── Handle Meta-hosted WhatsApp Embedded Signup Redirect Callback ───────────
+  useEffect(() => {
+    if (typeof window === 'undefined' || isAuthChecking || !user) return;
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const waCode = urlParams.get('code');
+      if (waCode) {
+        const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
+        window.history.replaceState(null, '', cleanUrl);
+
+        crm.submitWhatsAppEmbeddedSignup({
+          code: waCode,
+          waba_id: urlParams.get('waba_id') || '',
+          phone_number_id: urlParams.get('phone_number_id') || '',
+        })
+          .then(async () => {
+            await loadWhatsAppHealth(true);
+            await loadSettings();
+            loadOnboardingStatus();
+            setWhatsappCredsSuccess('WhatsApp connected successfully via Meta!');
+          })
+          .catch((err) => {
+            console.error('Failed to complete WhatsApp signup redirect:', err);
+            setWhatsappCredsError(err instanceof Error ? err.message : 'WhatsApp connection failed.');
+          });
+      }
+    } catch {}
+  }, [isAuthChecking, user]);
+
   useEffect(() => {
     if (isAuthChecking || !user) return;
     if (activeNav === 'overview') {

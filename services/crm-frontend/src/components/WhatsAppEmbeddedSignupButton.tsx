@@ -42,8 +42,8 @@ export default function WhatsAppEmbeddedSignupButton({
       })
       .catch((err) => {
         console.warn('Failed to load WhatsApp OAuth config from server:', err);
-        // Fallback default Boldlabs Master Meta App ID
-        const fallback = { app_id: '966476346452663', version: 'v19.0' };
+        // Fallback default Boldlabs Master Meta App ID & Config ID
+        const fallback = { app_id: '966476346452663', config_id: '2164202260830085', version: 'v19.0' };
         setMetaConfig(fallback);
         initFacebookSdk(fallback.app_id, fallback.version);
       });
@@ -115,19 +115,19 @@ export default function WhatsAppEmbeddedSignupButton({
     setLoading(true);
     capturedEventData.current = {};
 
+    const activeConfigId = metaConfig?.config_id || '2164202260830085';
+
     const loginOptions: Record<string, any> = {
-      scope: 'whatsapp_business_management,whatsapp_business_messaging',
+      config_id: activeConfigId,
       response_type: 'code',
       override_default_response_type: true,
       extras: {
         feature: 'whatsapp_embedded_signup',
+        featureType: 'whatsapp_business_app_onboarding',
+        sessionInfoVersion: '3',
         version: 2,
       },
     };
-
-    if (metaConfig?.config_id) {
-      loginOptions.config_id = metaConfig.config_id;
-    }
 
     window.FB.login(async (response: any) => {
       if (response?.authResponse && response.authResponse.code) {
