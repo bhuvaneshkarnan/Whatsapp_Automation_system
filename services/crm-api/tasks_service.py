@@ -50,8 +50,8 @@ async def sync_completed_google_tasks_for_tenant(conn, tenant_id: str) -> dict:
         try: d = json.loads(d)
         except Exception: d = {}
     r_token = d.get("refresh_token")
-    c_id = d.get("client_id")
-    c_secret = d.get("client_secret")
+    c_id = (d.get("client_id") or "").strip() or os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    c_secret = (d.get("client_secret") or "").strip() or os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
     if not (r_token and c_id and c_secret):
         return {"status": "skipped", "reason": "incomplete_credentials", "cleared_count": 0}
 

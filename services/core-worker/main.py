@@ -867,7 +867,13 @@ class CoreWorker:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("status_consume_loop_error", error=str(e))
+                if "NOGROUP" in str(e):
+                    try:
+                        await self.redis.xgroup_create(STATUS_STREAM_KEY, STATUS_CONSUMER_GROUP, id="$", mkstream=True)
+                    except Exception:
+                        pass
+                else:
+                    logger.error("status_consume_loop_error", error=str(e))
                 await asyncio.sleep(2)
 
     async def _consume_loop(self):
@@ -916,7 +922,13 @@ class CoreWorker:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("consume_loop_error", error=str(e))
+                if "NOGROUP" in str(e):
+                    try:
+                        await self.redis.xgroup_create(STREAM_KEY, CONSUMER_GROUP, id="$", mkstream=True)
+                    except Exception:
+                        pass
+                else:
+                    logger.error("consume_loop_error", error=str(e))
                 await asyncio.sleep(2)
 
     async def _handle_message(self, stream_msg_id: str, fields: dict):
