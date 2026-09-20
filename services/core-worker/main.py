@@ -974,14 +974,33 @@ class CoreWorker:
             # ── 3. WhatsApp Read Receipts (2 Blue Ticks) ──────────────────────
             creds = await self._get_tenant_whatsapp_creds(tenant_id)
             tenant_info = await self.db_pool.fetchrow(
-                "SELECT is_active, org_lifecycle_stage, subscription_status FROM tenants WHERE id = $1::uuid", tenant_id
+                "SELECT is_active, org_lifecycle_stage, subscription_status, "
+                "payment_failed_at, grace_period_until FROM tenants WHERE id = $1::uuid", tenant_id
             )
             is_active = tenant_info["is_active"] if tenant_info else True
             stage = (tenant_info.get("org_lifecycle_stage") or "setup") if tenant_info else "setup"
             sub_status = (tenant_info.get("subscription_status") or "active") if tenant_info else "active"
+
+            # Grace period: payment_failed within 3 days → AI still runs (client has time to fix payment)
+            _grace_until = tenant_info.get("grace_period_until") if tenant_info else None
+            _now_utc = datetime.datetime.now(timezone.utc)
+            _in_grace = (
+                sub_status == "payment_failed"
+                and _grace_until is not None
+                and _grace_until.replace(tzinfo=timezone.utc) > _now_utc
+                if _grace_until and getattr(_grace_until, "tzinfo", None) is None
+                else (
+                    sub_status == "payment_failed"
+                    and _grace_until is not None
+                    and _grace_until > _now_utc
+                )
+            )
             sub_delinquent = (
-                (stage in ("ready_to_activate", "billing_active") and sub_status != "active")
-                or (sub_status in ("payment_failed", "paused", "cancelled"))
+                not _in_grace
+                and (
+                    (stage in ("ready_to_activate", "billing_active") and sub_status != "active")
+                    or (sub_status in ("payment_failed", "paused", "cancelled"))
+                )
             )
 
             # Only auto-mark as read (blue ticks) and show native "typing..." indicator if AI is handling this chat.
@@ -4719,6 +4738,7 @@ class CoreWorker:
                 await self._process_daily_digest()
                 await self._process_scheduled_jobs()
                 await self._process_subscription_reminders()
+                await self._enforce_grace_period_expiry()
                 await self._process_scheduled_campaigns()
                 await self._process_incomplete_conversation_followups()
             except asyncio.CancelledError:
@@ -4770,6 +4790,44 @@ class CoreWorker:
                 await self._dispatch_platform_subscription_reminder(str(r["id"]), 4, r.get("razorpay_short_url") or "")
         except Exception as e:
             logger.error("subscription_reminders_check_error", error=str(e))
+
+    async def _enforce_grace_period_expiry(self):
+        """
+        Periodic enforcer: suspends tenants whose 3-day grace period has expired.
+        Sets is_active = false to stop all AI outbound (reminders, follow-ups, replies).
+        Only fires for tenants with subscription_status = 'payment_failed' AND grace_period_until < NOW().
+        """
+        try:
+            expired = await self.db_pool.fetch(
+                """
+                SELECT id, name, slug
+                FROM tenants
+                WHERE subscription_status = 'payment_failed'
+                  AND grace_period_until IS NOT NULL
+                  AND grace_period_until < NOW()
+                  AND is_active = true
+                """
+            )
+            for t in expired:
+                tid = str(t["id"])
+                await self.db_pool.execute(
+                    """
+                    UPDATE tenants
+                    SET is_active = false,
+                        last_payment_status = 'grace_expired',
+                        updated_at = now()
+                    WHERE id = $1::uuid
+                    """,
+                    tid
+                )
+                logger.warning(
+                    "tenant_grace_expired_suspended",
+                    tenant_id=tid,
+                    slug=t.get("slug"),
+                    name=t.get("name")
+                )
+        except Exception as e:
+            logger.error("grace_period_expiry_enforcer_error", error=str(e))
 
     async def _dispatch_platform_subscription_reminder(self, tenant_id: str, reminder_stage: int, payment_link: str = ""):
         """Dispatches WhatsApp reminder from platform to tenant admin."""
@@ -4928,6 +4986,13 @@ class CoreWorker:
                    FROM bookings b
                    JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
                    JOIN tenants t ON t.id = b.tenant_id
+                       AND t.is_active = true
+                       AND (
+                           t.subscription_status = 'active'
+                           OR (t.subscription_status = 'payment_failed'
+                               AND t.grace_period_until IS NOT NULL
+                               AND t.grace_period_until > NOW())
+                       )
                    JOIN tenant_credentials tc ON tc.tenant_id = b.tenant_id AND tc.provider = 'whatsapp'
                    WHERE b.status = 'confirmed'
                      AND b.reminder_sent_at IS NULL
@@ -5539,6 +5604,12 @@ class CoreWorker:
                 FROM conversations c
                 JOIN contacts ct ON ct.id = c.contact_id AND ct.tenant_id = c.tenant_id
                 JOIN tenants t ON t.id = c.tenant_id AND t.is_active = true
+                    AND (
+                        t.subscription_status = 'active'
+                        OR (t.subscription_status = 'payment_failed'
+                            AND t.grace_period_until IS NOT NULL
+                            AND t.grace_period_until > NOW())
+                    )
                 JOIN tenant_credentials tc ON tc.tenant_id = c.tenant_id AND tc.provider = 'whatsapp' AND tc.is_active = true
                 WHERE c.status IN ('bot', 'active')
                   AND c.last_message_at <= (NOW() - INTERVAL '2 hours')

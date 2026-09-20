@@ -132,6 +132,8 @@ async def handle_razorpay_webhook(
                     last_payment_status = 'success',
                     reminder_stage = 0,
                     is_active = true,
+                    payment_failed_at = NULL,
+                    grace_period_until = NULL,
                     updated_at = now()
                 WHERE id = $1::uuid
                 """,
@@ -269,6 +271,8 @@ async def handle_razorpay_webhook(
                     last_payment_status = 'success',
                     reminder_stage = 0,
                     is_active = true,
+                    payment_failed_at = NULL,
+                    grace_period_until = NULL,
                     updated_at = now()
                 WHERE id = $2::uuid
                 """,
@@ -312,17 +316,35 @@ async def handle_razorpay_webhook(
 
         elif event_type in ("subscription.halted", "subscription.cancelled"):
             final_status = "cancelled" if event_type == "subscription.cancelled" else "paused"
-            await conn.execute(
-                """
-                UPDATE tenants
-                SET subscription_status = $1,
-                    last_payment_status = $2,
-                    token_invalidated_at = now(),
-                    updated_at = now()
-                WHERE id = $3::uuid
-                """,
-                final_status, event_type, tenant_id
-            )
+            if event_type == "subscription.halted":
+                # Razorpay halts after exhausting all retries. Grant 3-day grace from first failure date.
+                await conn.execute(
+                    """
+                    UPDATE tenants
+                    SET subscription_status = $1,
+                        last_payment_status = $2,
+                        payment_failed_at = COALESCE(payment_failed_at, now()),
+                        grace_period_until = COALESCE(payment_failed_at, now()) + INTERVAL '3 days',
+                        token_invalidated_at = now(),
+                        updated_at = now()
+                    WHERE id = $3::uuid
+                    """,
+                    final_status, event_type, tenant_id
+                )
+                logger.warning("subscription_halted_grace_period", tenant_id=tenant_id)
+            else:
+                # Cancelled: immediate, no grace
+                await conn.execute(
+                    """
+                    UPDATE tenants
+                    SET subscription_status = $1,
+                        last_payment_status = $2,
+                        token_invalidated_at = now(),
+                        updated_at = now()
+                    WHERE id = $3::uuid
+                    """,
+                    final_status, event_type, tenant_id
+                )
             background_tasks.add_task(
                 dispatch_push_notification,
                 tenant_id,
@@ -330,11 +352,41 @@ async def handle_razorpay_webhook(
                 short_url
             )
 
+
         elif event_type == "payment.failed":
+            # Set grace period on FIRST failure (COALESCE preserves original failure time on retries)
             await conn.execute(
-                "UPDATE tenants SET last_payment_status = 'failed', updated_at = now() WHERE id = $1::uuid",
+                """
+                UPDATE tenants
+                SET subscription_status = 'payment_failed',
+                    last_payment_status = 'failed',
+                    payment_failed_at = COALESCE(payment_failed_at, now()),
+                    grace_period_until = COALESCE(payment_failed_at, now()) + INTERVAL '3 days',
+                    updated_at = now()
+                WHERE id = $1::uuid
+                """,
                 tenant_id
             )
+            logger.warning("payment_failed_grace_period_started", tenant_id=tenant_id, grace_days=3)
+
+            # Notify tenant admin via WhatsApp + push
+            try:
+                t_cfg = safe_json_loads(tenant.get("settings"))
+                admin_phone = t_cfg.get("admin_whatsapp_number", "")
+                payment_link = short_url or t_cfg.get("payment_url", "")
+                if admin_phone:
+                    clean_phone = "".join(filter(str.isdigit, admin_phone))
+                    if clean_phone:
+                        wa_msg = (
+                            f"Payment Alert: Your monthly subscription payment of Rs.2,630 has failed. "
+                            f"Your workspace will remain fully active for 3 more days (grace period). "
+                            f"Please retry your payment now to avoid interruption"
+                            + (f": {payment_link}" if payment_link else ".")
+                        )
+                        await dispatch_whatsapp_message(tenant_id, clean_phone, text=wa_msg)
+            except Exception as pf_err:
+                logger.warning("payment_failed_notification_error", tenant_id=tenant_id, error=str(pf_err))
+            background_tasks.add_task(dispatch_push_notification, tenant_id, 2, short_url)
 
         elif event_type == "invoice.paid":
             inv_id = invoice_entity.get("id")
@@ -354,7 +406,10 @@ async def handle_razorpay_webhook(
                     tenant_id, inv_id, pay_id, sub_id, amount, pdf_url
                 )
                 await conn.execute(
-                    "UPDATE tenants SET subscription_status = 'active', org_lifecycle_stage = 'billing_active', last_payment_status = 'success', updated_at = now() WHERE id = $1::uuid",
+                    """UPDATE tenants SET subscription_status = 'active', org_lifecycle_stage = 'billing_active',
+                       last_payment_status = 'success', is_active = true,
+                       payment_failed_at = NULL, grace_period_until = NULL,
+                       updated_at = now() WHERE id = $1::uuid""",
                     tenant_id
                 )
 
