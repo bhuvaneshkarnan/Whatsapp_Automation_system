@@ -25,6 +25,8 @@ When asked to "optimize" or "refactor" the codebase, follow these rules:
 3. **Safety First:** Ensure imports are correctly patched in `main.py` when a chunk is extracted, so the live API never breaks during the transition.
 
 ## Known Variables
+- Main Domain: `crm.goboldlabs.com` (Primary production domain)
+- Secondary / Demo Domain: `ai.bizpipe.in`
 - Server IP: `168.138.172.197`
 - Deployment: Docker Compose (`backend-monolith`, `postgres`, `redis`, `nginx`).
 - Connection Pool: `max_size=20`, matches `docker-compose.yml` DB limit of 50.
