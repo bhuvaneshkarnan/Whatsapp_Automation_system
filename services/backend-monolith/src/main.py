@@ -65,6 +65,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+try:
+    from crm_api.services.alert_service import GlobalErrorAlertMiddleware, init_global_error_traps
+    app.add_middleware(GlobalErrorAlertMiddleware)
+    init_global_error_traps(app)
+except Exception as _al_err:
+    logger.warning("failed_to_attach_alert_traps", error=str(_al_err))
+
 app.mount("/api/v1/crm", crm_app)
 app.mount("/api/v1/marketing", crm_app)
 app.mount("/api/v1/auth", auth_app)
@@ -75,6 +82,11 @@ app.mount("/api/v1/worker", worker_app)
 @app.on_event("startup")
 async def startup():
     global db_pool
+    try:
+        from crm_api.services.alert_service import setup_asyncio_exception_handler
+        setup_asyncio_exception_handler()
+    except Exception:
+        pass
     logger.info("monolith_startup", message="Initializing shared database connection pool")
     for attempt in range(1, 10):
         try:

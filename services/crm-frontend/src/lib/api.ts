@@ -889,6 +889,14 @@ export const crm = {
     );
   },
 
+  getOnboardingStatus: (targetTenantId?: string) => {
+    const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
+    return request<TenantOnboardingStatus>(
+      `/api/v1/crm/onboarding/status${qs}`,
+      targetTenantId ? { headers: { 'X-Tenant-ID': targetTenantId } } : undefined
+    );
+  },
+
   // Customer Smart Reviews & GMB Feedback
   submitPublicReview: (data: {
     tenant_slug: string;
@@ -1430,10 +1438,28 @@ export interface WhatsAppHealthStatus {
 export interface WhatsAppCredentialsUpdate {
   phone_number_id: string;
   waba_id: string;
-  access_token: string;
+  access_token?: string;
   app_secret?: string;
   verify_token?: string;
   target_tenant_id?: string;
+}
+
+export interface OnboardingStep {
+  id: 'whatsapp' | 'calendar' | 'ai_persona' | 'test_ping';
+  title: string;
+  description: string;
+  is_completed: boolean;
+  action_type: 'modal' | 'tab';
+  action_target: string;
+  action_label: string;
+}
+
+export interface TenantOnboardingStatus {
+  total_steps: number;
+  completed_steps: number;
+  completion_percentage: number;
+  is_fully_onboarded: boolean;
+  steps: OnboardingStep[];
 }
 
 export interface CustomerReview {

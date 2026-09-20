@@ -33,6 +33,8 @@ import {
   GoogleBusinessStatus,
   WhatsAppHealthStatus,
   WhatsAppCredentialsUpdate,
+  TenantOnboardingStatus,
+  OnboardingStep,
 } from '@/lib/api';
 import { ModernCustomerView } from '@/components/dashboard/ModernCustomerView';
 import { MergeCustomersModal } from '@/components/dashboard/MergeCustomersModal';
@@ -47,6 +49,7 @@ import {
   User,
   Send,
   Sparkles,
+  ListChecks,
   Phone,
   PhoneCall,
   Search,
@@ -2846,6 +2849,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [webhookCopied, setWebhookCopied] = useState(false);
   const [verifyTokenCopied, setVerifyTokenCopied] = useState(false);
 
+  // ── Tenant Onboarding Checklist State ───────────────────────────────────────
+  const [onboardingStatus, setOnboardingStatus] = useState<TenantOnboardingStatus | null>(null);
+  const [onboardingLoading, setOnboardingLoading] = useState(false);
+  const [onboardingCollapsed, setOnboardingCollapsed] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem('crm_onboarding_collapsed') === 'true';
+      } catch {}
+    }
+    return false;
+  });
+
   // ── Quick Preferred Doctors / Staff Presets Editor Modal ───────────────────
   const [doctorEditModalOpen, setDoctorEditModalOpen] = useState(false);
   // Preset role name customization (e.g. Doctor, Specialist, Consultant, Staff, Agent)
@@ -4449,6 +4464,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (isAuthChecking || !user) return;
     if (activeNav === 'overview') {
       loadDashboardAnalytics(analyticsPeriod);
+      loadOnboardingStatus();
     }
   }, [analyticsPeriod, activeNav, isAuthChecking, user]);
 
@@ -5941,6 +5957,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         await loadSettings();
       }
       setSettingsSaved(true);
+      loadOnboardingStatus();
       setTimeout(() => setSettingsSaved(false), 4000);
     } catch (err: unknown) {
       console.error('Settings save error:', err);
@@ -5973,16 +5990,60 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
+  // ── Tenant Onboarding Handlers ─────────────────────────────────────────────
+  async function loadOnboardingStatus() {
+    setOnboardingLoading(true);
+    try {
+      const data = await crm.getOnboardingStatus();
+      setOnboardingStatus(data);
+    } catch (err: unknown) {
+      console.error('Failed to load onboarding status:', err);
+    } finally {
+      setOnboardingLoading(false);
+    }
+  }
+
+  function toggleOnboardingCollapsed() {
+    setOnboardingCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('crm_onboarding_collapsed', String(next));
+        } catch {}
+      }
+      return next;
+    });
+  }
+
   async function handleSaveWhatsAppCredentials(e: React.FormEvent) {
     e.preventDefault();
+    if (!whatsappHealth?.is_configured && !whatsappCredsForm.access_token?.trim()) {
+      setWhatsappCredsError('Permanent System User Access Token is required to connect.');
+      return;
+    }
     setWhatsappCredsSaving(true);
     setWhatsappCredsError(null);
     setWhatsappCredsSuccess(null);
     try {
-      const res = await crm.updateWhatsAppCredentials(whatsappCredsForm);
+      const payload: WhatsAppCredentialsUpdate = {
+        phone_number_id: whatsappCredsForm.phone_number_id.trim(),
+        waba_id: whatsappCredsForm.waba_id.trim(),
+      };
+      if (whatsappCredsForm.access_token?.trim()) {
+        payload.access_token = whatsappCredsForm.access_token.trim();
+      }
+      if (whatsappCredsForm.app_secret?.trim()) {
+        payload.app_secret = whatsappCredsForm.app_secret.trim();
+      }
+      if (whatsappCredsForm.verify_token?.trim()) {
+        payload.verify_token = whatsappCredsForm.verify_token.trim();
+      }
+      const res = await crm.updateWhatsAppCredentials(payload);
       setWhatsappCredsSuccess(res.message || 'WhatsApp credentials verified and updated successfully!');
+      setWhatsappCredsForm((prev) => ({ ...prev, access_token: '', app_secret: '' }));
       await loadWhatsAppHealth(true);
       await loadSettings();
+      loadOnboardingStatus();
       setTimeout(() => {
         setShowWhatsAppCredsModal(false);
         setWhatsappCredsSuccess(null);
@@ -5997,12 +6058,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   async function handleSendWhatsAppTest(e: React.FormEvent) {
     e.preventDefault();
+    const cleanTest = whatsappTestPhone.replace(/\D/g, '');
+    const cleanBiz = (whatsappHealth?.display_phone_number || '').replace(/\D/g, '');
+    if (cleanBiz && cleanTest.length >= 10 && cleanBiz.length >= 10 && cleanTest.slice(-10) === cleanBiz.slice(-10)) {
+      setWhatsappTestResult({
+        success: false,
+        message: `Cannot send a test message to your own business WhatsApp number (${whatsappHealth?.display_phone_number}). Meta Cloud API does not allow a number to message itself. Please enter your personal mobile phone number.`,
+      });
+      return;
+    }
     if (!whatsappTestPhone.trim()) return;
     setWhatsappTestSending(true);
     setWhatsappTestResult(null);
     try {
       const res = await crm.sendWhatsAppTestMessage(whatsappTestPhone.trim());
       setWhatsappTestResult({ success: true, message: res.message || 'Test message dispatched successfully!' });
+      loadOnboardingStatus();
     } catch (err: unknown) {
       console.error('Send WhatsApp test message error:', err);
       setWhatsappTestResult({ success: false, message: err instanceof Error ? err.message : 'Failed to send test message.' });
@@ -10170,6 +10241,186 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </button>
                   </div>
                 </div>
+
+                {/* ── TENANT ONBOARDING CHECKLIST BANNER ───────────────────── */}
+                {onboardingStatus && (
+                  <div className={`transition-all duration-200 border rounded-xl shadow-xs overflow-hidden ${
+                    onboardingStatus.is_fully_onboarded
+                      ? 'bg-emerald-50/40 border-emerald-200/90'
+                      : 'bg-surface border-border'
+                  }`}>
+                    {/* Header Row */}
+                    <div className="p-4 sm:p-4.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60">
+                      <div className="flex items-start sm:items-center gap-3">
+                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                          onboardingStatus.is_fully_onboarded
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-accent/10 text-accent'
+                        }`}>
+                          {onboardingStatus.is_fully_onboarded ? (
+                            <CheckCircle2 className="w-5 h-5 stroke-[2.2]" />
+                          ) : (
+                            <ListChecks className="w-5 h-5 stroke-[1.8]" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-sm font-bold text-text-primary">
+                              {onboardingStatus.is_fully_onboarded
+                                ? '✓ 100% Workspace Ready for Clients'
+                                : 'Tenant Onboarding Checklist'}
+                            </h3>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              onboardingStatus.is_fully_onboarded
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                : 'bg-accent/10 text-accent border-accent/20'
+                            }`}>
+                              {onboardingStatus.completed_steps} of {onboardingStatus.total_steps} Completed ({onboardingStatus.completion_percentage}%)
+                            </span>
+                          </div>
+                          <p className="text-xs text-text-muted mt-0.5">
+                            {onboardingStatus.is_fully_onboarded
+                              ? 'All core integrations (WhatsApp API, Google Calendar, AI Persona, and Test Message) are active and verified.'
+                              : 'Complete these essential steps to launch your automated WhatsApp CRM and AI booking engine.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => loadOnboardingStatus()}
+                          disabled={onboardingLoading}
+                          className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-md border border-border transition-colors cursor-pointer"
+                          title="Refresh onboarding status"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${onboardingLoading ? 'animate-spin text-accent' : ''}`} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={toggleOnboardingCollapsed}
+                          className="px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-subtle rounded-md border border-border transition-colors cursor-pointer flex items-center gap-1.5"
+                        >
+                          <span>{onboardingCollapsed ? 'Show Steps' : 'Collapse'}</span>
+                          {onboardingCollapsed ? (
+                            <ChevronDown className="w-3.5 h-3.5 stroke-[1.8]" />
+                          ) : (
+                            <ChevronUp className="w-3.5 h-3.5 stroke-[1.8]" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar Strip */}
+                    <div className="w-full bg-border/40 h-1.5 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-500 ${
+                          onboardingStatus.is_fully_onboarded
+                            ? 'bg-emerald-600'
+                            : onboardingStatus.completion_percentage >= 50
+                            ? 'bg-accent'
+                            : 'bg-amber-500'
+                        }`}
+                        style={{ width: `${onboardingStatus.completion_percentage}%` }}
+                      />
+                    </div>
+
+                    {/* 4 Interactive Step Cards */}
+                    {!onboardingCollapsed && (
+                      <div className="p-4 sm:p-4.5">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                          {onboardingStatus.steps.map((step, idx) => {
+                            const isDone = step.is_completed;
+                            const StepIcon =
+                              step.id === 'whatsapp' ? Phone :
+                              step.id === 'calendar' ? Calendar :
+                              step.id === 'ai_persona' ? Bot :
+                              Send;
+
+                            const handleActionClick = () => {
+                              if (step.id === 'whatsapp') {
+                                setShowWhatsAppCredsModal(true);
+                              } else if (step.id === 'calendar') {
+                                setActiveNav('settings');
+                                setSettingsTab('calendar');
+                              } else if (step.id === 'ai_persona') {
+                                setActiveNav('settings');
+                                setSettingsTab('branding');
+                              } else if (step.id === 'test_ping') {
+                                setShowWhatsAppTestModal(true);
+                              }
+                            };
+
+                            return (
+                              <div
+                                key={step.id}
+                                className={`flex flex-col justify-between p-3.5 rounded-lg border transition-all duration-150 ${
+                                  isDone
+                                    ? 'bg-emerald-50/50 border-emerald-200/90 text-text-primary'
+                                    : 'bg-surface-subtle/50 border-border hover:border-accent/40 text-text-primary'
+                                }`}
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between gap-2 mb-2">
+                                    <span className="text-[11px] font-bold text-text-muted">
+                                      Step {idx + 1}
+                                    </span>
+                                    {isDone ? (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full border border-emerald-300">
+                                        <CheckCircle2 className="w-3 h-3 stroke-[2.5]" />
+                                        Completed
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                                        Pending
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-2 mb-1.5">
+                                    <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${
+                                      isDone ? 'bg-emerald-600 text-white' : 'bg-surface border border-border text-text-muted'
+                                    }`}>
+                                      <StepIcon className="w-3.5 h-3.5 stroke-[1.8]" />
+                                    </div>
+                                    <h4 className="text-xs font-bold text-text-primary leading-tight">
+                                      {step.title}
+                                    </h4>
+                                  </div>
+
+                                  <p className="text-[11px] text-text-muted leading-relaxed line-clamp-2">
+                                    {step.description}
+                                  </p>
+                                </div>
+
+                                <div className="pt-3 mt-2 border-t border-border/50 flex items-center justify-between">
+                                  <button
+                                    type="button"
+                                    onClick={handleActionClick}
+                                    className={`w-full py-1.5 px-2.5 text-xs font-semibold rounded-md transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                                      isDone
+                                        ? 'bg-surface hover:bg-emerald-100/60 border border-emerald-300 text-emerald-800'
+                                        : 'bg-accent hover:bg-accent-hover text-white shadow-2xs'
+                                    }`}
+                                  >
+                                    <span>
+                                      {isDone
+                                        ? step.id === 'test_ping'
+                                          ? 'Send Another Test'
+                                          : 'Manage Settings'
+                                        : step.action_label}
+                                    </span>
+                                    <ArrowRight className="w-3 h-3 stroke-[2]" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* 4 Core Essential Summary Metric Cards */}
                 <div className="space-y-4">
@@ -23459,30 +23710,50 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </div>
 
               <div>
-                <label className="block font-semibold text-text-primary mb-1">
-                  Permanent System User Access Token <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-text-primary">
+                    Permanent System User Access Token {!whatsappHealth?.is_configured && <span className="text-rose-500">*</span>}
+                  </label>
+                  {whatsappHealth?.is_connected && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      ✓ Current Token Active
+                    </span>
+                  )}
+                </div>
                 <input
                   type="password"
-                  required
+                  required={!whatsappHealth?.is_configured}
                   value={whatsappCredsForm.access_token}
                   onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, access_token: e.target.value }))}
-                  placeholder="EAAB..."
+                  placeholder={whatsappHealth?.is_configured ? "•••••••••••••••• (Leave blank to keep current token)" : "EAAB..."}
                   className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
                 />
-                <span className="text-[10px] text-text-muted mt-0.5 block">Generated from Meta Business Manager &rarr; System Users</span>
+                <span className="text-[10px] text-text-muted mt-0.5 block">
+                  {whatsappHealth?.is_configured
+                    ? "Your token is securely stored and active on the server. Only enter a new token if you want to replace or rotate it."
+                    : "Generated from Meta Business Manager → System Users (starts with EAAB...)"}
+                </span>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-text-primary mb-1">App Secret (Optional)</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-text-primary">App Secret (Optional)</label>
+                    {whatsappHealth?.is_connected && (
+                      <span className="text-[9px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                        Saved
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="password"
                     value={whatsappCredsForm.app_secret || ''}
                     onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, app_secret: e.target.value }))}
-                    placeholder="Optional"
+                    placeholder={whatsappHealth?.is_configured ? "•••••••• (Leave blank to keep current)" : "Optional"}
                     className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
                   />
+                  <span className="text-[10px] text-text-muted mt-0.5 block">Used for webhook HMAC validation</span>
                 </div>
                 <div>
                   <label className="block font-semibold text-text-primary mb-1">Verify Token (Optional)</label>
@@ -23493,6 +23764,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     placeholder="e.g. mindbody_crm_2024"
                     className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
                   />
+                  <span className="text-[10px] text-text-muted mt-0.5 block">Matches webhook configuration</span>
                 </div>
               </div>
 
@@ -23575,12 +23847,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   required
                   value={whatsappTestPhone}
                   onChange={(e) => setWhatsappTestPhone(e.target.value)}
-                  placeholder="e.g. 919876543210"
+                  placeholder="e.g. 919876543210 (personal mobile)"
                   className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
                 />
                 <span className="text-[10px] text-text-muted mt-0.5 block">
                   Include country code without '+' (e.g. 91 for India).
                 </span>
+                {whatsappHealth?.display_phone_number && (
+                  <div className="mt-2.5 p-2.5 rounded bg-blue-50/90 border border-blue-200 text-blue-900 text-[11px] leading-relaxed">
+                    <span className="font-bold">Note:</span> Enter a personal mobile or teammate's WhatsApp number. Meta Cloud API strictly forbids a business number (<span className="font-mono font-bold text-blue-950">{whatsappHealth.display_phone_number}</span>) from messaging itself.
+                  </div>
+                )}
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-2 border-t border-border">

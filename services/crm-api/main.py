@@ -51,6 +51,8 @@ from routers import conversations
 from routers import settings
 from routers import reviews
 
+from services.alert_service import GlobalErrorAlertMiddleware, init_global_error_traps
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     database.db_pool = await database.init_db_pool()
@@ -59,6 +61,9 @@ async def lifespan(app: FastAPI):
         await database.run_migrations(database.db_pool)
     except Exception as e:
         logger.error("db_lifespan_init_error", error=str(e))
+
+    # Initialize global error traps (structlog, asyncio, middleware)
+    init_global_error_traps(app)
 
     # Production startup validation checks
     env = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "development").lower()
@@ -78,6 +83,7 @@ async def lifespan(app: FastAPI):
     await database.db_pool.close()
 
 app = FastAPI(lifespan=lifespan, title="CRM API")
+app.add_middleware(GlobalErrorAlertMiddleware)
 app.include_router(billing.router)
 app.include_router(customers.router)
 app.include_router(marketing.router)
