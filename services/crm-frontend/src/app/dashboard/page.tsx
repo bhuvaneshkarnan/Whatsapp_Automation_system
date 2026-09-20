@@ -4464,7 +4464,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (isAuthChecking || !user) return;
     if (activeNav === 'overview') {
       loadDashboardAnalytics(analyticsPeriod);
-      loadOnboardingStatus();
+      if (user.role === 'super_admin') {
+        loadOnboardingStatus();
+      }
     }
   }, [analyticsPeriod, activeNav, isAuthChecking, user]);
 
@@ -5990,8 +5992,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
-  // ── Tenant Onboarding Handlers ─────────────────────────────────────────────
+  // ── Tenant Onboarding Handlers (Super Admin Exclusive) ─────────────────────
   async function loadOnboardingStatus() {
+    if (user?.role !== 'super_admin') return;
     setOnboardingLoading(true);
     try {
       const data = await crm.getOnboardingStatus();
@@ -10242,8 +10245,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                 </div>
 
-                {/* ── TENANT ONBOARDING CHECKLIST BANNER ───────────────────── */}
-                {onboardingStatus && (
+                {/* ── TENANT ONBOARDING CHECKLIST BANNER (SUPER ADMIN EXCLUSIVE) ── */}
+                {user?.role === 'super_admin' && onboardingStatus && (
                   <div className={`transition-all duration-200 border rounded-xl shadow-xs overflow-hidden ${
                     onboardingStatus.is_fully_onboarded
                       ? 'bg-emerald-50/40 border-emerald-200/90'

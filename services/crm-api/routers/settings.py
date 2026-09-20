@@ -1190,7 +1190,10 @@ async def get_tenant_onboarding_status(
     4. Outbound Test Message Dispatched
     """
     caller_role = caller.get("role") if isinstance(caller, dict) else "admin"
-    if isinstance(target_tenant_id, str) and target_tenant_id.strip() and caller_role in ("super_admin", "owner"):
+    if caller_role not in ("super_admin", "owner"):
+        raise HTTPException(403, "Access restricted: Tenant onboarding checklist is exclusively available to Super Administrators.")
+
+    if isinstance(target_tenant_id, str) and target_tenant_id.strip():
         tenant_id = target_tenant_id.strip()
 
     async with database.db_pool.acquire() as conn:
