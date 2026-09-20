@@ -2606,6 +2606,7 @@ class CoreWorker:
 
         active_system_prompt = "\n\n".join(prompt_blocks)
 
+        _llm_start = time.monotonic()
         response_text, provider_used = await call_llm_cascade(
             messages=history,
             system_prompt=active_system_prompt,
@@ -2621,6 +2622,7 @@ class CoreWorker:
             tenant_id=tenant_id,
             single_line=False,
         )
+        _llm_processing_ms = int((time.monotonic() - _llm_start) * 1000)
 
         booking_action = None
         cancel_action = False
@@ -2865,10 +2867,11 @@ class CoreWorker:
             # Persist outbound message for this bubble
             out_msg_id = await self.db_pool.fetchval(
                 """INSERT INTO messages
-                   (id, conversation_id, tenant_id, direction, content_type, body, status, ai_model_used, ai_used_fallback)
-                   VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'pending', $5, $6)
+                   (id, conversation_id, tenant_id, direction, content_type, body, status, ai_model_used, ai_used_fallback, processing_ms)
+                   VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'pending', $5, $6, $7)
                    RETURNING id""",
                 str(uuid.uuid4()), conv_id, tenant_id, bubble, provider_used, ai_used_fallback,
+                _llm_processing_ms if b_idx == 0 else None,
             )
             try:
                 await self.db_pool.execute(

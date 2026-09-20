@@ -70,6 +70,8 @@ import {
   Download,
   MoreVertical,
   ListChecks,
+  Zap,
+  Phone,
 } from 'lucide-react';
 import {
   admin,
@@ -800,7 +802,10 @@ export default function SuperAdminClients() {
 
   // Onboard Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createdClient, setCreatedClient] = useState<(ClientCreatedResponse & { password?: string }) | null>(null);
+  const [createMode, setCreateMode] = useState<'quick' | 'advanced'>('quick');
+  const [selectedIndustryPreset, setSelectedIndustryPreset] = useState<string>('healthcare');
+  const [welcomeMsgCopied, setWelcomeMsgCopied] = useState(false);
+  const [createdClient, setCreatedClient] = useState<(ClientCreatedResponse & { password?: string; admin_whatsapp_number?: string }) | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [actionSuccessNotice, setActionSuccessNotice] = useState<string | null>(null);
   const [actionErrorNotice, setActionErrorNotice] = useState<string | null>(null);
@@ -923,6 +928,41 @@ Any missed call will now automatically get followed up on WhatsApp!`;
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
+  const INDUSTRY_PRESETS = [
+    {
+      id: 'healthcare',
+      label: 'Healthcare / Clinic',
+      icon: '🏥',
+      assistant_name: 'Dr. Assistant',
+      bot_goal: 'Schedule patient consultations, provide clinic hours, and answer treatment inquiries.',
+      taxonomy_role: 'Doctor',
+    },
+    {
+      id: 'real_estate',
+      label: 'Real Estate / Property',
+      icon: '🏢',
+      assistant_name: 'Property Advisor',
+      bot_goal: 'Qualify buyer leads, schedule site visits, and share brochure links.',
+      taxonomy_role: 'Agent',
+    },
+    {
+      id: 'services',
+      label: 'Consulting & Services',
+      icon: '💼',
+      assistant_name: 'Client Coordinator',
+      bot_goal: 'Qualify service inquiries, schedule strategy calls, and share pricing quotes.',
+      taxonomy_role: 'Consultant',
+    },
+    {
+      id: 'general',
+      label: 'General Business / Retail',
+      icon: '🛍️',
+      assistant_name: 'Customer Support',
+      bot_goal: 'Answer product inquiries, handle order tracking, and assist store visitors.',
+      taxonomy_role: 'Specialist',
+    },
+  ];
+
   const initialFormData = {
     name: '',
     slug: '',
@@ -930,7 +970,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     admin_email: '',
     admin_password: '',
     plan: 'full_suite',
-    monthly_price: 3499,
+    monthly_price: 2630,
     billing_cycle_day: 1,
     sales_channel: 'direct',
     partner_name: '',
@@ -938,7 +978,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     owner_share_pct: 50,
     custom_domain: '',
     brand_name: '',
-    razorpay_subscription_id: '',
+    razorpay_subscription_id: 'plan_TeIaa7OueqVKIK',
     meta_phone_id: '',
     meta_access_token: '',
     meta_app_secret: '',
@@ -1080,8 +1120,31 @@ Any missed call will now automatically get followed up on WhatsApp!`;
         throw new Error('Please specify or select a Partner Agency Name.');
       }
 
+      let finalSlug = formData.slug.trim();
+      if (!finalSlug) {
+        finalSlug = formData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      }
+      let finalEmail = formData.admin_email.trim();
+      if (!finalEmail) {
+        finalEmail = `admin@${finalSlug}.com`;
+      }
+      let finalPassword = formData.admin_password.trim();
+      if (!finalPassword) {
+        finalPassword = 'BoldAuto2026!';
+      }
+
+      const preset = INDUSTRY_PRESETS.find((p) => p.id === selectedIndustryPreset) || INDUSTRY_PRESETS[0];
+
       const clientPayload = {
         ...formData,
+        slug: finalSlug,
+        admin_email: finalEmail,
+        admin_password: finalPassword,
+        assistant_name: formData.assistant_name || preset.assistant_name,
+        bot_goal: formData.bot_goal || preset.bot_goal,
+        monthly_price: createMode === 'quick' ? 2630 : Number(formData.monthly_price),
+        plan: createMode === 'quick' ? 'full_suite' : formData.plan,
+        razorpay_subscription_id: formData.razorpay_subscription_id || 'plan_TeIaa7OueqVKIK',
         sales_channel: isPartner ? 'partner' : 'direct',
         partner_name: finalPartnerName,
         partner_share_pct: isPartner ? Number(formData.partner_share_pct) : 0,
@@ -1131,7 +1194,11 @@ Any missed call will now automatically get followed up on WhatsApp!`;
         }).catch((domainErr) => console.warn('Failed to set initial branding:', domainErr));
       }
 
-      setCreatedClient({ ...res, password: formData.admin_password });
+      setCreatedClient({
+        ...res,
+        password: clientPayload.admin_password,
+        admin_whatsapp_number: clientPayload.admin_whatsapp_number,
+      });
       setActionSuccessNotice(`Organization "${res.name}" provisioned successfully!`);
       setTimeout(() => setActionSuccessNotice(null), 4000);
       setShowCreateModal(false);
@@ -6497,6 +6564,239 @@ Any missed call will now automatically get followed up on WhatsApp!`;
               </button>
             </div>
 
+            {/* Quick vs Advanced Switcher */}
+            <div className="flex border-b border-border bg-surface-subtle/50 px-4 sm:px-5 py-2 items-center justify-between shrink-0">
+              <div className="inline-flex p-0.5 bg-surface border border-border rounded-md text-xs font-medium">
+                <button
+                  type="button"
+                  onClick={() => setCreateMode('quick')}
+                  className={`px-3 py-1 rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
+                    createMode === 'quick' ? 'bg-accent text-white shadow-2xs font-semibold' : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>⚡ Quick Setup (30s)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCreateMode('advanced')}
+                  className={`px-3 py-1 rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
+                    createMode === 'advanced' ? 'bg-accent text-white shadow-2xs font-semibold' : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <span>⚙️ Full Configuration</span>
+                </button>
+              </div>
+              <span className="text-[11px] text-text-muted hidden sm:inline">
+                {createMode === 'quick' ? '⚡ 3 simple fields with auto defaults' : '⚙️ Custom credentials & templates'}
+              </span>
+            </div>
+
+            {createMode === 'quick' ? (
+              <form onSubmit={handleCreateClient} className="p-4 sm:p-5 overflow-y-auto safari-scroll space-y-4 flex-1">
+                {formError && (
+                  <div className="p-3 bg-status-error-bg border border-status-error-border text-status-error text-xs rounded-sm font-medium">
+                    {formError}
+                  </div>
+                )}
+
+                {/* Sales Channel Selector */}
+                <div className="p-1 bg-surface-subtle border border-border rounded-sm grid grid-cols-2 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        sales_channel: 'direct',
+                        partner_name: '',
+                        partner_share_pct: 0,
+                        owner_share_pct: 100,
+                      }));
+                      setIsAddingNewPartner(false);
+                    }}
+                    className={`py-1.5 px-2 rounded-xs text-xs font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      formData.sales_channel !== 'partner'
+                        ? 'bg-white text-emerald-700 shadow-2xs font-semibold border border-border'
+                        : 'text-text-secondary hover:text-text-primary'
+                    }`}
+                  >
+                    <Building2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <span>🏢 Direct Client (crm.goboldlabs.com)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const defaultTpl = defaultPartnerTemplate || partnerTemplates[0];
+                      setFormData((prev) => ({
+                        ...prev,
+                        sales_channel: 'partner',
+                        partner_name: prev.partner_name || defaultTpl?.partner_name || (existingPartners[0] || ''),
+                        partner_share_pct: defaultTpl ? defaultTpl.partner_share_pct : 50,
+                        owner_share_pct: defaultTpl ? defaultTpl.owner_share_pct : 50,
+                        custom_domain: prev.custom_domain || defaultTpl?.custom_domain || '',
+                        brand_name: prev.brand_name || defaultTpl?.brand_name || '',
+                      }));
+                      if (existingPartners.length === 0 && !defaultTpl) {
+                        setIsAddingNewPartner(true);
+                      }
+                    }}
+                    className={`py-1.5 px-2 rounded-xs text-xs font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      formData.sales_channel === 'partner'
+                        ? 'bg-white text-purple-700 shadow-2xs font-semibold border border-border'
+                        : 'text-text-secondary hover:text-text-primary'
+                    }`}
+                  >
+                    <Globe className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <span>🌐 Partner Agency Client</span>
+                  </button>
+                </div>
+
+                {/* 1. Organization Name */}
+                <div>
+                  <label className="block text-xs font-bold text-text-primary mb-1">
+                    Company / Organization Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Apex Health Clinic"
+                    value={formData.name}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const slugVal = val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+                      setFormData((prev) => ({
+                        ...prev,
+                        name: val,
+                        slug: slugVal,
+                        admin_email: prev.admin_email || (slugVal ? `admin@${slugVal}.com` : ''),
+                        admin_password: prev.admin_password || 'BoldAuto2026!',
+                      }));
+                    }}
+                    className="w-full px-3 py-2 bg-surface-subtle border border-border rounded-md text-xs font-medium text-text-primary focus:bg-white focus:border-accent transition-colors"
+                  />
+                  <p className="text-[11px] text-text-muted mt-0.5">
+                    Identifier slug: <span className="font-mono text-text-primary font-semibold">{formData.slug || 'apex-health'}</span>
+                  </p>
+                </div>
+
+                {/* 2. Admin WhatsApp Number */}
+                <div>
+                  <label className="block text-xs font-bold text-text-primary mb-1 flex items-center justify-between">
+                    <span>Admin Mobile / WhatsApp Number *</span>
+                    <span className="text-[10px] font-normal text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                      Receives Login & Setup Message
+                    </span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text-muted">
+                      <Phone className="w-3.5 h-3.5" />
+                    </div>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="+91 98765 43210"
+                      value={formData.admin_whatsapp_number}
+                      onChange={(e) => setFormData({ ...formData, admin_whatsapp_number: e.target.value })}
+                      className="w-full pl-9 pr-3 py-2 bg-surface-subtle border border-border rounded-md text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors"
+                    />
+                  </div>
+                  <p className="text-[11px] text-text-muted mt-0.5">
+                    We'll generate a 1-click WhatsApp message to send credentials directly to this number.
+                  </p>
+                </div>
+
+                {/* 3. Admin Account Email */}
+                <div>
+                  <label className="block text-xs font-bold text-text-primary mb-1">
+                    Admin Login Email *
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text-muted">
+                      <Mail className="w-3.5 h-3.5" />
+                    </div>
+                    <input
+                      type="email"
+                      required
+                      placeholder="admin@clientclinic.com"
+                      value={formData.admin_email}
+                      onChange={(e) => setFormData({ ...formData, admin_email: e.target.value })}
+                      className="w-full pl-9 pr-3 py-2 bg-surface-subtle border border-border rounded-md text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors"
+                    />
+                  </div>
+                </div>
+
+                {/* 4. Industry Preset Selection */}
+                <div>
+                  <label className="block text-xs font-bold text-text-primary mb-1.5">
+                    Select Industry Template (Auto-Configures AI Agent & Taxonomy)
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {INDUSTRY_PRESETS.map((preset) => (
+                      <div
+                        key={preset.id}
+                        onClick={() => {
+                          setSelectedIndustryPreset(preset.id);
+                          setFormData((prev) => ({
+                            ...prev,
+                            assistant_name: preset.assistant_name,
+                            bot_goal: preset.bot_goal,
+                          }));
+                        }}
+                        className={`p-2.5 rounded-lg border text-left cursor-pointer transition-all ${
+                          selectedIndustryPreset === preset.id
+                            ? 'bg-accent/5 border-accent shadow-2xs ring-1 ring-accent/30'
+                            : 'bg-surface-subtle border border-border hover:border-border-hover'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">{preset.icon}</span>
+                          <div>
+                            <p className="text-xs font-bold text-text-primary leading-tight">{preset.label}</p>
+                            <p className="text-[10px] text-text-muted mt-0.5 leading-tight line-clamp-1">{preset.assistant_name} • {preset.taxonomy_role}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Pricing & Plan Confirmation Notice */}
+                <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-md text-xs space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-900">Subscription Plan:</span>
+                    <span className="font-mono font-bold text-emerald-800">Full Suite @ ₹2,630 / month</span>
+                  </div>
+                  <p className="text-[11px] text-emerald-700">
+                    Recurring plan <span className="font-mono font-bold">plan_TeIaa7OueqVKIK</span> auto-linked. Client can connect WhatsApp in 1 click after login.
+                  </p>
+                </div>
+
+                {/* Modal Actions */}
+                <div className="pt-3 border-t border-border flex items-center justify-end gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateModal(false)}
+                    className="px-3.5 py-2 text-xs font-medium text-text-secondary hover:text-text-primary cursor-pointer min-h-[44px] flex items-center touch-manipulation"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={formSubmitting}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-2 min-h-[44px] shadow-sm touch-manipulation"
+                  >
+                    {formSubmitting ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Zap className="w-3.5 h-3.5 fill-current" />
+                    )}
+                    <span>Provision Client Workspace</span>
+                  </button>
+                </div>
+              </form>
+            ) : (
             {/* Modal Form */}
             <form onSubmit={handleCreateClient} className="p-4 sm:p-5 overflow-y-auto safari-scroll space-y-3.5 flex-1">
               {formError && (
@@ -6902,7 +7202,168 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                 </button>
               </div>
             </form>
+            )}
 
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: CLIENT PROVISIONED SUCCESS & WHATSAPP WELCOME ─────────────────── */}
+      {createdClient && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-surface border border-border rounded-xl shadow-2xl max-w-lg w-full p-5 sm:p-6 space-y-5">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-6 h-6 stroke-[2.2]" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-text-primary">
+                    Client Organization Provisioned!
+                  </h3>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    Workspace is live on <span className="font-semibold text-text-primary">{createdClient.slug}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreatedClient(null)}
+                className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-subtle cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Credentials Card */}
+            <div className="p-4 bg-surface-subtle border border-border rounded-lg space-y-2.5">
+              <div className="flex items-center justify-between text-xs pb-2 border-b border-border/60">
+                <span className="font-semibold text-text-secondary">Login Portal URL:</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono text-accent font-semibold">https://crm.goboldlabs.com/login</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText('https://crm.goboldlabs.com/login');
+                      setCopiedField('portal_url');
+                      setTimeout(() => setCopiedField(null), 2000);
+                    }}
+                    className="p-1 text-text-muted hover:text-text-primary cursor-pointer"
+                    title="Copy URL"
+                  >
+                    {copiedField === 'portal_url' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs pb-2 border-b border-border/60">
+                <span className="font-semibold text-text-secondary">Username / Email:</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono font-bold text-text-primary">{createdClient.admin_email}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(createdClient.admin_email);
+                      setCopiedField('email');
+                      setTimeout(() => setCopiedField(null), 2000);
+                    }}
+                    className="p-1 text-text-muted hover:text-text-primary cursor-pointer"
+                    title="Copy Email"
+                  >
+                    {copiedField === 'email' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-text-secondary">Initial Password:</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono font-bold text-text-primary bg-white px-2 py-0.5 rounded border border-border">
+                    {createdClient.password || 'BoldAuto2026!'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(createdClient.password || 'BoldAuto2026!');
+                      setCopiedField('password');
+                      setTimeout(() => setCopiedField(null), 2000);
+                    }}
+                    className="p-1 text-text-muted hover:text-text-primary cursor-pointer"
+                    title="Copy Password"
+                  >
+                    {copiedField === 'password' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 1-Click WhatsApp Welcome Dispatch */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-text-primary">
+                1-Click Welcome & Onboarding Guide for Client
+              </label>
+              {(() => {
+                const welcomeMsg = `🚀 *Welcome to your AI WhatsApp Automation CRM!*\n\nYour organization workspace (*${createdClient.name}*) is live and ready.\n\n🔗 *Login Portal:* https://crm.goboldlabs.com/login\n📧 *Username:* ${createdClient.admin_email}\n🔑 *Password:* ${createdClient.password || 'BoldAuto2026!'}\n\n*Quick 3-step setup once logged in:*\n1️⃣ Click *"1-Click WhatsApp Connect"* to link your WhatsApp Business number\n2️⃣ Connect Google Calendar for automated appointment bookings\n3️⃣ Send a test ping to verify your AI persona!\n\nNeed assistance? Reply directly to this message.`;
+                const cleanPhone = (createdClient.admin_whatsapp_number || '').replace(/\D/g, '');
+                const waUrl = cleanPhone
+                  ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(welcomeMsg)}`
+                  : `https://wa.me/?text=${encodeURIComponent(welcomeMsg)}`;
+
+                return (
+                  <div className="space-y-3">
+                    <div className="p-3 bg-emerald-50/50 border border-emerald-200/80 rounded-lg text-xs font-mono text-emerald-950 whitespace-pre-wrap max-h-36 overflow-y-auto">
+                      {welcomeMsg}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <a
+                        href={waUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+                      >
+                        <MessageSquare className="w-4 h-4 fill-current" />
+                        <span>📲 Share on WhatsApp</span>
+                      </a>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(welcomeMsg);
+                          setWelcomeMsgCopied(true);
+                          setTimeout(() => setWelcomeMsgCopied(false), 2500);
+                        }}
+                        className="py-2.5 px-4 bg-surface hover:bg-surface-subtle text-text-primary border border-border text-xs font-semibold rounded-md flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                      >
+                        {welcomeMsgCopied ? (
+                          <>
+                            <Check className="w-4 h-4 text-emerald-600" />
+                            <span className="text-emerald-700 font-bold">Copied to Clipboard!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-4 h-4 text-text-muted" />
+                            <span>Copy Message</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Bottom Actions */}
+            <div className="pt-2 border-t border-border flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setCreatedClient(null)}
+                className="px-4 py-2 bg-surface-subtle hover:bg-border text-text-primary text-xs font-semibold rounded-md transition-colors cursor-pointer"
+              >
+                Close & View Organization
+              </button>
+            </div>
           </div>
         </div>
       )}

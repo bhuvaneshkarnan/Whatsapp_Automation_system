@@ -196,12 +196,14 @@ async def execute_embedded_signup(conn, tenant_id: str, code: str, waba_id: Opti
         tenant_id
     )
 
-    logger.info(
-        "meta_embedded_signup_success",
-        tenant_id=tenant_id,
-        phone_number_id=clean_phone_id,
-        waba_id=clean_waba
-    )
+    # 6. Automatically trigger background Meta template sync so all standard templates are immediately provisioned
+    try:
+        import asyncio
+        from routers.marketing import execute_meta_template_sync
+        asyncio.create_task(execute_meta_template_sync(tenant_id, database.db_pool))
+        logger.info("meta_embedded_signup_auto_template_sync_scheduled", tenant_id=tenant_id)
+    except Exception as e_sync:
+        logger.warning("meta_embedded_signup_auto_template_sync_warn", error=str(e_sync))
 
     return {
         "status": "connected",

@@ -2862,6 +2862,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     return false;
   });
 
+
   // ── Quick Preferred Doctors / Staff Presets Editor Modal ───────────────────
   const [doctorEditModalOpen, setDoctorEditModalOpen] = useState(false);
   // Preset role name customization (e.g. Doctor, Specialist, Consultant, Staff, Agent)
@@ -4449,8 +4450,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
     if (activeNav === 'settings' && settingsTab === 'whatsapp') {
       loadWhatsAppHealth();
-      setLoadingAiUsage(true);
-      crm.getAIUsageStats().then(data => setAiUsageData(data)).catch(() => {}).finally(() => setLoadingAiUsage(false));
     }
     if (activeNav === 'settings' && settingsTab === 'billing') {
       loadInvoices();
@@ -4490,7 +4489,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (isAuthChecking || !user) return;
     if (activeNav === 'overview') {
       loadDashboardAnalytics(analyticsPeriod);
-      if (user.role === 'super_admin') {
+      if (['admin', 'owner', 'super_admin'].includes(user.role)) {
         loadOnboardingStatus();
       }
     }
@@ -5974,32 +5973,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   }
 
-  // ── WhatsApp Health & Credential Handlers ──────────────────────────────────
-  async function loadWhatsAppHealth(silent = false) {
-    if (!silent) setWhatsappHealthLoading(true);
-    setWhatsappHealthError(null);
-    try {
-      const data = await crm.getWhatsAppHealth();
-      setWhatsappHealth(data);
-      if (data) {
-        setWhatsappCredsForm((prev) => ({
-          ...prev,
-          phone_number_id: data.phone_number_id || prev.phone_number_id,
-          waba_id: data.waba_id || prev.waba_id,
-          verify_token: data.verify_token || prev.verify_token,
-        }));
-      }
-    } catch (err: unknown) {
-      console.error('Failed to load WhatsApp health:', err);
-      setWhatsappHealthError(err instanceof Error ? err.message : 'Failed to fetch WhatsApp connection health.');
-    } finally {
-      if (!silent) setWhatsappHealthLoading(false);
-    }
-  }
-
-  // ── Tenant Onboarding Handlers (Super Admin Exclusive) ─────────────────────
+  // ── Tenant Onboarding Handlers ─────────────────────────────────────────────
   async function loadOnboardingStatus() {
-    if (user?.role !== 'super_admin') return;
+    if (!user || !['admin', 'owner', 'super_admin'].includes(user.role)) return;
     setOnboardingLoading(true);
     try {
       const data = await crm.getOnboardingStatus();
@@ -6021,6 +5997,29 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       }
       return next;
     });
+  }
+
+  // ── WhatsApp Health & Credential Handlers ──────────────────────────────────
+  async function loadWhatsAppHealth(silent = false) {
+    if (!silent) setWhatsappHealthLoading(true);
+    setWhatsappHealthError(null);
+    try {
+      const data = await crm.getWhatsAppHealth();
+      setWhatsappHealth(data);
+      if (data) {
+        setWhatsappCredsForm((prev) => ({
+          ...prev,
+          phone_number_id: data.phone_number_id || prev.phone_number_id,
+          waba_id: data.waba_id || prev.waba_id,
+          verify_token: data.verify_token || prev.verify_token,
+        }));
+      }
+    } catch (err: unknown) {
+      console.error('Failed to load WhatsApp health:', err);
+      setWhatsappHealthError(err instanceof Error ? err.message : 'Failed to fetch WhatsApp connection health.');
+    } finally {
+      if (!silent) setWhatsappHealthLoading(false);
+    }
   }
 
   async function handleSaveWhatsAppCredentials(e: React.FormEvent) {
@@ -10248,8 +10247,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                 </div>
 
-                {/* ── TENANT ONBOARDING CHECKLIST BANNER (SUPER ADMIN EXCLUSIVE) ── */}
-                {user?.role === 'super_admin' && onboardingStatus && (
+                {/* ── TENANT ONBOARDING CHECKLIST BANNER ── */}
+                {['admin', 'owner', 'super_admin'].includes(user?.role || '') && onboardingStatus && (
                   <div className={`transition-all duration-200 border rounded-xl shadow-xs overflow-hidden ${
                     onboardingStatus.is_fully_onboarded
                       ? 'bg-emerald-50/40 border-emerald-200/90'
@@ -10274,7 +10273,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             <h3 className="text-sm font-bold text-text-primary">
                               {onboardingStatus.is_fully_onboarded
                                 ? '✓ 100% Workspace Ready for Clients'
-                                : 'Tenant Onboarding Checklist'}
+                                : 'Workspace Onboarding Checklist'}
                             </h3>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                               onboardingStatus.is_fully_onboarded
@@ -17922,7 +17921,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     return [
                       { id: 'billing', label: 'Subscription & Payments', icon: CreditCard },
                       { id: 'branding', label: isReviewOnly ? 'Business & Google Review Profile' : 'Profile & Branding', icon: Building2 },
-                      { id: 'whatsapp', label: 'WhatsApp & AI Performance', icon: MessageSquare },
+                      { id: 'whatsapp', label: 'WhatsApp & Meta API', icon: MessageSquare },
                       ...(!isReviewOnly ? [{ id: 'calendar', label: 'Google Calendar & Scheduling', icon: CalendarDays }] : []),
                       { id: 'notifications', label: isReviewOnly ? 'Review Notification Alerts' : 'Alert Channels', icon: Bell },
                       { id: 'localization', label: 'Regional & Currency', icon: Globe },
@@ -18838,80 +18837,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         )}
                       </div>
 
-                      {/* Automated AI Usage & Speed Analytics */}
-                      <div className="bg-surface p-5 rounded-lg border border-border space-y-5">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <Zap className="w-4 h-4 text-amber-500" />
-                              <h4 className="font-bold text-sm text-text-primary">Automated AI Usage & Performance</h4>
-                            </div>
-                            <p className="text-xs text-text-muted mt-0.5">
-                              Track your intelligent agent reply volume and response latency over the last 30 days.
-                            </p>
-                          </div>
-                        </div>
 
-                        {loadingAiUsage ? (
-                          <div className="p-8 text-center text-xs text-text-muted flex items-center justify-center gap-2">
-                            <RefreshCw className="w-4 h-4 animate-spin text-accent" />
-                            <span>Loading AI usage statistics...</span>
-                          </div>
-                        ) : aiUsageData ? (
-                          <div className="space-y-5">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              <div className="p-4 border border-border bg-surface-subtle/70 rounded-lg flex items-center justify-between shadow-2xs">
-                                <div>
-                                  <p className="text-xs font-medium text-text-secondary">Automated Replies (Last 30 Days)</p>
-                                  <p className="text-2xl font-bold text-text-primary mt-1 font-mono">{aiUsageData.total_replies_30d?.toLocaleString() || 0}</p>
-                                </div>
-                                <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent">
-                                  <MessageSquare className="w-5 h-5" />
-                                </div>
-                              </div>
-                              
-                              <div className="p-4 border border-border bg-surface-subtle/70 rounded-lg flex items-center justify-between shadow-2xs">
-                                <div>
-                                  <p className="text-xs font-medium text-text-secondary">Average Response Speed</p>
-                                  <p className="text-2xl font-bold text-text-primary mt-1 font-mono">{aiUsageData.avg_speed_ms ? `${(aiUsageData.avg_speed_ms / 1000).toFixed(1)}s` : 'N/A'}</p>
-                                </div>
-                                <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600">
-                                  <Zap className="w-5 h-5" />
-                                </div>
-                              </div>
-                            </div>
-
-                            {aiUsageData.daily_stats && aiUsageData.daily_stats.length > 0 && (
-                              <div className="p-4 border border-border bg-surface-subtle/40 rounded-lg shadow-2xs">
-                                <div className="flex items-center justify-between mb-4">
-                                  <h5 className="text-xs font-bold text-text-primary">Daily Automated Reply Volume</h5>
-                                  <span className="text-[11px] text-text-muted">Last 30 Days</span>
-                                </div>
-                                <div className="h-44 flex items-end gap-2 max-w-full overflow-x-auto pb-6">
-                                  {aiUsageData.daily_stats.map((stat: any, i: number) => {
-                                    const maxCount = Math.max(...aiUsageData.daily_stats.map((s: any) => s.count), 1);
-                                    const heightPercent = (stat.count / maxCount) * 100;
-                                    return (
-                                      <div key={i} className="flex flex-col items-center gap-1 flex-1 min-w-[24px]">
-                                        <div 
-                                          className="w-full bg-accent rounded-t-sm transition-all hover:bg-accent-hover" 
-                                          style={{ height: `${heightPercent}%`, minHeight: '4px' }}
-                                          title={`${stat.date}: ${stat.count} replies`}
-                                        />
-                                        <span className="text-[9px] text-text-muted rotate-45 origin-left truncate mt-1">{stat.date.split('-').slice(1).join('/')}</span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="p-6 text-center text-xs text-text-muted bg-surface-subtle/40 rounded-lg border border-border">
-                            No automated reply data recorded yet.
-                          </div>
-                        )}
-                      </div>
                     </div>
                   )}
 
