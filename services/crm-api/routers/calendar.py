@@ -42,7 +42,7 @@ GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", f"{utils.APP_
 @router.post("/oauth/google/init")
 async def init_google_oauth(
     payload: GoogleOAuthInitPayload,
-    request: Optional[Request] = None,
+    request: Request,
     tenant_id: str = Depends(get_tenant_id)
 ):
     """Save Google Client ID & Secret, and return the Google OAuth authorization URL."""
@@ -107,16 +107,16 @@ async def init_google_oauth(
     state_sig = hmac.new(JWT_SECRET.encode("utf-8"), state_b64.encode("utf-8"), hashlib.sha256).hexdigest()
     state_payload = f"{state_b64}.{state_sig}"
 
-    auth_url = (
-        f"https://accounts.google.com/o/oauth2/v2/auth?"
-        f"client_id={c_id}&"
-        f"redirect_uri={GOOGLE_OAUTH_REDIRECT_URI}&"
-        f"response_type=code&"
-        f"scope={scopes}&"
-        f"access_type=offline&"
-        f"prompt=consent&"
-        f"state={state_payload}"
-    )
+    oauth_params = {
+        "client_id": c_id,
+        "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI,
+        "response_type": "code",
+        "scope": scopes,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state_payload
+    }
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(oauth_params)}"
     return {"auth_url": auth_url, "redirect_uri": GOOGLE_OAUTH_REDIRECT_URI}
 
 
@@ -284,7 +284,7 @@ async def disconnect_google_calendar(
 async def admin_init_google_oauth(
     target_tenant_id: str,
     payload: GoogleOAuthInitPayload,
-    request: Optional[Request] = None,
+    request: Request,
     admin_user: dict = Depends(verify_super_admin)
 ):
     """Super Admin initiates Google OAuth for a specific client organization."""

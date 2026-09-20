@@ -598,16 +598,16 @@ async def init_google_business_oauth(
     state_sig = hmac.new(JWT_SECRET.encode("utf-8"), state_b64.encode("utf-8"), hashlib.sha256).hexdigest()
     state_payload = f"{state_b64}.{state_sig}"
 
-    auth_url = (
-        f"https://accounts.google.com/o/oauth2/v2/auth?"
-        f"client_id={c_id}&"
-        f"redirect_uri={GOOGLE_BUSINESS_REDIRECT_URI}&"
-        f"response_type=code&"
-        f"scope={scopes}&"
-        f"access_type=offline&"
-        f"prompt=consent&"
-        f"state={state_payload}"
-    )
+    biz_oauth_params = {
+        "client_id": c_id,
+        "redirect_uri": GOOGLE_BUSINESS_REDIRECT_URI,
+        "response_type": "code",
+        "scope": scopes,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state_payload
+    }
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(biz_oauth_params)}"
     return {"auth_url": auth_url, "redirect_uri": GOOGLE_BUSINESS_REDIRECT_URI}
 
 
