@@ -3346,14 +3346,33 @@ class CoreWorker:
                     logger.warning("ai_booking_capacity_reached", tenant_id=tenant_id, requested_start=str(st_dt), max_concurrent=max_concurrent)
                     return
 
-            # Insert booking record in DB
-            booking_id = str(uuid.uuid4())
-            await self.db_pool.execute(
-                """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency)
-                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR')""",
-                booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, notes
+            # Deduplication: Check if this contact already has a confirmed/pending booking within 1 hour of this time
+            existing_contact_booking = await self.db_pool.fetchrow(
+                """SELECT id FROM bookings
+                   WHERE tenant_id = $1::uuid
+                     AND contact_id = $2::uuid
+                     AND status IN ('confirmed', 'pending', 'rescheduled')
+                     AND start_time >= $3 - INTERVAL '1 hour'
+                     AND start_time <= $3 + INTERVAL '1 hour'""",
+                tenant_id, contact_id, st_dt
             )
-            logger.info("ai_booking_created", booking_id=booking_id, service=service_name, start_time=str(st_dt))
+            if existing_contact_booking:
+                booking_id = str(existing_contact_booking["id"])
+                await self.db_pool.execute(
+                    """UPDATE bookings SET service = $1, start_time = $2, end_time = $3, notes = $4, updated_at = NOW()
+                       WHERE id = $5::uuid""",
+                    service_name, st_dt, et_dt, notes, booking_id
+                )
+                logger.info("ai_booking_updated_existing", booking_id=booking_id, service=service_name, start_time=str(st_dt))
+            else:
+                # Insert booking record in DB
+                booking_id = str(uuid.uuid4())
+                await self.db_pool.execute(
+                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR')""",
+                    booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, notes
+                )
+                logger.info("ai_booking_created", booking_id=booking_id, service=service_name, start_time=str(st_dt))
 
             # Dispatch Real Web Push Notification for New Booking
             try:
@@ -4932,11 +4951,14 @@ class CoreWorker:
                 service_name = row["service"] or "Appointment"
                 conv_id = str(row["conversation_id"]) if row.get("conversation_id") else None
 
-                # Distributed Redis Lock to ensure exactly one 2-hour reminder is sent per booking
-                lock_key = f"dedup:wa_reminder_2h:{booking_id}"
+                # Distributed Redis Lock to ensure exactly one 2-hour reminder is sent per contact per time slot
+                st_val = row.get("start_time")
+                st_key = st_val.strftime('%Y%m%d%H%M') if isinstance(st_val, datetime.datetime) else str(st_val or "")[:16]
+                clean_rem_phone = re.sub(r'[^0-9]', '', str(contact_phone or ""))
+                lock_key = f"dedup:wa_reminder_2h:{tenant_id}:{clean_rem_phone}:{st_key}"
                 is_locked = await self.redis.set(lock_key, "1", ex=14400, nx=True)
                 if not is_locked:
-                    logger.info("reminder_skipped_redis_lock_held", booking_id=booking_id)
+                    logger.info("reminder_skipped_redis_lock_held", booking_id=booking_id, phone=clean_rem_phone, slot=st_key)
                     continue
 
                 # Extract timezone
@@ -5065,9 +5087,11 @@ class CoreWorker:
                         start_utc = start_val if start_val.tzinfo else start_val.replace(tzinfo=datetime.timezone.utc)
                         hours_to_start = (start_utc.astimezone(datetime.timezone.utc) - now_utc).total_seconds() / 3600.0
                         if hours_to_start <= 4.0:
-                            lock_2h = f"dedup:wa_reminder_2h:{booking_id}"
+                            st_key = start_utc.strftime('%Y%m%d%H%M')
+                            job_ph = re.sub(r'[^0-9]', '', str(job.get("phone") or job.get("contact_phone") or booking_id))
+                            lock_2h = f"dedup:wa_reminder_2h:{job['tenant_id']}:{job_ph}:{st_key}"
                             if not await self.redis.set(lock_2h, "1", ex=14400, nx=True):
-                                logger.info("scheduled_reminder_skipped_2h_lock_held", booking_id=booking_id)
+                                logger.info("scheduled_reminder_skipped_2h_lock_held", booking_id=booking_id, phone=job_ph, slot=st_key)
                                 await self.db_pool.execute(
                                     "UPDATE scheduled_jobs SET status = 'skipped_duplicate', sent_at = now() WHERE id = $1",
                                     job["id"]
@@ -5525,13 +5549,13 @@ class CoreWorker:
                       WHERE m.conversation_id = c.id AND m.body IS NOT NULL
                       ORDER BY m.created_at DESC LIMIT 1
                   ) = 'outbound'
-                  -- Customer must NOT have any upcoming active booking
+                  -- Customer must NOT have any upcoming active booking or recent booking today
                   AND NOT EXISTS (
                       SELECT 1 FROM bookings b 
                       WHERE b.tenant_id = c.tenant_id 
                         AND b.contact_id = c.contact_id 
                         AND b.status IN ('confirmed', 'pending') 
-                        AND b.start_time >= NOW()
+                        AND b.start_time >= (NOW() - INTERVAL '4 hours')
                   )
                   -- Strict 1-nudge limit: no follow-up sent yet for this user message session
                   AND (
@@ -5593,16 +5617,17 @@ class CoreWorker:
                         logger.debug("incomplete_followup_quiet_hours", tenant_id=tenant_id, conv_id=conv_id, local_time=now_local.strftime("%H:%M"))
                         continue
 
-                    # 2. Retrieve conversation history to identify customer's last query with strict tenant isolation
+                    # 2. Retrieve the most recent conversation history with strict tenant isolation
                     msg_rows = await self.db_pool.fetch(
                         """SELECT direction, body, created_at FROM messages
                            WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid AND body IS NOT NULL
-                           ORDER BY created_at ASC LIMIT 25""",
+                           ORDER BY created_at DESC LIMIT 30""",
                         conv_id,
                         tenant_id,
                     )
                     if not msg_rows:
                         continue
+                    msg_rows = list(reversed(msg_rows))
 
                     # Clean history and strip internal [ACTION:...] tags so LLM sees authentic conversation
                     history = []
@@ -5671,11 +5696,12 @@ class CoreWorker:
                         "The customer reached out earlier and our assistant replied, but the customer went quiet and has not replied for over 2 hours.\n"
                         "Your task is to re-open the conversation with a gentle, authentic, contextual follow-up message based on the FULL conversation history above.\n\n"
                         "### STRICT CONTINUATION RULES:\n"
-                        "1. DEEPLY UNDERSTAND THE OLD CHAT CONTEXT & REASON FOR DROP-OFF:\n"
-                        "   - Review what the customer asked and what our assistant already shared.\n"
-                        "   - If the assistant already answered their question (e.g. shared pricing or clinic info), DO NOT repeat the exact same answer. Instead, ask warmly if they would like to book or if they have any other questions.\n"
-                        "   - If the assistant asked a question (e.g. asking what date/time works, or asking about their condition), gently follow up on that pending topic.\n"
-                        "   - If the customer sent a voice note, follow up directly on the topic they spoke about.\n"
+                        "1. DEEPLY UNDERSTAND THE LATEST CHAT CONTEXT & REASON FOR DROP-OFF:\n"
+                        "   - Review what the customer asked and what our assistant already shared in the most recent messages.\n"
+                        "   - CRITICAL ANTI-REPETITION RULE: Look closely at our assistant's recent replies. NEVER repeat, rephrase, or echo the same question or pitch!\n"
+                        "   - If the assistant already asked what time works or already scheduled, do NOT say 'Of course you can choose your own time' or repeat scheduling prompts.\n"
+                        "   - If the customer sent a simple greeting like 'hi' or 'hello' and we already replied, ask how you can help them or if they have any specific questions.\n"
+                        "   - If the assistant already answered their question, ask warmly if they have any other questions or if they are ready to proceed.\n"
                         "2. NEVER USE ROBOTIC OPENERS: Absolutely FORBIDDEN from using generic check-ins like 'Are you still there?', 'Just checking in', 'Hey there', 'Following up on our chat'. Make it feel like a real, thoughtful person continuing the conversation.\n"
                         "3. WARM & CONCISE: 1 to 2 short lines (around 20 to 35 words). Never sound blunt or pushy.\n"
                         "4. ZERO HYPHENS, ZERO BULLETS, ZERO EMOJIS: Absolutely zero hyphens (-), dashes (--), asterisks (*), bullet points (•), or emojis.\n"
@@ -5737,6 +5763,20 @@ class CoreWorker:
                         continue
 
                     followup_text = re.sub(r'\[ACTION:[^\]]+\]', '', followup_text).strip()
+
+                    # Anti-Duplication Safeguard: Reject if identical to any recent outbound message in the thread
+                    recent_bot_msgs = [
+                        re.sub(r'\s+', ' ', str(m["body"] or "")).strip().lower()
+                        for m in msg_rows if m["direction"] == "outbound" and m.get("body")
+                    ]
+                    norm_candidate = re.sub(r'\s+', ' ', followup_text).strip().lower()
+                    if norm_candidate in recent_bot_msgs:
+                        logger.warning("incomplete_followup_skipped_duplicate_body", conv_id=conv_id, candidate=followup_text[:60])
+                        continue
+
+                    if last_bot_msg and norm_candidate == re.sub(r'\s+', ' ', last_bot_msg).strip().lower():
+                        logger.warning("incomplete_followup_skipped_same_as_last_bot", conv_id=conv_id)
+                        continue
 
                     logger.info(
                         "sending_incomplete_conversation_followup",

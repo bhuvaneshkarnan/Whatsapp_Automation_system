@@ -251,12 +251,30 @@ async def create_booking(
                 if existing_count >= max_concurrent:
                     raise HTTPException(409, f"Timeslot capacity reached: This slot has reached the maximum of {max_concurrent} concurrent bookings.")
 
-            # 2. Insert booking
-            await conn.execute(
-                """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member, reminder_sent_at, review_sent_at, metadata)
-                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, $9, 'INR', $10, $11, $12, $13::jsonb)""",
-                booking_id, tenant_id, contact_id, conv_id, payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0), staff, initial_reminder_sent, initial_review_sent, initial_metadata
+            # 2. Insert or update booking (deduplicating if contact already booked this slot)
+            existing_booking = await conn.fetchrow(
+                """SELECT id FROM bookings
+                   WHERE tenant_id = $1::uuid AND contact_id = $2::uuid
+                     AND status IN ('confirmed', 'pending')
+                     AND start_time >= $3 - INTERVAL '1 hour'
+                     AND start_time <= $3 + INTERVAL '1 hour'""",
+                tenant_id, contact_id, st_dt
             )
+            if existing_booking:
+                booking_id = str(existing_booking["id"])
+                await conn.execute(
+                    """UPDATE bookings
+                       SET service = $1, start_time = $2, end_time = $3, notes = $4, price = $5,
+                           staff_member = $6, updated_at = NOW()
+                       WHERE id = $7::uuid""",
+                    payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0), staff, booking_id
+                )
+            else:
+                await conn.execute(
+                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member, reminder_sent_at, review_sent_at, metadata)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, $9, 'INR', $10, $11, $12, $13::jsonb)""",
+                    booking_id, tenant_id, contact_id, conv_id, payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0), staff, initial_reminder_sent, initial_review_sent, initial_metadata
+                )
 
         # 2b. Auto-link/upsert customer in CRM by phone so booking history is visible on customer profile
         try:
