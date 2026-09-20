@@ -889,6 +889,26 @@ export const crm = {
     );
   },
 
+  getWhatsAppOAuthConfig: () => {
+    return request<{ app_id: string; config_id?: string; version: string; is_configured: boolean }>(
+      '/api/v1/crm/oauth/whatsapp/config'
+    );
+  },
+
+  submitWhatsAppEmbeddedSignup: (data: { code: string; waba_id: string; phone_number_id: string; target_tenant_id?: string }) => {
+    const endpoint = data.target_tenant_id
+      ? `/api/v1/crm/admin/tenants/${encodeURIComponent(data.target_tenant_id)}/oauth/whatsapp/embedded-signup`
+      : '/api/v1/crm/oauth/whatsapp/embedded-signup';
+    return request<{ status: string; phone_number_id: string; waba_id: string; message: string }>(
+      endpoint,
+      {
+        method: 'POST',
+        headers: data.target_tenant_id ? { 'X-Tenant-ID': data.target_tenant_id } : undefined,
+        body: JSON.stringify(data),
+      }
+    );
+  },
+
   getOnboardingStatus: (targetTenantId?: string) => {
     const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
     return request<TenantOnboardingStatus>(

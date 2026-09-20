@@ -93,6 +93,7 @@ import {
   TenantOnboardingStatus,
   OnboardingStep,
 } from '@/lib/api';
+import WhatsAppEmbeddedSignupButton from '@/components/WhatsAppEmbeddedSignupButton';
 
 
 const COUNTRY_CODES = [
@@ -4774,102 +4775,180 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
                   {/* ── 2. META WHATSAPP API CREDENTIALS ─────────────────────── */}
                   {configTab === 'whatsapp' && (
-                    <div className="space-y-4 bg-surface p-5 rounded-md border border-border">
-                      <div className="pb-2 border-b border-border">
-                        <h4 className="font-semibold text-xs text-text-primary">Meta WhatsApp Cloud API configuration</h4>
-                        <p className="text-xs text-text-muted">Configure your Meta App webhook callback and permanent system user token.</p>
-                      </div>
-
-                      {/* Callback URL Box */}
-                      <div className="bg-surface-subtle border border-border p-3.5 rounded-sm space-y-2">
-                        <div className="flex justify-between items-center">
-                          <label className="text-xs font-medium text-text-primary">Webhook callback URL</label>
-                          <button
-                            type="button"
-                            onClick={() => copyToClipboard(`https://crm.goboldlabs.com/webhooks/whatsapp/${editingConfigTenant.slug}`, 'drawer_url')}
-                            className="text-xs font-medium text-accent hover:text-accent-hover flex items-center gap-1 cursor-pointer"
-                          >
-                            {copiedField === 'drawer_url' ? <Check className="w-3.5 h-3.5 stroke-[1.5]" /> : <Copy className="w-3.5 h-3.5 stroke-[1.5]" />}
-                            <span>{copiedField === 'drawer_url' ? 'Copied' : 'Copy URL'}</span>
-                          </button>
-                        </div>
-                        <p className="font-mono text-xs text-text-secondary break-all select-all">
-                          {`https://crm.goboldlabs.com/webhooks/whatsapp/${editingConfigTenant.slug}`}
-                        </p>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">Webhook verify token</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. my_secure_verify_token_123"
-                            value={configForm.verify_token || ''}
-                            onChange={(e) => setConfigForm({ ...configForm, verify_token: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">Meta phone number ID</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. 102938475610293"
-                            value={configForm.meta_phone_id || ''}
-                            onChange={(e) => setConfigForm({ ...configForm, meta_phone_id: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-medium text-text-primary mb-1">WhatsApp Business Account ID (WABA ID)</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. 987654321098765"
-                            value={configForm.meta_waba_id || ''}
-                            onChange={(e) => setConfigForm({ ...configForm, meta_waba_id: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                        </div>
-
-                        <div>
-                          <div className="flex justify-between items-center mb-1">
-                            <label className="text-xs font-medium text-text-primary">Meta App secret (HMAC validation)</label>
-                            {configForm.has_app_secret && (
-                              <span className="text-xs text-status-success font-medium bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
-                                Configured
-                              </span>
-                            )}
+                    <div className="space-y-4">
+                      {/* 1-Click Meta WhatsApp Business Embedded Signup Card */}
+                      <div className="bg-surface-subtle border border-border rounded-md p-5 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-md bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/20 flex items-center justify-center shadow-xs">
+                              <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                                <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2m.01 1.67c2.2 0 4.26.86 5.82 2.42a8.23 8.23 0 0 1 2.41 5.83c0 4.54-3.7 8.24-8.24 8.24-1.48 0-2.93-.4-4.2-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.2 8.2 0 0 1-1.26-4.38c0-4.54 3.7-8.24 8.24-8.24m4.52 11.66c-.25-.13-1.47-.72-1.7-.81-.23-.08-.39-.13-.56.13-.17.25-.64.81-.79.97-.14.17-.29.19-.54.06-.25-.13-1.06-.39-2.02-1.25-.75-.67-1.26-1.5-1.4-1.75-.15-.25-.02-.39.11-.51.11-.11.25-.29.37-.44.13-.15.17-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1 0 1.23.9 2.43 1.03 2.6.13.17 1.77 2.7 4.28 3.79.6.26 1.07.41 1.43.53.6.19 1.15.16 1.58.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.07.15-1.18-.06-.12-.22-.19-.47-.31" />
+                              </svg>
+                            </div>
+                            <div>
+                              <h5 className="text-sm font-semibold text-text-primary">1-Click Meta WhatsApp Business Integration</h5>
+                              <p className="text-xs text-text-muted">Onboard client WhatsApp numbers in seconds — No manual developer app setup needed.</p>
+                            </div>
                           </div>
-                          <input
-                            type="password"
-                            placeholder="App secret (Leave empty to keep existing)"
-                            value={configForm.meta_app_secret || ''}
-                            onChange={(e) => setConfigForm({ ...configForm, meta_app_secret: e.target.value })}
-                            className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-xs font-medium text-text-primary">Meta system user access token</label>
-                          {configForm.has_access_token && (
-                            <span className="text-xs text-status-success font-medium bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
-                              Token configured
+                          {configForm.meta_phone_id ? (
+                            <span className="text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-sm flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Authorized & Live</span>
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-sm">
+                              Not Connected
                             </span>
                           )}
                         </div>
-                        <input
-                          type="password"
-                          placeholder="EAAB... (Leave empty to keep existing token)"
-                          value={configForm.meta_access_token || ''}
-                          onChange={(e) => setConfigForm({ ...configForm, meta_access_token: e.target.value })}
-                          className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
-                        />
+
+                        <p className="text-xs text-text-secondary leading-relaxed">
+                          Click below to launch official Meta Embedded Signup. The client or admin selects their Meta Business Portfolio, verifies their phone number via SMS, and the system auto-configures tokens, webhooks, and phone registration.
+                        </p>
+
+                        {configForm.meta_phone_id && (
+                          <div className="bg-surface border border-border p-3 rounded-sm flex items-center justify-between text-xs font-mono">
+                            <div className="flex items-center gap-3">
+                              <div>
+                                <span className="text-text-muted text-[10px] block">Phone Number ID</span>
+                                <span className="font-semibold text-text-primary">{configForm.meta_phone_id}</span>
+                              </div>
+                              <div className="border-l border-border pl-3">
+                                <span className="text-text-muted text-[10px] block">WABA ID</span>
+                                <span className="font-semibold text-text-primary">{configForm.meta_waba_id || 'N/A'}</span>
+                              </div>
+                            </div>
+                            <span className="text-emerald-600 text-[11px] font-sans font-medium flex items-center gap-1">
+                              <Check className="w-3.5 h-3.5" />
+                              Connected to System
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="pt-1">
+                          <WhatsAppEmbeddedSignupButton
+                            targetTenantId={editingConfigTenant.id}
+                            label={configForm.meta_phone_id ? 'Re-connect / Change Number via Meta' : 'Connect WhatsApp Business with Meta'}
+                            onSuccess={(data) => {
+                              setConfigForm((prev) => ({
+                                ...prev,
+                                meta_phone_id: data.phone_number_id,
+                                meta_waba_id: data.waba_id,
+                              }));
+                              fetchClients();
+                            }}
+                            onError={(err) => {
+                              alert(`Meta Embedded Signup error: ${err}`);
+                            }}
+                          />
+                        </div>
                       </div>
+
+                      {/* Advanced Accordion: Custom Meta App Credentials (Optional) */}
+                      <details className="group border border-border/70 rounded-md bg-surface p-3.5 text-xs">
+                        <summary className="cursor-pointer font-medium text-text-muted hover:text-text-primary flex items-center justify-between select-none">
+                          <span className="flex items-center gap-1.5">
+                            <span>⚙️ Advanced: Custom Meta App Credentials (Manual Setup)</span>
+                          </span>
+                          <span className="text-[10px] text-text-muted group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <div className="mt-3 pt-3 border-t border-border/50 space-y-3">
+                          <p className="text-text-secondary leading-relaxed">
+                            Only use this if this client has their own independent Meta Developer App and permanent system user token.
+                          </p>
+
+                          {/* Callback URL Box */}
+                          <div className="bg-surface-subtle border border-border p-3.5 rounded-sm space-y-2">
+                            <div className="flex justify-between items-center">
+                              <label className="text-xs font-medium text-text-primary">Webhook callback URL</label>
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(`https://crm.goboldlabs.com/webhooks/whatsapp/${editingConfigTenant.slug}`, 'drawer_url')}
+                                className="text-xs font-medium text-accent hover:text-accent-hover flex items-center gap-1 cursor-pointer"
+                              >
+                                {copiedField === 'drawer_url' ? <Check className="w-3.5 h-3.5 stroke-[1.5]" /> : <Copy className="w-3.5 h-3.5 stroke-[1.5]" />}
+                                <span>{copiedField === 'drawer_url' ? 'Copied' : 'Copy URL'}</span>
+                              </button>
+                            </div>
+                            <p className="font-mono text-xs text-text-secondary break-all select-all">
+                              {`https://crm.goboldlabs.com/webhooks/whatsapp/${editingConfigTenant.slug}`}
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-medium text-text-primary mb-1">Webhook verify token</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. my_secure_verify_token_123"
+                                value={configForm.verify_token || ''}
+                                onChange={(e) => setConfigForm({ ...configForm, verify_token: e.target.value })}
+                                className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-medium text-text-primary mb-1">Meta phone number ID</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. 102938475610293"
+                                value={configForm.meta_phone_id || ''}
+                                onChange={(e) => setConfigForm({ ...configForm, meta_phone_id: e.target.value })}
+                                className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-medium text-text-primary mb-1">WhatsApp Business Account ID (WABA ID)</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. 987654321098765"
+                                value={configForm.meta_waba_id || ''}
+                                onChange={(e) => setConfigForm({ ...configForm, meta_waba_id: e.target.value })}
+                                className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                              />
+                            </div>
+
+                            <div>
+                              <div className="flex justify-between items-center mb-1">
+                                <label className="text-xs font-medium text-text-primary">Meta App secret (HMAC validation)</label>
+                                {configForm.has_app_secret && (
+                                  <span className="text-xs text-status-success font-medium bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
+                                    Configured
+                                  </span>
+                                )}
+                              </div>
+                              <input
+                                type="password"
+                                placeholder="App secret (Leave empty to keep existing)"
+                                value={configForm.meta_app_secret || ''}
+                                onChange={(e) => setConfigForm({ ...configForm, meta_app_secret: e.target.value })}
+                                className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="flex justify-between items-center mb-1">
+                              <label className="text-xs font-medium text-text-primary">Meta system user access token</label>
+                              {configForm.has_access_token && (
+                                <span className="text-xs text-status-success font-medium bg-status-success-bg px-2 py-0.5 rounded-sm border border-status-success-border">
+                                  Token configured
+                                </span>
+                              )}
+                            </div>
+                            <input
+                              type="password"
+                              placeholder="EAAB... (Leave empty to keep existing token)"
+                              value={configForm.meta_access_token || ''}
+                              onChange={(e) => setConfigForm({ ...configForm, meta_access_token: e.target.value })}
+                              className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
+                            />
+                          </div>
+                        </div>
+                      </details>
                     </div>
                   )}
 

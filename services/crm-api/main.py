@@ -50,6 +50,7 @@ from routers import bookings
 from routers import conversations
 from routers import settings
 from routers import reviews
+from routers import whatsapp_embedded
 
 from services.alert_service import GlobalErrorAlertMiddleware, init_global_error_traps
 
@@ -94,6 +95,7 @@ app.include_router(bookings.router)
 app.include_router(conversations.router)
 app.include_router(settings.router)
 app.include_router(reviews.router)
+app.include_router(whatsapp_embedded.router)
 
 # --- Auth dependencies ---
 

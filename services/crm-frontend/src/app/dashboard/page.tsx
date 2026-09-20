@@ -39,6 +39,7 @@ import {
 import { ModernCustomerView } from '@/components/dashboard/ModernCustomerView';
 import { MergeCustomersModal } from '@/components/dashboard/MergeCustomersModal';
 import QrStandeeModal from '@/components/QrStandeeModal';
+import WhatsAppEmbeddedSignupButton from '@/components/WhatsAppEmbeddedSignupButton';
 import { useBranding } from '@/lib/branding';
 import {
   MessageSquare,
@@ -23677,6 +23678,50 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </button>
             </div>
 
+            {/* ── 1-Click card ─────────────────────────────────────── */}
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">📱</span>
+                  <div>
+                    <p className="text-sm font-bold text-emerald-800">1-Click WhatsApp Connect</p>
+                    <p className="text-xs text-emerald-700">Sign in with your Meta Business account — no copy-pasting keys.</p>
+                  </div>
+                </div>
+                {whatsappHealth?.is_configured && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-white border border-emerald-300 px-2 py-0.5 rounded-full shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Connected
+                  </span>
+                )}
+              </div>
+              {whatsappHealth?.is_configured && (
+                <div className="flex flex-wrap gap-3 text-[11px] text-emerald-800">
+                  {whatsappHealth.phone_number_id && (
+                    <span className="bg-white border border-emerald-200 rounded px-2 py-1 font-mono">
+                      📞 {whatsappHealth.phone_number_id}
+                    </span>
+                  )}
+                  {whatsappHealth.waba_id && (
+                    <span className="bg-white border border-emerald-200 rounded px-2 py-1 font-mono">
+                      🏢 {whatsappHealth.waba_id}
+                    </span>
+                  )}
+                </div>
+              )}
+              <WhatsAppEmbeddedSignupButton
+                label={whatsappHealth?.is_configured ? '🔄 Reconnect via Meta' : '🚀 Connect WhatsApp via Meta'}
+                onSuccess={async (_data) => {
+                  await loadWhatsAppHealth(true);
+                  await loadSettings();
+                  loadOnboardingStatus();
+                  setWhatsappCredsSuccess('WhatsApp connected successfully via Meta!');
+                  setTimeout(() => setShowWhatsAppCredsModal(false), 1500);
+                }}
+                onError={(msg) => setWhatsappCredsError(msg)}
+              />
+            </div>
+
             {whatsappCredsError && (
               <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-md font-medium flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -23691,122 +23736,131 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </div>
             )}
 
-            <form onSubmit={handleSaveWhatsAppCredentials} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-semibold text-text-primary mb-1">
-                  Phone Number ID <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={whatsappCredsForm.phone_number_id}
-                  onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, phone_number_id: e.target.value }))}
-                  placeholder="e.g. 1266808993181338"
-                  className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
-                />
-                <span className="text-[10px] text-text-muted mt-0.5 block">From Meta App &rarr; WhatsApp &rarr; API Setup</span>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-text-primary mb-1">
-                  WhatsApp Business Account ID (WABA) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={whatsappCredsForm.waba_id}
-                  onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, waba_id: e.target.value }))}
-                  placeholder="e.g. 1070376042350055"
-                  className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-semibold text-text-primary">
-                    Permanent System User Access Token {!whatsappHealth?.is_configured && <span className="text-rose-500">*</span>}
-                  </label>
-                  {whatsappHealth?.is_connected && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                      ✓ Current Token Active
-                    </span>
-                  )}
-                </div>
-                <input
-                  type="password"
-                  required={!whatsappHealth?.is_configured}
-                  value={whatsappCredsForm.access_token}
-                  onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, access_token: e.target.value }))}
-                  placeholder={whatsappHealth?.is_configured ? "•••••••••••••••• (Leave blank to keep current token)" : "EAAB..."}
-                  className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
-                />
-                <span className="text-[10px] text-text-muted mt-0.5 block">
-                  {whatsappHealth?.is_configured
-                    ? "Your token is securely stored and active on the server. Only enter a new token if you want to replace or rotate it."
-                    : "Generated from Meta Business Manager → System Users (starts with EAAB...)"}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="font-semibold text-text-primary">App Secret (Optional)</label>
-                    {whatsappHealth?.is_connected && (
-                      <span className="text-[9px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                        Saved
-                      </span>
-                    )}
+            {/* ── Advanced accordion ───────────────────────────────── */}
+            <details className="group rounded-lg border border-border bg-surface-subtle">
+              <summary className="flex items-center justify-between px-4 py-3 cursor-pointer select-none text-xs font-semibold text-text-secondary hover:text-text-primary list-none">
+                <span>⚙️ Advanced: Manual Credential Entry</span>
+                <span className="transition-transform group-open:rotate-180 text-text-muted text-base leading-none">▾</span>
+              </summary>
+              <div className="px-4 pb-4 pt-1">
+                <form onSubmit={handleSaveWhatsAppCredentials} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block font-semibold text-text-primary mb-1">
+                      Phone Number ID <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={whatsappCredsForm.phone_number_id}
+                      onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, phone_number_id: e.target.value }))}
+                      placeholder="e.g. 1266808993181338"
+                      className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
+                    />
+                    <span className="text-[10px] text-text-muted mt-0.5 block">From Meta App &rarr; WhatsApp &rarr; API Setup</span>
                   </div>
-                  <input
-                    type="password"
-                    value={whatsappCredsForm.app_secret || ''}
-                    onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, app_secret: e.target.value }))}
-                    placeholder={whatsappHealth?.is_configured ? "•••••••• (Leave blank to keep current)" : "Optional"}
-                    className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
-                  />
-                  <span className="text-[10px] text-text-muted mt-0.5 block">Used for webhook HMAC validation</span>
-                </div>
-                <div>
-                  <label className="block font-semibold text-text-primary mb-1">Verify Token (Optional)</label>
-                  <input
-                    type="text"
-                    value={whatsappCredsForm.verify_token || ''}
-                    onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, verify_token: e.target.value }))}
-                    placeholder="e.g. mindbody_crm_2024"
-                    className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
-                  />
-                  <span className="text-[10px] text-text-muted mt-0.5 block">Matches webhook configuration</span>
-                </div>
-              </div>
 
-              <div className="pt-3 flex items-center justify-end gap-2 border-t border-border">
-                <button
-                  type="button"
-                  onClick={() => setShowWhatsAppCredsModal(false)}
-                  className="px-4 py-2 bg-surface-subtle hover:bg-surface border border-border text-text-secondary text-xs font-semibold rounded-md cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={whatsappCredsSaving}
-                  className="px-4 py-2 bg-accent hover:bg-accent/90 text-white text-xs font-bold rounded-md shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                >
-                  {whatsappCredsSaving ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Verifying with Meta...</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Verify & Save Credentials</span>
-                    </>
-                  )}
-                </button>
+                  <div>
+                    <label className="block font-semibold text-text-primary mb-1">
+                      WhatsApp Business Account ID (WABA) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={whatsappCredsForm.waba_id}
+                      onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, waba_id: e.target.value }))}
+                      placeholder="e.g. 1070376042350055"
+                      className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-semibold text-text-primary">
+                        Permanent System User Access Token {!whatsappHealth?.is_configured && <span className="text-rose-500">*</span>}
+                      </label>
+                      {whatsappHealth?.is_connected && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          ✓ Current Token Active
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="password"
+                      required={!whatsappHealth?.is_configured}
+                      value={whatsappCredsForm.access_token}
+                      onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, access_token: e.target.value }))}
+                      placeholder={whatsappHealth?.is_configured ? "•••••••••••••••• (Leave blank to keep current token)" : "EAAB..."}
+                      className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
+                    />
+                    <span className="text-[10px] text-text-muted mt-0.5 block">
+                      {whatsappHealth?.is_configured
+                        ? "Your token is securely stored and active on the server. Only enter a new token if you want to replace or rotate it."
+                        : "Generated from Meta Business Manager → System Users (starts with EAAB...)"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-semibold text-text-primary">App Secret (Optional)</label>
+                        {whatsappHealth?.is_connected && (
+                          <span className="text-[9px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            Saved
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type="password"
+                        value={whatsappCredsForm.app_secret || ''}
+                        onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, app_secret: e.target.value }))}
+                        placeholder={whatsappHealth?.is_configured ? "•••••••• (Leave blank to keep current)" : "Optional"}
+                        className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
+                      />
+                      <span className="text-[10px] text-text-muted mt-0.5 block">Used for webhook HMAC validation</span>
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-text-primary mb-1">Verify Token (Optional)</label>
+                      <input
+                        type="text"
+                        value={whatsappCredsForm.verify_token || ''}
+                        onChange={(e) => setWhatsappCredsForm((prev) => ({ ...prev, verify_token: e.target.value }))}
+                        placeholder="e.g. mindbody_crm_2024"
+                        className="w-full px-3 py-2 bg-surface border border-border rounded-md font-mono text-xs text-text-primary focus:border-accent focus:outline-hidden"
+                      />
+                      <span className="text-[10px] text-text-muted mt-0.5 block">Matches webhook configuration</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 flex items-center justify-end gap-2 border-t border-border">
+                    <button
+                      type="button"
+                      onClick={() => setShowWhatsAppCredsModal(false)}
+                      className="px-4 py-2 bg-surface-subtle hover:bg-surface border border-border text-text-secondary text-xs font-semibold rounded-md cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={whatsappCredsSaving}
+                      className="px-4 py-2 bg-accent hover:bg-accent/90 text-white text-xs font-bold rounded-md shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      {whatsappCredsSaving ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Verifying with Meta...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Verify & Save Credentials</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
               </div>
-            </form>
+            </details>
           </div>
         </div>
       )}
