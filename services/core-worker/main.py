@@ -2593,9 +2593,10 @@ class CoreWorker:
         elif any(w in inbound_clean for w in ["price", "pricing", "how much", "cost", "fee", "charges", "rate", "evlo", "evalo", "kitna"]):
             funnel_stage = "EVALUATION_PRICING"
             stage_directive = (
-                "The customer asked for pricing. Follow this business's specific pricing conversation playbook from the Business Instructions: "
-                "quote the appropriate pricing from business details, and follow the business's qualification sequence "
-                "(e.g. ask what issue they need help with, or how long they have had it). Never drop a bare number and stop."
+                "The customer is asking about pricing or fees (exploratory window shopping). "
+                "Quote the transparent pricing or consultation fee from this business's verified details in Sentence 1. "
+                "Anchor the value/treatment in Sentence 2, and ask 1 diagnostic qualification question to understand their specific requirement or condition (e.g. what issue they want treatment for or how long they have had it). "
+                "Do NOT rush to hard close or tag as hot yet; qualify their requirement first."
             )
         elif any(w in inbound_clean for w in ["where", "location", "address", "landmark", "directions", "how to reach"]):
             funnel_stage = "EVALUATION_LOCATION"
@@ -2688,9 +2689,13 @@ class CoreWorker:
             "  [ACTION:CANCEL_BOOKING]\n"
             "- HUMAN TAKEOVER / ESCALATION: When the customer explicitly asks to speak with a human, doctor, staff, or owner, or when an issue requires human assistance, append this action tag on a new line at the very end of your reply:\n"
             "  [ACTION:HUMAN_TAKEOVER]\n"
-            "- CUSTOMER DETAIL & INTENT EXTRACTION (HIGH-INTENT LEAD SCORING): If the customer mentions or confirms their name, health concern / problem, preferred doctor, age, location / city, or indicates buying interest, append this action tag on a new line at the very end of your reply:\n"
+            "- CUSTOMER DETAIL & INTENT EXTRACTION (LEAD SCORING PROTOCOL):\n"
+            "  If the customer mentions or confirms their name, health concern / problem, preferred doctor, age, location / city, or indicates buying interest, append this action tag on a new line at the very end of your reply:\n"
             "  [ACTION:CUSTOMER_INFO: {\"name\": \"<Customer Name or null>\", \"health_concern\": \"<Concern or null>\", \"preferred_doctor\": \"<Doctor or null>\", \"age\": <age as integer or null>, \"location\": \"<City or location or null>\", \"lead_probability\": \"hot\" | \"warm\" | \"cold\"}]\n"
-            "  * Lead Scoring: Set lead_probability = 'hot' whenever the customer asks about pricing/fees, describes a specific problem/pain, asks for doctor/slots, asks for clinic address, or wants to call. Set 'warm' for general exploratory questions. Set 'cold' if declining."
+            "  * LEAD SCORING RULES (STRICT CRITERIA):\n"
+            "    - 'hot' (HIGH BUYING INTENT - Triggers Staff Alert): Set 'hot' ONLY when the customer takes decisive action to book or buy: (1) Asks for a specific appointment slot, date, or time ('Can I book tomorrow at 4 PM?', 'Is Saturday available?'), (2) Asks how to pay or asks for UPI/QR/payment link, (3) Requests a direct phone call/callback ('Please call me', 'Can doctor call me?'), (4) Confirms booking details, or (5) Reports severe acute pain/urgent same-day emergency. NEVER assign 'hot' merely for asking prices or fees!\n"
+            "    - 'warm' (EXPLORATORY / WINDOW SHOPPING - No Staff Alert): Set 'warm' when the customer asks about pricing, fees, treatment costs, packages, doctor qualifications, clinic address/timings, general health concerns, or asks general questions. They are comparison shopping and not ready to buy yet.\n"
+            "    - 'cold' (DISENGAGED / LOST): Set 'cold' when the customer gives passive one-word replies ('ok', 'hi') without engaging, or explicitly declines ('not interested', 'too expensive, bye', 'stop')."
         )
 
         full_location = (creds.get("full_location_text") or "").strip() if creds else ""
@@ -3422,7 +3427,7 @@ class CoreWorker:
                 try:
                     c_display = name or customer_name or phone
                     n_title = f"🔥 Hot Lead Alert: {c_display}"
-                    n_body = f"{c_display} ({phone}) showed high buying intent ({health_concern or 'Consultation/Pricing inquiry'}). Follow up to close!"
+                    n_body = f"{c_display} ({phone}) showed high buying intent ({health_concern or 'Booking/Payment/Urgent consultation inquiry'}). Follow up to close!"
                     n_data = {"phone": phone, "name": c_display, "health_concern": health_concern, "action": "hot_lead_call"}
                     await pool.execute(
                         """INSERT INTO notifications (id, tenant_id, title, body, type, data, is_read, created_at)
@@ -3950,17 +3955,25 @@ class CoreWorker:
             lead_prob = "warm"
             status = "new"
 
-            # Hot indicators: ready to book, pricing query, urgent, slots requested, or booking made
+            # Hot indicators: decisive booking, slot selection, payment/UPI request, callback request, acute emergency
             hot_keywords = [
-                "book", "appointment", "schedule", "cost", "price", "fee", "rate", "timing", "available", 
-                "slot", "today", "tomorrow", "urgent", "emergency", "consult", "doctor", "fees", "how much",
-                "want to visit", "want to come", "reserve", "confirm", "when can i", "open now", "admission",
-                "enroll", "register", "buy", "purchase", "interested in booking", "can i get an appointment"
+                "book", "appointment", "schedule", "available slot", "book slot", "want to visit", "want to come", 
+                "reserve", "confirm booking", "urgent", "emergency", "severe pain", "call me", "please call", 
+                "talk to doctor", "speak with doctor", "payment link", "how to pay", "send upi", "send qr", "gpay", "phonepe",
+                "interested in booking", "can i get an appointment", "schedule for today", "schedule for tomorrow",
+                "tomorrow at", "today at", "admission", "enroll", "buy", "purchase"
             ]
-            # Cold indicators: stop, unsubscribe, wrong number, not interested, spam
+            # Warm indicators: exploratory pricing, fees, charges, service inquiries, clinic location, timings
+            warm_keywords = [
+                "cost", "price", "fee", "fees", "how much", "charges", "rate", "evlo", "evalo", "kitna",
+                "timing", "available", "doctor", "consult", "where", "location", "address",
+                "treatment", "package", "details", "info", "discount", "offer"
+            ]
+            # Cold indicators: stop, unsubscribe, wrong number, not interested, spam, explicit decline
             cold_keywords = [
                 "stop", "unsubscribe", "wrong number", "not interested", "dont message", "don't message", 
-                "remove me", "spam", "cancel my number", "no thanks", "do not call", "not required"
+                "remove me", "spam", "cancel my number", "no thanks", "do not call", "not required",
+                "too costly", "too expensive"
             ]
 
             if booking_action or any(kw in full_text for kw in ["booked for you", "appointment is booked", "appointment is confirmed", "confirmed"]):
@@ -3971,6 +3984,9 @@ class CoreWorker:
                 status = "lost"
             elif any(kw in full_text for kw in hot_keywords):
                 lead_prob = "hot"
+                status = "new"
+            elif any(kw in full_text for kw in warm_keywords):
+                lead_prob = "warm"
                 status = "new"
             else:
                 lead_prob = "warm"
@@ -4032,7 +4048,12 @@ class CoreWorker:
 
             # 4. Update customer record in database
             # Build params: $1=lead_prob, then dynamic optional params, then tenant_id and phone at the end
-            updates = ["lead_probability = $1", "updated_at = NOW()", "last_messaged_at = NOW()"]
+            # Protect existing hot leads from being demoted back to warm by casual replies
+            updates = [
+                "lead_probability = CASE WHEN customers.lead_probability = 'hot' AND $1 = 'warm' THEN 'hot' ELSE $1 END",
+                "updated_at = NOW()",
+                "last_messaged_at = NOW()"
+            ]
             dynamic_params = [lead_prob]
             idx = 2
 
