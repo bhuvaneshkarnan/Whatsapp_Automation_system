@@ -835,7 +835,7 @@ OUTPUT FORMAT — Return ONLY a valid JSON object with these exact 7 keys. No ma
   "services_text": "String. Formatted services + pricing catalog. Each service on its own line. Format: Service Name — Description (Duration) — ₹Price. If currency not specified, use ₹.",
   "bot_goal": "String. 2-3 sentences defining the AI as a proactive consultative sales closer. Must state: Qualify leads through consultative discovery, answer pricing/service questions with value anchoring, and guide them to schedule appointments, consults, or demo calls using binary closing choices.",
   "strict_rules": "String. Hard business rules and absolute restrictions the AI must never violate (e.g. never quote unconfirmed prices, only book during clinic hours, no medical prescriptions over chat). One rule per line.",
-  "objection_handling": "String. Specific playbooks for price resistance ('too expensive'), delay ('will think about it' / 'will let you know'), or skepticism. Reframe value/ROI in 1 sentence and offer a zero-friction micro-step (such as a 5-minute coordinator call or holding a tentative slot).",
+  "objection_handling": "String. Specific playbooks for price resistance ('too expensive'), delay ('will think about it' / 'will let you know'), or skepticism. Reframe value/ROI in 1 sentence and offer a zero-friction micro-step (such as a 5-minute call or holding a tentative slot with binary choices). NEVER repeatedly ask about inquiry volume in objection handling.",
   "response_style": "String. Must enforce Easy Indian English: 'Warm, friendly, and natural. Sounds like an authentic human texting on WhatsApp in Easy Indian English. 2 to 3 short sentences (25 to 45 words max), no corporate jargon, no robotic filler, no marketing essays.'"
 }
 
