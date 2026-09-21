@@ -45,6 +45,8 @@ class CustomerCreatePayload(BaseModel):
     next_action: Optional[str] = "Call Again"
     primary_concerns: Optional[List[str]] = []
     interested_services: Optional[List[str]] = []
+    deal_value: Optional[float] = 0.0
+    ai_summary: Optional[str] = None
 
 
 class CustomerUpdatePayload(BaseModel):
@@ -65,6 +67,8 @@ class CustomerUpdatePayload(BaseModel):
     next_action: Optional[str] = None
     primary_concerns: Optional[List[str]] = None
     interested_services: Optional[List[str]] = None
+    deal_value: Optional[float] = None
+    ai_summary: Optional[str] = None
 
 
 class CustomerMergePayload(BaseModel):

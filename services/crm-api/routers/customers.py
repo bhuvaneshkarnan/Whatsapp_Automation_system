@@ -664,6 +664,8 @@ async def list_customers(
                 COALESCE(c.next_action, 'Call Again') AS next_action,
                 COALESCE(c.primary_concerns, CASE WHEN c.health_concern IS NOT NULL AND c.health_concern != '' THEN ARRAY[c.health_concern] ELSE ARRAY[]::text[] END) AS primary_concerns,
                 COALESCE(c.interested_services, ARRAY[]::text[]) AS interested_services,
+                COALESCE(c.deal_value, 0) AS deal_value,
+                c.ai_summary,
                 b_stats.calculated_last_visited,
                 COALESCE(b_stats.completed_bookings_count, 0) AS completed_bookings_count,
                 COALESCE(b_stats.total_bookings_count, 0) AS total_bookings_count,
@@ -807,6 +809,8 @@ async def list_customers(
             "preferred_language": r.get("preferred_language") or None,
             "primary_concerns": list(r["primary_concerns"]) if r["primary_concerns"] else [],
             "interested_services": list(r["interested_services"]) if r["interested_services"] else [],
+            "deal_value": float(r["deal_value"] or 0) if r.get("deal_value") is not None else 0.0,
+            "ai_summary": r.get("ai_summary") or None,
         })
     return out
 
@@ -886,11 +890,13 @@ async def create_customer(
                     next_action = COALESCE($13, next_action),
                     primary_concerns = $14,
                     interested_services = $15,
+                    deal_value = COALESCE($16, deal_value),
+                    ai_summary = COALESCE($17, ai_summary),
                     updated_at = now()
-                WHERE id = $16::uuid AND tenant_id = $17::uuid
+                WHERE id = $18::uuid AND tenant_id = $19::uuid
             """, canonical_phone, new_name, new_age, new_location, new_doctor, new_status, new_concern,
                  new_prob, new_f_date, new_f_time, conv_rate, call_stat, nxt_act,
-                 merged_concerns, merged_services, cust_id, tenant_id)
+                 merged_concerns, merged_services, payload.deal_value, payload.ai_summary, cust_id, tenant_id)
 
             if payload.initial_note and payload.initial_note.strip():
                 await conn.execute(
@@ -926,8 +932,8 @@ async def create_customer(
                 id, tenant_id, phone, name, age, location, preferred_doctor, status, health_concern,
                 lead_probability, converted, followup_date, followup_time,
                 conversion_rate, call_status, next_action, primary_concerns, interested_services,
-                created_at, updated_at
-               ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), now())
+                deal_value, ai_summary, created_at, updated_at
+               ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, now(), now())
                ON CONFLICT (tenant_id, phone) DO UPDATE SET
                 name = EXCLUDED.name,
                 age = COALESCE(EXCLUDED.age, customers.age),
@@ -942,11 +948,13 @@ async def create_customer(
                 next_action = COALESCE(EXCLUDED.next_action, customers.next_action),
                 primary_concerns = COALESCE(EXCLUDED.primary_concerns, customers.primary_concerns),
                 interested_services = COALESCE(EXCLUDED.interested_services, customers.interested_services),
+                deal_value = COALESCE(EXCLUDED.deal_value, customers.deal_value),
+                ai_summary = COALESCE(EXCLUDED.ai_summary, customers.ai_summary),
                 updated_at = now()""",
             cust_id, tenant_id, canonical_phone, payload.name, payload.age, payload.location, payload.preferred_doctor or None,
             payload.status or "new", payload.health_concern or None,
             payload.lead_probability or "warm", payload.converted or False, f_date, payload.followup_time or (payload.followup_date and "10:00 AM" or None),
-            conv_rate, call_stat, nxt_act, concerns_arr, services_arr
+            conv_rate, call_stat, nxt_act, concerns_arr, services_arr, payload.deal_value or 0.0, payload.ai_summary
         )
         if payload.initial_note and payload.initial_note.strip():
             await conn.execute(
@@ -1287,6 +1295,16 @@ async def update_customer(
         params.append(clean_services)
         idx += 1
 
+    if payload.deal_value is not None:
+        updates.append(f"deal_value = ${idx}")
+        params.append(payload.deal_value)
+        idx += 1
+
+    if payload.ai_summary is not None:
+        updates.append(f"ai_summary = ${idx}")
+        params.append(payload.ai_summary.strip() if payload.ai_summary else None)
+        idx += 1
+
     if not updates:
         return {"status": "ok", "message": "No updates provided"}
 
@@ -1297,7 +1315,7 @@ async def update_customer(
         row = await conn.fetchrow(
             f"""UPDATE customers SET {set_clause}
                 WHERE id = $1::uuid AND tenant_id = $2::uuid
-                RETURNING id, phone, name, internal_name, metadata, age, location, preferred_doctor, status, health_concern, lead_probability, converted, followup_date, followup_time, conversion_rate, call_status, next_action, primary_concerns, interested_services""",
+                RETURNING id, phone, name, internal_name, metadata, age, location, preferred_doctor, status, health_concern, lead_probability, converted, followup_date, followup_time, conversion_rate, call_status, next_action, primary_concerns, interested_services, deal_value, ai_summary""",
             *params
         )
         if not row:

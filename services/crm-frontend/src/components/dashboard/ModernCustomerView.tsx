@@ -39,6 +39,11 @@ import {
   Copy,
   PhoneCall,
   GitMerge,
+  Zap,
+  Target,
+  ShoppingCart,
+  DollarSign,
+  Sparkles,
 } from 'lucide-react';
 import { Customer, FollowupTask, CrmDropdownOptions, DuplicateCustomerGroup, crm as api } from '@/lib/api';
 
@@ -153,6 +158,190 @@ function formatFollowupTime(hour: number, minute: number, period: 'AM' | 'PM'): 
   const hStr = String(hour).padStart(2, '0');
   const mStr = String(minute).padStart(2, '0');
   return `${hStr}:${mStr} ${period}`;
+}
+
+// Indian Rupee currency formatter
+export function formatINR(val: number): string {
+  if (!val || isNaN(val)) return '₹0';
+  return '₹' + Math.round(val).toLocaleString('en-IN');
+}
+
+// Calculate effective deal or cart value for a customer (supports both B2B/Clinic and E-Commerce)
+export function getEffectiveDealValue(cust: Customer): number {
+  if (typeof cust.deal_value === 'number' && cust.deal_value > 0) {
+    return cust.deal_value;
+  }
+  // If customer has completed bookings
+  if ((cust.completed_bookings_count ?? 0) > 0) {
+    return 2630 * (cust.completed_bookings_count ?? 1);
+  }
+  // Try extracting monetary amounts from health_concern or latest_note (e.g. ₹2,630 or 1499)
+  const textToScan = `${cust.health_concern || ''} ${cust.latest_note || ''}`;
+  const priceMatch = textToScan.match(/₹\s*(\d+[\d,]*)/i) || textToScan.match(/(?:rs\.?|inr)\s*(\d+[\d,]*)/i);
+  if (priceMatch) {
+    const parsed = parseInt(priceMatch[1].replace(/,/g, ''), 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  // Default values based on temperature for service pipeline
+  if (cust.lead_probability === 'hot') {
+    return 2630;
+  }
+  if (cust.lead_probability === 'warm') {
+    return 1500;
+  }
+  return 0;
+}
+
+export interface AiSalesSnapshotData {
+  badge: string;
+  headline: string;
+  actionRecommendation: string;
+  theme: 'rose' | 'amber' | 'emerald' | 'indigo' | 'sky' | 'slate';
+  icon: 'flame' | 'zap' | 'cart' | 'check' | 'target' | 'sparkles';
+  isEcommerce: boolean;
+}
+
+// AI Sales Snapshot ("Cheat Sheet" for Sales Reps)
+export function getAiSalesSnapshot(cust: Customer): AiSalesSnapshotData {
+  const concernLower = (cust.health_concern || '').toLowerCase();
+  const noteLower = (cust.latest_note || '').toLowerCase();
+  const callStatusLower = (cust.call_status || '').toLowerCase();
+  const fullContext = `${concernLower} ${noteLower} ${callStatusLower}`;
+  const dealVal = getEffectiveDealValue(cust);
+  const formattedVal = dealVal > 0 ? formatINR(dealVal) : '';
+
+  const isEcommerce =
+    concernLower.includes('cart') ||
+    concernLower.includes('product') ||
+    concernLower.includes('order') ||
+    concernLower.includes('cod') ||
+    concernLower.includes('shipping') ||
+    noteLower.includes('cart') ||
+    noteLower.includes('cod');
+
+  // Case 1: Custom/DB AI Summary exists
+  if (cust.ai_summary && cust.ai_summary.trim()) {
+    const raw = cust.ai_summary.trim();
+    if (cust.lead_probability === 'hot' || raw.toLowerCase().includes('ready') || raw.toLowerCase().includes('demo')) {
+      return {
+        badge: '🔥 Ready to Close',
+        headline: raw,
+        actionRecommendation: 'Call now to confirm appointment slot',
+        theme: 'rose',
+        icon: 'flame',
+        isEcommerce,
+      };
+    }
+    if (isEcommerce) {
+      return {
+        badge: '🛒 Cart Recovery',
+        headline: raw,
+        actionRecommendation: 'Offer COD verification or instant checkout discount',
+        theme: 'indigo',
+        icon: 'cart',
+        isEcommerce: true,
+      };
+    }
+    return {
+      badge: '🎯 Sales Snapshot',
+      headline: raw,
+      actionRecommendation: cust.next_action ? `Action: ${cust.next_action}` : 'Pitch value proposition',
+      theme: 'amber',
+      icon: 'sparkles',
+      isEcommerce,
+    };
+  }
+
+  // Case 2: Converted / Booked
+  if (cust.status === 'converted' || cust.converted || (cust.completed_bookings_count ?? 0) > 0) {
+    const svc = cust.last_visit_service || cust.health_concern || 'Appointment';
+    return {
+      badge: '✅ Converted / Client',
+      headline: `Active Client • ${svc}${formattedVal ? ` (${formattedVal})` : ''}`,
+      actionRecommendation: 'Send satisfaction check-in & review request',
+      theme: 'emerald',
+      icon: 'check',
+      isEcommerce,
+    };
+  }
+
+  // Case 3: E-Commerce / Abandoned Cart
+  if (isEcommerce) {
+    return {
+      badge: '🛒 Abandoned Cart',
+      headline: `Cart value ${formattedVal || 'pending'} • ${cust.health_concern || 'Products in cart'}`,
+      actionRecommendation: 'Call/Chat to offer COD or ₹200 closing discount',
+      theme: 'indigo',
+      icon: 'cart',
+      isEcommerce: true,
+    };
+  }
+
+  // Case 4: Hot Lead / Demo / Callback
+  if (cust.lead_probability === 'hot' || callStatusLower.includes('book') || callStatusLower.includes('confirm')) {
+    const targetStaff = cust.preferred_doctor ? ` with ${cust.preferred_doctor}` : '';
+    const svc = cust.health_concern && cust.health_concern !== 'General Consultation' ? cust.health_concern : 'Demo / Consultation';
+    return {
+      badge: '🔥 Hot Buying Intent',
+      headline: `Wants 15-min ${svc}${targetStaff} • High purchase readiness`,
+      actionRecommendation: 'Call immediately to lock the calendar slot',
+      theme: 'rose',
+      icon: 'flame',
+      isEcommerce: false,
+    };
+  }
+
+  // Case 5: Pricing Inquiry / Exploratory
+  if (
+    cust.lead_probability === 'warm' &&
+    (fullContext.includes('price') || fullContext.includes('cost') || fullContext.includes('fee') || fullContext.includes('rate') || fullContext.includes('how much'))
+  ) {
+    const svc = cust.health_concern && cust.health_concern !== 'General Consultation' ? cust.health_concern : 'Service';
+    return {
+      badge: '⚡ Price Inquiry',
+      headline: `Inquired about ${svc} pricing • Evaluating budget & value`,
+      actionRecommendation: 'Pitch ROI/benefits before re-quoting price',
+      theme: 'amber',
+      icon: 'zap',
+      isEcommerce: false,
+    };
+  }
+
+  // Case 6: Follow-up In Progress
+  if (cust.status === 'follow-up' || cust.followup_date) {
+    const svc = cust.health_concern && cust.health_concern !== 'General Consultation' ? cust.health_concern : 'Consultation';
+    return {
+      badge: '🎯 Consultative Closer',
+      headline: `Exploring ${svc} • Follow-up scheduled`,
+      actionRecommendation: cust.next_action ? `Next: ${cust.next_action}` : 'Share patient testimonial or case study',
+      theme: 'sky',
+      icon: 'target',
+      isEcommerce: false,
+    };
+  }
+
+  // Case 7: Lost / Cold
+  if (cust.status === 'lost' || cust.lead_probability === 'cold') {
+    return {
+      badge: '❄️ Cold Lead',
+      headline: `${cust.latest_note ? `"${cust.latest_note.slice(0, 45)}..."` : 'Inactive inquiry / price objection'}`,
+      actionRecommendation: 'Re-engage via monthly broadcast with special offer',
+      theme: 'slate',
+      icon: 'sparkles',
+      isEcommerce: false,
+    };
+  }
+
+  // Fallback: New Contact
+  const defaultSvc = cust.health_concern && cust.health_concern !== 'General Consultation' ? cust.health_concern : 'General Inquiry';
+  return {
+    badge: '📋 New Inquiry',
+    headline: `Inquiring about ${defaultSvc} • Fresh inbound lead`,
+    actionRecommendation: 'Send personalized consultative welcome & ask 1 qualifying question',
+    theme: 'amber',
+    icon: 'sparkles',
+    isEcommerce: false,
+  };
 }
 
 // Clean Minimalist Shopify-Style Follow-up Scheduler Popover with Direct Typing
@@ -613,8 +802,12 @@ export function ModernCustomerView({
     }).length;
 
     const winRate = total > 0 ? Math.round((converted / total) * 100) : 0;
+    const totalPipelineValue = customers.reduce((sum, c) => sum + getEffectiveDealValue(c), 0);
+    const convertedPipelineValue = customers
+      .filter((c) => c.status === 'converted' || c.converted)
+      .reduce((sum, c) => sum + getEffectiveDealValue(c), 0);
 
-    return { total, hotLeads, warmLeads, converted, followupsDue, winRate };
+    return { total, hotLeads, warmLeads, converted, followupsDue, winRate, totalPipelineValue, convertedPipelineValue };
   }, [customers]);
 
   // Filtered customers with instant live search across all fields
@@ -1298,6 +1491,17 @@ export function ModernCustomerView({
             <span className="font-bold text-emerald-700">{kpis.converted}</span>
             <span>Converted ({kpis.winRate}%)</span>
           </button>
+
+          <div className="h-3 w-px bg-border/80 shrink-0" />
+
+          <div
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60"
+            title={`Total Active Pipeline Value: ${formatINR(kpis.totalPipelineValue)} | Converted: ${formatINR(kpis.convertedPipelineValue)}`}
+          >
+            <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 stroke-[2]" />
+            <span className="text-[11px] text-emerald-800 dark:text-emerald-300 font-medium">Pipeline:</span>
+            <span className="font-bold text-emerald-900 dark:text-emerald-200 font-mono text-xs">{formatINR(kpis.totalPipelineValue)}</span>
+          </div>
         </div>
 
         {(warmthFilter !== 'all' || stageFilter !== 'all' || staffFilter !== 'all' || searchQuery.trim()) && (
@@ -1630,6 +1834,40 @@ export function ModernCustomerView({
                                     <span>{lastAct.label}</span>
                                   </span>
                                 </div>
+
+                                {/* AI Sales Snapshot ("Cheat Sheet" for Sales Reps) */}
+                                {(() => {
+                                  const snap = getAiSalesSnapshot(cust);
+                                  const dealVal = getEffectiveDealValue(cust);
+                                  const themePill = {
+                                    rose: 'bg-rose-50/90 text-rose-800 border-rose-200/90 dark:bg-rose-950/40 dark:text-rose-200 dark:border-rose-800',
+                                    amber: 'bg-amber-50/90 text-amber-800 border-amber-200/90 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800',
+                                    emerald: 'bg-emerald-50/90 text-emerald-800 border-emerald-200/90 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-800',
+                                    indigo: 'bg-indigo-50/90 text-indigo-800 border-indigo-200/90 dark:bg-indigo-950/40 dark:text-indigo-200 dark:border-indigo-800',
+                                    sky: 'bg-sky-50/90 text-sky-800 border-sky-200/90 dark:bg-sky-950/40 dark:text-sky-200 dark:border-sky-800',
+                                    slate: 'bg-slate-50 text-slate-700 border-slate-200/90 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-800',
+                                  }[snap.theme];
+
+                                  return (
+                                    <div className="mt-1.5 flex items-center gap-1.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                                      {dealVal > 0 && (
+                                        <span
+                                          className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.2 rounded-xs font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 shrink-0 shadow-2xs"
+                                          title={`Potential Deal / Cart Value: ${formatINR(dealVal)}`}
+                                        >
+                                          {formatINR(dealVal)}
+                                        </span>
+                                      )}
+                                      <div
+                                        className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-xs border text-[9.5px] max-w-[260px] sm:max-w-[340px] truncate shadow-2xs ${themePill}`}
+                                        title={`AI Sales Cheat Sheet:\n${snap.headline}\n\nRecommended Action:\n${snap.actionRecommendation}`}
+                                      >
+                                        <span className="font-bold shrink-0">{snap.badge}:</span>
+                                        <span className="truncate font-medium">{snap.headline}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </td>
@@ -1697,18 +1935,29 @@ export function ModernCustomerView({
                             </select>
                           </td>
 
-                          {/* 4. Service / Inquiry */}
+                          {/* 4. Service / Inquiry & Value */}
                           <td className="py-2 px-2">
-                            {cust.health_concern || cust.last_visit_service ? (
-                              <span
-                                className="text-[10.5px] font-medium text-text-secondary bg-surface-subtle border border-border/80 px-1.5 py-0.5 rounded-sm inline-block max-w-[135px] truncate"
-                                title={cust.health_concern || cust.last_visit_service || ''}
-                              >
-                                {cust.health_concern || cust.last_visit_service}
-                              </span>
-                            ) : (
-                              <span className="text-text-muted text-[11px]">—</span>
-                            )}
+                            <div className="space-y-0.5">
+                              {cust.health_concern || cust.last_visit_service ? (
+                                <span
+                                  className="text-[10.5px] font-medium text-text-secondary bg-surface-subtle border border-border/80 px-1.5 py-0.5 rounded-sm inline-block max-w-[140px] truncate"
+                                  title={cust.health_concern || cust.last_visit_service || ''}
+                                >
+                                  {cust.health_concern || cust.last_visit_service}
+                                </span>
+                              ) : (
+                                <span className="text-text-muted text-[11px]">—</span>
+                              )}
+                              {(() => {
+                                const dv = getEffectiveDealValue(cust);
+                                if (dv <= 0) return null;
+                                return (
+                                  <div className="text-[10px] font-bold font-mono text-emerald-700 dark:text-emerald-400">
+                                    {formatINR(dv)}
+                                  </div>
+                                );
+                              })()}
+                            </div>
                           </td>
 
                           {/* 5. Assigned To Dropdown */}
@@ -1884,12 +2133,32 @@ export function ModernCustomerView({
             {/* Mobile Stage Switcher Bar */}
             <div className="md:hidden flex items-center gap-1 overflow-x-auto no-scrollbar touch-scroll bg-surface border border-border rounded-md p-1 shrink-0">
               {[
-                { id: 'all', label: 'All Stages' },
-                { id: 'new', label: `New (${filteredCustomers.filter((c) => c.status === 'new').length})` },
-                { id: 'contacted', label: `Contacted (${filteredCustomers.filter((c) => c.status === 'contacted').length})` },
-                { id: 'follow-up', label: `Follow-up (${filteredCustomers.filter((c) => c.status === 'follow-up').length})` },
-                { id: 'converted', label: `Converted (${filteredCustomers.filter((c) => c.status === 'converted').length})` },
-                { id: 'lost', label: `Lost (${filteredCustomers.filter((c) => c.status === 'lost').length})` },
+                { id: 'all', label: 'All Stages', rev: 0 },
+                {
+                  id: 'new',
+                  label: `New (${filteredCustomers.filter((c) => c.status === 'new').length})`,
+                  rev: filteredCustomers.filter((c) => c.status === 'new').reduce((sum, c) => sum + getEffectiveDealValue(c), 0),
+                },
+                {
+                  id: 'contacted',
+                  label: `Contacted (${filteredCustomers.filter((c) => c.status === 'contacted').length})`,
+                  rev: filteredCustomers.filter((c) => c.status === 'contacted').reduce((sum, c) => sum + getEffectiveDealValue(c), 0),
+                },
+                {
+                  id: 'follow-up',
+                  label: `Follow-up (${filteredCustomers.filter((c) => c.status === 'follow-up').length})`,
+                  rev: filteredCustomers.filter((c) => c.status === 'follow-up').reduce((sum, c) => sum + getEffectiveDealValue(c), 0),
+                },
+                {
+                  id: 'converted',
+                  label: `Converted (${filteredCustomers.filter((c) => c.status === 'converted').length})`,
+                  rev: filteredCustomers.filter((c) => c.status === 'converted').reduce((sum, c) => sum + getEffectiveDealValue(c), 0),
+                },
+                {
+                  id: 'lost',
+                  label: `Lost (${filteredCustomers.filter((c) => c.status === 'lost').length})`,
+                  rev: filteredCustomers.filter((c) => c.status === 'lost').reduce((sum, c) => sum + getEffectiveDealValue(c), 0),
+                },
               ].map((stg) => (
                 <button
                   key={stg.id}
@@ -1901,7 +2170,7 @@ export function ModernCustomerView({
                       : 'bg-surface-subtle text-text-secondary hover:text-text-primary'
                   }`}
                 >
-                  {stg.label}
+                  {stg.label} {stg.rev > 0 ? `• ${formatINR(stg.rev)}` : ''}
                 </button>
               ))}
             </div>
@@ -1977,6 +2246,7 @@ export function ModernCustomerView({
                 .filter((col) => kanbanMobileStage === 'all' || kanbanMobileStage === col.id)
                 .map((col) => {
                   const colLeads = filteredCustomers.filter((c) => c.status === col.id);
+                  const colRevenue = colLeads.reduce((sum, c) => sum + getEffectiveDealValue(c), 0);
                   const isDropTarget = dragOverStage === col.id;
                   return (
                     <div
@@ -2019,9 +2289,16 @@ export function ModernCustomerView({
                         {col.label}
                       </h4>
                     </div>
-                    <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full font-mono shrink-0 ml-1 ${col.badge}`}>
-                      {colLeads.length}
-                    </span>
+                    <div className="flex items-center gap-1 shrink-0 ml-1">
+                      {colRevenue > 0 && (
+                        <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded-full font-mono bg-emerald-100/90 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200 border border-emerald-300/60 shadow-2xs" title={`Stage Pipeline Value: ${formatINR(colRevenue)}`}>
+                          {formatINR(colRevenue)}
+                        </span>
+                      )}
+                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full font-mono ${col.badge}`}>
+                        {colLeads.length}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Column Card List */}
@@ -2040,6 +2317,8 @@ export function ModernCustomerView({
                       colLeads.map((cust) => {
                         const isSelected = selectedCustomer?.id === cust.id;
                         const isDragging = draggedCustomerId === cust.id;
+                        const dealVal = getEffectiveDealValue(cust);
+                        const aiSnapshot = getAiSalesSnapshot(cust);
                         return (
                           <div
                             key={cust.id}
@@ -2058,7 +2337,7 @@ export function ModernCustomerView({
                               isSelected ? 'border-accent ring-1 ring-accent' : 'border-border/80'
                             } ${isDragging ? 'opacity-40 border-dashed border-accent' : ''}`}
                           >
-                            {/* Card Header: Drag Handle, Name & Temperature */}
+                            {/* Card Header: Drag Handle, Name & Temperature / Deal Value */}
                             <div className="flex items-start justify-between gap-1">
                               <div className="flex items-center gap-1 min-w-0 flex-1">
                                 <GripVertical className="w-3 h-3 text-text-muted/50 hover:text-text-muted shrink-0 -ml-0.5 cursor-grab" />
@@ -2103,25 +2382,49 @@ export function ModernCustomerView({
                                   </div>
                                 </div>
                               </div>
-                              <span
-                                className={`inline-flex items-center gap-0.5 text-[8.5px] font-bold px-1 py-0.2 rounded-xs uppercase tracking-wider shrink-0 ${
-                                  cust.lead_probability === 'hot'
-                                    ? 'bg-rose-50 text-rose-700 border border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
-                                    : cust.lead_probability === 'cold'
-                                    ? 'bg-sky-50 text-sky-700 border border-sky-200/80 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800'
-                                    : 'bg-amber-50 text-amber-700 border border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
-                                }`}
-                              >
-                                {cust.lead_probability === 'hot' ? (
-                                  <Flame className="w-2.5 h-2.5 text-rose-600 stroke-[2] shrink-0" />
-                                ) : cust.lead_probability === 'cold' ? (
-                                  <Snowflake className="w-2.5 h-2.5 text-sky-600 stroke-[2] shrink-0" />
-                                ) : (
-                                  <Sun className="w-2.5 h-2.5 text-amber-600 stroke-[2] shrink-0" />
+                              <div className="flex flex-col items-end gap-1 shrink-0">
+                                <span
+                                  className={`inline-flex items-center gap-0.5 text-[8.5px] font-bold px-1 py-0.2 rounded-xs uppercase tracking-wider shrink-0 ${
+                                    cust.lead_probability === 'hot'
+                                      ? 'bg-rose-50 text-rose-700 border border-rose-200/80 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+                                      : cust.lead_probability === 'cold'
+                                      ? 'bg-sky-50 text-sky-700 border border-sky-200/80 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800'
+                                      : 'bg-amber-50 text-amber-700 border border-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                                  }`}
+                                >
+                                  {cust.lead_probability === 'hot' ? (
+                                    <Flame className="w-2.5 h-2.5 text-rose-600 stroke-[2] shrink-0" />
+                                  ) : cust.lead_probability === 'cold' ? (
+                                    <Snowflake className="w-2.5 h-2.5 text-sky-600 stroke-[2] shrink-0" />
+                                  ) : (
+                                    <Sun className="w-2.5 h-2.5 text-amber-600 stroke-[2] shrink-0" />
+                                  )}
+                                  <span>{cust.lead_probability || 'warm'}</span>
+                                </span>
+                                {dealVal > 0 && (
+                                  <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.2 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800 rounded-xs font-mono shrink-0 shadow-2xs" title="Deal / Cart Value">
+                                    <span>{formatINR(dealVal)}</span>
+                                  </span>
                                 )}
-                                <span>{cust.lead_probability || 'warm'}</span>
-                              </span>
+                              </div>
                             </div>
+
+                            {/* AI Sales Snapshot ("Cheat Sheet" for Reps) */}
+                            {aiSnapshot && (
+                              <div className="px-2 py-1 bg-gradient-to-r from-purple-50/90 via-indigo-50/80 to-blue-50/70 dark:from-purple-950/40 dark:via-indigo-950/40 dark:to-blue-950/30 border border-purple-200/70 dark:border-purple-800/40 rounded-xs flex items-start gap-1.5 shadow-2xs">
+                                <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5 animate-pulse" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[7.5px] font-extrabold uppercase tracking-wider text-purple-700 dark:text-purple-300 font-mono">
+                                      AI Sales Snapshot
+                                    </span>
+                                  </div>
+                                  <p className="text-[9.5px] font-medium text-purple-950 dark:text-purple-100 leading-tight mt-0.5 line-clamp-2">
+                                    {aiSnapshot}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
 
                             {/* Service / Inquiry tag */}
                             {(cust.health_concern || cust.last_visit_service) && (

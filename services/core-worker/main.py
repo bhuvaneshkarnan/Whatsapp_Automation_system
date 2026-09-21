@@ -4089,6 +4089,35 @@ class CoreWorker:
                 dynamic_params.append(followup_time)
                 idx += 1
 
+            # 3b. Synthesize AI Sales Snapshot ("Cheat Sheet" for Sales Reps)
+            ai_snapshot = None
+            if booking_action or status == "converted":
+                svc = (booking_action.get("service") if isinstance(booking_action, dict) else None) or extracted_concern or "Consultation"
+                ai_snapshot = f"Ready to close: {svc} booked/scheduled • Call to confirm"
+            elif lead_prob == "hot":
+                ai_snapshot = f"High intent: Wants demo / consultation for {extracted_concern or 'service'} • Call immediately"
+            elif any(kw in full_text for kw in ["cost", "price", "fee", "fees", "how much", "charges"]):
+                ai_snapshot = f"Price inquiry on {extracted_concern or 'service'} • Hesitant on pricing, pitch value/ROI"
+            elif extracted_concern:
+                ai_snapshot = f"Inquiring about {extracted_concern} • Consultative closer recommended"
+            elif status == "lost" or lead_prob == "cold":
+                ai_snapshot = "Inactive / price objection • Re-engage later with special offer"
+
+            if ai_snapshot:
+                updates.append(f"ai_summary = ${idx}")
+                dynamic_params.append(ai_snapshot)
+                idx += 1
+
+            # 3c. Extract deal value from booking or pricing inquiry
+            deal_val = None
+            if booking_action and isinstance(booking_action, dict) and booking_action.get("price"):
+                try: deal_val = float(booking_action["price"])
+                except Exception: pass
+            if deal_val and deal_val > 0:
+                updates.append(f"deal_value = ${idx}")
+                dynamic_params.append(deal_val)
+                idx += 1
+
             # tenant_id and phone are always the last two params
             tid_idx = idx
             phone_idx = idx + 1

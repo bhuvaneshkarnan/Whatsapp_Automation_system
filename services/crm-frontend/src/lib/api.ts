@@ -434,6 +434,8 @@ export interface Customer {
   next_action?: string | null;
   primary_concerns?: string[] | null;
   interested_services?: string[] | null;
+  deal_value?: number | null;
+  ai_summary?: string | null;
 }
 
 export interface DuplicateCustomerCandidate {
