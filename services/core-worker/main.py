@@ -3858,12 +3858,20 @@ class CoreWorker:
             idx = 2
 
             if status:
-                updates.append(f"status = CASE WHEN customers.status = 'converted' THEN 'converted' ELSE ${idx} END")
-                dynamic_params.append(status)
-                idx += 1
-
-            if status == "converted":
-                updates.append("converted = true")
+                if status == "converted":
+                    updates.append("status = 'converted'")
+                    updates.append("converted = true")
+                elif status == "lost":
+                    updates.append("status = 'lost'")
+                else:
+                    updates.append(f"""status = CASE 
+                        WHEN customers.status IN ('converted', 'follow-up', 'contacted', 'lost') THEN customers.status
+                        WHEN customers.call_status IS NOT NULL AND customers.call_status NOT ILIKE '%new%' THEN 'follow-up'
+                        WHEN customers.followup_date IS NOT NULL THEN 'follow-up'
+                        ELSE ${idx}
+                    END""")
+                    dynamic_params.append(status)
+                    idx += 1
 
             if extracted_concern:
                 updates.append(f"health_concern = CASE WHEN customers.health_concern IS NULL OR customers.health_concern = 'General Consultation' THEN ${idx} ELSE customers.health_concern END")

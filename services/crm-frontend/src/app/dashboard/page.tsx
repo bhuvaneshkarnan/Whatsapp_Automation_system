@@ -8665,7 +8665,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <input
                     type="date"
                     value={selectedCustomer.followup_date || ''}
-                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { followup_date: e.target.value })}
+                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, {
+                      followup_date: e.target.value,
+                      ...(selectedCustomer.status === 'new' || !selectedCustomer.status ? { status: 'follow-up' as any } : {})
+                    })}
                     className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
                   />
                 </div>
@@ -8677,7 +8680,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                   <FollowupTimeInput
                     value={selectedCustomer.followup_time || '10:00 AM'}
-                    onChange={(newTime) => handleUpdateCustomer(selectedCustomer.id, { followup_time: newTime })}
+                    onChange={(newTime) => handleUpdateCustomer(selectedCustomer.id, {
+                      followup_time: newTime,
+                      ...(selectedCustomer.status === 'new' || !selectedCustomer.status ? { status: 'follow-up' as any } : {})
+                    })}
                     size="sm"
                   />
                 </div>
@@ -13567,13 +13573,17 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             onChange={(e) => {
                                               const val = e.target.value;
                                               const lower = val.toLowerCase();
-                                              const mappedStatus = lower.includes('converted') || lower.includes('confirmed')
-                                                ? 'converted'
-                                                : (lower.includes('info') || lower.includes('requirement') || lower.includes('pricing') || lower.includes('booked')
-                                                  ? 'follow-up'
-                                                  : (lower.includes('picked') || lower.includes('busy') || lower.includes('wrong')
-                                                    ? 'contacted'
-                                                    : 'new'));
+                                              let mappedStatus = 'follow-up';
+                                              if (lower.includes('converted') || lower.includes('confirmed')) {
+                                                mappedStatus = 'converted';
+                                              } else if (lower.includes('lost') || lower.includes('wrong') || lower.includes('blue flag')) {
+                                                mappedStatus = 'lost';
+                                              } else if (lower.includes('new') || lower.includes('fresh')) {
+                                                mappedStatus = 'new';
+                                              } else {
+                                                // Any in-progress outcome: info, requirements, pricing, booking requested, not picked, busy, etc.
+                                                mappedStatus = 'follow-up';
+                                              }
                                               handleUpdateCustomer(cust.id, {
                                                 call_status: val,
                                                 status: mappedStatus as any,
@@ -13701,7 +13711,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                 onSelectDate={(newDate) => {
                                                   handleUpdateCustomer(cust.id, {
                                                     followup_date: newDate,
-                                                    ...(!cust.followup_time ? { followup_time: '10:00 AM' } : {})
+                                                    ...(!cust.followup_time ? { followup_time: '10:00 AM' } : {}),
+                                                    ...(cust.status === 'new' || !cust.status ? { status: 'follow-up' as any } : {})
                                                   });
                                                   setActiveCalendarPopover(null);
                                                 }}
@@ -13723,7 +13734,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                 onSave={(newTime) => {
                                                   handleUpdateCustomer(cust.id, {
                                                     followup_time: newTime,
-                                                    ...(!cust.followup_date ? { followup_date: getFollowupDateString(1) } : {})
+                                                    ...(!cust.followup_date ? { followup_date: getFollowupDateString(1) } : {}),
+                                                    ...(cust.status === 'new' || !cust.status ? { status: 'follow-up' as any } : {})
                                                   });
                                                 }}
                                                 onClose={() => setActiveTimePopover(null)}
@@ -13759,7 +13771,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                 onSelectDate={(newDate) => {
                                                   handleUpdateCustomer(cust.id, {
                                                     followup_date: newDate,
-                                                    ...(!cust.followup_time ? { followup_time: '10:00 AM' } : {})
+                                                    ...(!cust.followup_time ? { followup_time: '10:00 AM' } : {}),
+                                                    ...(cust.status === 'new' || !cust.status ? { status: 'follow-up' as any } : {})
                                                   });
                                                   setActiveCalendarPopover(null);
                                                 }}
