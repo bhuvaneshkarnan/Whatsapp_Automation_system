@@ -2437,8 +2437,9 @@ class CoreWorker:
         elif any(w in inbound_clean for w in ["book", "appointment", "schedule", "demo", "call", "slot", "slots", "available", "come today", "tomorrow", "calendar"]):
             funnel_stage = "BOOKING_INTENT"
             stage_directive = (
-                "The customer explicitly wants to schedule or check availability. "
-                "Ask what date and time works best for them. Check Google Calendar availability and confirm."
+                "The customer wants to schedule or check availability for an appointment, demo, or call. "
+                "Always suggest 1 or 2 specific convenient times or windows (e.g. 'Are you free tomorrow around 11:00 AM or 3:00 PM for a quick demo?'). "
+                "NEVER leave the time completely unspecified or open-ended. Check Google Calendar availability and confirm once they pick a slot."
             )
         elif any(w in inbound_clean for w in ["expensive", "costly", "think about it", "let you know", "discount", "deal", "offer", "not tech", "hard to setup", "painful", "afraid"]):
             funnel_stage = "OBJECTION_HESITATION"
@@ -3810,17 +3811,43 @@ class CoreWorker:
                         extracted_concern = candidate
                         break
 
-            # 3. Follow-up Date (ONLY if customer explicitly asked for future follow-up)
+            # 3. Follow-up Date & Time Calculation
             followup_date = None
+            followup_time = None
             import datetime
             if "next week" in full_text:
                 followup_date = datetime.date.today() + datetime.timedelta(days=7)
+                followup_time = "10:00 AM"
             elif "after 2 days" in full_text or "in 2 days" in full_text:
                 followup_date = datetime.date.today() + datetime.timedelta(days=2)
+                followup_time = "10:00 AM"
             elif "after 3 days" in full_text or "in 3 days" in full_text:
                 followup_date = datetime.date.today() + datetime.timedelta(days=3)
+                followup_time = "10:00 AM"
             elif "next month" in full_text:
                 followup_date = datetime.date.today() + datetime.timedelta(days=30)
+                followup_time = "10:00 AM"
+            elif status != "converted":
+                # Schedule 2-hour incomplete conversation recovery follow-up
+                tenant_tz_str = "Asia/Kolkata"
+                try:
+                    import zoneinfo
+                    tz = zoneinfo.ZoneInfo(tenant_tz_str)
+                except Exception:
+                    tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+                now_local = datetime.datetime.now(tz)
+                target_fu = now_local + datetime.timedelta(hours=2)
+                if target_fu.hour >= 22 or target_fu.hour < 9:
+                    # Past evening cutoff (10 PM) or early morning: schedule for next day at 10:00 AM
+                    if target_fu.hour >= 22 or now_local.hour >= 20:
+                        fu_day = now_local.date() + datetime.timedelta(days=1)
+                    else:
+                        fu_day = now_local.date()
+                    followup_date = fu_day
+                    followup_time = "10:00 AM"
+                else:
+                    followup_date = target_fu.date()
+                    followup_time = target_fu.strftime("%I:%M %p")
 
             # 4. Update customer record in database
             # Build params: $1=lead_prob, then dynamic optional params, then tenant_id and phone at the end
@@ -3844,6 +3871,11 @@ class CoreWorker:
             if followup_date:
                 updates.append(f"followup_date = COALESCE(customers.followup_date, ${idx}::date)")
                 dynamic_params.append(followup_date.isoformat())
+                idx += 1
+
+            if followup_time:
+                updates.append(f"followup_time = COALESCE(customers.followup_time, ${idx})")
+                dynamic_params.append(followup_time)
                 idx += 1
 
             # tenant_id and phone are always the last two params
@@ -5738,7 +5770,8 @@ class CoreWorker:
                     if not phone_number_id or not access_token or not contact_phone:
                         continue
 
-                    # 1. Quiet Hours Check based on tenant's timezone (09:30 AM to 08:30 PM local time)
+                    # 1. Quiet Hours Check based on tenant's timezone & operating hours
+                    # Default permitted follow-up window: 09:00 AM to 10:00 PM local time
                     tenant_tz_str = tenant_st.get("timezone") or "Asia/Kolkata"
                     import zoneinfo
                     try:
@@ -5747,12 +5780,30 @@ class CoreWorker:
                         tenant_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
 
                     now_local = datetime.datetime.now(tenant_tz)
-                    is_quiet_hours = (
-                        now_local.hour < 9 or 
-                        (now_local.hour == 9 and now_local.minute < 30) or 
-                        now_local.hour > 20 or 
-                        (now_local.hour == 20 and now_local.minute > 30)
-                    )
+
+                    # Dynamic morning start (default 09:00, or tenant's opening_time if between 08:30 and 10:00)
+                    start_hour = 9
+                    start_min = 0
+                    op_time = str(tenant_st.get("opening_time") or "").strip()
+                    if op_time and ":" in op_time:
+                        try:
+                            op_parts = op_time.split(":")
+                            op_h, op_m = int(op_parts[0]), int(op_parts[1])
+                            if 8 <= op_h <= 10:
+                                start_hour, start_min = op_h, op_m
+                        except Exception:
+                            pass
+
+                    # Evening quiet hours start at 10:00 PM (22:00) local time
+                    # This allows evening WhatsApp conversations to have their natural 2-hour follow-up up to 10 PM
+                    end_hour = 22
+                    end_min = 0
+
+                    current_min_of_day = now_local.hour * 60 + now_local.minute
+                    allowed_start_min = start_hour * 60 + start_min
+                    allowed_end_min = end_hour * 60 + end_min
+
+                    is_quiet_hours = (current_min_of_day < allowed_start_min or current_min_of_day > allowed_end_min)
                     if is_quiet_hours:
                         logger.debug("incomplete_followup_quiet_hours", tenant_id=tenant_id, conv_id=conv_id, local_time=now_local.strftime("%H:%M"))
                         continue
@@ -5829,8 +5880,45 @@ class CoreWorker:
                     )
                     cust_concern = cust_row.get("health_concern") if cust_row else None
 
+                    # Determine live time context & time of day
+                    day_name = now_local.strftime("%A")
+                    date_str = now_local.strftime("%d %B %Y")
+                    time_str = now_local.strftime("%I:%M %p")
+                    
+                    hour = now_local.hour
+                    if hour < 12:
+                        time_of_day = "morning"
+                        suggested_slots = "11:30 AM or 3:00 PM today"
+                    elif hour < 16:
+                        time_of_day = "afternoon"
+                        suggested_slots = "4:30 PM today or 11:00 AM tomorrow"
+                    else:
+                        time_of_day = "evening"
+                        suggested_slots = "11:00 AM or 3:30 PM tomorrow"
+
+                    # Check if last user message was on a previous day (overnight deferral)
+                    last_user_dt = None
+                    for m in reversed(msg_rows):
+                        if m["direction"] == "inbound" and m.get("created_at"):
+                            last_user_dt = m["created_at"].astimezone(tenant_tz) if hasattr(m["created_at"], "astimezone") else m["created_at"]
+                            break
+
+                    is_overnight = False
+                    if last_user_dt and hasattr(last_user_dt, "date"):
+                        if last_user_dt.date() < now_local.date():
+                            is_overnight = True
+
+                    time_context_block = (
+                        f"### LIVE TIME & CALENDAR CONTEXT:\n"
+                        f"- Current Time: {time_str} on {day_name}, {date_str} ({tenant_tz_str} time).\n"
+                        f"- Time of Day: {time_of_day.capitalize()}.\n"
+                        + (f"- Overnight Recovery: The customer sent their last message yesterday evening ({last_user_dt.strftime('%I:%M %p')}). It is now {day_name} morning.\n" if is_overnight else "")
+                        + f"- Recommended Time Suggestions if proposing a slot: '{suggested_slots}'.\n"
+                    )
+
                     # 3. Contextual Follow-Up Continuation Prompt
                     followup_blocks = [
+                        time_context_block,
                         f"You are {assistant_name}, representing {tenant_name} directly on WhatsApp chat.",
                         "### MISSION: INCOMPLETE CONVERSATION RECOVERY (CONTEXTUAL CONTINUATION):\n"
                         "The customer reached out earlier and our assistant replied, but the customer went quiet and has not replied for over 2 hours.\n"
@@ -5838,10 +5926,14 @@ class CoreWorker:
                         "### STRICT CONTINUATION RULES:\n"
                         "1. DEEPLY UNDERSTAND THE LATEST CHAT CONTEXT & REASON FOR DROP-OFF:\n"
                         "   - Review what the customer asked and what our assistant already shared in the most recent messages.\n"
-                        "   - CRITICAL ANTI-REPETITION RULE: Look closely at our assistant's recent replies. NEVER repeat, rephrase, or echo the same question or pitch!\n"
-                        "   - If the assistant already asked what time works or already scheduled, do NOT say 'Of course you can choose your own time' or repeat scheduling prompts.\n"
-                        "   - If the customer sent a simple greeting like 'hi' or 'hello' and we already replied, ask how you can help them or if they have any specific questions.\n"
-                        "   - If the assistant already answered their question, ask warmly if they have any other questions or if they are ready to proceed.\n"
+                        "   - CRITICAL ANTI-REPETITION & TIME CLARITY RULE:\n"
+                        "     * Never repeat robotic canned phrases like 'Of course you can choose your own time' or generic 'Just checking in'.\n"
+                        "     * IF THE PRIOR DISCUSSION WAS ABOUT SCHEDULING (call, demo, appointment, consultation):\n"
+                        "       DO NOT SEND VAGUE MESSAGES WITHOUT A TIME (e.g. 'whenever you have a moment to breathe')!\n"
+                        f"       ALWAYS propose 1 or 2 specific convenient times based on current time (e.g. 'Would {suggested_slots} work for a quick 10-minute demo walkthrough?') so the customer can simply say yes or choose one.\n"
+                        + ("     * Since this is the morning after an overnight chat: Start warmly (e.g. 'Good morning! Following up on our chat yesterday...') and offer convenient times for today.\n" if is_overnight else "")
+                        + "     * If the customer previously sent a simple greeting like 'hi'/'hello' and went quiet: Ask how you can help them with their specific requirements.\n"
+                        "     * If we already answered their service/pricing query: Ask if they would like to see a demo or schedule a brief walkthrough.\n"
                         "2. NEVER USE ROBOTIC OPENERS: Absolutely FORBIDDEN from using generic check-ins like 'Are you still there?', 'Just checking in', 'Hey there', 'Following up on our chat'. Make it feel like a real, thoughtful person continuing the conversation.\n"
                         "3. WARM & CONCISE: 1 to 2 short lines (around 20 to 35 words). Never sound blunt or pushy.\n"
                         "4. ZERO HYPHENS, ZERO BULLETS, ZERO EMOJIS: Absolutely zero hyphens (-), dashes (--), asterisks (*), bullet points (•), or emojis.\n"
@@ -5878,9 +5970,12 @@ class CoreWorker:
 
                     continuation_prompt = "\n\n".join(followup_blocks)
 
-                    followup_messages = history + [
-                        {"role": "user", "content": "[Customer paused here for over 2 hours. Send a 1 to 2 line natural follow-up message to continue our conversation based on the chat context above.]"}
-                    ]
+                    followup_instruction = (
+                        f"[Customer went quiet for over 2 hours. Current time is {time_str} on {day_name}. "
+                        f"Send a 1 to 2 line natural follow-up message. "
+                        f"If scheduling a demo/call/appointment was in progress, include 1 or 2 specific time suggestions (such as {suggested_slots}) so the time is never missing!]"
+                    )
+                    followup_messages = history + [{"role": "user", "content": followup_instruction}]
 
                     raw_reply, prov = await call_llm_cascade(
                         messages=followup_messages,
@@ -5954,6 +6049,21 @@ class CoreWorker:
                            WHERE id = $1::uuid""",
                         conv_id,
                     )
+
+                    # Update customer record so CRM dashboard reflects the sent follow-up date and time
+                    try:
+                        await self.db_pool.execute(
+                            """UPDATE customers
+                               SET last_messaged_at = NOW(),
+                                   followup_date = CURRENT_DATE,
+                                   followup_time = $3,
+                                   updated_at = NOW()
+                               WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10))""",
+                            tenant_id, contact_phone, time_str
+                        )
+                    except Exception as cust_up_err:
+                        logger.warning("incomplete_followup_customer_update_failed", error=str(cust_up_err))
+
                     logger.info("incomplete_conversation_followup_sent", tenant_id=tenant_id, conv_id=conv_id)
                 except Exception as row_err:
                     logger.warning("incomplete_followup_candidate_error", conv_id=str(row.get("conv_id")), error=str(row_err))
