@@ -39,14 +39,12 @@ from services.whatsapp_service import dispatch_automated_status_whatsapp
 router = APIRouter()
 logger = structlog.get_logger('crm-api-auth')
 
-GLOBAL_DEFAULT_STRICT_RULES = """
-1. NEVER invent, assume, or hallucinate availability. Always query actual available slots before proposing a time.
-2. Only book within explicitly available open slots. Never double-book.
-3. Only mention services and prices exactly as they appear in the provided context. If a service is not listed, state that you need to check with the team.
-4. Be polite, concise, and direct. Do not use overly long paragraphs.
-5. Keep the conversation moving towards a booking when appropriate.
-6. Do NOT offer medical advice. You are an AI assistant for scheduling and inquiries.
-"""
+GLOBAL_DEFAULT_STRICT_RULES = """1. EASY INDIAN ENGLISH & NATURAL HUMAN TONE: Reply like an authentic, friendly real person texting on WhatsApp in India using easy Indian English. Avoid stiff corporate jargon, robotic filler ('Certainly!', 'I would be delighted to assist you', 'Please feel free to reach out'), and formal customer service essays.
+2. TAMIL & LANGUAGE CONTINUITY: If the customer writes in Tamil (Tamil script or Tanglish), reply 100% in natural Tamil/Tanglish. If the customer communicates in another language (Hindi, Telugu, etc.), detect and save their language preference and consistently reply in that language for all future messages.
+3. GOOGLE CALENDAR ACCURACY & REAL-TIME SLOTS: Check live availability from Google Calendar before confirming or proposing appointments. Never double-book or falsely claim days are fully booked when open slots exist.
+4. FACTUAL PRICING & SERVICES: Only mention services and prices exactly as they appear in the business knowledge base. Never invent unlisted services or treatments.
+5. SHORT & DIRECT WHATSAPP TEXTING: Keep responses to 1 to 2 short sentences. Absolutely zero hyphens, dashes, asterisks, bullet points, or emojis.
+6. CONTEXTUAL 2-HOUR FOLLOWUPS: Automated followups must read the previous 3-4 conversation exchanges to understand what was actually being discussed and continue that specific topic instead of sending generic check-ins or forced canned slots."""
 
 @router.get("/admin/global-rules")
 async def get_admin_global_rules(admin_user: dict = Depends(verify_super_admin)):
@@ -70,19 +68,29 @@ async def get_admin_global_rules(admin_user: dict = Depends(verify_super_admin))
             "closing_time": default_close,
             "rules_summary": [
                 {
+                    "title": "Human-Like Easy Indian English & Natural WhatsApp Chat",
+                    "description": "Replies sound like a warm, helpful real human texting in easy Indian English. Eliminates generic corporate robotic tone and bot clichés.",
+                    "status": "Enforced Globally"
+                },
+                {
+                    "title": "Tamil & Multilingual Preference Memory",
+                    "description": "Full Tamil (script and Tanglish) fluency. Customer language preference is automatically detected, saved in customer records, and consistently maintained across all interactions.",
+                    "status": "Enforced Globally"
+                },
+                {
                     "title": "Real-Time Google Calendar Availability & Conflict Prevention",
                     "description": "Before proposing or confirming an appointment, the AI checks live Free/Busy availability from the organization's Google Calendar and CRM bookings. Proposes and books exclusively during open free hours (09:00 AM - 08:00 PM). Never invents, hallucinates, or quotes wrong/occupied slot data.",
+                    "status": "Enforced Globally"
+                },
+                {
+                    "title": "Context-Aware 2-Hour Recovery Follow-Up",
+                    "description": "Followups read the previous 3-4 conversation exchanges to directly continue the specific discussion topic (symptoms, pricing, timings) with short, clear, non-pushy messages.",
                     "status": "Enforced Globally"
                 },
                 {
                     "title": "12-Hour Time Format Directive",
                     "description": "All dates and appointment times are quoted in 12-hour format with AM/PM (e.g. 10:00 AM, 06:30 PM). Military / 24-hour time is strictly forbidden.",
                     "status": "Enforced Globally"
-                },
-                {
-                    "title": "Tenant Autonomous Tone & Behavior",
-                    "description": "Reply formatting follows a natural, human WhatsApp conversational style. Tone, sales style, greetings, and goals are autonomously governed by each tenant's custom AI instructions.",
-                    "status": "Tenant Autonomous"
                 }
             ]
         }

@@ -301,8 +301,11 @@ def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.dateti
 
 
 GLOBAL_DEFAULT_STRICT_RULES = (
+    "- EASY INDIAN ENGLISH & NATURAL HUMAN TONE: Reply like an authentic, friendly real person texting on WhatsApp in India using easy Indian English. Avoid stiff corporate jargon, robotic filler ('Certainly!', 'I would be delighted to assist you', 'Please feel free to reach out'), and formal customer service essays.\n"
+    "- TAMIL & LANGUAGE CONTINUITY: If the customer writes in Tamil (Tamil script or Tanglish), reply 100% in natural Tamil/Tanglish. If the customer communicates in another language (Hindi, Telugu, etc.), detect and save their language preference and consistently reply in that language for all future messages.\n"
     "- GOOGLE CALENDAR AVAILABILITY & FREE-TIME BOOKING: Check live availability from Google Calendar. Propose and book only during verified open free time. Never invent, hallucinate, or state incorrect, wrong, or occupied timeslots.\n"
-    "- ZERO FALSE 'FULLY BOOKED' CLAIMS: If a day (including today) or time slot is not in the occupied list, it is open and available. Never falsely tell a customer that today or any day is 'fully booked' when the calendar has open hours remaining."
+    "- ZERO FALSE 'FULLY BOOKED' CLAIMS: If a day (including today) or time slot is not in the occupied list, it is open and available. Never falsely tell a customer that today or any day is 'fully booked' when the calendar has open hours remaining.\n"
+    "- SHORT & DIRECT WHATSAPP TEXTING: Keep responses to 1 to 2 short sentences. Absolutely zero hyphens, dashes, asterisks, bullet points, or emojis."
 )
 
 def _esc_html(val: Any) -> str:
@@ -777,6 +780,11 @@ class CoreWorker:
         # Connect DB and Redis
         self.db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=8)
         self.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+
+        try:
+            await self.db_pool.execute("ALTER TABLE customers ADD COLUMN IF NOT EXISTS preferred_language TEXT")
+        except Exception as e_col:
+            logger.warning("customers_preferred_language_migration_skipped", error=str(e_col))
 
         # Create consumer groups (idempotent)
         try:
@@ -1571,16 +1579,38 @@ class CoreWorker:
 
         return text.strip()
 
-    def _detect_dialect_and_texting_style(self, message_text: str, history: list[dict]) -> dict:
+    def _detect_dialect_and_texting_style(
+        self,
+        message_text: str,
+        history: list[dict],
+        stored_language: Optional[str] = None
+    ) -> dict:
         """
-        Analyzes customer's incoming message and chat history to identify:
-        1. Language & Script (Devanagari, Tamil, Telugu, Arabic, Latin)
-        2. Dialect / Code-Mixing (Hinglish, Tanglish, Casual Slang, Formal Business, Standard)
+        Analyzes customer's incoming message, chat history, and stored customer language preference to identify:
+        1. Language & Script (Tamil, Tanglish, Hindi Devanagari, Hinglish, Telugu, Malayalam, Kannada, Arabic, Easy Indian English)
+        2. Dialect / Code-Mixing (Hinglish, Tanglish, Casual Slang, Formal Business, Easy Indian English)
         3. Message Brevity & Vibe (Ultra-Short, Conversational, Detailed)
         Produces precise style mirroring directives for the LLM.
         """
         text = (message_text or "").strip()
         text_lower = text.lower()
+
+        # Check for explicit language switch requests by user
+        if any(sw in text_lower for sw in ["speak in english", "talk in english", "in english please", "reply in english", "english please"]):
+            return {
+                "dialect": "indian_english",
+                "language": "indian_english",
+                "label": "Easy Indian English",
+                "directive": (
+                    "The customer requested English. "
+                    "CRITICAL: Reply like an authentic, friendly real person texting on WhatsApp in India using easy, natural Indian English. "
+                    "Use simple words and natural, warm phrasing (e.g. 'Sure! I can help you with that. Could you share what issue you are facing?'). "
+                    "NEVER use robotic AI clichés: do NOT say 'Certainly!', 'I would be delighted to assist you', 'I completely understand your concern', 'Please feel free to reach out', or 'How may I assist you today?'. "
+                    "Answer directly in sentence 1, then ask 1 gentle, relevant follow-up question."
+                )
+            }
+        if any(sw in text_lower for sw in ["tamil la pesunga", "speak in tamil", "tamil please", "reply in tamil"]):
+            stored_language = "tamil_script"
 
         # Combine all user messages from history for broader context and language persistence
         recent_user_texts = [text_lower]
@@ -1589,58 +1619,25 @@ class CoreWorker:
                 recent_user_texts.append((h.get("content") or "").lower())
         combined_user_text = " ".join(recent_user_texts)
 
-        # 1. Script Detection (Unicode Ranges across current message & history)
-        has_devanagari = bool(re.search(r'[\u0900-\u097F]', combined_user_text))
-        has_tamil = bool(re.search(r'[\u0B80-\u0BFF]', combined_user_text))
-        has_telugu = bool(re.search(r'[\u0C00-\u0C7F]', combined_user_text))
-        has_arabic = bool(re.search(r'[\u0600-\u06FF]', combined_user_text))
+        # 1. Direct Script Detection on current message
+        curr_devanagari = bool(re.search(r'[\u0900-\u097F]', text))
+        curr_tamil = bool(re.search(r'[\u0B80-\u0BFF]', text))
+        curr_telugu = bool(re.search(r'[\u0C00-\u0C7F]', text))
+        curr_malayalam = bool(re.search(r'[\u0D00-\u0D7F]', text))
+        curr_kannada = bool(re.search(r'[\u0C80-\u0CFF]', text))
+        curr_arabic = bool(re.search(r'[\u0600-\u06FF]', text))
 
-        if has_devanagari:
-            return {
-                "dialect": "hindi_devanagari",
-                "label": "Hindi (Devanagari Script)",
-                "directive": (
-                    "The customer wrote in Hindi (Devanagari script). "
-                    "Respond fluently, warmly, and respectfully in HINDI using Devanagari script (हिंदी)."
-                )
-            }
-        if has_tamil:
-            return {
-                "dialect": "tamil_script",
-                "label": "Tamil (Tamil Script)",
-                "directive": (
-                    "The customer communicated in Tamil script. "
-                    "CRITICAL: You MUST respond 100% in warm, polite, and friendly TAMIL using Tamil script (தமிழ்). "
-                    "Greet politely, answer their query directly and clearly in sentence 1, and maintain a respectful, welcoming tone. "
-                    "Do NOT sound cold, blunt, or robotic. Never reply in English."
-                )
-            }
-        if has_telugu:
-            return {
-                "dialect": "telugu_script",
-                "label": "Telugu (Telugu Script)",
-                "directive": (
-                    "The customer wrote in Telugu script. "
-                    "Respond fluently and respectfully in TELUGU using Telugu script (తెలుగు)."
-                )
-            }
-        if has_arabic:
-            return {
-                "dialect": "arabic_script",
-                "label": "Arabic (Arabic Script)",
-                "directive": (
-                    "The customer wrote in Arabic script. "
-                    "Respond fluently and respectfully in ARABIC script."
-                )
-            }
+        # Broad Script Detection across history
+        has_devanagari = curr_devanagari or bool(re.search(r'[\u0900-\u097F]', combined_user_text))
+        has_tamil = curr_tamil or bool(re.search(r'[\u0B80-\u0BFF]', combined_user_text))
+        has_telugu = curr_telugu or bool(re.search(r'[\u0C00-\u0C7F]', combined_user_text))
+        has_malayalam = curr_malayalam or bool(re.search(r'[\u0D00-\u0D7F]', combined_user_text))
+        has_kannada = curr_kannada or bool(re.search(r'[\u0C80-\u0CFF]', combined_user_text))
+        has_arabic = curr_arabic or bool(re.search(r'[\u0600-\u06FF]', combined_user_text))
 
-        # 2. Vernacular Code-Mixing Detection (Hinglish, Tanglish) across current query and chat history
-        inbound_history_text = " ".join(
-            (m.get("content") or "") for m in (history or []) if m.get("role") == "user"
-        ).lower()
-        combined_text_lower = f"{text_lower} {inbound_history_text}".strip()
+        # 2. Vernacular Code-Mixing Detection (Hinglish, Tanglish)
         tokens_current = set(re.findall(r'\b[a-z]+\b', text_lower))
-        tokens_all = set(re.findall(r'\b[a-z]+\b', combined_text_lower))
+        tokens_all = set(re.findall(r'\b[a-z]+\b', combined_user_text))
 
         hinglish_words = {
             "bhai", "bhiya", "kya", "hai", "hain", "kitna", "kitne", "chahiye", "karo", "karna", "kar",
@@ -1650,7 +1647,8 @@ class CoreWorker:
             "bolo", "mujhe", "mera", "meri", "hum", "aap", "tum", "kardo", "suno", "sunao",
             "chal", "raha", "rahi", "badhiya", "mast", "sab", "kuch", "shukriya", "dhanyawad"
         }
-        hinglish_matches = tokens_all.intersection(hinglish_words)
+        hinglish_matches_current = tokens_current.intersection(hinglish_words)
+        hinglish_matches_all = tokens_all.intersection(hinglish_words)
 
         tanglish_words = {
             "evalo", "evlo", "irukku", "irukka", "sollunga", "pannanum", "vandhuten", "nalaiku",
@@ -1664,11 +1662,123 @@ class CoreWorker:
             "kelunga", "keten", "pannalam", "pannunga", "solren", "illai", "vendaam", "kudu",
             "machi", "thala", "paaru", "paathuten", "sandhosham", "puriyala", "purinjidhu", "kooda",
             "annachi", "thambi", "anna", "akka", "apram", "appuram", "seringa", "oknga", "ama",
-            "aama", "aamam", "valikuthu", "vali", "kaala", "nandri", "thalaiva"
+            "aama", "aamam", "valikuthu", "vali", "kaala", "nandri", "thalaiva", "epdi", "panradhu"
         }
-        tanglish_matches = tokens_all.intersection(tanglish_words)
+        tanglish_matches_current = tokens_current.intersection(tanglish_words)
+        tanglish_matches_all = tokens_all.intersection(tanglish_words)
 
-        # 3. Formality & Texting Slang Tokens
+        # 3. Brevity & Neutral Short Inquiries Check
+        words = text.split()
+        is_ultra_short = (len(words) <= 4) and not (len(words) == 1 and any(w in text_lower for w in ["hi", "hello", "hey"]))
+        is_neutral_short = len(words) <= 4 and not (curr_devanagari or curr_tamil or curr_telugu or curr_malayalam or curr_kannada or curr_arabic or bool(tanglish_matches_current) or bool(hinglish_matches_current))
+
+        # Check stored language retention on neutral short messages (e.g., "ok", "price", "yes", "fees")
+        clean_stored_lang = (stored_language or "").strip().lower()
+
+        # Prioritize explicit current script signals, or stored language on neutral messages
+        if curr_tamil or (is_neutral_short and clean_stored_lang in ("tamil_script", "tamil")) or (not curr_devanagari and not curr_telugu and has_tamil and is_neutral_short):
+            return {
+                "dialect": "tamil_script",
+                "language": "tamil",
+                "label": "Tamil (Tamil Script)",
+                "directive": (
+                    "The customer communicated in Tamil script or has Tamil as their preferred language. "
+                    "CRITICAL: You MUST respond 100% in warm, polite, and natural TAMIL using Tamil script (தமிழ்). "
+                    "Speak like a friendly, caring clinic/business front-desk member in Tamil Nadu "
+                    "(e.g. 'வணக்கம்! எங்கள் கிளினிக்கில் கன்சல்டேஷன் கட்டணம் ₹500. உங்களுக்கு என்ன சிகிச்சை தேவை என்று கூற முடியுமா?'). "
+                    "Greet politely, answer their query directly and clearly in sentence 1, and maintain a respectful, welcoming tone. "
+                    "Do NOT sound cold, blunt, or robotic. Never reply in English or mix English sentences."
+                )
+            }
+
+        if len(tanglish_matches_current) >= 1 or (is_neutral_short and clean_stored_lang == "tanglish") or (len(tanglish_matches_all) >= 1 and is_neutral_short):
+            brevity_note = " Keep it punchy in 1 short sentence." if is_ultra_short else ""
+            return {
+                "dialect": "tanglish",
+                "language": "tanglish",
+                "label": "Tanglish (Romanized Tamil + English)",
+                "directive": (
+                    "The customer is communicating in Tanglish (Tamil written in Romanized English alphabet, e.g. 'vanakkam', 'nalla poguthu', 'evlo cost', 'eppadi irukku') or has Tanglish as their preferred language. "
+                    "CRITICAL: You MUST reply 100% in natural, warm, polite Romanized Tanglish/Tamil-English mix using the English alphabet "
+                    "(e.g. 'Vanakkam! Consultation fee ₹500. Ungalukku enna problem nu solla mudiyuma? Dr paathu kandippa help pannuvom.'). "
+                    "NEVER reply in pure English to a Tanglish message! "
+                    "Do NOT use Tamil script and do NOT use any hyphens (write 'business ku' not 'business-ku'). "
+                    "Answer directly and warmly in sentence 1. Match their friendly Tanglish cadence with genuine warmth." + brevity_note
+                )
+            }
+
+        if curr_devanagari or (is_neutral_short and clean_stored_lang in ("hindi_devanagari", "hindi")) or (has_devanagari and is_neutral_short):
+            return {
+                "dialect": "hindi_devanagari",
+                "language": "hindi",
+                "label": "Hindi (Devanagari Script)",
+                "directive": (
+                    "The customer wrote in Hindi (Devanagari script) or has Hindi as their preferred language. "
+                    "CRITICAL: Respond fluently, warmly, and respectfully in HINDI using Devanagari script (हिंदी). "
+                    "Answer directly in sentence 1, maintain a warm, respectful tone, and do not sound cold or robotic."
+                )
+            }
+
+        if len(hinglish_matches_current) >= 1 or (is_neutral_short and clean_stored_lang == "hinglish") or (len(hinglish_matches_all) >= 1 and is_neutral_short):
+            brevity_note = " Keep it punchy in 1 short sentence." if is_ultra_short else ""
+            return {
+                "dialect": "hinglish",
+                "language": "hinglish",
+                "label": "Hinglish (Romanized Hindi + English)",
+                "directive": (
+                    "The customer is speaking in Hinglish (Hindi written in English alphabet) or has Hinglish as their preferred language. "
+                    "CRITICAL: You MUST reply 100% in natural, warm, polite Romanized Hinglish using the English alphabet "
+                    "(e.g. 'Sure bhai! Consultation fee ₹500 hai. Aapko kis problem ke liye consult karna hai?'). "
+                    "NEVER reply in pure English to a Hinglish message! "
+                    "Do NOT use Devanagari script or any hyphens. Match their friendly, natural Hinglish cadence perfectly." + brevity_note
+                )
+            }
+
+        if curr_telugu or (is_neutral_short and clean_stored_lang in ("telugu_script", "telugu")) or (has_telugu and is_neutral_short):
+            return {
+                "dialect": "telugu_script",
+                "language": "telugu",
+                "label": "Telugu (Telugu Script)",
+                "directive": (
+                    "The customer wrote in Telugu script or has Telugu as their preferred language. "
+                    "Respond fluently, warmly, and respectfully in TELUGU using Telugu script (తెలుగు)."
+                )
+            }
+
+        if curr_malayalam or (is_neutral_short and clean_stored_lang in ("malayalam_script", "malayalam")) or (has_malayalam and is_neutral_short):
+            return {
+                "dialect": "malayalam_script",
+                "language": "malayalam",
+                "label": "Malayalam (Malayalam Script)",
+                "directive": (
+                    "The customer wrote in Malayalam script or has Malayalam as their preferred language. "
+                    "Respond fluently, warmly, and respectfully in MALAYALAM using Malayalam script (മലയാളം)."
+                )
+            }
+
+        if curr_kannada or (is_neutral_short and clean_stored_lang in ("kannada_script", "kannada")) or (has_kannada and is_neutral_short):
+            return {
+                "dialect": "kannada_script",
+                "language": "kannada",
+                "label": "Kannada (Kannada Script)",
+                "directive": (
+                    "The customer wrote in Kannada script or has Kannada as their preferred language. "
+                    "Respond fluently, warmly, and respectfully in KANNADA using Kannada script (ಕನ್ನಡ)."
+                )
+            }
+
+        if curr_arabic or (is_neutral_short and clean_stored_lang in ("arabic_script", "arabic")) or (has_arabic and is_neutral_short):
+            return {
+                "dialect": "arabic_script",
+                "language": "arabic",
+                "label": "Arabic (Arabic Script)",
+                "directive": (
+                    "The customer wrote in Arabic script or has Arabic as their preferred language. "
+                    "Respond fluently and respectfully in ARABIC script."
+                )
+            }
+
+        # 4. Formality & Texting Slang Tokens
         casual_slang_words = {
             "bro", "yo", "hey man", "dude", "u", "ur", "pls", "plz", "thx", "thanks!", "gimme",
             "wanna", "lemme", "k", "cool", "yup", "nope", "nah", "sup", "gotcha", "btw", "idk",
@@ -1683,55 +1793,24 @@ class CoreWorker:
         }
         formal_matches = any(w in text_lower for w in formal_words)
 
-        # 4. Brevity Check
-        words = text.split()
-        is_ultra_short = (len(words) <= 4) and not (len(words) == 1 and any(w in text_lower for w in ["hi", "hello", "hey"]))
-
-        if len(tanglish_matches) >= 1:
-            brevity_note = " Keep it ultra-punchy in 1 sentence." if is_ultra_short else ""
-            return {
-                "dialect": "tanglish",
-                "label": "Tanglish (Romanized Tamil + English)",
-                "directive": (
-                    "The customer is communicating in Tanglish (Tamil written in Romanized English alphabet, e.g. 'vanakkam', 'nalla poguthu', 'evlo cost', 'eppadi irukku'). "
-                    "CRITICAL: You MUST reply 100% in natural, warm, polite Romanized Tanglish/Tamil-English mix using the English alphabet "
-                    "(e.g. 'Vanakkam! Ungalukku eppadi help panlam? Namma treatment details pathi solren.'). "
-                    "NEVER reply in pure English to a Tanglish message! "
-                    "Do NOT use Tamil script and do NOT use any hyphens (write 'business ku' not 'business-ku'). "
-                    "Answer directly and warmly in sentence 1. Match their friendly Tanglish cadence with genuine warmth." + brevity_note
-                )
-            }
-
-        if len(hinglish_matches) >= 1:
-            brevity_note = " Keep it ultra-punchy in 1 sentence." if is_ultra_short else ""
-            return {
-                "dialect": "hinglish",
-                "label": "Hinglish (Romanized Hindi + English)",
-                "directive": (
-                    "The customer is speaking in Hinglish (Hindi written in English alphabet). "
-                    "CRITICAL: You MUST reply 100% in natural, warm, polite Romanized Hinglish using the English alphabet "
-                    "(e.g. 'Sure bhai! ₹3,499 per month hai all inclusive. Kal aapke liye kaunsa time theek rahega?'). "
-                    "NEVER reply in pure English to a Hinglish message! "
-                    "Do NOT use Devanagari script or any hyphens. Match their friendly, natural Hinglish cadence perfectly." + brevity_note
-                )
-            }
-
         if casual_matches:
             brevity_note = " Keep it ultra-punchy in 1 sentence." if is_ultra_short else ""
             return {
                 "dialect": "casual_slang",
-                "label": "Casual / Slang English",
+                "language": "indian_english",
+                "label": "Casual Easy Indian English",
                 "directive": (
-                    "The customer texts casually using informal texting slang (e.g. 'bro', 'yo', 'u', 'pls'). "
-                    "CRITICAL: Mirror their relaxed, friendly, modern WhatsApp texting vibe without any hyphens. "
-                    "Talk like an authentic, friendly person texting on WhatsApp (e.g. 'Hey! It is ₹3,499 per month all inclusive. What time works best for a quick chat?'). "
-                    "Avoid stiff corporate greetings like 'Dear Sir/Madam' or cold robotic replies." + brevity_note
+                    "The customer texts casually on WhatsApp. "
+                    "CRITICAL: Mirror their relaxed, friendly, modern WhatsApp texting vibe in easy Indian English without hyphens. "
+                    "Talk like an authentic, friendly real person texting on WhatsApp (e.g. 'Hey! Sure, it is ₹500 for consultation. What time works best for you?'). "
+                    "Avoid stiff corporate greetings like 'Dear Sir/Madam' or robotic assistant replies." + brevity_note
                 )
             }
 
         if formal_matches:
             return {
                 "dialect": "formal_business",
+                "language": "indian_english",
                 "label": "Formal Business English",
                 "directive": (
                     "The customer writes with formal, courteous executive business phrasing. "
@@ -1742,22 +1821,75 @@ class CoreWorker:
         if is_ultra_short:
             return {
                 "dialect": "ultra_short",
-                "label": "Ultra-Brief Inquiry",
+                "language": "indian_english",
+                "label": "Ultra-Brief Inquiry (Easy Indian English)",
                 "directive": (
                     "The customer sent an ultra-short query (1 to 4 words). "
-                    "CRITICAL BREVITY MIRRORING: Give the direct answer immediately in a warm, helpful sentence, followed by a friendly invitation. Zero fluff."
+                    "CRITICAL BREVITY: Give the direct answer immediately in a warm, helpful sentence in easy Indian English, followed by a friendly invitation. Zero fluff."
                 )
             }
 
+        # Default: Authentic, warm, easy Indian English WhatsApp conversation
         return {
-            "dialect": "standard_conversational",
-            "label": "Natural Conversational English",
+            "dialect": "indian_english",
+            "language": "indian_english",
+            "label": "Easy Indian English",
             "directive": (
-                "Speak in a warm, polite, directly helpful, and friendly conversational WhatsApp tone. "
-                "Answer the customer's question directly and pleasantly in sentence 1. "
-                "Be courteous, welcoming, and natural without robotic stiffness or coldness."
+                "Speak in warm, polite, directly helpful, easy Indian English. "
+                "Talk like an authentic, friendly real person texting on WhatsApp in India. "
+                "Use simple words and natural, warm phrasing (e.g. 'Sure, I can help with that.', 'Could you share what problem you are facing?', 'Our clinic is in T. Nagar. Would morning or evening suit you better?'). "
+                "NEVER use robotic AI clichés: do NOT say 'Certainly!', 'I would be delighted to assist you', 'I completely understand your concern', 'Please feel free to reach out', or 'How may I assist you today?'. "
+                "Avoid stiff formal corporate phrasing. Answer the customer's query directly in sentence 1, then ask 1 gentle, relevant follow-up question."
             )
         }
+
+    async def _persist_customer_language(
+        self,
+        tenant_id: str,
+        phone: str,
+        contact_id: Optional[str],
+        language: str,
+    ):
+        """
+        Persists detected customer language preference into customers table and contacts metadata
+        so the AI consistently maintains the customer's language preference across all future interactions.
+        """
+        try:
+            pool = self.db_pool
+            if not pool or not phone or not language:
+                return
+
+            clean_digits = re.sub(r'\D', '', str(phone or ""))
+            last10 = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
+
+            # 1. Update customers table
+            await pool.execute(
+                """UPDATE customers
+                   SET preferred_language = $1, updated_at = NOW()
+                   WHERE tenant_id = $2::uuid
+                     AND (phone = $3 OR phone = $4 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $5)""",
+                language, tenant_id, phone, clean_digits, last10
+            )
+
+            # 2. Update contacts table metadata JSONB
+            if contact_id:
+                await pool.execute(
+                    """UPDATE contacts
+                       SET metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('preferred_language', $1::text)
+                       WHERE id = $2::uuid AND tenant_id = $3::uuid""",
+                    language, contact_id, tenant_id
+                )
+            elif last10:
+                await pool.execute(
+                    """UPDATE contacts
+                       SET metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('preferred_language', $1::text)
+                       WHERE tenant_id = $2::uuid
+                         AND (phone = $3 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4)""",
+                    language, tenant_id, phone, last10
+                )
+            logger.info("persisted_customer_language_preference", phone=phone, language=language)
+        except Exception as e:
+            logger.warning("persist_customer_language_failed", phone=phone, language=language, error=str(e))
 
     def _split_into_whatsapp_bubbles(self, text: str) -> list[str]:
         """
@@ -1872,10 +2004,12 @@ class CoreWorker:
             "   - Step 2: If a lighter option genuinely fits what they said (per the business prompt), mention it naturally.\n"
             "   - Step 3: If they are still clearly not interested, respect that fully — do not push further.\n"
             "   - Step 4: Always close respectfully: thank them, leave the door open, never sound disappointed or guilt-trip them.\n\n"
-            "6. TONE & STYLE (NO STOCK EMPATHY PHRASES):\n"
-            "   - Simple, warm, clear, everyday language, the way a real person types on WhatsApp. No AI clichés, no clinical jargon.\n"
-            "   - Show empathy mainly through the next useful question, not through long emotional statements. Avoid repetitive stock phrases like 'I am sorry to hear that', 'I completely understand how difficult this must be', 'Thank you for sharing this' — they read as artificial fast. Acknowledge briefly, then ask something useful.\n"
-            "   - Reply in the same language and style the person just used (Tamil script to Tamil script, Tanglish to natural Tanglish, Hinglish to Hinglish, plain English to plain English).\n\n"
+            "6. TONE & STYLE (EASY INDIAN ENGLISH & NATURAL HUMAN TEXTING):\n"
+            "   - Reply like an authentic, friendly real person texting on WhatsApp in India using easy, natural Indian English.\n"
+            "   - Use simple, warm, everyday words (e.g. 'Hi Ramesh! Sure, I can help with that.', 'Could you share what problem you are facing?').\n"
+            "   - ABSOLUTELY ZERO ROBOTIC BOT CLICHÉS: Never use robotic assistant phrases like 'Certainly!', 'I would be delighted to assist you', 'I completely understand your concern', 'Please feel free to reach out', 'How may I assist you today?'. These immediately give away artificial AI.\n"
+            "   - Show empathy mainly through the next useful question or direct helpful answer, not long emotional statements.\n"
+            "   - TAMIL & LANGUAGE CONTINUITY: If the customer writes in Tamil (Tamil script or Tanglish), reply 100% in natural Tamil/Tanglish. If they write in any other Indian language (Hindi, Telugu, etc.), consistently reply in that language and maintain their preferred language across all subsequent messages.\n\n"
             + format_section +
             "8. SAFETY & SCOPE:\n"
             "   - Never give a recommendation or price outside what is explicitly in this business's knowledge base.\n"
@@ -1941,13 +2075,14 @@ class CoreWorker:
         customer_doctor = None
         customer_status = None
         customer_id_val = None
+        customer_preferred_language = ""
         customer_notes_text = ""
 
         try:
             cust_row = await self.db_pool.fetchrow(
                 """SELECT id, name, age, location, health_concern, preferred_doctor,
                           status, lead_probability, followup_date, followup_time,
-                          last_visited_at, last_messaged_at
+                          last_visited_at, last_messaged_at, preferred_language
                    FROM customers
                    WHERE tenant_id = $1::uuid
                      AND (
@@ -1964,6 +2099,7 @@ class CoreWorker:
                 customer_health_concern = (cust_row.get("health_concern") or "").strip()
                 customer_doctor = (cust_row.get("preferred_doctor") or "").strip()
                 customer_status = (cust_row.get("status") or "").strip()
+                customer_preferred_language = (cust_row.get("preferred_language") or "").strip()
 
                 # Fetch recent clinic & staff notes for this customer
                 if customer_id_val:
@@ -1980,6 +2116,10 @@ class CoreWorker:
                         )
         except Exception as e_cquery:
             logger.warning("customer_row_query_failed", error=str(e_cquery))
+
+        # Fallback to contacts metadata for preferred_language if not yet in customers table
+        if not customer_preferred_language and meta_dict and isinstance(meta_dict, dict):
+            customer_preferred_language = (meta_dict.get("preferred_language") or "").strip()
 
         # Check if we have a verified customer full name (customers table takes highest priority, then contacts)
         cust_table_name = (cust_row.get("name") or "").strip() if cust_row else ""
@@ -2506,8 +2646,18 @@ class CoreWorker:
         strict_rules = (ai_cfg.get("strict_rules") or "").strip()
         objection_handling = ai_cfg.get("objection_handling") or ""
 
-        # Dialect & Style Mirroring (Customer Texting Vibe Adaptation)
-        style_profile = self._detect_dialect_and_texting_style(message_text, history)
+        # Dialect & Style Mirroring (Customer Texting Vibe Adaptation & Language Preference)
+        style_profile = self._detect_dialect_and_texting_style(message_text, history, stored_language=customer_preferred_language)
+        
+        # Persist detected customer language preference if vernacular or updated
+        detected_lang = style_profile.get("language")
+        detected_dialect = style_profile.get("dialect")
+        if detected_lang and detected_lang in ("tamil", "tanglish", "hindi", "hinglish", "telugu", "malayalam", "kannada", "arabic", "indian_english"):
+            if detected_dialect != customer_preferred_language and detected_dialect not in ("casual_slang", "formal_business", "ultra_short"):
+                asyncio.create_task(
+                    self._persist_customer_language(tenant_id, contact_phone, contact_id_val, detected_dialect)
+                )
+
         tenant_style_override = (response_style or "").strip()
         if tenant_style_override and tenant_style_override.lower() not in ("short", "natural", "default"):
             style_mirroring_block = (
@@ -2670,13 +2820,13 @@ class CoreWorker:
             "- NO STOCK EMPATHY PHRASES: Avoid repetitive phrases like 'I completely understand' or 'I am sorry to hear that'. Show care through your next helpful response.\n"
             "- ZERO REPETITION: NEVER repeat a question that was already asked in the chat history. Progress naturally.\n"
             f"- LANGUAGE & DIALECT MIRRORING: Strictly match customer's language and vibe ({style_profile['label']}). "
-            + ("If Tamil script, reply 100% in warm, polite Tamil (தமிழ்)! If Hinglish/Tanglish, reply 100% in natural Romanized text without hyphens; if casual slang, stay relaxed, warm, and friendly; keep answer natural and human.\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like an authentic, warm, helpful human texting on WhatsApp.\n")
+            + ("If Tamil script, reply 100% in warm, polite Tamil (தமிழ்)! If Tanglish, reply 100% in natural Romanized Tanglish without hyphens! If Hindi/Hinglish, reply in Hindi/Hinglish! If English, reply in easy, friendly Indian English.\n" if style_profile['dialect'] not in ('indian_english', 'standard_conversational') else "Sound like an authentic, friendly human texting on WhatsApp in easy Indian English (no robotic bot clichés).\n")
             + "- CUSTOMER-DRIVEN APPOINTMENT BOOKING: When scheduling, ask what date and time works best for them. When they provide a time, check availability and confirm. Never force rigid canned slot suggestions.\n"
             "- QUESTION SUPPRESSION: NEVER ask for any detail (name, business, concern, location, email) that is already listed in Known Facts or stated in chat history.\n"
             "- FUNNEL PROGRESSION: Always advance the conversation smoothly. Never loop or stay stuck.\n"
             "- ZERO PHONE LEAK: NEVER give the customer's phone number (" + str(contact_phone) + ") as our contact number! If asked, give " + str(admin_phone or 'our team directly') + ".\n"
             "- ZERO NAME CONFUSION: Customer is " + str(confirmed_name or customer_name_display) + ". NEVER call them '" + str(admin_name or 'Bhuvan') + "'.\n"
-            "- Sound 100% like an authentic, helpful human texting on WhatsApp (no AI or robotic clichés)."
+            "- Sound 100% like an authentic, helpful human texting in easy Indian English or customer's preferred language (no robotic bot clichés)."
         )
         prompt_blocks.append(reinforcement_rule)
 
@@ -3092,8 +3242,9 @@ class CoreWorker:
         health_concern=None,
         preferred_doctor=None,
         lead_probability=None,
+        preferred_language=None,
     ):
-        """Auto-update customer extracted details (name, health_concern, doctor, age, location, lead_probability) into Customers and Contacts."""
+        """Auto-update customer extracted details (name, health_concern, doctor, age, location, lead_probability, preferred_language) into Customers and Contacts."""
         if not phone and not contact_id:
             return
         try:
@@ -3112,6 +3263,8 @@ class CoreWorker:
                     meta_updates["health_concern"] = str(health_concern).strip()
                 if preferred_doctor:
                     meta_updates["preferred_doctor"] = str(preferred_doctor).strip()
+                if preferred_language:
+                    meta_updates["preferred_language"] = str(preferred_language).strip()
 
                 if contact_id:
                     if meta_updates:
@@ -3188,6 +3341,10 @@ class CoreWorker:
                     updates.append(f"preferred_doctor = ${p_idx}")
                     params.append(str(preferred_doctor).strip())
                     p_idx += 1
+                if preferred_language:
+                    updates.append(f"preferred_language = ${p_idx}")
+                    params.append(str(preferred_language).strip())
+                    p_idx += 1
                 if lead_probability and str(lead_probability).lower() in ("hot", "warm", "cold"):
                     updates.append(f"lead_probability = ${p_idx}")
                     params.append(str(lead_probability).lower())
@@ -3198,7 +3355,7 @@ class CoreWorker:
                     sql = f"UPDATE customers SET {', '.join(updates)} WHERE id = ${p_idx}::uuid AND tenant_id = ${p_idx + 1}::uuid"
                     params.extend([cust_id, tenant_id])
                     await pool.execute(sql, *params)
-                    logger.info("customer_info_auto_updated", phone=phone, age=age, location=location, name=name, health_concern=health_concern, preferred_doctor=preferred_doctor, lead_probability=lead_probability)
+                    logger.info("customer_info_auto_updated", phone=phone, age=age, location=location, name=name, health_concern=health_concern, preferred_doctor=preferred_doctor, lead_probability=lead_probability, preferred_language=preferred_language)
             else:
                 # Customer not found in customers table yet; upsert new row so it immediately appears on Customer tab
                 contact_name = None
@@ -3219,14 +3376,15 @@ class CoreWorker:
 
                 await pool.execute(
                     """
-                    INSERT INTO customers (tenant_id, phone, name, preferred_doctor, status, health_concern, lead_probability, age, location, last_messaged_at, created_at, updated_at)
-                    VALUES ($1::uuid, $2, $3, $4, 'new', $5, $6, $7, $8, NOW(), NOW(), NOW())
+                    INSERT INTO customers (tenant_id, phone, name, preferred_doctor, status, health_concern, lead_probability, age, location, preferred_language, last_messaged_at, created_at, updated_at)
+                    VALUES ($1::uuid, $2, $3, $4, 'new', $5, $6, $7, $8, $9, NOW(), NOW(), NOW())
                     ON CONFLICT (tenant_id, phone) DO UPDATE
                     SET updated_at = NOW(),
                         last_messaged_at = NOW(),
                         name = COALESCE(NULLIF(EXCLUDED.name, 'Customer'), customers.name),
                         preferred_doctor = COALESCE(EXCLUDED.preferred_doctor, customers.preferred_doctor),
                         health_concern = COALESCE(EXCLUDED.health_concern, customers.health_concern),
+                        preferred_language = COALESCE(EXCLUDED.preferred_language, customers.preferred_language),
                         lead_probability = CASE WHEN EXCLUDED.lead_probability IN ('hot', 'warm', 'cold') THEN EXCLUDED.lead_probability ELSE customers.lead_probability END,
                         age = COALESCE(EXCLUDED.age, customers.age),
                         location = COALESCE(EXCLUDED.location, customers.location)
@@ -3236,9 +3394,10 @@ class CoreWorker:
                     health_concern.strip() if health_concern else None,
                     init_prob,
                     int(age) if age is not None else None,
-                    str(location).strip() if location else None
+                    str(location).strip() if location else None,
+                    str(preferred_language).strip() if preferred_language else None,
                 )
-                logger.info("customer_info_auto_created", phone=phone, age=age, location=location, name=customer_name, health_concern=health_concern, lead_probability=init_prob)
+                logger.info("customer_info_auto_created", phone=phone, age=age, location=location, name=customer_name, health_concern=health_concern, lead_probability=init_prob, preferred_language=preferred_language)
 
             if lead_probability and str(lead_probability).lower() == "hot":
                 try:
@@ -5862,7 +6021,26 @@ class CoreWorker:
                         logger.info("skipping_followup_opt_out_detected", conv_id=conv_id, tenant_id=tenant_id)
                         continue
 
-                    style_profile = self._detect_dialect_and_texting_style(clean_last_user_msg, history)
+                    # Retrieve contact details (health concern, doctor, preferred language) for richer context
+                    cust_row = await self.db_pool.fetchrow(
+                        "SELECT name, health_concern, preferred_doctor, preferred_language FROM customers WHERE tenant_id = $1::uuid AND phone = $2",
+                        tenant_id, contact_phone
+                    )
+                    cust_concern = cust_row.get("health_concern") if cust_row else None
+                    cust_saved_lang = (cust_row.get("preferred_language") or "").strip() if cust_row else ""
+                    if not cust_saved_lang:
+                        c_meta = await self.db_pool.fetchval(
+                            "SELECT metadata FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                            row["contact_id"], tenant_id
+                        )
+                        if c_meta:
+                            if isinstance(c_meta, str):
+                                try: c_meta = json.loads(c_meta)
+                                except: c_meta = {}
+                            if isinstance(c_meta, dict):
+                                cust_saved_lang = (c_meta.get("preferred_language") or "").strip()
+
+                    style_profile = self._detect_dialect_and_texting_style(clean_last_user_msg, history, stored_language=cust_saved_lang)
 
                     ai_cfg = await self._get_ai_config(tenant_id)
                     followup_style = (ai_cfg.get("response_style") or "short").strip()
@@ -5882,13 +6060,6 @@ class CoreWorker:
                     tenant_system_prompt = (ai_cfg.get("system_prompt") or "").strip()
                     tenant_services = (ai_cfg.get("services_text") or "").strip()
                     tenant_strict_rules = (ai_cfg.get("strict_rules") or "").strip()
-
-                    # Retrieve contact details (health concern, doctor) for richer context
-                    cust_row = await self.db_pool.fetchrow(
-                        "SELECT health_concern, preferred_doctor FROM customers WHERE tenant_id = $1::uuid AND phone = $2",
-                        tenant_id, contact_phone
-                    )
-                    cust_concern = cust_row.get("health_concern") if cust_row else None
 
                     # Determine live time context & time of day
                     day_name = now_local.strftime("%A")
@@ -5923,33 +6094,42 @@ class CoreWorker:
                         f"- Current Time: {time_str} on {day_name}, {date_str} ({tenant_tz_str} time).\n"
                         f"- Time of Day: {time_of_day.capitalize()}.\n"
                         + (f"- Overnight Recovery: The customer sent their last message yesterday evening ({last_user_dt.strftime('%I:%M %p')}). It is now {day_name} morning.\n" if is_overnight else "")
-                        + f"- Recommended Time Suggestions if proposing a slot: '{suggested_slots}'.\n"
                     )
 
-                    # 3. Contextual Follow-Up Continuation Prompt
+                    # Extract specifically the last 3-4 conversation exchanges to give deep focal context
+                    recent_turns = history[-4:] if len(history) >= 4 else history
+                    formatted_turns = []
+                    for m in recent_turns:
+                        spk = "Customer" if m.get("role") == "user" else assistant_name
+                        c_body = re.sub(r'</?(?:user_message)[^>]*>', '', m.get("content") or "").strip()
+                        if c_body:
+                            formatted_turns.append(f"{spk}: {c_body}")
+                    recent_chat_transcript = "\n".join(formatted_turns)
+
+                    # 3. Contextual Follow-Up Continuation Prompt focused on previous 3-4 messages
                     followup_blocks = [
                         time_context_block,
                         f"You are {assistant_name}, representing {tenant_name} directly on WhatsApp chat.",
-                        "### MISSION: INCOMPLETE CONVERSATION RECOVERY (CONTEXTUAL CONTINUATION):\n"
-                        "The customer reached out earlier and our assistant replied, but the customer went quiet and has not replied for over 2 hours.\n"
-                        "Your task is to re-open the conversation with a gentle, authentic, contextual follow-up message based on the FULL conversation history above.\n\n"
-                        "### STRICT CONTINUATION RULES:\n"
-                        "1. DEEPLY UNDERSTAND THE LATEST CHAT CONTEXT & REASON FOR DROP-OFF:\n"
-                        "   - Review what the customer asked and what our assistant already shared in the most recent messages.\n"
-                        "   - CRITICAL ANTI-REPETITION & TIME CLARITY RULE:\n"
-                        "     * Never repeat robotic canned phrases like 'Of course you can choose your own time' or generic 'Just checking in'.\n"
-                        "     * IF THE PRIOR DISCUSSION WAS ABOUT SCHEDULING (call, demo, appointment, consultation):\n"
-                        "       DO NOT SEND VAGUE MESSAGES WITHOUT A TIME (e.g. 'whenever you have a moment to breathe')!\n"
-                        f"       ALWAYS propose 1 or 2 specific convenient times based on current time (e.g. 'Would {suggested_slots} work for a quick 10-minute demo walkthrough?') so the customer can simply say yes or choose one.\n"
-                        + ("     * Since this is the morning after an overnight chat: Start warmly (e.g. 'Good morning! Following up on our chat yesterday...') and offer convenient times for today.\n" if is_overnight else "")
-                        + "     * If the customer previously sent a simple greeting like 'hi'/'hello' and went quiet: Ask how you can help them with their specific requirements.\n"
-                        "     * If we already answered their service/pricing query: Ask if they would like to see a demo or schedule a brief walkthrough.\n"
-                        "2. NEVER USE ROBOTIC OPENERS: Absolutely FORBIDDEN from using generic check-ins like 'Are you still there?', 'Just checking in', 'Hey there', 'Following up on our chat'. Make it feel like a real, thoughtful person continuing the conversation.\n"
-                        "3. WARM & CONCISE: 1 to 2 short lines (around 20 to 35 words). Never sound blunt or pushy.\n"
-                        "4. ZERO HYPHENS, ZERO BULLETS, ZERO EMOJIS: Absolutely zero hyphens (-), dashes (--), asterisks (*), bullet points (•), or emojis.\n"
-                        f"5. LANGUAGE & DIALECT MIRRORING: Strictly match the customer's texting style and language ({style_profile['label']}). "
-                        + ("If Tamil script, reply 100% in warm, polite Tamil (தமிழ்)! If Tanglish, reply 100% in natural Romanized text without hyphens!\n" if style_profile['dialect'] != 'standard_conversational' else "Sound like a polite, caring human texting on WhatsApp.\n")
-                        + "6. ZERO PRESSURE: Never interrogate or push aggressively. Leave a warm, helpful open door."
+                        "### MISSION: SMART 2-HOUR RECOVERY FOLLOW-UP (CONTEXTUAL TOPIC CONTINUATION):\n"
+                        "The customer was chatting with us 2 hours ago and stopped replying after our last message.\n"
+                        "Your goal is to send a short, warm, non-intrusive 1-2 sentence follow-up that directly continues the specific topic discussed in their last 3-4 messages below.\n\n"
+                        "### PRIOR 3-4 CONVERSATION EXCHANGES (READ CAREFULLY TO UNDERSTAND THE EXACT TOPIC):\n"
+                        f"{recent_chat_transcript}\n\n"
+                        "### STRICT RULES FOR THIS FOLLOW-UP:\n"
+                        "1. DEEP CONTEXT UNDERSTANDING (NO GENERIC CHECK-INS & NO CANNED DEMO SLOTS):\n"
+                        "   - Read the last 3-4 messages above to see what was actually being discussed:\n"
+                        "     * Medical/Health symptom or treatment: If they asked about a symptom or treatment (e.g. knee pain, skin issue, therapy, consultation) and went quiet, follow up on that specific topic (e.g. 'Checking in to see if you had any questions about the treatment for your knee pain?').\n"
+                        "     * Pricing / Fees: If they asked about costs or fees, follow up specifically on pricing or consultation details (e.g. 'Let me know if you would like more details about the consultation charges or available options.').\n"
+                        "     * Clinic Location / Hours: If they asked where we are or our timings, ask if they need directions or help planning their visit.\n"
+                        "     * Appointment Scheduling: ONLY if the conversation was specifically in the middle of picking a date/time for a visit, gently ask what day or time suits them. NEVER push canned demo slots like '10-minute demo walkthrough' or generic times unless they explicitly asked for a software demo!\n"
+                        "   - ABSOLUTELY FORBIDDEN ROBOTIC PHRASES: Never say 'Just checking in', 'Are you still there?', 'How can I assist you today?', or 'Following up on our chat'. Make it feel like an authentic, thoughtful person resuming the conversation.\n"
+                        "2. EASY INDIAN ENGLISH OR CUSTOMER'S PREFERRED LANGUAGE:\n"
+                        f"   - Match customer's language ({style_profile['label']}). "
+                        + ("If Tamil script, reply 100% in natural, polite Tamil script (தமிழ்)! If Tanglish, reply 100% in natural Romanized Tanglish without hyphens! If Hindi/Hinglish, reply in Hindi/Hinglish!\n" if style_profile['dialect'] not in ('indian_english', 'standard_conversational') else "Speak in easy, friendly Indian English.\n")
+                        + "3. LENGTH & FORMAT:\n"
+                        "   - Strictly 1 to 2 short sentences (20 to 35 words max).\n"
+                        "   - ABSOLUTELY ZERO hyphens, dashes, asterisks, bullet points, or emojis.\n"
+                        "   - Zero pressure. Always leave a warm, welcoming door open."
                     ]
 
                     if tenant_system_prompt:
@@ -5981,9 +6161,9 @@ class CoreWorker:
                     continuation_prompt = "\n\n".join(followup_blocks)
 
                     followup_instruction = (
-                        f"[Customer went quiet for over 2 hours. Current time is {time_str} on {day_name}. "
-                        f"Send a 1 to 2 line natural follow-up message. "
-                        f"If scheduling a demo/call/appointment was in progress, include 1 or 2 specific time suggestions (such as {suggested_slots}) so the time is never missing!]"
+                        f"[Customer stopped replying 2 hours ago. Look at their last 3-4 messages above. "
+                        f"Write a short, clear, warm 1-2 sentence followup directly continuing the specific topic they were discussing "
+                        f"in {style_profile['label']}. Do not say 'Just checking in' and do not push canned demo times.]"
                     )
                     followup_messages = history + [{"role": "user", "content": followup_instruction}]
 

@@ -673,5 +673,9 @@ async def get_live_calendar_availability(
 
 # ── Super Admin Client Management Endpoints ────────────────────────────────────
 
-GLOBAL_DEFAULT_STRICT_RULES = """- GOOGLE CALENDAR AVAILABILITY & FREE-TIME BOOKING: Check live availability from Google Calendar. Propose and book only during verified open free time. Never invent, hallucinate, or state incorrect, wrong, or occupied timeslots.
-- ZERO FALSE 'FULLY BOOKED' CLAIMS: If a day (including today) or time slot is not in the occupied list, it is open and available. Never falsely tell a customer that today or any day is 'fully booked' when the calendar has open hours remaining."""
+GLOBAL_DEFAULT_STRICT_RULES = """- EASY INDIAN ENGLISH & NATURAL HUMAN TONE: Reply like an authentic, friendly real person texting on WhatsApp in India using easy Indian English. Avoid stiff corporate jargon, robotic filler, and formal customer service essays.
+- TAMIL & LANGUAGE CONTINUITY: If the customer writes in Tamil (Tamil script or Tanglish), reply 100% in natural Tamil/Tanglish. If the customer communicates in another language (Hindi, Telugu, etc.), detect and save their language preference and consistently reply in that language for all future messages.
+- GOOGLE CALENDAR AVAILABILITY & FREE-TIME BOOKING: Check live availability from Google Calendar. Propose and book only during verified open free time. Never invent, hallucinate, or state incorrect, wrong, or occupied timeslots.
+- ZERO FALSE 'FULLY BOOKED' CLAIMS: If a day (including today) or time slot is not in the occupied list, it is open and available. Never falsely tell a customer that today or any day is 'fully booked' when the calendar has open hours remaining.
+- SHORT & DIRECT WHATSAPP TEXTING: Keep responses to 1 to 2 short sentences. Absolutely zero hyphens, dashes, asterisks, bullet points, or emojis."""
+

@@ -97,6 +97,7 @@ async def run_migrations(pool: asyncpg.Pool):
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS google_calendar_event_id TEXT;
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_visited_at TIMESTAMPTZ;
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_messaged_at TIMESTAMPTZ;
+                ALTER TABLE customers ADD COLUMN IF NOT EXISTS preferred_language TEXT;
                 ALTER TABLE conversations ADD COLUMN IF NOT EXISTS assigned_to UUID REFERENCES users(id) ON DELETE SET NULL;
                 ALTER TABLE messages ADD COLUMN IF NOT EXISTS template_name TEXT;
                 ALTER TABLE messages ADD COLUMN IF NOT EXISTS template_params JSONB;

@@ -658,7 +658,7 @@ async def list_customers(
             SELECT 
                 c.id, c.tenant_id, c.phone, c.name, c.internal_name, c.metadata, c.age, c.location, c.preferred_doctor, c.status,
                 c.health_concern, c.lead_probability, c.converted, c.followup_date,
-                c.followup_time, c.google_task_id, c.google_calendar_event_id, c.last_visited_at, c.last_messaged_at, c.created_at, c.updated_at,
+                c.followup_time, c.google_task_id, c.google_calendar_event_id, c.last_visited_at, c.last_messaged_at, c.preferred_language, c.created_at, c.updated_at,
                 COALESCE(c.conversion_rate, CASE WHEN c.converted THEN 100 WHEN c.lead_probability = 'hot' THEN 80 WHEN c.lead_probability = 'cold' THEN 20 ELSE 50 END) AS conversion_rate,
                 COALESCE(c.call_status, c.status, 'New (Fresh)') AS call_status,
                 COALESCE(c.next_action, 'Call Again') AS next_action,
@@ -804,6 +804,7 @@ async def list_customers(
             "conversion_rate": r["conversion_rate"] if r["conversion_rate"] is not None else 50,
             "call_status": r["call_status"] or "New (Fresh)",
             "next_action": r["next_action"] or "Call Again",
+            "preferred_language": r.get("preferred_language") or None,
             "primary_concerns": list(r["primary_concerns"]) if r["primary_concerns"] else [],
             "interested_services": list(r["interested_services"]) if r["interested_services"] else [],
         })
