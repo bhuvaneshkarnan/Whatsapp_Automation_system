@@ -1448,6 +1448,8 @@ async def update_customer(
         "next_action": row["next_action"],
         "primary_concerns": list(row["primary_concerns"]) if row["primary_concerns"] else [],
         "interested_services": list(row["interested_services"]) if row["interested_services"] else [],
+        "deal_value": float(row["deal_value"]) if row.get("deal_value") is not None else 0.0,
+        "ai_summary": row.get("ai_summary"),
     }
 
 
