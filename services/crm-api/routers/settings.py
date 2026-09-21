@@ -842,7 +842,7 @@ RULES:
 
     # Call Gemini Flash
     result_text = ""
-    for model in ["gemini-2.5-flash-lite-preview-06-17", "gemini-flash-lite-latest", "gemini-flash-latest"]:
+    for model in ["gemini-flash-lite-latest", "gemini-flash-latest"]:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gem_key}"
         try:
             async with httpx.AsyncClient(timeout=25.0) as client:
