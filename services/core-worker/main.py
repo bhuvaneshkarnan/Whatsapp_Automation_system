@@ -3436,14 +3436,16 @@ class CoreWorker:
                     return
 
             # Deduplication: Check if this contact already has a confirmed/pending booking within 1 hour of this time
+            window_start = st_dt - datetime.timedelta(hours=1)
+            window_end = st_dt + datetime.timedelta(hours=1)
             existing_contact_booking = await self.db_pool.fetchrow(
                 """SELECT id FROM bookings
                    WHERE tenant_id = $1::uuid
                      AND contact_id = $2::uuid
                      AND status IN ('confirmed', 'pending', 'rescheduled')
-                     AND start_time >= $3 - INTERVAL '1 hour'
-                     AND start_time <= $3 + INTERVAL '1 hour'""",
-                tenant_id, contact_id, st_dt
+                     AND start_time >= $3
+                     AND start_time <= $4""",
+                tenant_id, contact_id, window_start, window_end
             )
             if existing_contact_booking:
                 booking_id = str(existing_contact_booking["id"])

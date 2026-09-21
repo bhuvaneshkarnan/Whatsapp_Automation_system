@@ -252,13 +252,15 @@ async def create_booking(
                     raise HTTPException(409, f"Timeslot capacity reached: This slot has reached the maximum of {max_concurrent} concurrent bookings.")
 
             # 2. Insert or update booking (deduplicating if contact already booked this slot)
+            window_start = st_dt - timedelta(hours=1)
+            window_end = st_dt + timedelta(hours=1)
             existing_booking = await conn.fetchrow(
                 """SELECT id FROM bookings
                    WHERE tenant_id = $1::uuid AND contact_id = $2::uuid
                      AND status IN ('confirmed', 'pending')
-                     AND start_time >= $3 - INTERVAL '1 hour'
-                     AND start_time <= $3 + INTERVAL '1 hour'""",
-                tenant_id, contact_id, st_dt
+                     AND start_time >= $3
+                     AND start_time <= $4""",
+                tenant_id, contact_id, window_start, window_end
             )
             if existing_booking:
                 booking_id = str(existing_booking["id"])
