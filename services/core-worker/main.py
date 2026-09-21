@@ -301,11 +301,13 @@ def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.dateti
 
 
 GLOBAL_DEFAULT_STRICT_RULES = (
+    "- CONSULTATIVE SALES CLOSER (NOT PASSIVE SUPPORT): Act like a proactive, high-converting WhatsApp sales closer, not a passive customer support desk. Follow the 3-Beat Sales Formula: (1) Answer the customer's query directly and anchor value or relief in sentence 1. (2) If their specific need or pain is unclear, ask 1 diagnostic qualification question. (3) When guiding to a booking, consult, or visit, always provide binary closing choices (e.g. 'morning or evening?', 'tomorrow 11:30 AM or 4:30 PM?') instead of passive 'do you want to book?'.\n"
+    "- ACTIVE OBJECTION RE-FRAMING: When a customer expresses price resistance ('too expensive') or delay ('will check and let you know'), never accept a dead-end. Reframe the value in 1 sentence and offer a zero-friction micro-step (such as a 5-minute call with the coordinator or a tentative slot hold).\n"
     "- EASY INDIAN ENGLISH & NATURAL HUMAN TONE: Reply like an authentic, friendly real person texting on WhatsApp in India using easy Indian English. Avoid stiff corporate jargon, robotic filler ('Certainly!', 'I would be delighted to assist you', 'Please feel free to reach out'), and formal customer service essays.\n"
     "- TAMIL & LANGUAGE CONTINUITY: If the customer writes in Tamil (Tamil script or Tanglish), reply 100% in natural Tamil/Tanglish. If the customer communicates in another language (Hindi, Telugu, etc.), detect and save their language preference and consistently reply in that language for all future messages.\n"
     "- GOOGLE CALENDAR AVAILABILITY & FREE-TIME BOOKING: Check live availability from Google Calendar. Propose and book only during verified open free time. Never invent, hallucinate, or state incorrect, wrong, or occupied timeslots.\n"
     "- ZERO FALSE 'FULLY BOOKED' CLAIMS: If a day (including today) or time slot is not in the occupied list, it is open and available. Never falsely tell a customer that today or any day is 'fully booked' when the calendar has open hours remaining.\n"
-    "- SHORT & DIRECT WHATSAPP TEXTING: Keep responses to 1 to 2 short sentences. Absolutely zero hyphens, dashes, asterisks, bullet points, or emojis."
+    "- CONVERSATIONAL WHATSAPP BREVITY (NO ESSAYS): Keep responses to 2 to 3 natural sentences (25 to 45 words max). Absolutely zero marketing essays, bullet points, hyphens, dashes, asterisks, or emojis."
 )
 
 def _esc_html(val: Any) -> str:
@@ -2686,8 +2688,9 @@ class CoreWorker:
             "  [ACTION:CANCEL_BOOKING]\n"
             "- HUMAN TAKEOVER / ESCALATION: When the customer explicitly asks to speak with a human, doctor, staff, or owner, or when an issue requires human assistance, append this action tag on a new line at the very end of your reply:\n"
             "  [ACTION:HUMAN_TAKEOVER]\n"
-            "- CUSTOMER DETAIL & INTENT EXTRACTION: If the customer mentions or confirms their name, health concern / problem, preferred doctor, age, location / city, or indicates buying interest (asking about pricing, requesting a demo, booking, or objecting), append this action tag on a new line at the very end of your reply:\n"
-            "  [ACTION:CUSTOMER_INFO: {\"name\": \"<Customer Name or null>\", \"health_concern\": \"<Concern or null>\", \"preferred_doctor\": \"<Doctor or null>\", \"age\": <age as integer or null>, \"location\": \"<City or location or null>\", \"lead_probability\": \"hot\" | \"warm\" | \"cold\"}]"
+            "- CUSTOMER DETAIL & INTENT EXTRACTION (HIGH-INTENT LEAD SCORING): If the customer mentions or confirms their name, health concern / problem, preferred doctor, age, location / city, or indicates buying interest, append this action tag on a new line at the very end of your reply:\n"
+            "  [ACTION:CUSTOMER_INFO: {\"name\": \"<Customer Name or null>\", \"health_concern\": \"<Concern or null>\", \"preferred_doctor\": \"<Doctor or null>\", \"age\": <age as integer or null>, \"location\": \"<City or location or null>\", \"lead_probability\": \"hot\" | \"warm\" | \"cold\"}]\n"
+            "  * Lead Scoring: Set lead_probability = 'hot' whenever the customer asks about pricing/fees, describes a specific problem/pain, asks for doctor/slots, asks for clinic address, or wants to call. Set 'warm' for general exploratory questions. Set 'cold' if declining."
         )
 
         full_location = (creds.get("full_location_text") or "").strip() if creds else ""
@@ -2806,13 +2809,16 @@ class CoreWorker:
         reinforcement_rule = (
             "### FINAL WHATSAPP FORMAT & REINFORCEMENT DIRECTIVE:\n"
             "- STRICT TENANT DIRECTIVE ADHERENCE: You represent this business. You MUST strictly follow the Tenant Custom AI Instructions, business rules, identity guidelines, and knowledge base directives given above. The tenant's specific business instructions strictly govern your answers, services, policies, and qualification sequencing.\n"
-            "- CONCISE & NATURAL (1-2 SENTENCES): Limit your entire response to 1 or 2 short sentences. Never write long essays or over-explain. If answering a question, give the direct answer and ask one follow-up.\n"
-            "- NATURAL WHATSAPP SPACING (NO UNNECESSARY LINE GAPS): Write in smooth, continuous conversational WhatsApp style. Do NOT insert artificial blank lines after short acknowledgments or greetings (e.g. write 'Great! Would you like to...' together, NOT split by an empty line). Use a line gap (`\\n\\n`) ONLY when genuinely separating distinct options (like packages) or when a longer explanation needs separation from a closing question. Most direct replies should be a single compact message.\n"
+            "- CONSULTATIVE SALES CLOSER (3-BEAT FORMULA): You are a warm, proactive sales closer, NOT a passive customer support desk. Deliver your response in 2 to 3 natural, conversational sentences (25 to 45 words max). Follow the 3-Beat Sales Formula:\n"
+            "  1. Direct Answer & Value Anchor: Clearly answer the customer's question in sentence 1, anchoring to outcome, clinical track record, or relief.\n"
+            "  2. Diagnostic Qualification Hook: If the customer's specific condition, requirement, or pain is not yet clear, ask 1 sharp diagnostic question to understand their needs.\n"
+            "  3. Binary Assumptive Close: When guiding towards a booking, consultation, or visit, offer a binary choice (e.g. 'morning or evening?', 'tomorrow 11:30 AM or 4:30 PM?'). NEVER ask passive 'yes/no' questions like 'Do you want to book?' or 'Are you interested?'.\n"
+            "- ACTIVE OBJECTION RE-FRAMING (NO PASSIVE DEAD-ENDS): If the customer expresses price resistance ('too expensive') or hesitation ('will think about it' / 'will let you know'), never accept a dead-end with passive phrases like 'Sure, feel free to reach out anytime'. Respectfully validate their thought, reframe the value or outcome in 1 sentence, and offer a zero-friction micro-step (such as a 5-minute phone call with the coordinator or holding a tentative slot).\n"
+            "- NATURAL WHATSAPP SPACING (NO ESSAYS / NO UNNECESSARY GAPS): Write in smooth, natural WhatsApp texting style. Strictly zero marketing essays, bullet points, corporate disclaimers, or multi-paragraph walls of text. Do NOT insert artificial blank lines after short acknowledgments or greetings.\n"
             "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use ANY hyphens (-), dashes (--), asterisks (*), bullet lists, numbered lists, or emojis. Write 'business ku' instead of 'business-ku'. Text in smooth human sentences without hyphens.\n"
             + ("- VOICE NOTE INBOUND: The customer sent a voice note transcribed above. Warmly acknowledge it in Line 1 (e.g. 'Got your voice note!') and answer their spoken question directly. Never tell them to type what they already said!\n" if is_voice_note else "")
             + ("- UNREAD MEDIA OR UNREADABLE AUDIO: The customer sent an unreadable audio note or uncaptioned media. Warmly acknowledge in Line 1 and politely ask them to type what they need in Line 2 so we can help them.\n" if is_media_only else "")
             + "- DEEP QUERY UNDERSTANDING & DIRECT ANSWER: First clearly comprehend what the customer specifically asked, stated, or doubted. Answer THAT exact question directly in Line 1. Acknowledge greetings and casual remarks warmly.\n"
-            "- NATURAL NEXT STEP OR DISCOVERY: After answering their direct question, ask the next relevant discovery or qualifying question from the business instructions (one question at a time), or offer a concrete next step. Never leave a dead-end, and never paste generic canned booking phrases.\n"
             "- DISCOVERY BEFORE BOOKING: Unless the customer explicitly insists on booking immediately or is a known returning patient, do not rush to book before understanding their needs as specified in the business instructions.\n"
             "- HONEST IDENTITY: If asked directly whether you are an AI or bot, answer honestly, warmly, and briefly in Line 1. Then continue naturally. Never dodge or repeat a canned script.\n"
             "- ONE QUESTION AT A TIME: Never stack multiple questions in a single reply. Ask at most one friendly, low-friction question.\n"
@@ -2821,9 +2827,9 @@ class CoreWorker:
             "- ZERO REPETITION: NEVER repeat a question that was already asked in the chat history. Progress naturally.\n"
             f"- LANGUAGE & DIALECT MIRRORING: Strictly match customer's language and vibe ({style_profile['label']}). "
             + ("If Tamil script, reply 100% in warm, polite Tamil (தமிழ்)! If Tanglish, reply 100% in natural Romanized Tanglish without hyphens! If Hindi/Hinglish, reply in Hindi/Hinglish! If English, reply in easy, friendly Indian English.\n" if style_profile['dialect'] not in ('indian_english', 'standard_conversational') else "Sound like an authentic, friendly human texting on WhatsApp in easy Indian English (no robotic bot clichés).\n")
-            + "- CUSTOMER-DRIVEN APPOINTMENT BOOKING: When scheduling, ask what date and time works best for them. When they provide a time, check availability and confirm. Never force rigid canned slot suggestions.\n"
+            + "- CUSTOMER-DRIVEN APPOINTMENT BOOKING: When scheduling, check availability and offer binary slots or ask what time works best for them. When they choose, confirm promptly.\n"
             "- QUESTION SUPPRESSION: NEVER ask for any detail (name, business, concern, location, email) that is already listed in Known Facts or stated in chat history.\n"
-            "- FUNNEL PROGRESSION: Always advance the conversation smoothly. Never loop or stay stuck.\n"
+            "- FUNNEL PROGRESSION: Always advance the conversation smoothly toward the next micro-commitment. Never loop or stay stuck.\n"
             "- ZERO PHONE LEAK: NEVER give the customer's phone number (" + str(contact_phone) + ") as our contact number! If asked, give " + str(admin_phone or 'our team directly') + ".\n"
             "- ZERO NAME CONFUSION: Customer is " + str(confirmed_name or customer_name_display) + ". NEVER call them '" + str(admin_name or 'Bhuvan') + "'.\n"
             "- Sound 100% like an authentic, helpful human texting in easy Indian English or customer's preferred language (no robotic bot clichés)."
@@ -3411,6 +3417,20 @@ class CoreWorker:
                     )
                 except Exception as tag_err:
                     logger.debug("contact_hot_tag_update_err", error=str(tag_err))
+
+                # Insert instant Hot Lead staff alert so CRM dashboard rings/displays the notification
+                try:
+                    c_display = name or customer_name or phone
+                    n_title = f"🔥 Hot Lead Alert: {c_display}"
+                    n_body = f"{c_display} ({phone}) showed high buying intent ({health_concern or 'Consultation/Pricing inquiry'}). Follow up to close!"
+                    n_data = {"phone": phone, "name": c_display, "health_concern": health_concern, "action": "hot_lead_call"}
+                    await pool.execute(
+                        """INSERT INTO notifications (id, tenant_id, title, body, type, data, is_read, created_at)
+                           VALUES ($1::uuid, $2::uuid, $3, $4, 'hot_lead', $5::jsonb, false, NOW())""",
+                        str(uuid.uuid4()), tenant_id, n_title, n_body, json.dumps(n_data)
+                    )
+                except Exception as notif_err:
+                    logger.debug("hot_lead_notification_insert_error", error=str(notif_err))
         except Exception as ex:
             logger.warning("customer_info_update_failed", error=str(ex))
 
@@ -5882,8 +5902,7 @@ class CoreWorker:
                     )
                 JOIN tenant_credentials tc ON tc.tenant_id = c.tenant_id AND tc.provider = 'whatsapp' AND tc.is_active = true
                 WHERE c.status IN ('bot', 'active')
-                  AND c.last_message_at <= (NOW() - INTERVAL '2 hours')
-                  AND c.last_message_at >= (NOW() - INTERVAL '22 hours')
+                  AND c.last_message_at >= (NOW() - INTERVAL '23 hours')
                   -- Last message in thread must be outbound (customer dropped off after bot's reply)
                   AND (
                       SELECT direction FROM messages m 
@@ -5898,14 +5917,35 @@ class CoreWorker:
                         AND b.status IN ('confirmed', 'pending') 
                         AND b.start_time >= (NOW() - INTERVAL '4 hours')
                   )
-                  -- Strict 1-nudge limit: no follow-up sent yet for this user message session
+                  -- Multi-touch free window conditions (Touch 1 at 2h+, Touch 2 at 20h+):
                   AND (
-                      c.wa_context IS NULL
-                      OR c.wa_context->>'incomplete_followup_sent_at' IS NULL
-                      OR (c.wa_context->>'incomplete_followup_sent_at')::timestamp with time zone < (
-                          SELECT COALESCE(MAX(created_at), '1970-01-01'::timestamp with time zone)
-                          FROM messages 
-                          WHERE conversation_id = c.id AND direction = 'inbound'
+                      -- Touch 1: 2h <= inactivity < 19h, and no touch 1 sent for this inbound session
+                      (
+                          c.last_message_at <= (NOW() - INTERVAL '2 hours')
+                          AND c.last_message_at > (NOW() - INTERVAL '19 hours')
+                          AND (
+                              c.wa_context IS NULL
+                              OR c.wa_context->>'incomplete_followup_sent_at' IS NULL
+                              OR (c.wa_context->>'incomplete_followup_sent_at')::timestamp with time zone < (
+                                  SELECT COALESCE(MAX(created_at), '1970-01-01'::timestamp with time zone)
+                                  FROM messages 
+                                  WHERE conversation_id = c.id AND direction = 'inbound'
+                              )
+                          )
+                      )
+                      OR
+                      -- Touch 2: 20h <= inactivity <= 23h, and no touch 2 sent for this inbound session
+                      (
+                          c.last_message_at <= (NOW() - INTERVAL '20 hours')
+                          AND (
+                              c.wa_context IS NULL
+                              OR c.wa_context->>'touch2_followup_sent_at' IS NULL
+                              OR (c.wa_context->>'touch2_followup_sent_at')::timestamp with time zone < (
+                                  SELECT COALESCE(MAX(created_at), '1970-01-01'::timestamp with time zone)
+                                  FROM messages 
+                                  WHERE conversation_id = c.id AND direction = 'inbound'
+                              )
+                          )
                       )
                   )
                 ORDER BY c.last_message_at ASC
@@ -6096,6 +6136,11 @@ class CoreWorker:
                         + (f"- Overnight Recovery: The customer sent their last message yesterday evening ({last_user_dt.strftime('%I:%M %p')}). It is now {day_name} morning.\n" if is_overnight else "")
                     )
 
+                    # Determine whether this is Touch 1 (2h) or Touch 2 (20h pre-24h window)
+                    last_msg_at = row["last_message_at"]
+                    sec_since_last = (datetime.datetime.now(timezone.utc) - last_msg_at.astimezone(timezone.utc)).total_seconds() if last_msg_at else 7200
+                    is_touch_2 = (sec_since_last >= 19.5 * 3600)
+
                     # Extract specifically the last 3-4 conversation exchanges to give deep focal context
                     recent_turns = history[-4:] if len(history) >= 4 else history
                     formatted_turns = []
@@ -6106,23 +6151,80 @@ class CoreWorker:
                             formatted_turns.append(f"{spk}: {c_body}")
                     recent_chat_transcript = "\n".join(formatted_turns)
 
+                    # Stage-Aware Drop-off Analysis from recent turns
+                    chat_context_text = " ".join([m.get("content", "").lower() for m in recent_turns])
+                    is_price_drop = any(kw in chat_context_text for kw in ["price", "cost", "fee", "fees", "charge", "charges", "rate", "evlo", "kitna", "rupees", "₹"])
+                    is_slot_drop = any(kw in chat_context_text for kw in ["time", "slot", "tomorrow", "today", "morning", "evening", "appointment", "schedule", "book", "available", "timing"])
+                    is_symptom_drop = any(kw in chat_context_text for kw in ["pain", "treatment", "doctor", "problem", "issue", "symptom", "therapy", "clinic", "consultation", "vali", "dard"])
+
+                    if is_touch_2:
+                        mission_title = "TOUCH 2: PRE-24H FREE WINDOW EXPIRY CLOSER"
+                        mission_prompt_text = (
+                            "The customer has been quiet for around 20 hours. WhatsApp's 24-hour free service window is about to expire.\n"
+                            "Your goal is to send a gentle, zero-pressure 1-2 sentence message offering two binary options or a tentative slot hold "
+                            "(e.g. 'We have two slots open tomorrow morning or evening. Should I tentatively hold one for you, or would another day work better?')."
+                        )
+                        followup_instruction = (
+                            f"[Touch 2 Pre-24h window closer. Customer has been quiet for 20 hours. "
+                            f"Send a gentle, warm 1-2 sentence check-in offering two binary choices or a tentative slot hold in {style_profile['label']}. "
+                            f"Do not say 'Just checking in' and do not push canned demo times.]"
+                        )
+                    elif is_price_drop:
+                        mission_title = "STAGE 1: PRICE INQUIRY DROP-OFF RECOVERY"
+                        mission_prompt_text = (
+                            "The customer stopped replying after asking about fees or pricing.\n"
+                            "1. Remind them warmly of the complete value, root-cause diagnosis, or treatment roadmap included with our specialist.\n"
+                            "2. Offer a low-friction micro-step: ask if they would like to tentatively hold a consultation slot, or if a quick 5-minute call with the clinic coordinator would help clear their doubts."
+                        )
+                        followup_instruction = (
+                            f"[Customer dropped off after pricing inquiry. Remind them warmly of the value/relief included and offer a tentative slot or 5-minute coordinator call in {style_profile['label']}. "
+                            f"Write a short, clear 1-2 sentence followup without robotic fillers.]"
+                        )
+                    elif is_symptom_drop:
+                        mission_title = "STAGE 1: HEALTH CONCERN / PAIN DROP-OFF RECOVERY"
+                        mission_prompt_text = (
+                            "The customer stopped replying after discussing their pain, symptom, or condition.\n"
+                            "1. Express genuine care for their condition (leaving pain unassessed often worsens stiffness).\n"
+                            "2. Offer a binary choice: ask if a morning or evening checkup with the doctor would suit them better to get it diagnosed."
+                        )
+                        followup_instruction = (
+                            f"[Customer dropped off after discussing symptoms/pain. Follow up with care about their condition and offer a binary choice (morning or evening visit) in {style_profile['label']}. "
+                            f"Write a short, clear 1-2 sentence followup without robotic fillers.]"
+                        )
+                    elif is_slot_drop:
+                        mission_title = "STAGE 1: SCHEDULING / TIME SLOT DROP-OFF RECOVERY"
+                        mission_prompt_text = (
+                            "The customer was in the middle of scheduling or discussing times and went quiet.\n"
+                            "1. Create subtle, natural slot scarcity: mention that upcoming appointments are filling up.\n"
+                            "2. Offer two specific convenient times (e.g. morning vs. evening, or today vs. tomorrow) so they can easily confirm."
+                        )
+                        followup_instruction = (
+                            f"[Customer dropped off during scheduling. Note that upcoming slots are filling and offer two specific times to pick from in {style_profile['label']}. "
+                            f"Write a short, clear 1-2 sentence followup without robotic fillers.]"
+                        )
+                    else:
+                        mission_title = "STAGE 1: SMART 2-HOUR CONTEXTUAL TOPIC CONTINUATION"
+                        mission_prompt_text = (
+                            "The customer was chatting with us 2 hours ago and stopped replying after our last message.\n"
+                            "Your goal is to send a short, warm, non-intrusive 1-2 sentence follow-up that directly continues the specific topic discussed in their last 3-4 messages."
+                        )
+                        followup_instruction = (
+                            f"[Customer stopped replying 2 hours ago. Look at their last 3-4 messages above. "
+                            f"Write a short, clear, warm 1-2 sentence followup directly continuing the specific topic they were discussing "
+                            f"in {style_profile['label']}. Do not say 'Just checking in' and do not push canned demo times.]"
+                        )
+
                     # 3. Contextual Follow-Up Continuation Prompt focused on previous 3-4 messages
                     followup_blocks = [
                         time_context_block,
                         f"You are {assistant_name}, representing {tenant_name} directly on WhatsApp chat.",
-                        "### MISSION: SMART 2-HOUR RECOVERY FOLLOW-UP (CONTEXTUAL TOPIC CONTINUATION):\n"
-                        "The customer was chatting with us 2 hours ago and stopped replying after our last message.\n"
-                        "Your goal is to send a short, warm, non-intrusive 1-2 sentence follow-up that directly continues the specific topic discussed in their last 3-4 messages below.\n\n"
-                        "### PRIOR 3-4 CONVERSATION EXCHANGES (READ CAREFULLY TO UNDERSTAND THE EXACT TOPIC):\n"
-                        f"{recent_chat_transcript}\n\n"
+                        f"### MISSION: {mission_title}:\n{mission_prompt_text}\n\n",
+                        "### PRIOR 3-4 CONVERSATION EXCHANGES (READ CAREFULLY TO UNDERSTAND THE EXACT TOPIC):\n",
+                        f"{recent_chat_transcript}\n\n",
                         "### STRICT RULES FOR THIS FOLLOW-UP:\n"
                         "1. DEEP CONTEXT UNDERSTANDING (NO GENERIC CHECK-INS & NO CANNED DEMO SLOTS):\n"
-                        "   - Read the last 3-4 messages above to see what was actually being discussed:\n"
-                        "     * Medical/Health symptom or treatment: If they asked about a symptom or treatment (e.g. knee pain, skin issue, therapy, consultation) and went quiet, follow up on that specific topic (e.g. 'Checking in to see if you had any questions about the treatment for your knee pain?').\n"
-                        "     * Pricing / Fees: If they asked about costs or fees, follow up specifically on pricing or consultation details (e.g. 'Let me know if you would like more details about the consultation charges or available options.').\n"
-                        "     * Clinic Location / Hours: If they asked where we are or our timings, ask if they need directions or help planning their visit.\n"
-                        "     * Appointment Scheduling: ONLY if the conversation was specifically in the middle of picking a date/time for a visit, gently ask what day or time suits them. NEVER push canned demo slots like '10-minute demo walkthrough' or generic times unless they explicitly asked for a software demo!\n"
                         "   - ABSOLUTELY FORBIDDEN ROBOTIC PHRASES: Never say 'Just checking in', 'Are you still there?', 'How can I assist you today?', or 'Following up on our chat'. Make it feel like an authentic, thoughtful person resuming the conversation.\n"
+                        "   - NEVER push canned demo slots like '10-minute demo walkthrough' or generic software demo times unless they explicitly asked for a software demo!\n"
                         "2. EASY INDIAN ENGLISH OR CUSTOMER'S PREFERRED LANGUAGE:\n"
                         f"   - Match customer's language ({style_profile['label']}). "
                         + ("If Tamil script, reply 100% in natural, polite Tamil script (தமிழ்)! If Tanglish, reply 100% in natural Romanized Tanglish without hyphens! If Hindi/Hinglish, reply in Hindi/Hinglish!\n" if style_profile['dialect'] not in ('indian_english', 'standard_conversational') else "Speak in easy, friendly Indian English.\n")
@@ -6227,18 +6329,31 @@ class CoreWorker:
                         out_msg_id, conv_id, tenant_id, followup_text, wa_id, prov,
                     )
 
-                    await self.db_pool.execute(
-                        """UPDATE conversations
-                           SET last_message_at = NOW(),
-                               wa_context = jsonb_set(
-                                   coalesce(wa_context, '{}'::jsonb),
-                                   '{incomplete_followup_sent_at}',
-                                   to_jsonb(NOW()::text)
-                               ),
-                               updated_at = NOW()
-                           WHERE id = $1::uuid""",
-                        conv_id,
-                    )
+                    if is_touch_2:
+                        await self.db_pool.execute(
+                            """UPDATE conversations
+                               SET last_message_at = NOW(),
+                                   wa_context = jsonb_set(
+                                       jsonb_set(coalesce(wa_context, '{}'::jsonb), '{touch2_followup_sent_at}', to_jsonb(NOW()::text)),
+                                       '{incomplete_followup_sent_at}', to_jsonb(NOW()::text)
+                                   ),
+                                   updated_at = NOW()
+                               WHERE id = $1::uuid""",
+                            conv_id,
+                        )
+                    else:
+                        await self.db_pool.execute(
+                            """UPDATE conversations
+                               SET last_message_at = NOW(),
+                                   wa_context = jsonb_set(
+                                       coalesce(wa_context, '{}'::jsonb),
+                                       '{incomplete_followup_sent_at}',
+                                       to_jsonb(NOW()::text)
+                                   ),
+                                   updated_at = NOW()
+                               WHERE id = $1::uuid""",
+                            conv_id,
+                        )
 
                     # Update customer record so CRM dashboard reflects the sent follow-up date and time
                     try:
