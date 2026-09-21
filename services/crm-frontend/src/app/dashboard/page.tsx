@@ -81,6 +81,8 @@ import {
   CheckCircle,
   XCircle,
   CalendarDays,
+  ArrowUp,
+  ArrowDown,
   ArrowUpRight,
   ArrowDownLeft,
   ArrowLeft,
@@ -2572,7 +2574,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Feature 1: Analytics & Reports State
-  const [analyticsPeriod, setAnalyticsPeriod] = useState<'7d' | '30d' | '90d' | 'this_month' | 'all'>('30d');
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<'today' | 'yesterday' | '7d' | '30d' | '90d' | 'this_month' | 'last_month' | 'all' | 'custom'>('30d');
+  const [analyticsStartDate, setAnalyticsStartDate] = useState<string>('');
+  const [analyticsEndDate, setAnalyticsEndDate] = useState<string>('');
+  const [analyticsCompare, setAnalyticsCompare] = useState<boolean>(false);
   const [selectedAnalyticsSlug, setSelectedAnalyticsSlug] = useState<string>('');
   const [dashboardAnalyticsData, setDashboardAnalyticsData] = useState<DashboardAnalyticsData | null>(null);
   const [loadingDashboardAnalytics, setLoadingDashboardAnalytics] = useState(false);
@@ -2727,6 +2732,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     has_opencode_key?: boolean;
     google_calendar_configured?: boolean;
     admin_email?: string;
+    missed_call_webhook_token?: string;
   }>({
     name: '',
     slug: '',
@@ -4488,12 +4494,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   useEffect(() => {
     if (isAuthChecking || !user) return;
     if (activeNav === 'overview') {
-      loadDashboardAnalytics(analyticsPeriod);
+      if (analyticsPeriod !== 'custom' || (analyticsStartDate && analyticsEndDate)) {
+        loadDashboardAnalytics(analyticsPeriod, undefined, analyticsStartDate, analyticsEndDate, analyticsCompare);
+      }
       if (['admin', 'owner', 'super_admin'].includes(user.role)) {
         loadOnboardingStatus();
       }
     }
-  }, [analyticsPeriod, activeNav, isAuthChecking, user]);
+  }, [analyticsPeriod, analyticsStartDate, analyticsEndDate, analyticsCompare, activeNav, isAuthChecking, user]);
 
   // Refetch customers when filter state changes (Instant responsive filtering)
   useEffect(() => {
@@ -6380,11 +6388,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   }
 
   // ── Feature 1: Analytics & Reports Handlers ────────────────────────────────
-  async function loadDashboardAnalytics(period: string = analyticsPeriod, workspaceSlug?: string) {
+  async function loadDashboardAnalytics(
+    period: string = analyticsPeriod,
+    workspaceSlug?: string,
+    startDate: string = analyticsStartDate,
+    endDate: string = analyticsEndDate,
+    compare: boolean = analyticsCompare
+  ) {
     setLoadingDashboardAnalytics(true);
     try {
       const targetSlug = workspaceSlug !== undefined ? workspaceSlug : (selectedAnalyticsSlug || (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') || '');
-      const data = await crm.getDashboardAnalytics(period, targetSlug);
+      const data = await crm.getDashboardAnalytics({
+        period,
+        start_date: period === 'custom' ? startDate : undefined,
+        end_date: period === 'custom' ? endDate : undefined,
+        compare,
+        workspaceSlug: targetSlug,
+      });
       setDashboardAnalyticsData(data);
     } catch (err) {
       console.error('Failed to load dashboard analytics:', err);
@@ -6396,29 +6416,41 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   function exportAnalyticsToCsv() {
     if (!dashboardAnalyticsData) return;
     const s = dashboardAnalyticsData.summary;
-    const rows = [
+    const rows: (string | number)[][] = [
       ['Metric', 'Value'],
       ['Period', dashboardAnalyticsData.period],
+      ['Start Date', dashboardAnalyticsData.start_date || 'N/A'],
+      ['End Date', dashboardAnalyticsData.end_date || 'N/A'],
+      ['Comparison Active', dashboardAnalyticsData.compare ? 'Yes' : 'No'],
+      ['Total Attended Revenue (INR)', String(s.total_revenue)],
+      ['Revenue Delta (%)', s.revenue_delta_pct !== null && s.revenue_delta_pct !== undefined ? `${s.revenue_delta_pct}%` : 'N/A'],
+      ['Total Bookings', String(s.total_bookings)],
+      ['Bookings Delta (%)', s.bookings_delta_pct !== null && s.bookings_delta_pct !== undefined ? `${s.bookings_delta_pct}%` : 'N/A'],
+      ['Completed/Attended Visits', String(s.completed_bookings)],
+      ['Attendance Rate (%)', String(s.attendance_rate)],
+      ['Average Ticket Size (INR)', String(s.average_ticket_size)],
+      ['Total Inbound Leads', String(s.total_leads)],
+      ['Converted Leads', String(s.converted_leads)],
+      ['Lead Conversion Rate (%)', String(s.conversion_rate)],
       ['Total Messages', String(s.total_messages)],
       ['Inbound Messages', String(s.inbound_messages)],
       ['Outbound Messages', String(s.outbound_messages)],
       ['AI Handled Messages', String(s.ai_messages)],
-      ['Human Handled Messages', String(s.human_messages)],
-      ['Total Inbound Leads', String(s.total_leads)],
-      ['Converted Leads', String(s.converted_leads)],
-      ['Lead Conversion Rate (%)', String(s.conversion_rate)],
-      ['Total Bookings', String(s.total_bookings)],
-      ['Completed/Attended Visits', String(s.completed_bookings)],
-      ['Attendance Rate (%)', String(s.attendance_rate)],
-      ['Total Attended Revenue (INR)', String(s.total_revenue)],
-      ['Average Ticket Size (INR)', String(s.average_ticket_size)],
       ['AI Autonomy Rate (%)', String(s.ai_autonomous_rate)],
       [],
       ['Date', 'Inbound Messages', 'Outbound Messages', 'Total Messages'],
       ...dashboardAnalyticsData.time_series.map((t) => [t.day, String(t.inbound), String(t.outbound), String(t.total)]),
     ];
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map((e) => e.join(',')).join('\n');
+    if (dashboardAnalyticsData.top_services && dashboardAnalyticsData.top_services.length > 0) {
+      rows.push([]);
+      rows.push(['Top Service / Health Concern', 'Total Bookings', 'Attended', 'Revenue (INR)']);
+      dashboardAnalyticsData.top_services.forEach((srv) => {
+        rows.push([srv.service, String(srv.booking_count), String(srv.completed_count), String(srv.revenue)]);
+      });
+    }
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map((e) => e.map((val) => `"${String(val).replace(/"/g, '""')}"`).join(',')).join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
@@ -10180,7 +10212,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {activeNav === 'overview' && settingsForm.plan !== 'review_only' && (
               <div className="flex-1 flex flex-col overflow-y-auto space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5">
                 {/* Welcome & Period Header */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-border">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-border">
                   <div>
                     <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
                       <BarChart2 className="w-5 h-5 text-accent stroke-[1.8]" />
@@ -10192,21 +10224,29 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-
-                    {/* Period Selector Pills */}
+                    {/* Period Selector Presets */}
                     <div className="flex items-center p-0.5 bg-surface-subtle rounded-sm border border-border">
-                      {(['7d', '30d', 'this_month', 'all'] as const).map((p) => {
+                      {(['today', 'yesterday', '7d', '30d', 'this_month', 'last_month', 'all', 'custom'] as const).map((p) => {
                         const labels: Record<string, string> = {
-                          '7d': '7 Days',
-                          '30d': '30 Days',
+                          'today': 'Today',
+                          'yesterday': 'Yesterday',
+                          '7d': '7D',
+                          '30d': '30D',
                           'this_month': 'This Month',
+                          'last_month': 'Last Month',
                           'all': 'All Time',
+                          'custom': 'Custom',
                         };
                         return (
                           <button
                             key={p}
                             type="button"
-                            onClick={() => setAnalyticsPeriod(p)}
+                            onClick={() => {
+                              setAnalyticsPeriod(p);
+                              if (p !== 'custom') {
+                                loadDashboardAnalytics(p, undefined, '', '', analyticsCompare);
+                              }
+                            }}
                             className={`px-2 py-1 text-xs font-medium rounded-xs transition-colors cursor-pointer ${
                               analyticsPeriod === p
                                 ? 'bg-surface text-text-primary shadow-2xs font-semibold border border-border-strong'
@@ -10218,6 +10258,62 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         );
                       })}
                     </div>
+
+                    {/* Custom Date Inputs if Custom is selected */}
+                    {analyticsPeriod === 'custom' && (
+                      <div className="flex items-center gap-1.5 bg-surface-subtle px-2 py-1 rounded-sm border border-border text-xs">
+                        <input
+                          type="date"
+                          value={analyticsStartDate}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setAnalyticsStartDate(val);
+                            if (val && analyticsEndDate) {
+                              loadDashboardAnalytics('custom', undefined, val, analyticsEndDate, analyticsCompare);
+                            }
+                          }}
+                          className="bg-surface border border-border rounded px-1.5 py-0.5 text-xs text-text-primary focus:outline-none focus:border-accent"
+                          title="Start Date"
+                        />
+                        <span className="text-text-muted text-[11px]">to</span>
+                        <input
+                          type="date"
+                          value={analyticsEndDate}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setAnalyticsEndDate(val);
+                            if (analyticsStartDate && val) {
+                              loadDashboardAnalytics('custom', undefined, analyticsStartDate, val, analyticsCompare);
+                            }
+                          }}
+                          className="bg-surface border border-border rounded px-1.5 py-0.5 text-xs text-text-primary focus:outline-none focus:border-accent"
+                          title="End Date"
+                        />
+                      </div>
+                    )}
+
+                    {/* Compare Period Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextComp = !analyticsCompare;
+                        setAnalyticsCompare(nextComp);
+                        loadDashboardAnalytics(analyticsPeriod, undefined, analyticsStartDate, analyticsEndDate, nextComp);
+                      }}
+                      className={`px-2.5 py-1.5 text-xs font-medium rounded-sm border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                        analyticsCompare
+                          ? 'bg-accent/10 border-accent text-accent font-semibold'
+                          : 'bg-surface hover:bg-surface-subtle border-border text-text-muted hover:text-text-primary'
+                      }`}
+                      title="Compare metrics with the preceding period"
+                    >
+                      {analyticsCompare ? (
+                        <CheckSquare className="w-3.5 h-3.5 text-accent stroke-[2]" />
+                      ) : (
+                        <Square className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
+                      )}
+                      <span>Compare</span>
+                    </button>
 
                     <button
                       onClick={exportAnalyticsToCsv}
@@ -10231,7 +10327,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                     <button
                       onClick={() => {
-                        loadDashboardAnalytics(analyticsPeriod);
+                        loadDashboardAnalytics(analyticsPeriod, undefined, analyticsStartDate, analyticsEndDate, analyticsCompare);
                         loadConversations();
                         loadBookings();
                         loadContacts();
@@ -10242,75 +10338,77 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <RotateCcw className={`w-3.5 h-3.5 stroke-[1.5] ${loadingDashboardAnalytics ? 'animate-spin' : ''}`} />
                       <span className="hidden sm:inline">Refresh</span>
                     </button>
-
-                    <button
-                      onClick={() => setActiveNav('inbox')}
-                      className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>Open inbox</span>
-                    </button>
                   </div>
                 </div>
+
+                {/* Comparison Notice Banner */}
+                {analyticsCompare && dashboardAnalyticsData?.compare_start_date && dashboardAnalyticsData?.compare_end_date && (
+                  <div className="flex items-center justify-between text-xs px-3 py-1.5 bg-accent/5 border border-accent/20 rounded-md text-text-secondary">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-accent shrink-0" />
+                      <span>
+                        Comparing <strong>{dashboardAnalyticsData.start_date} → {dashboardAnalyticsData.end_date}</strong> against prior period <strong>{dashboardAnalyticsData.compare_start_date} → {dashboardAnalyticsData.compare_end_date}</strong>
+                      </span>
+                    </span>
+                    <span className="text-[11px] text-text-muted hidden sm:inline">Deltas calculated dynamically</span>
+                  </div>
+                )}
 
                 {/* 4 Core Essential Summary Metric Cards */}
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                    {/* Card 1: WhatsApp Messages & Automation */}
+                    {/* Card 1: Attended Revenue (Top Priority) */}
                     <div
-                      onClick={() => setActiveNav('inbox')}
+                      onClick={() => {
+                        setActiveNav('bookings');
+                        setBookingFilter('completed');
+                      }}
                       className="bg-surface border border-border hover:border-emerald-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Messages & Automation</span>
+                        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Attended Revenue</span>
                         <div className="w-7 h-7 rounded-sm bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                          <MessageSquare className="w-4 h-4 stroke-[1.8]" />
+                          <TrendingUp className="w-4 h-4 stroke-[1.8]" />
                         </div>
                       </div>
                       <div className="flex items-baseline justify-between gap-2">
-                        <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
-                          {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_messages : conversations.length}
+                        <p className="text-2xl font-bold text-emerald-700 font-mono tabular-nums">
+                          {currentCurrencySymbol}{dashboardAnalyticsData
+                            ? Number(dashboardAnalyticsData.summary.total_revenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                            : bookings.filter((b) => b.status === 'completed' || b.status === 'attended').reduce((sum, b) => sum + (Number(b.price) || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
-                        {dashboardAnalyticsData && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
-                            {dashboardAnalyticsData.summary.ai_autonomous_rate}% AI
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-text-muted truncate flex items-center gap-1.5">
-                        {dashboardAnalyticsData
-                          ? `${dashboardAnalyticsData.summary.inbound_messages} in • ${dashboardAnalyticsData.summary.outbound_messages} out`
-                          : 'Active conversations'}
-                      </p>
-                    </div>
-
-                    {/* Card 2: Leads & Conversion */}
-                    <div
-                      onClick={() => setActiveNav('customers')}
-                      className="bg-surface border border-border hover:border-blue-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Leads & Conversion</span>
-                        <div className="w-7 h-7 rounded-sm bg-blue-50 text-blue-600 flex items-center justify-center">
-                          <Users className="w-4 h-4 stroke-[1.8]" />
-                        </div>
-                      </div>
-                      <div className="flex items-baseline justify-between gap-2">
-                        <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
-                          {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_leads : contacts.length}
-                        </p>
-                        {dashboardAnalyticsData && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
-                            {dashboardAnalyticsData.summary.conversion_rate}% Conv.
-                          </span>
+                        {analyticsCompare && dashboardAnalyticsData && (
+                          dashboardAnalyticsData.summary.revenue_delta_pct !== null && dashboardAnalyticsData.summary.revenue_delta_pct !== undefined ? (
+                            <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              dashboardAnalyticsData.summary.revenue_delta_pct >= 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                            }`}>
+                              {dashboardAnalyticsData.summary.revenue_delta_pct >= 0 ? <ArrowUp className="w-2.5 h-2.5 stroke-[2.5]" /> : <ArrowDown className="w-2.5 h-2.5 stroke-[2.5]" />}
+                              {dashboardAnalyticsData.summary.revenue_delta_pct >= 0 ? `+${dashboardAnalyticsData.summary.revenue_delta_pct.toFixed(2)}%` : `${dashboardAnalyticsData.summary.revenue_delta_pct.toFixed(2)}%`}
+                            </span>
+                          ) : dashboardAnalyticsData.summary.revenue_delta_abs !== null && dashboardAnalyticsData.summary.revenue_delta_abs !== undefined && dashboardAnalyticsData.summary.revenue_delta_abs > 0 ? (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200" title="New revenue vs zero baseline in prior period">
+                              <ArrowUp className="w-2.5 h-2.5 stroke-[2.5]" />
+                              +{currentCurrencySymbol}{Number(dashboardAnalyticsData.summary.revenue_delta_abs).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          ) : null
                         )}
                       </div>
                       <p className="text-[11px] text-text-muted truncate">
-                        {dashboardAnalyticsData ? `${dashboardAnalyticsData.summary.converted_leads} converted of ${dashboardAnalyticsData.summary.total_leads} leads` : 'Contacts on file'}
+                        {analyticsCompare && dashboardAnalyticsData?.summary.prev_revenue !== null && dashboardAnalyticsData?.summary.prev_revenue !== undefined ? (
+                          <span>
+                            vs {currentCurrencySymbol}{Number(dashboardAnalyticsData.summary.prev_revenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} prior ({dashboardAnalyticsData.summary.revenue_delta_abs && dashboardAnalyticsData.summary.revenue_delta_abs >= 0 ? '+' : ''}{currentCurrencySymbol}{Number(dashboardAnalyticsData.summary.revenue_delta_abs || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                          </span>
+                        ) : dashboardAnalyticsData && dashboardAnalyticsData.summary.completed_bookings > 0 ? (
+                          `Avg ticket: ${currentCurrencySymbol}${Number(dashboardAnalyticsData.summary.average_ticket_size).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} • ${dashboardAnalyticsData.summary.completed_bookings} completed`
+                        ) : dashboardAnalyticsData && dashboardAnalyticsData.summary.confirmed_bookings > 0 ? (
+                          `${dashboardAnalyticsData.summary.confirmed_bookings} sessions pending attendance`
+                        ) : (
+                          'No completed visits yet'
+                        )}
                       </p>
                     </div>
 
-                    {/* Card 3: Scheduled Bookings */}
+                    {/* Card 2: Booked Appointments */}
                     <div
                       onClick={() => setActiveNav('bookings')}
                       className="bg-surface border border-border hover:border-indigo-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
@@ -10325,44 +10423,136 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
                           {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_bookings : bookings.filter((b) => b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled').length}
                         </p>
-                        {dashboardAnalyticsData && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200">
-                            {dashboardAnalyticsData.summary.attendance_rate}% Attended
-                          </span>
+                        {analyticsCompare && dashboardAnalyticsData && (
+                          dashboardAnalyticsData.summary.bookings_delta_pct !== null && dashboardAnalyticsData.summary.bookings_delta_pct !== undefined ? (
+                            <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              dashboardAnalyticsData.summary.bookings_delta_pct >= 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                            }`}>
+                              {dashboardAnalyticsData.summary.bookings_delta_pct >= 0 ? <ArrowUp className="w-2.5 h-2.5 stroke-[2.5]" /> : <ArrowDown className="w-2.5 h-2.5 stroke-[2.5]" />}
+                              {dashboardAnalyticsData.summary.bookings_delta_pct >= 0 ? `+${dashboardAnalyticsData.summary.bookings_delta_pct.toFixed(2)}%` : `${dashboardAnalyticsData.summary.bookings_delta_pct.toFixed(2)}%`}
+                            </span>
+                          ) : dashboardAnalyticsData.summary.bookings_delta_abs !== null && dashboardAnalyticsData.summary.bookings_delta_abs !== undefined && dashboardAnalyticsData.summary.bookings_delta_abs > 0 ? (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200" title="New bookings vs zero baseline in prior period">
+                              <ArrowUp className="w-2.5 h-2.5 stroke-[2.5]" />
+                              +{dashboardAnalyticsData.summary.bookings_delta_abs}
+                            </span>
+                          ) : null
                         )}
                       </div>
                       <p className="text-[11px] text-text-muted truncate">
-                        {dashboardAnalyticsData
-                          ? `${dashboardAnalyticsData.summary.completed_bookings} attended (${dashboardAnalyticsData.summary.attendance_rate}%)`
-                          : 'Scheduled appointments'}
+                        {analyticsCompare && dashboardAnalyticsData?.summary.prev_bookings !== null && dashboardAnalyticsData?.summary.prev_bookings !== undefined ? (
+                          <span>
+                            vs {dashboardAnalyticsData.summary.prev_bookings} prior ({dashboardAnalyticsData.summary.bookings_delta_abs && dashboardAnalyticsData.summary.bookings_delta_abs >= 0 ? '+' : ''}{dashboardAnalyticsData.summary.bookings_delta_abs}) • {dashboardAnalyticsData.summary.attendance_rate.toFixed(1)}% attended
+                          </span>
+                        ) : dashboardAnalyticsData ? (
+                          `${dashboardAnalyticsData.summary.completed_bookings} attended (${dashboardAnalyticsData.summary.attendance_rate.toFixed(1)}%) • ${dashboardAnalyticsData.summary.confirmed_bookings} confirmed`
+                        ) : (
+                          'Scheduled appointments'
+                        )}
                       </p>
                     </div>
 
-                    {/* Card 4: Attended Revenue */}
+                    {/* Card 3: Leads & Conversion */}
                     <div
-                      onClick={() => {
-                        setActiveNav('bookings');
-                        setBookingFilter('completed');
-                      }}
+                      onClick={() => setActiveNav('customers')}
+                      className="bg-surface border border-border hover:border-blue-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Leads & Conversion</span>
+                        <div className="w-7 h-7 rounded-sm bg-blue-50 text-blue-600 flex items-center justify-center">
+                          <Users className="w-4 h-4 stroke-[1.8]" />
+                        </div>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-2">
+                        <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                          {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_leads : contacts.length}
+                        </p>
+                        {analyticsCompare && dashboardAnalyticsData ? (
+                          dashboardAnalyticsData.summary.leads_delta_pct !== null && dashboardAnalyticsData.summary.leads_delta_pct !== undefined ? (
+                            <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              dashboardAnalyticsData.summary.leads_delta_pct >= 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                            }`}>
+                              {dashboardAnalyticsData.summary.leads_delta_pct >= 0 ? <ArrowUp className="w-2.5 h-2.5 stroke-[2.5]" /> : <ArrowDown className="w-2.5 h-2.5 stroke-[2.5]" />}
+                              {dashboardAnalyticsData.summary.leads_delta_pct >= 0 ? `+${dashboardAnalyticsData.summary.leads_delta_pct.toFixed(2)}%` : `${dashboardAnalyticsData.summary.leads_delta_pct.toFixed(2)}%`}
+                            </span>
+                          ) : dashboardAnalyticsData.summary.leads_delta_abs !== null && dashboardAnalyticsData.summary.leads_delta_abs !== undefined && dashboardAnalyticsData.summary.leads_delta_abs > 0 ? (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <ArrowUp className="w-2.5 h-2.5 stroke-[2.5]" />
+                              +{dashboardAnalyticsData.summary.leads_delta_abs}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
+                              {dashboardAnalyticsData.summary.conversion_rate.toFixed(2)}% Conv.
+                            </span>
+                          )
+                        ) : dashboardAnalyticsData ? (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
+                            {dashboardAnalyticsData.summary.conversion_rate.toFixed(2)}% Conv.
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-[11px] text-text-muted truncate">
+                        {analyticsCompare && dashboardAnalyticsData?.summary.prev_leads !== null && dashboardAnalyticsData?.summary.prev_leads !== undefined ? (
+                          <span>
+                            vs {dashboardAnalyticsData.summary.prev_leads} prior • {dashboardAnalyticsData.summary.conversion_rate.toFixed(2)}% conv. ({dashboardAnalyticsData.summary.conv_rate_delta_pct && dashboardAnalyticsData.summary.conv_rate_delta_pct >= 0 ? '+' : ''}{Number(dashboardAnalyticsData.summary.conv_rate_delta_pct || 0).toFixed(2)} pts)
+                          </span>
+                        ) : dashboardAnalyticsData ? (
+                          `${dashboardAnalyticsData.summary.converted_leads} unique clients booked • ${dashboardAnalyticsData.summary.total_bookings} appointments (${dashboardAnalyticsData.summary.conversion_rate.toFixed(2)}% conv.)`
+                        ) : (
+                          'Contacts on file'
+                        )}
+                      </p>
+                    </div>
+
+                    {/* Card 4: WhatsApp Messages & Automation */}
+                    <div
+                      onClick={() => setActiveNav('inbox')}
                       className="bg-surface border border-border hover:border-emerald-500/50 rounded-md p-4 transition-all duration-150 cursor-pointer space-y-2 shadow-xs group"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Attended Revenue</span>
+                        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Messages & Automation</span>
                         <div className="w-7 h-7 rounded-sm bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                          <TrendingUp className="w-4 h-4 stroke-[1.8]" />
+                          <MessageSquare className="w-4 h-4 stroke-[1.8]" />
                         </div>
                       </div>
-                      <p className="text-2xl font-bold text-emerald-700 font-mono tabular-nums">
-                        {currentCurrencySymbol}{dashboardAnalyticsData
-                          ? dashboardAnalyticsData.summary.total_revenue.toLocaleString()
-                          : bookings.filter((b) => b.status === 'completed' || b.status === 'attended').reduce((sum, b) => sum + (Number(b.price) || 0), 0).toLocaleString()}
-                      </p>
-                      <p className="text-[11px] text-text-muted truncate">
-                        {dashboardAnalyticsData && dashboardAnalyticsData.summary.completed_bookings > 0
-                          ? `Avg ticket: ${currentCurrencySymbol}${dashboardAnalyticsData.summary.average_ticket_size.toLocaleString()}`
-                          : dashboardAnalyticsData && dashboardAnalyticsData.summary.confirmed_bookings > 0
-                          ? `${dashboardAnalyticsData.summary.confirmed_bookings} session pending attendance`
-                          : 'No completed visits yet'}
+                      <div className="flex items-baseline justify-between gap-2">
+                        <p className="text-2xl font-bold text-text-primary font-mono tabular-nums">
+                          {dashboardAnalyticsData ? dashboardAnalyticsData.summary.total_messages : conversations.length}
+                        </p>
+                        {analyticsCompare && dashboardAnalyticsData ? (
+                          dashboardAnalyticsData.summary.messages_delta_pct !== null && dashboardAnalyticsData.summary.messages_delta_pct !== undefined ? (
+                            <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              dashboardAnalyticsData.summary.messages_delta_pct >= 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                            }`}>
+                              {dashboardAnalyticsData.summary.messages_delta_pct >= 0 ? <ArrowUp className="w-2.5 h-2.5 stroke-[2.5]" /> : <ArrowDown className="w-2.5 h-2.5 stroke-[2.5]" />}
+                              {dashboardAnalyticsData.summary.messages_delta_pct >= 0 ? `+${dashboardAnalyticsData.summary.messages_delta_pct.toFixed(2)}%` : `${dashboardAnalyticsData.summary.messages_delta_pct.toFixed(2)}%`}
+                            </span>
+                          ) : dashboardAnalyticsData.summary.messages_delta_abs !== null && dashboardAnalyticsData.summary.messages_delta_abs !== undefined && dashboardAnalyticsData.summary.messages_delta_abs > 0 ? (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <ArrowUp className="w-2.5 h-2.5 stroke-[2.5]" />
+                              +{dashboardAnalyticsData.summary.messages_delta_abs}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              {dashboardAnalyticsData.summary.ai_autonomous_rate.toFixed(1)}% AI
+                            </span>
+                          )
+                        ) : dashboardAnalyticsData ? (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            {dashboardAnalyticsData.summary.ai_autonomous_rate.toFixed(1)}% AI
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-[11px] text-text-muted truncate flex items-center gap-1.5">
+                        {analyticsCompare && dashboardAnalyticsData?.summary.prev_messages !== null && dashboardAnalyticsData?.summary.prev_messages !== undefined ? (
+                          <span>
+                            vs {dashboardAnalyticsData.summary.prev_messages} prior ({dashboardAnalyticsData.summary.messages_delta_abs && dashboardAnalyticsData.summary.messages_delta_abs >= 0 ? '+' : ''}{dashboardAnalyticsData.summary.messages_delta_abs}) • {dashboardAnalyticsData.summary.ai_autonomous_rate.toFixed(1)}% AI
+                          </span>
+                        ) : dashboardAnalyticsData ? (
+                          `${dashboardAnalyticsData.summary.inbound_messages} in • ${dashboardAnalyticsData.summary.outbound_messages} out (${dashboardAnalyticsData.summary.ai_autonomous_rate.toFixed(1)}% AI)`
+                        ) : (
+                          'Active conversations'
+                        )}
                       </p>
                     </div>
                   </div>
@@ -10372,7 +10562,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {dashboardAnalyticsData && (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-1">
                     {/* Chart: Daily WhatsApp Message Traffic (Span 2 cols) */}
-                    <div className="lg:col-span-2 bg-surface border border-border rounded-md p-4 space-y-3 shadow-xs">
+                    <div className="lg:col-span-2 min-w-0 overflow-hidden bg-surface border border-border rounded-md p-4 space-y-3 shadow-xs">
                       <div className="flex items-center justify-between pb-2 border-b border-border">
                         <div className="flex items-center gap-2">
                           <Activity className="w-4 h-4 text-text-secondary stroke-[1.8]" />
@@ -10384,7 +10574,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             <span className="font-medium text-text-secondary">Inbound ({dashboardAnalyticsData.summary.inbound_messages})</span>
                           </span>
                           <span className="flex items-center gap-1.5">
-                            <span className="w-2.5 h-2.5 rounded-xs bg-accent inline-block" />
+                            <span className="w-2.5 h-2.5 rounded-xs bg-blue-500 inline-block" />
                             <span className="font-medium text-text-secondary">Outbound ({dashboardAnalyticsData.summary.outbound_messages})</span>
                           </span>
                         </div>
@@ -10395,20 +10585,26 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           No message activity recorded in this time range.
                         </div>
                       ) : (
-                        <div className="h-52 flex items-end gap-2 pt-4 px-2">
+                        <div className="h-52 w-full min-w-0 flex items-end gap-1 pt-4 px-1 overflow-x-hidden">
                           {(() => {
                             const series = dashboardAnalyticsData.time_series;
                             const maxVal = Math.max(1, ...series.map((t) => Math.max(t.inbound, t.outbound, t.total)));
-                            const barMaxW = series.length <= 3 ? 'max-w-[120px]' : series.length <= 7 ? 'max-w-[72px]' : series.length <= 14 ? 'max-w-[52px]' : 'max-w-[40px]';
-                            const barGap = series.length <= 7 ? 'gap-1.5' : 'gap-0.5';
+                            const barMaxW = series.length <= 3 ? 'max-w-[120px]' : series.length <= 7 ? 'max-w-[72px]' : series.length <= 14 ? 'max-w-[52px]' : '';
+                            const barGap = series.length <= 14 ? 'gap-0.5' : 'gap-px';
                             return series.map((t, i) => {
                               const inPct = Math.round((t.inbound / maxVal) * 100);
                               const outPct = Math.round((t.outbound / maxVal) * 100);
                               const dayLabel = t.day.slice(5);
+                              const showLabel =
+                                series.length <= 14
+                                  ? true
+                                  : series.length <= 31
+                                  ? (i === 0 || i === series.length - 1 || i % 4 === 0)
+                                  : (i === 0 || i === series.length - 1 || i % 7 === 0);
                               return (
-                                <div key={t.day || i} className={`flex-1 min-w-[28px] ${barMaxW} flex flex-col items-center gap-1 group relative`}>
+                                <div key={t.day || i} className={`flex-1 min-w-0 ${barMaxW} flex flex-col items-center gap-1 group relative`}>
                                   {/* Tooltip on hover */}
-                                  <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col bg-slate-900 text-white text-[10px] rounded-md px-2.5 py-1.5 shadow-xl pointer-events-none z-20 whitespace-nowrap border border-white/10">
+                                  <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col bg-slate-900 text-white text-[10px] rounded-md px-2.5 py-1.5 shadow-xl pointer-events-none z-30 whitespace-nowrap border border-white/10">
                                     <span className="font-semibold border-b border-white/20 pb-0.5 mb-0.5">{t.day}</span>
                                     <span className="flex items-center gap-1.5"><ArrowDownLeft className="w-3 h-3 text-emerald-400 stroke-[2]" /> Inbound: {t.inbound}</span>
                                     <span className="flex items-center gap-1.5"><ArrowUpRight className="w-3 h-3 text-blue-400 stroke-[2]" /> Outbound: {t.outbound}</span>
@@ -10417,16 +10613,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   {/* Bars */}
                                   <div className={`w-full h-36 flex items-end justify-center ${barGap}`}>
                                     <div
-                                      style={{ height: `${Math.max(inPct, 6)}%` }}
-                                      className="w-1/2 bg-emerald-500 rounded-t-sm transition-all duration-300 hover:brightness-110 cursor-pointer"
+                                      style={{ height: t.inbound > 0 ? `${Math.max(inPct, 6)}%` : '0%' }}
+                                      className={`w-1/2 bg-emerald-500 rounded-t-xs transition-all duration-300 hover:brightness-110 cursor-pointer ${t.inbound === 0 ? 'opacity-0' : ''}`}
                                     />
                                     <div
-                                      style={{ height: `${Math.max(outPct, 6)}%` }}
-                                      className="w-1/2 bg-accent rounded-t-sm transition-all duration-300 hover:brightness-110 cursor-pointer"
+                                      style={{ height: t.outbound > 0 ? `${Math.max(outPct, 6)}%` : '0%' }}
+                                      className={`w-1/2 bg-blue-500 rounded-t-xs transition-all duration-300 hover:brightness-110 cursor-pointer ${t.outbound === 0 ? 'opacity-0' : ''}`}
                                     />
                                   </div>
-                                  <span className="text-[10px] text-text-muted font-mono truncate w-full text-center font-medium">
-                                    {dayLabel}
+                                  <span className="text-[10px] text-text-muted font-mono truncate w-full text-center font-medium min-h-[14px]">
+                                    {showLabel ? dayLabel : ''}
                                   </span>
                                 </div>
                               );
@@ -10437,22 +10633,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
 
                     {/* Funnel: Lead & Conversion Funnel (1 col) */}
-                    <div className="bg-surface border border-border rounded-md p-4 space-y-4 flex flex-col justify-between shadow-xs">
+                    <div className="min-w-0 bg-surface border border-border rounded-md p-4 space-y-4 flex flex-col justify-between shadow-xs">
                       <div className="flex items-center justify-between pb-2 border-b border-border">
                         <div className="flex items-center gap-2">
                           <TrendingUp className="w-4 h-4 text-text-secondary stroke-[1.8]" />
                           <h4 className="font-semibold text-xs text-text-primary">Conversion Funnel</h4>
                         </div>
                         <span className="text-[11px] font-mono text-emerald-700 font-bold px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded">
-                          {dashboardAnalyticsData.summary.conversion_rate}% Overall Conv.
+                          {dashboardAnalyticsData.summary.conversion_rate.toFixed(2)}% Overall Conv.
                         </span>
                       </div>
 
                       <div className="space-y-3 py-1">
-                        {/* Stage 1: Inbound Contacts */}
+                        {/* Stage 1: Total Leads */}
                         <div>
                           <div className="flex justify-between text-xs mb-1 font-medium">
-                            <span className="text-text-secondary">Inbound Inquiries</span>
+                            <span className="text-text-secondary">Total Inquiries & Leads</span>
                             <span className="font-mono font-bold text-text-primary">{dashboardAnalyticsData.pipeline.new}</span>
                           </div>
                           <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
@@ -10463,7 +10659,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         {/* Stage 2: Tracked & Qualified */}
                         <div>
                           <div className="flex justify-between text-xs mb-1 font-medium">
-                            <span className="text-text-secondary">CRM Qualified Leads</span>
+                            <span className="text-text-secondary">Qualified Prospects</span>
                             <span className="font-mono font-bold text-text-primary">{dashboardAnalyticsData.pipeline.qualified}</span>
                           </div>
                           <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
@@ -10477,7 +10673,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         {/* Stage 3: Booked & Attended */}
                         <div>
                           <div className="flex justify-between text-xs mb-1 font-medium">
-                            <span className="text-emerald-700 font-semibold">Booked & Attended</span>
+                            <span className="text-emerald-700 font-semibold">Booked & Attended Visits</span>
                             <span className="font-mono font-bold text-emerald-700">{dashboardAnalyticsData.summary.completed_bookings}</span>
                           </div>
                           <div className="w-full bg-surface-subtle rounded-full h-2 overflow-hidden border border-border">
@@ -10489,21 +10685,96 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
                       </div>
 
-                      {/* Status Badges Row */}
+                      {/* Status Badges Row (Clickable drilldown to Bookings tab) */}
                       <div className="pt-2.5 border-t border-border grid grid-cols-3 gap-1.5 text-center">
-                        <div className="p-1.5 rounded bg-surface-subtle border border-border">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveNav('bookings');
+                            setBookingFilter('upcoming');
+                          }}
+                          className="p-1.5 rounded bg-surface-subtle border border-border hover:border-text-secondary transition-colors cursor-pointer text-center"
+                          title="Click to view confirmed upcoming bookings"
+                        >
                           <p className="text-[10px] text-text-muted font-medium">Confirmed</p>
                           <p className="text-xs font-bold text-text-primary font-mono mt-0.5">{dashboardAnalyticsData.bookings_by_status.confirmed}</p>
-                        </div>
-                        <div className="p-1.5 rounded bg-emerald-50 text-emerald-900 border border-emerald-200">
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveNav('bookings');
+                            setBookingFilter('completed');
+                          }}
+                          className="p-1.5 rounded bg-emerald-50 text-emerald-900 border border-emerald-200 hover:border-emerald-400 transition-colors cursor-pointer text-center"
+                          title="Click to view attended completed visits"
+                        >
                           <p className="text-[10px] text-emerald-700 font-semibold">Attended</p>
                           <p className="text-xs font-bold font-mono text-emerald-800 mt-0.5">{dashboardAnalyticsData.bookings_by_status.completed}</p>
-                        </div>
-                        <div className="p-1.5 rounded bg-rose-50 text-rose-900 border border-rose-200">
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveNav('bookings');
+                            setBookingFilter('no_show');
+                          }}
+                          className="p-1.5 rounded bg-rose-50 text-rose-900 border border-rose-200 hover:border-rose-400 transition-colors cursor-pointer text-center"
+                          title="Click to view no-show bookings"
+                        >
                           <p className="text-[10px] text-rose-700 font-semibold">No-Show</p>
                           <p className="text-xs font-bold font-mono text-rose-800 mt-0.5">{dashboardAnalyticsData.bookings_by_status.no_show}</p>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Top Services & Health Concerns Breakdown ── */}
+                {dashboardAnalyticsData && dashboardAnalyticsData.top_services && dashboardAnalyticsData.top_services.length > 0 && (
+                  <div className="bg-surface border border-border rounded-md p-4 space-y-3 shadow-xs">
+                    <div className="flex items-center justify-between pb-2 border-b border-border">
+                      <div className="flex items-center gap-2">
+                        <Stethoscope className="w-4 h-4 text-text-secondary stroke-[1.8]" />
+                        <div>
+                          <h4 className="font-semibold text-xs text-text-primary">Top Services & Health Concerns</h4>
+                          <p className="text-[11px] text-text-muted">Ranked by realized revenue & visit volume</p>
                         </div>
                       </div>
+                      <span className="text-[11px] font-medium text-text-muted">
+                        {dashboardAnalyticsData.top_services.length} services recorded
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {dashboardAnalyticsData.top_services.map((srv, idx) => {
+                        const maxRev = Math.max(1, ...dashboardAnalyticsData.top_services!.map((s) => s.revenue));
+                        const pct = Math.round((srv.revenue / maxRev) * 100);
+                        return (
+                          <div
+                            key={srv.service || idx}
+                            className="p-3 bg-surface-subtle border border-border rounded-md space-y-2 hover:border-accent/40 transition-colors"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium text-xs text-text-primary truncate" title={srv.service}>
+                                <span className="text-text-muted font-mono mr-1.5 text-[11px]">#{idx + 1}</span>
+                                {srv.service}
+                              </span>
+                              <span className="font-mono font-bold text-xs text-emerald-700 shrink-0">
+                                {currentCurrencySymbol}{Number(srv.revenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                            <div className="w-full bg-surface rounded-full h-1.5 overflow-hidden border border-border">
+                              <div
+                                className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between text-[11px] text-text-muted">
+                              <span>{srv.booking_count} bookings</span>
+                              <span>{srv.completed_count} attended</span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -18670,6 +18941,212 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         )}
                       </div>
 
+                      {/* ── MISSED CALL → WHATSAPP AUTO-REPLY ─────────────────── */}
+                      <div className="bg-surface p-5 rounded-lg border border-border space-y-4">
+                        {/* Header */}
+                        <div className="flex items-start justify-between gap-3 pb-3 border-b border-border">
+                          <div>
+                            <h4 className="font-bold text-sm text-text-primary flex items-center gap-2">
+                              <PhoneCall className="w-4 h-4 text-amber-500" />
+                              <span>Missed Call → WhatsApp Auto-Reply</span>
+                            </h4>
+                            <p className="text-xs text-text-muted mt-0.5">
+                              Automatically send a WhatsApp follow-up whenever your Android phone or iPhone misses a call.
+                              Works via MacroDroid (Android) or Shortcuts (iPhone) — no SIM integration needed.
+                            </p>
+                          </div>
+                          <span className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            <PhoneCall className="w-3 h-3" />
+                            Auto-Reply
+                          </span>
+                        </div>
+
+                        {/* How it works */}
+                        <div className="p-3 bg-amber-50/60 border border-amber-100 rounded-md text-xs text-amber-900 space-y-1">
+                          <p className="font-bold text-amber-800 flex items-center gap-1.5"><span>⚡</span> How it works</p>
+                          <ul className="list-disc list-inside space-y-0.5 text-amber-800">
+                            <li>Your phone detects a missed call and triggers MacroDroid or iPhone Shortcuts.</li>
+                            <li>It sends an HTTP request to the webhook URL below with the caller's number.</li>
+                            <li>Our server looks up or creates the contact, then sends a WhatsApp template message.</li>
+                          </ul>
+                        </div>
+
+                        {/* Webhook URL display */}
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted block">
+                            Your Webhook URL (with token)
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 min-w-0 bg-surface-subtle border border-border rounded-md px-3 py-2 font-mono text-[11px] text-text-primary overflow-x-auto whitespace-nowrap select-all">
+                              {`https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || ''}&token=${settingsForm.missed_call_webhook_token || ''}&caller_phone=CALLER_NUMBER`}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(
+                                `https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || ''}&token=${settingsForm.missed_call_webhook_token || ''}&caller_phone=CALLER_NUMBER`,
+                                'missed_call_url'
+                              )}
+                              className="shrink-0 px-3 py-2 bg-surface-subtle hover:bg-surface border border-border text-text-primary text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              {copiedKey === 'missed_call_url' ? (
+                                <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /><span className="text-emerald-600">Copied!</span></>
+                              ) : (
+                                <><Copy className="w-3.5 h-3.5" /><span>Copy URL</span></>
+                              )}
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-text-muted">
+                            Replace <code className="bg-surface-subtle px-1 rounded text-amber-700">CALLER_NUMBER</code> with the macro variable from MacroDroid / Shortcuts that holds the caller's phone number.
+                          </p>
+                        </div>
+
+                        {/* Security Token (read-only) */}
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted block">
+                            Security Token (auto-computed)
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 min-w-0 bg-surface-subtle border border-border rounded-md px-3 py-2 font-mono text-xs text-text-primary tracking-wider select-all">
+                              {settingsForm.missed_call_webhook_token || '—'}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(settingsForm.missed_call_webhook_token || '', 'missed_call_token')}
+                              className="shrink-0 px-3 py-2 bg-surface-subtle hover:bg-surface border border-border text-text-primary text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              {copiedKey === 'missed_call_token' ? (
+                                <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /><span className="text-emerald-600">Copied!</span></>
+                              ) : (
+                                <><Copy className="w-3.5 h-3.5" /><span>Copy</span></>
+                              )}
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-text-muted">This token authenticates incoming webhook calls. It is auto-derived from your account — no need to configure unless you want a custom value below.</p>
+                        </div>
+
+                        {/* Configurable fields (two-column on md+) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* WhatsApp Template Name */}
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted block">
+                              WhatsApp Template Name
+                            </label>
+                            <input
+                              type="text"
+                              value={(settingsForm as any).template_missed_call ?? 'missed_call_followup'}
+                              onChange={e => setSettingsForm(f => ({ ...f, template_missed_call: e.target.value }))}
+                              placeholder="missed_call_followup"
+                              className="w-full bg-input border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
+                            />
+                            <p className="text-[10px] text-text-muted">Template approved in Meta WABA to send on missed call. Default: <code className="bg-surface-subtle px-1 rounded">missed_call_followup</code></p>
+                          </div>
+
+                          {/* Custom Token Override */}
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-semibold uppercase tracking-wider text-text-muted block">
+                              Custom Token Override <span className="text-text-muted normal-case font-normal">(optional)</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={(settingsForm as any).missed_call_token ?? ''}
+                              onChange={e => setSettingsForm(f => ({ ...f, missed_call_token: e.target.value }))}
+                              placeholder="Leave blank to use auto-computed token"
+                              className="w-full bg-input border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
+                            />
+                            <p className="text-[10px] text-text-muted">Set a custom secret token for extra security. Leave blank to use the auto-computed token above.</p>
+                          </div>
+                        </div>
+
+                        {/* Setup Guide — collapsible */}
+                        <details className="group">
+                          <summary className="cursor-pointer list-none flex items-center justify-between p-3 bg-surface-subtle/60 border border-border rounded-md text-xs font-semibold text-text-primary hover:bg-surface-subtle transition-colors">
+                            <span className="flex items-center gap-2">
+                              <span>📱</span>
+                              <span>Setup Guide: Android MacroDroid & iPhone Shortcuts</span>
+                            </span>
+                            <ChevronDown className="w-4 h-4 text-text-muted group-open:rotate-180 transition-transform" />
+                          </summary>
+                          <div className="mt-2 space-y-4 text-xs text-text-secondary p-3 bg-surface-subtle/40 border border-border rounded-md">
+
+                            {/* Android */}
+                            <div>
+                              <p className="font-bold text-text-primary mb-1.5 flex items-center gap-1.5"><span>🤖</span> Android — MacroDroid</p>
+                              <ol className="list-decimal list-inside space-y-1.5 text-text-secondary">
+                                <li>Open <strong>MacroDroid</strong> → tap <strong>+ Add Macro</strong>.</li>
+                                <li><strong>Trigger:</strong> Phone Call → Missed Call (select &quot;Any number&quot; or a specific number).</li>
+                                <li><strong>Action:</strong> Connectivity → HTTP Request.</li>
+                                <li>Set method to <strong>GET</strong>.</li>
+                                <li>Paste this URL in the URL field:<br />
+                                  <code className="break-all bg-surface border border-border px-2 py-1 rounded block mt-1 font-mono text-[10px] select-all">
+                                    {`https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || '<your-slug>'}&token=${settingsForm.missed_call_webhook_token || '<token>'}&caller_phone={caller_number}`}
+                                  </code>
+                                </li>
+                                <li>The macro variable <code className="bg-surface-subtle px-1 rounded">{'{caller_number}'}</code> is automatically replaced by MacroDroid with the caller's number.</li>
+                                <li>Tap <strong>Save</strong>. Enable the macro.</li>
+                              </ol>
+                            </div>
+
+                            {/* iPhone */}
+                            <div>
+                              <p className="font-bold text-text-primary mb-1.5 flex items-center gap-1.5"><span>🍎</span> iPhone — Shortcuts Automation</p>
+                              <ol className="list-decimal list-inside space-y-1.5 text-text-secondary">
+                                <li>Open <strong>Shortcuts</strong> app → tap <strong>Automation</strong> tab → <strong>+</strong> → <strong>Create Personal Automation</strong>.</li>
+                                <li>Choose <strong>Phone</strong> → select <strong>Call Ends</strong> (choose &quot;Incoming Call&quot; if available, or all calls).</li>
+                                <li>Add action: <strong>Get Contents of URL</strong>.</li>
+                                <li>Set URL to:<br />
+                                  <code className="break-all bg-surface border border-border px-2 py-1 rounded block mt-1 font-mono text-[10px] select-all">
+                                    {`https://crm.goboldlabs.com/webhooks/missed-call?tenant=${settingsForm.slug || '<your-slug>'}&token=${settingsForm.missed_call_webhook_token || '<token>'}&caller_phone=`}
+                                  </code>
+                                  Then append the <strong>Caller's Name / Number</strong> shortcut variable.
+                                </li>
+                                <li>Tap <strong>Next</strong> → disable &quot;Ask Before Running&quot; → tap <strong>Done</strong>.</li>
+                                <li><em>Note:</em> iPhone Shortcuts trigger on all ended calls, not just missed. Add a condition to only proceed if the call was not answered, or let the backend handle duplicates gracefully.</li>
+                              </ol>
+                            </div>
+                          </div>
+                        </details>
+
+                        {/* Live Test Tool */}
+                        <div className="space-y-2 pt-1">
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Test Webhook Now</p>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              id="missedCallTestPhone"
+                              placeholder="Enter phone number, e.g. 919876543210"
+                              className="flex-1 bg-input border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
+                            />
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const phoneInput = (document.getElementById('missedCallTestPhone') as HTMLInputElement);
+                                const phone = phoneInput?.value?.trim();
+                                if (!phone) { alert('Enter a phone number to test'); return; }
+                                const resultEl = document.getElementById('missedCallTestResult');
+                                if (resultEl) { resultEl.textContent = 'Sending…'; resultEl.className = 'text-xs text-text-muted mt-1'; }
+                                try {
+                                  const res = await fetch(`/webhooks/missed-call?tenant=${settingsForm.slug}&token=${(settingsForm as any).missed_call_webhook_token || ''}&caller_phone=${encodeURIComponent(phone)}`);
+                                  const data = await res.json();
+                                  if (resultEl) {
+                                    resultEl.textContent = res.ok
+                                      ? `✅ Success — WhatsApp ${data.whatsapp_sent ? 'sent' : 'not sent'} to ${data.caller_phone || phone}. Template: ${data.template_used || '—'}`
+                                      : `❌ Error ${res.status}: ${data.detail || JSON.stringify(data)}`;
+                                    resultEl.className = `text-xs mt-1 ${res.ok ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium'}`;
+                                  }
+                                } catch (err: any) {
+                                  if (resultEl) { resultEl.textContent = `❌ Network error: ${err.message}`; resultEl.className = 'text-xs mt-1 text-rose-600 font-medium'; }
+                                }
+                              }}
+                              className="shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <PhoneCall className="w-3.5 h-3.5" />
+                              <span>Test</span>
+                            </button>
+                          </div>
+                          <div id="missedCallTestResult" className="text-xs text-text-muted"></div>
+                        </div>
+
+                      </div>
 
                     </div>
                   )}

@@ -361,7 +361,7 @@ export default function SuperAdminClients() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   // Navigation tabs in Super Admin (Webhooks merged directly into organizations)
-  const [activeTab, setActiveTab] = useState<'organizations' | 'razorpay' | 'admin_config'>('organizations');
+  const [activeTab, setActiveTab] = useState<'organizations' | 'razorpay' | 'admin_config' | 'missed_call'>('organizations');
   
   // Segmented Organization Tabs: All Organizations, Mine (Direct), Partnered (White-Label)
   const [activeOrgTab, setActiveOrgTab] = useState<'all' | 'direct' | 'partnered'>('all');
@@ -850,22 +850,48 @@ export default function SuperAdminClients() {
     }
   }
 
-  // ── Automated Missed Call WhatsApp Outreach Helpers ──
+  // ── Automated Missed Call WhatsApp Outreach Helpers & State ──
   const [missedCallModalTenant, setMissedCallModalTenant] = useState<ClientTenant | null>(null);
   const [webhooksRegistryTab, setWebhooksRegistryTab] = useState<'meta' | 'missed_call'>('missed_call');
   const [missedCallActiveDevice, setMissedCallActiveDevice] = useState<'android' | 'iphone'>('android');
   const [actionMenuTenantId, setActionMenuTenantId] = useState<string | null>(null);
 
-  function getMissedCallUrls(slug: string) {
+  // Unified Missed Call Operations State
+  const [missedCallsList, setMissedCallsList] = useState<Array<{
+    id: string;
+    tenant_id: string;
+    tenant_name: string;
+    tenant_slug: string;
+    caller_name: string;
+    caller_phone: string;
+    call_status: string;
+    created_at: string;
+    last_outbound_msg: string;
+  }>>([]);
+  const [loadingMissedCalls, setLoadingMissedCalls] = useState(false);
+  const [activeTestRowTenantId, setActiveTestRowTenantId] = useState<string | null>(null);
+  const [testCallerPhone, setTestCallerPhone] = useState('919876543210');
+  const [testingWebhookTenantId, setTestingWebhookTenantId] = useState<string | null>(null);
+  const [testWebhookResult, setTestWebhookResult] = useState<{
+    success: boolean;
+    tenantId: string;
+    data?: any;
+    error?: string;
+  } | null>(null);
+  const [editingTemplateByTenant, setEditingTemplateByTenant] = useState<Record<string, string>>({});
+  const [savingTemplateTenantId, setSavingTemplateTenantId] = useState<string | null>(null);
+  const [templateSaveSuccessId, setTemplateSaveSuccessId] = useState<string | null>(null);
+
+  function getMissedCallUrls(slug: string, customToken?: string) {
     const base = 'https://crm.goboldlabs.com/api/v1/crm/webhooks/missed-call';
-    const token = `${slug}_missed_call`;
+    const token = customToken || `${slug}_missed_call`;
     const androidUrl = `${base}?tenant=${slug}&token=${token}&caller=[call_number]`;
     const iphoneUrl = `${base}?tenant=${slug}&token=${token}&sms_text=ShortcutInput`;
     return { base, token, androidUrl, iphoneUrl };
   }
 
-  function getMissedCallClientMessage(tenantName: string, slug: string) {
-    const { androidUrl, iphoneUrl } = getMissedCallUrls(slug);
+  function getMissedCallClientMessage(tenantName: string, slug: string, customToken?: string) {
+    const { androidUrl, iphoneUrl } = getMissedCallUrls(slug, customToken);
     return `👋 Hi from ${tenantName} Team!
 
 Here is your 15-second setup for Automated Missed Call WhatsApp Follow-ups. Whenever someone calls your phone number and you cannot answer, our CRM will automatically send them a WhatsApp message so you never lose a lead or patient!
@@ -888,8 +914,8 @@ ${iphoneUrl}
 Any missed call will now automatically get followed up on WhatsApp!`;
   }
 
-  function downloadMacroDroidFile(tenantName: string, slug: string) {
-    const { androidUrl } = getMissedCallUrls(slug);
+  function downloadMacroDroidFile(tenantName: string, slug: string, customToken?: string) {
+    const { androidUrl } = getMissedCallUrls(slug, customToken);
     const macroContent = {
       macro: {
         name: `${tenantName} - Missed Call Auto WhatsApp`,
@@ -926,6 +952,76 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  async function loadMissedCalls(targetTenantId?: string) {
+    setLoadingMissedCalls(true);
+    try {
+      const data = await admin.getMissedCalls(targetTenantId);
+      setMissedCallsList(data || []);
+    } catch (err) {
+      console.error('Failed to load missed calls:', err);
+    } finally {
+      setLoadingMissedCalls(false);
+    }
+  }
+
+  async function handleSaveTenantTemplate(tenantId: string) {
+    const tpl = (editingTemplateByTenant[tenantId] || '').trim();
+    if (!tpl) return;
+    setSavingTemplateTenantId(tenantId);
+    try {
+      await admin.updateTenantSettings(tenantId, { template_missed_call: tpl });
+      setTenants((prev) =>
+        prev.map((t) => (t.id === tenantId ? { ...t, template_missed_call: tpl } : t))
+      );
+      setTemplateSaveSuccessId(tenantId);
+      setTimeout(() => setTemplateSaveSuccessId(null), 3000);
+    } catch (err: any) {
+      alert(`Failed to save template: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setSavingTemplateTenantId(null);
+    }
+  }
+
+  async function handleRunTestMissedCall(tenant: ClientTenant) {
+    const phone = testCallerPhone.trim();
+    if (!phone || phone.length < 10) {
+      alert('Please enter a valid 10-digit phone number for testing.');
+      return;
+    }
+    const token = tenant.missed_call_token || tenant.missed_call_webhook_token || `${tenant.slug}_missed_call`;
+    setTestingWebhookTenantId(tenant.id);
+    setTestWebhookResult(null);
+    try {
+      const res = await admin.testMissedCallWebhook(tenant.slug, token, phone);
+      setTestWebhookResult({
+        success: true,
+        tenantId: tenant.id,
+        data: res,
+      });
+      setTenants((prev) =>
+        prev.map((t) =>
+          t.id === tenant.id
+            ? {
+                ...t,
+                missed_call_count: (t.missed_call_count || 0) + 1,
+                last_missed_caller: phone,
+                last_missed_at: new Date().toISOString(),
+              }
+            : t
+        )
+      );
+      loadMissedCalls();
+    } catch (err: any) {
+      setTestWebhookResult({
+        success: false,
+        tenantId: tenant.id,
+        error: err?.message || 'Webhook invocation failed',
+      });
+    } finally {
+      setTestingWebhookTenantId(null);
+    }
   }
 
   // Password reset modal state
@@ -1048,6 +1144,12 @@ Any missed call will now automatically get followed up on WhatsApp!`;
         router.replace('/bhuvanesh');
       });
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'missed_call') {
+      loadMissedCalls();
+    }
+  }, [activeTab]);
 
   function handleSaveAdminPhone(e: React.FormEvent) {
     e.preventDefault();
@@ -1802,6 +1904,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
             { id: 'organizations', label: 'Organizations & Config', icon: Building2 },
             { id: 'razorpay', label: 'Billing & Renewals', icon: CreditCard },
             { id: 'admin_config', label: 'Admin Notifications', icon: Bell },
+            { id: 'missed_call', label: 'Missed Call Setup', icon: PhoneCall },
           ].map((item) => {
             const Icon = item.icon;
             const active = activeTab === item.id;
@@ -1886,6 +1989,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                 { id: 'organizations', label: 'Organizations & Config', icon: Building2 },
                 { id: 'razorpay', label: 'Billing & Renewals', icon: CreditCard },
                 { id: 'admin_config', label: 'Admin Notifications', icon: Bell },
+                { id: 'missed_call', label: 'Missed Call Setup', icon: PhoneCall },
               ].map((item) => {
                 const Icon = item.icon;
                 const active = activeTab === item.id;
@@ -1957,6 +2061,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                   {activeTab === 'organizations' && 'Organizations'}
                   {activeTab === 'razorpay' && 'Billing & Renewals'}
                   {activeTab === 'admin_config' && 'Admin Alerts'}
+                  {activeTab === 'missed_call' && 'Missed Call Setup'}
                 </span>
                 <span className="hidden sm:inline-block text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono font-medium shrink-0">
                   v2.4
@@ -1966,6 +2071,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                 {activeTab === 'organizations' && 'Manage client workspaces, inspect live database records, configure AI brains, WhatsApp APIs, templates & billing'}
                 {activeTab === 'razorpay' && 'Inspect client recurring billing statuses, renewal schedules, and WhatsApp alert digests'}
                 {activeTab === 'admin_config' && 'Set your phone number for receiving automated system alerts and renewal reminders'}
+                {activeTab === 'missed_call' && 'Configure missed call → WhatsApp auto-reply webhook for each client tenant — one view, all clients'}
               </p>
             </div>
           </div>
@@ -2129,6 +2235,543 @@ Any missed call will now automatically get followed up on WhatsApp!`;
             </div>
 
           </div>
+
+          {/* ── TAB 4: MISSED CALL → WHATSAPP SETUP — ALL TENANTS ──────────────── */}
+          {activeTab === 'missed_call' && (
+            <div className="space-y-4">
+              {/* ── METRICS SUMMARY CARDS ── */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="bg-surface border border-border p-3.5 rounded-md shadow-2xs">
+                  <div className="flex items-center justify-between text-text-muted mb-1.5">
+                    <span className="text-[11px] font-medium uppercase tracking-wider">Total Clients</span>
+                    <Building2 className="w-4 h-4 text-text-muted stroke-[1.5]" />
+                  </div>
+                  <div className="text-xl font-bold text-text-primary">{tenants.length}</div>
+                  <p className="text-[10px] text-text-muted mt-0.5">Isolated multi-tenant workspaces</p>
+                </div>
+
+                <div className="bg-surface border border-border p-3.5 rounded-md shadow-2xs">
+                  <div className="flex items-center justify-between text-text-muted mb-1.5">
+                    <span className="text-[11px] font-medium uppercase tracking-wider">WhatsApp Ready</span>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 stroke-[1.5]" />
+                  </div>
+                  <div className="text-xl font-bold text-emerald-600">
+                    {tenants.filter((t) => t.whatsapp_configured).length}
+                    <span className="text-xs font-normal text-text-muted"> / {tenants.length}</span>
+                  </div>
+                  <p className="text-[10px] text-text-muted mt-0.5">Ready for auto WhatsApp dispatch</p>
+                </div>
+
+                <div className="bg-surface border border-border p-3.5 rounded-md shadow-2xs">
+                  <div className="flex items-center justify-between text-text-muted mb-1.5">
+                    <span className="text-[11px] font-medium uppercase tracking-wider">Missed Calls Ingested</span>
+                    <PhoneMissed className="w-4 h-4 text-amber-600 stroke-[1.5]" />
+                  </div>
+                  <div className="text-xl font-bold text-amber-600">
+                    {tenants.reduce((sum, t) => sum + (t.missed_call_count || 0), 0)}
+                  </div>
+                  <p className="text-[10px] text-text-muted mt-0.5">Captured across all clients</p>
+                </div>
+
+                <div className="bg-surface border border-border p-3.5 rounded-md shadow-2xs">
+                  <div className="flex items-center justify-between text-text-muted mb-1.5">
+                    <span className="text-[11px] font-medium uppercase tracking-wider">Security Engine</span>
+                    <ShieldCheck className="w-4 h-4 text-blue-600 stroke-[1.5]" />
+                  </div>
+                  <div className="text-sm font-bold text-text-primary mt-1">SHA-256 HMAC</div>
+                  <p className="text-[10px] text-text-muted mt-0.5">Per-tenant cryptographic tokens</p>
+                </div>
+              </div>
+
+              {/* ── HOW IT WORKS BANNER ── */}
+              <div className="bg-surface border border-border rounded-md p-4 bg-gradient-to-r from-amber-500/5 via-surface to-surface">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0 mt-0.5">
+                      <Zap className="w-4 h-4 stroke-[2]" />
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-xs text-text-primary">
+                        Automated Missed Call Follow-Up — Zero Setup for Receptionists
+                      </h4>
+                      <p className="text-[11px] text-text-muted mt-0.5 max-w-3xl">
+                        When a patient or client misses a call on the client&apos;s phone, MacroDroid triggers the webhook below.
+                        Our CRM instantly creates a customer inquiry, records a note, sends a staff push alert, and fires an approved Meta WhatsApp template to the caller.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => loadMissedCalls()}
+                      disabled={loadingMissedCalls}
+                      className="px-2.5 py-1.5 bg-surface-subtle hover:bg-surface border border-border rounded text-xs text-text-body font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${loadingMissedCalls ? 'animate-spin' : ''}`} />
+                      <span>Refresh Activity</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── ALL CLIENTS CONFIGURATION TABLE (ONE-TAB VIEW) ── */}
+              <div className="bg-surface border border-border rounded-md overflow-hidden shadow-xs">
+                <div className="border-b border-border px-4 py-3 bg-surface-subtle/40 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <PhoneCall className="w-4 h-4 text-amber-600 stroke-[1.5]" />
+                    <h3 className="font-semibold text-xs text-text-primary">All Clients Configuration & Webhook Endpoints</h3>
+                  </div>
+                  <span className="text-[10px] text-text-muted">Click ⚡ Test to simulate live missed call for any client</span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-surface-subtle border-b border-border">
+                      <tr>
+                        <th className="text-left py-2.5 px-3 text-[11px] font-semibold text-text-muted uppercase tracking-wider">Client Organization</th>
+                        <th className="text-left py-2.5 px-3 text-[11px] font-semibold text-text-muted uppercase tracking-wider">WhatsApp Status</th>
+                        <th className="text-left py-2.5 px-3 text-[11px] font-semibold text-text-muted uppercase tracking-wider">Webhook URL</th>
+                        <th className="text-left py-2.5 px-3 text-[11px] font-semibold text-text-muted uppercase tracking-wider">Security Token</th>
+                        <th className="text-left py-2.5 px-3 text-[11px] font-semibold text-text-muted uppercase tracking-wider">Meta Template Name</th>
+                        <th className="text-left py-2.5 px-3 text-[11px] font-semibold text-text-muted uppercase tracking-wider">Captured Calls</th>
+                        <th className="text-right py-2.5 px-3 text-[11px] font-semibold text-text-muted uppercase tracking-wider">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {tenants.map((t) => {
+                        const effectiveToken = t.missed_call_token || t.missed_call_webhook_token || `${t.slug}_missed_call`;
+                        const webhookUrl = `https://crm.goboldlabs.com/api/v1/crm/webhooks/missed-call?tenant=${t.slug}&token=${effectiveToken}&caller=[call_number]`;
+                        const currentTpl = editingTemplateByTenant[t.id] !== undefined
+                          ? editingTemplateByTenant[t.id]
+                          : (t.template_missed_call || 'missed_call_followup');
+                        const isTesting = activeTestRowTenantId === t.id;
+                        const isSavingTpl = savingTemplateTenantId === t.id;
+                        const isSavedTpl = templateSaveSuccessId === t.id;
+
+                        return (
+                          <React.Fragment key={t.id}>
+                            <tr className={`transition-colors ${isTesting ? 'bg-amber-500/5' : 'hover:bg-surface-subtle/50'}`}>
+                              {/* 1. Client Name + Slug */}
+                              <td className="py-3 px-3 min-w-[140px]">
+                                <div className="font-semibold text-text-primary">{t.name}</div>
+                                <div className="text-[10px] text-text-muted font-mono mt-0.5">{t.slug}</div>
+                              </td>
+
+                              {/* 2. WhatsApp Status */}
+                              <td className="py-3 px-3 min-w-[120px]">
+                                {t.whatsapp_configured ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    Active
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenConfig(t, 'whatsapp')}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-600 border border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer"
+                                    title="Click to configure WhatsApp credentials for this client"
+                                  >
+                                    <AlertCircle className="w-3 h-3" />
+                                    Needs Setup
+                                  </button>
+                                )}
+                              </td>
+
+                              {/* 3. Webhook URL with Copy */}
+                              <td className="py-3 px-3 max-w-xs">
+                                <div className="flex items-center gap-1.5">
+                                  <code className="text-[10px] font-mono text-text-secondary truncate max-w-[180px] sm:max-w-[220px] block" title={webhookUrl}>
+                                    {webhookUrl}
+                                  </code>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(webhookUrl, `mc-url-${t.id}`)}
+                                    className="p-1 rounded hover:bg-surface-subtle shrink-0 transition-colors cursor-pointer"
+                                    title="Copy Webhook URL"
+                                  >
+                                    {copiedField === `mc-url-${t.id}` ? (
+                                      <Check className="w-3 h-3 text-green-600" />
+                                    ) : (
+                                      <Copy className="w-3 h-3 text-text-muted hover:text-text-primary" />
+                                    )}
+                                  </button>
+                                </div>
+                              </td>
+
+                              {/* 4. Security Token */}
+                              <td className="py-3 px-3 min-w-[130px]">
+                                <div className="flex items-center gap-1.5">
+                                  <code className="text-[10px] font-mono font-medium text-text-primary bg-surface-subtle px-1.5 py-0.5 rounded border border-border">
+                                    {effectiveToken}
+                                  </code>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(effectiveToken, `mc-tok-${t.id}`)}
+                                    className="p-1 rounded hover:bg-surface-subtle shrink-0 transition-colors cursor-pointer"
+                                    title="Copy Token"
+                                  >
+                                    {copiedField === `mc-tok-${t.id}` ? (
+                                      <Check className="w-3 h-3 text-green-600" />
+                                    ) : (
+                                      <Copy className="w-3 h-3 text-text-muted hover:text-text-primary" />
+                                    )}
+                                  </button>
+                                </div>
+                              </td>
+
+                              {/* 5. Meta Template Name (INLINE EDITABLE!) */}
+                              <td className="py-3 px-3 min-w-[190px]">
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="text"
+                                    value={currentTpl}
+                                    onChange={(e) =>
+                                      setEditingTemplateByTenant((prev) => ({
+                                        ...prev,
+                                        [t.id]: e.target.value,
+                                      }))
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleSaveTenantTemplate(t.id);
+                                    }}
+                                    className="w-36 text-[10px] font-mono px-2 py-1 bg-surface border border-border rounded text-text-primary focus:outline-none focus:border-amber-500"
+                                    placeholder="template_name"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveTenantTemplate(t.id)}
+                                    disabled={isSavingTpl}
+                                    className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer shrink-0 ${
+                                      isSavedTpl
+                                        ? 'bg-emerald-600 text-white'
+                                        : 'bg-surface-subtle hover:bg-surface border border-border text-text-primary'
+                                    }`}
+                                    title="Save template name for this tenant"
+                                  >
+                                    {isSavingTpl ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : isSavedTpl ? (
+                                      'Saved'
+                                    ) : (
+                                      'Save'
+                                    )}
+                                  </button>
+                                </div>
+                              </td>
+
+                              {/* 6. Captured Calls Stats */}
+                              <td className="py-3 px-3 min-w-[100px]">
+                                <div className="font-semibold text-text-primary">
+                                  {t.missed_call_count || 0} <span className="text-[10px] text-text-muted font-normal">captured</span>
+                                </div>
+                                {t.last_missed_caller && (
+                                  <div className="text-[10px] text-text-muted font-mono truncate max-w-[110px]" title={`Last caller: ${t.last_missed_caller}`}>
+                                    {t.last_missed_caller}
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* 7. Action Buttons */}
+                              <td className="py-3 px-3 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {/* Test simulator button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveTestRowTenantId(isTesting ? null : t.id)}
+                                    className={`px-2.5 py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
+                                      isTesting
+                                        ? 'bg-amber-600 text-white'
+                                        : 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border border-amber-500/20'
+                                    }`}
+                                    title="Test missed call webhook for this client live"
+                                  >
+                                    <Zap className="w-3 h-3" />
+                                    <span>{isTesting ? 'Close Test' : 'Test'}</span>
+                                  </button>
+
+                                  {/* MacroDroid file download */}
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadMacroDroidFile(t.name, t.slug, effectiveToken)}
+                                    className="p-1 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded transition-colors cursor-pointer"
+                                    title="Download pre-configured MacroDroid .macro file"
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {/* Copy client setup message */}
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(getMissedCallClientMessage(t.name, t.slug, effectiveToken), `mc-msg-${t.id}`)}
+                                    className="p-1 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded transition-colors cursor-pointer"
+                                    title="Copy client setup instructions for WhatsApp"
+                                  >
+                                    {copiedField === `mc-msg-${t.id}` ? (
+                                      <Check className="w-3.5 h-3.5 text-green-600" />
+                                    ) : (
+                                      <Share2 className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+
+                                  {/* Open full tenant config */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenConfig(t, 'whatsapp')}
+                                    className="px-2 py-1 bg-surface-subtle hover:bg-surface text-text-secondary hover:text-text-primary border border-border text-[10px] font-medium rounded transition-colors cursor-pointer"
+                                    title="Open full tenant configuration"
+                                  >
+                                    Full Config
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+
+                            {/* ── EXPANDABLE INLINE TEST SIMULATOR PANEL ── */}
+                            {isTesting && (
+                              <tr className="bg-amber-500/5 border-b-2 border-amber-500/30">
+                                <td colSpan={7} className="p-4">
+                                  <div className="bg-surface border border-amber-300 dark:border-amber-800/50 rounded-md p-3.5 shadow-sm space-y-3">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <Zap className="w-4 h-4 text-amber-600" />
+                                        <h4 className="font-semibold text-xs text-text-primary">
+                                          Live Missed Call Simulator for <span className="text-amber-600">{t.name}</span>
+                                        </h4>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => setActiveTestRowTenantId(null)}
+                                        className="text-text-muted hover:text-text-primary text-xs"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                      {/* Phone input */}
+                                      <div className="md:col-span-2 space-y-1">
+                                        <label className="text-[10px] font-semibold text-text-muted uppercase">
+                                          Simulated Caller Phone Number
+                                        </label>
+                                        <div className="flex items-center gap-2">
+                                          <input
+                                            type="text"
+                                            value={testCallerPhone}
+                                            onChange={(e) => setTestCallerPhone(e.target.value)}
+                                            placeholder="919876543210"
+                                            className="flex-1 text-xs font-mono px-3 py-1.5 bg-surface border border-border rounded text-text-primary focus:outline-none focus:border-amber-500"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRunTestMissedCall(t)}
+                                            disabled={testingWebhookTenantId === t.id}
+                                            className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                                          >
+                                            {testingWebhookTenantId === t.id ? (
+                                              <>
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                <span>Triggering...</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Send className="w-3.5 h-3.5" />
+                                                <span>Trigger Live Webhook</span>
+                                              </>
+                                            )}
+                                          </button>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-[10px] text-text-muted mt-1">
+                                          <span>Quick fill:</span>
+                                          {superAdminPhone && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setTestCallerPhone(superAdminPhone)}
+                                              className="underline hover:text-amber-600 cursor-pointer font-mono"
+                                            >
+                                              My Phone ({superAdminPhone})
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() => setTestCallerPhone('919876543210')}
+                                            className="underline hover:text-amber-600 cursor-pointer font-mono"
+                                          >
+                                            Demo 919876543210
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {/* Info card */}
+                                      <div className="bg-surface-subtle p-2.5 rounded border border-border text-[11px] text-text-muted space-y-1">
+                                        <div><strong>Tenant:</strong> <code className="font-mono text-text-primary">{t.slug}</code></div>
+                                        <div><strong>Security:</strong> <code className="font-mono text-text-primary">{effectiveToken}</code></div>
+                                        <div><strong>Template:</strong> <code className="font-mono text-text-primary">{currentTpl}</code></div>
+                                      </div>
+                                    </div>
+
+                                    {/* Test Result Display */}
+                                    {testWebhookResult && testWebhookResult.tenantId === t.id && (
+                                      <div
+                                        className={`p-3 rounded border text-xs space-y-1.5 ${
+                                          testWebhookResult.success
+                                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-800 dark:text-emerald-300'
+                                            : 'bg-red-500/10 border-red-500/20 text-red-800 dark:text-red-300'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-1.5 font-semibold">
+                                          {testWebhookResult.success ? (
+                                            <>
+                                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                              <span>HTTP 200 OK — Missed Call Webhook Successfully Processed!</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <AlertCircle className="w-4 h-4 text-red-600" />
+                                              <span>Webhook Trigger Failed: {testWebhookResult.error}</span>
+                                            </>
+                                          )}
+                                        </div>
+
+                                        {testWebhookResult.success && testWebhookResult.data && (
+                                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] pt-1">
+                                            <div>
+                                              <span className="text-text-muted block">Caller Phone:</span>
+                                              <code className="font-mono font-medium text-text-primary">{testWebhookResult.data.caller_phone}</code>
+                                            </div>
+                                            <div>
+                                              <span className="text-text-muted block">CRM Customer:</span>
+                                              <span className="font-medium text-text-primary">{testWebhookResult.data.patient_name || 'Inquiry'}</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-text-muted block">WhatsApp Dispatch:</span>
+                                              <span className={`font-semibold ${testWebhookResult.data.whatsapp_sent ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                {testWebhookResult.data.whatsapp_sent ? '✅ Message Sent' : '⚠️ Credential Inactive'}
+                                              </span>
+                                            </div>
+                                            <div>
+                                              <span className="text-text-muted block">Template Used:</span>
+                                              <code className="font-mono text-text-primary">{testWebhookResult.data.template_used || 'None'}</code>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="p-3 border-t border-border bg-surface-subtle/20 text-[11px] text-text-muted flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                  <div>
+                    💡 <strong>Pro Tip:</strong> Tokens shown are verified SHA-256 HMAC keys. You can edit any client&apos;s Meta template name right in the table and click <strong>Save</strong>.
+                  </div>
+                  <div className="text-[10px] text-text-muted">
+                    MacroDroid trigger: <strong>HTTP GET / POST</strong> to webhook endpoint.
+                  </div>
+                </div>
+              </div>
+
+              {/* ── LIVE CAPTURED MISSED CALLS ACTIVITY FEED ── */}
+              <div className="bg-surface border border-border rounded-md overflow-hidden shadow-xs">
+                <div className="border-b border-border px-4 py-3 bg-surface-subtle/40 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <PhoneMissed className="w-4 h-4 text-amber-600 stroke-[1.5]" />
+                    <h3 className="font-semibold text-xs text-text-primary">Live Captured Missed Calls Feed</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-text-muted">{missedCallsList.length} recent events</span>
+                    <button
+                      type="button"
+                      onClick={() => loadMissedCalls()}
+                      disabled={loadingMissedCalls}
+                      className="p-1 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded transition-colors cursor-pointer"
+                      title="Reload recent missed calls"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${loadingMissedCalls ? 'animate-spin' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {loadingMissedCalls ? (
+                  <div className="p-8 text-center text-xs text-text-muted flex items-center justify-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+                    <span>Loading recent missed call events...</span>
+                  </div>
+                ) : missedCallsList.length === 0 ? (
+                  <div className="p-8 text-center space-y-2">
+                    <PhoneMissed className="w-8 h-8 text-amber-500/40 mx-auto stroke-[1.5]" />
+                    <p className="text-xs font-medium text-text-secondary">No missed call events captured yet</p>
+                    <p className="text-[11px] text-text-muted max-w-md mx-auto">
+                      Click <strong>⚡ Test</strong> on any client row above to simulate a live missed call webhook, or install MacroDroid on a phone to start capturing real missed calls.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-surface-subtle border-b border-border">
+                        <tr>
+                          <th className="text-left py-2.5 px-3 text-[11px] font-semibold text-text-muted uppercase tracking-wider">Time</th>
+                          <th className="text-left py-2.5 px-3 text-[11px] font-semibold text-text-muted uppercase tracking-wider">Client Tenant</th>
+                          <th className="text-left py-2.5 px-3 text-[11px] font-semibold text-text-muted uppercase tracking-wider">Caller Details</th>
+                          <th className="text-left py-2.5 px-3 text-[11px] font-semibold text-text-muted uppercase tracking-wider">Status</th>
+                          <th className="text-left py-2.5 px-3 text-[11px] font-semibold text-text-muted uppercase tracking-wider">Outbound WhatsApp Message</th>
+                          <th className="text-right py-2.5 px-3 text-[11px] font-semibold text-text-muted uppercase tracking-wider">Workspace</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {missedCallsList.map((call) => (
+                          <tr key={call.id} className="hover:bg-surface-subtle/50 transition-colors">
+                            <td className="py-2.5 px-3 text-text-muted text-[11px] whitespace-nowrap">
+                              {call.created_at ? new Date(call.created_at).toLocaleString() : 'Just now'}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className="font-semibold text-text-primary">{call.tenant_name}</span>
+                              <span className="text-[10px] text-text-muted font-mono block">{call.tenant_slug}</span>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="font-mono font-medium text-text-primary">{call.caller_phone}</div>
+                              <div className="text-[10px] text-text-muted">{call.caller_name || 'Caller'}</div>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                                <PhoneMissed className="w-2.5 h-2.5" />
+                                {call.call_status}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 max-w-sm">
+                              {call.last_outbound_msg ? (
+                                <p className="text-[11px] text-text-secondary truncate font-mono" title={call.last_outbound_msg}>
+                                  {call.last_outbound_msg}
+                                </p>
+                              ) : (
+                                <span className="text-[10px] text-text-muted italic">Inquiry logged in CRM</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => router.push(`/${call.tenant_slug}`)}
+                                className="px-2 py-1 bg-surface-subtle hover:bg-surface border border-border rounded text-[10px] font-medium text-text-primary transition-colors cursor-pointer inline-flex items-center gap-1"
+                              >
+                                <span>Open CRM</span>
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* ── TAB 1: CLIENT ORGANIZATIONS DIRECTORY & CONFIGURATION ─────────── */}
           {activeTab === 'organizations' && (
@@ -5251,6 +5894,161 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                           </div>
                         </div>
                       </details>
+
+                      {/* ── Missed Call → WhatsApp Auto-Reply ── */}
+                      {editingConfigTenant && (() => {
+                        const slug = editingConfigTenant.slug;
+                        const token = configForm.missed_call_webhook_token || getMissedCallUrls(slug).token;
+                        const webhookUrl = `https://crm.goboldlabs.com/api/v1/crm/webhooks/missed-call?tenant=${slug}&token=${token}&caller=[call_number]`;
+                        return (
+                          <div className="bg-amber-50 border border-amber-200 rounded-md overflow-hidden">
+                            {/* Header */}
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-amber-200 bg-amber-100/60">
+                              <div className="flex items-center gap-2">
+                                <PhoneCall className="w-4 h-4 text-amber-600 stroke-[1.5]" />
+                                <span className="text-xs font-semibold text-amber-900">Missed Call → WhatsApp Auto-Reply</span>
+                              </div>
+                              <span className="text-[10px] font-medium bg-amber-500 text-white px-2 py-0.5 rounded-full">Auto-Reply</span>
+                            </div>
+
+                            <div className="p-4 space-y-4">
+                              {/* How it works */}
+                              <div className="bg-amber-100/70 border border-amber-200 rounded p-3 text-xs text-amber-800 space-y-1">
+                                <p className="font-semibold mb-1">How it works</p>
+                                <ul className="list-disc list-inside space-y-0.5">
+                                  <li>Missed call hits the phone → MacroDroid / iOS Shortcuts fires this webhook URL</li>
+                                  <li>Backend looks up the tenant's WhatsApp template and sends it instantly</li>
+                                  <li>Token below authenticates the request — keep it secret</li>
+                                </ul>
+                              </div>
+
+                              {/* Webhook URL */}
+                              <div className="space-y-1.5">
+                                <label className="text-[11px] font-medium text-amber-800">Webhook URL</label>
+                                <div className="flex items-center gap-2 bg-white border border-amber-200 rounded px-3 py-2">
+                                  <p className="text-[10px] font-mono text-text-secondary flex-1 overflow-x-auto whitespace-nowrap">
+                                    {webhookUrl}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(webhookUrl, 'missed-call-url-config')}
+                                    className="flex-shrink-0 p-1 rounded hover:bg-amber-100 transition-colors"
+                                    title="Copy URL"
+                                  >
+                                    {copiedField === 'missed-call-url-config'
+                                      ? <Check className="w-3.5 h-3.5 text-green-600" />
+                                      : <Copy className="w-3.5 h-3.5 text-amber-600" />}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Security Token */}
+                              <div className="space-y-1.5">
+                                <label className="text-[11px] font-medium text-amber-800">Security Token</label>
+                                <div className="flex items-center gap-2 bg-white border border-amber-200 rounded px-3 py-2">
+                                  <code className="text-[10px] font-mono text-text-secondary flex-1 break-all">{token}</code>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(token, 'missed-call-token-config')}
+                                    className="flex-shrink-0 p-1 rounded hover:bg-amber-100 transition-colors"
+                                    title="Copy token"
+                                  >
+                                    {copiedField === 'missed-call-token-config'
+                                      ? <Check className="w-3.5 h-3.5 text-green-600" />
+                                      : <Copy className="w-3.5 h-3.5 text-amber-600" />}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Two-column: Template Name + Custom Token Override */}
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1.5">
+                                  <label className="text-[11px] font-medium text-amber-800">WhatsApp Template Name</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. missed_call_reply"
+                                    value={configForm.template_missed_call || ''}
+                                    onChange={(e) => setConfigForm({ ...configForm, template_missed_call: e.target.value })}
+                                    className="w-full px-3 py-1.5 bg-white border border-amber-200 rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-amber-400 transition-colors duration-150"
+                                  />
+                                  <p className="text-[10px] text-amber-700">Template used to send auto-reply WhatsApp message</p>
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-[11px] font-medium text-amber-800">Custom Token Override <span className="font-normal">(optional)</span></label>
+                                  <input
+                                    type="text"
+                                    placeholder="Leave empty to use auto-generated token"
+                                    value={(configForm as any).missed_call_token || ''}
+                                    onChange={(e) => setConfigForm({ ...configForm, missed_call_token: e.target.value } as any)}
+                                    className="w-full px-3 py-1.5 bg-white border border-amber-200 rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-amber-400 transition-colors duration-150"
+                                  />
+                                  <p className="text-[10px] text-amber-700">Override the SHA-256 auto-token for this tenant</p>
+                                </div>
+                              </div>
+
+                              {/* Setup Buttons */}
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => downloadMacroDroidFile(editingConfigTenant.name, slug)}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium rounded transition-colors"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                  Download MacroDroid File
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(getMissedCallClientMessage(editingConfigTenant.name, slug), 'missed-call-setup-msg')}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-amber-300 hover:bg-amber-50 text-amber-800 text-xs font-medium rounded transition-colors"
+                                >
+                                  {copiedField === 'missed-call-setup-msg'
+                                    ? <><Check className="w-3.5 h-3.5 text-green-600" /> Copied!</>
+                                    : <><Share2 className="w-3.5 h-3.5" /> Copy Setup Message</>}
+                                </button>
+                              </div>
+
+                              {/* Test Webhook */}
+                              <div className="border-t border-amber-200 pt-3 space-y-2">
+                                <label className="text-[11px] font-medium text-amber-800 flex items-center gap-1">
+                                  <PhoneMissed className="w-3.5 h-3.5" /> Test Webhook
+                                </label>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="tel"
+                                    placeholder="+91 98765 43210"
+                                    id={`test-phone-${editingConfigTenant.id}`}
+                                    className="flex-1 px-3 py-1.5 bg-white border border-amber-200 rounded-sm text-xs font-mono text-text-primary focus:border-amber-400 transition-colors duration-150"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const input = document.getElementById(`test-phone-${editingConfigTenant.id}`) as HTMLInputElement;
+                                      const phone = input?.value?.trim();
+                                      if (!phone) { alert('Enter a phone number to test'); return; }
+                                      const testUrl = `https://crm.goboldlabs.com/api/v1/crm/webhooks/missed-call?tenant=${slug}&token=${token}&caller=${encodeURIComponent(phone)}`;
+                                      try {
+                                        const res = await fetch(testUrl);
+                                        if (res.ok) {
+                                          alert(`✅ Webhook fired successfully for ${phone}!`);
+                                        } else {
+                                          const body = await res.text();
+                                          alert(`❌ Webhook error ${res.status}: ${body}`);
+                                        }
+                                      } catch (err) {
+                                        alert(`❌ Network error: ${err}`);
+                                      }
+                                    }}
+                                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium rounded transition-colors whitespace-nowrap"
+                                  >
+                                    Send Test
+                                  </button>
+                                </div>
+                                <p className="text-[10px] text-amber-700">Fires the missed call webhook with the number above — a WhatsApp message will actually be sent.</p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
 

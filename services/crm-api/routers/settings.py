@@ -297,6 +297,13 @@ async def get_tenant_settings(
         "partner_name": tenant_settings.get("partner_name", ""),
         "partner_share_pct": float(tenant_settings.get("partner_share_pct") or 0.0),
         "owner_share_pct": float(tenant_settings.get("owner_share_pct") or 100.0),
+
+        # Missed Call → WhatsApp Auto-Reply
+        "missed_call_webhook_token": (
+            tenant_settings.get("missed_call_token")
+            or hashlib.sha256(f"{tenant_id}:{os.environ.get('JWT_SECRET', '')}:missed-call".encode()).hexdigest()[:16]
+        ),
+        "template_missed_call": tenant_settings.get("template_missed_call", "missed_call_followup"),
     }
 
 

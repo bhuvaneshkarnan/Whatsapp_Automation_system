@@ -492,146 +492,193 @@ async def test_marketing_trigger(
     }
 
 
-@router.get("/analytics/dashboard")
-@router.get("/api/v1/crm/analytics/dashboard")
-async def get_dashboard_analytics(
-    period: str = Query("30d", pattern="^(7d|30d|90d|this_month|all)$"),
-    tenant_id: str = Depends(get_tenant_id)
-):
-    """
-    Comprehensive Analytics & Business Intelligence:
-    Returns message volume, booking funnel, revenue metrics, conversion rates, and time-series.
-    """
-    now = datetime.now(timezone.utc)
-    since = None
-    if period == "7d":
-        since = now - timedelta(days=7)
-    elif period == "30d":
-        since = now - timedelta(days=30)
-    elif period == "90d":
-        since = now - timedelta(days=90)
-    elif period == "this_month":
-        since = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+async def _fetch_analytics_slice(conn, is_all: bool, actual_tenant_uuid: Optional[str], since: Optional[datetime], until: Optional[datetime], tenant_tz_str: str):
+    """Calculates core CRM metrics for a specific timestamp window [since, until]."""
+    # 1. Message Volume Breakdown
+    msg_counts = await conn.fetchrow(
+        """SELECT
+            COUNT(*) as total_messages,
+            COUNT(*) FILTER (WHERE direction = 'inbound') as inbound_messages,
+            COUNT(*) FILTER (WHERE direction = 'outbound') as outbound_messages,
+            COUNT(*) FILTER (WHERE direction = 'outbound' AND ai_model_used IS NOT NULL) as ai_messages,
+            COUNT(*) FILTER (WHERE direction = 'outbound' AND ai_model_used IS NULL) as human_messages
+           FROM messages
+           WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
+             AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+             AND ($4::timestamptz IS NULL OR created_at <= $4::timestamptz)""",
+        is_all, actual_tenant_uuid, since, until
+    )
+    total_msgs = msg_counts["total_messages"] or 0
+    inbound_msgs = msg_counts["inbound_messages"] or 0
+    outbound_msgs = msg_counts["outbound_messages"] or 0
+    ai_msgs = msg_counts["ai_messages"] or 0
+    human_msgs = msg_counts["human_messages"] or 0
+    ai_autonomous_rate = round((ai_msgs / outbound_msgs * 100), 1) if outbound_msgs > 0 else 0.0
 
-    is_all = (str(tenant_id).lower() == "all")
-    actual_tenant_uuid = None if is_all else tenant_id
-
-    async with database.db_pool.acquire() as conn:
-        # 1. Message Volume Breakdown (Real DB data: AI vs Human)
-        msg_counts = await conn.fetchrow(
-            """SELECT
-                COUNT(*) as total_messages,
-                COUNT(*) FILTER (WHERE direction = 'inbound') as inbound_messages,
-                COUNT(*) FILTER (WHERE direction = 'outbound') as outbound_messages,
-                COUNT(*) FILTER (WHERE direction = 'outbound' AND ai_model_used IS NOT NULL) as ai_messages,
-                COUNT(*) FILTER (WHERE direction = 'outbound' AND ai_model_used IS NULL) as human_messages
-               FROM messages
-               WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
-                 AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)""",
-            is_all, actual_tenant_uuid, since
-        )
-        total_msgs = msg_counts["total_messages"] or 0
-        inbound_msgs = msg_counts["inbound_messages"] or 0
-        outbound_msgs = msg_counts["outbound_messages"] or 0
-        ai_msgs = msg_counts["ai_messages"] or 0
-        human_msgs = msg_counts["human_messages"] or 0
-        ai_autonomous_rate = round((ai_msgs / outbound_msgs * 100), 1) if outbound_msgs > 0 else 0.0
-
-        # 2. Daily Message Traffic Time Series (grouped by tenant's configured timezone)
-        tenant_tz_str = "Asia/Kolkata"
-        if not is_all and actual_tenant_uuid:
-            tz_setting = await conn.fetchval("SELECT settings->>'timezone' FROM tenants WHERE id = $1::uuid", actual_tenant_uuid)
-            if tz_setting and tz_setting.strip():
-                tenant_tz_str = tz_setting.strip()
-
+    # 2. Daily Message Traffic Time Series (Continuous calendar series)
+    if since and until and (until - since).days <= 90:
         daily_rows = await conn.fetch(
-            """SELECT to_char(created_at AT TIME ZONE $4, 'YYYY-MM-DD') as day,
+            """SELECT to_char(d.day, 'YYYY-MM-DD') as day,
+                      COUNT(m.id) FILTER (WHERE m.direction = 'inbound') as inbound,
+                      COUNT(m.id) FILTER (WHERE m.direction = 'outbound') as outbound,
+                      COUNT(m.id) as total
+               FROM generate_series($3::timestamptz AT TIME ZONE $5, $4::timestamptz AT TIME ZONE $5, '1 day'::interval) d(day)
+               LEFT JOIN messages m ON ($1::boolean IS TRUE OR m.tenant_id = $2::uuid)
+                                   AND to_char(m.created_at AT TIME ZONE $5, 'YYYY-MM-DD') = to_char(d.day, 'YYYY-MM-DD')
+               GROUP BY d.day
+               ORDER BY d.day ASC""",
+            is_all, actual_tenant_uuid, since, until, tenant_tz_str
+        )
+    else:
+        daily_rows = await conn.fetch(
+            """SELECT to_char(created_at AT TIME ZONE $5, 'YYYY-MM-DD') as day,
                       COUNT(*) FILTER (WHERE direction = 'inbound') as inbound,
                       COUNT(*) FILTER (WHERE direction = 'outbound') as outbound,
                       COUNT(*) as total
                FROM messages
                WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
                  AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+                 AND ($4::timestamptz IS NULL OR created_at <= $4::timestamptz)
                GROUP BY day
                ORDER BY day ASC""",
-            is_all, actual_tenant_uuid, since, tenant_tz_str
+            is_all, actual_tenant_uuid, since, until, tenant_tz_str
         )
-        time_series = [
-            {
-                "day": r["day"],
-                "inbound": r["inbound"] or 0,
-                "outbound": r["outbound"] or 0,
-                "total": r["total"] or 0,
-            }
-            for r in daily_rows
-        ]
 
-        # 3. Lead & Customer Lifecycle Funnel (Real progression from inbound to booked)
-        inbound_contacts = await conn.fetchval(
-            """SELECT COUNT(DISTINCT contact_id) FROM conversations
-               WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
-                 AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)""",
-            is_all, actual_tenant_uuid, since
-        ) or 0
-        engaged_contacts = await conn.fetchval(
-            """SELECT COUNT(DISTINCT c.id) FROM conversations c
-               WHERE ($1::boolean IS TRUE OR c.tenant_id = $2::uuid)
-                 AND ($3::timestamptz IS NULL OR c.created_at >= $3::timestamptz)
-                 AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'outbound')""",
-            is_all, actual_tenant_uuid, since
-        ) or 0
-        crm_leads = await conn.fetchval(
-            """SELECT COUNT(*) FROM customers
-               WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
-                 AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)""",
-            is_all, actual_tenant_uuid, since
-        ) or 0
-        converted_leads = await conn.fetchval(
-            """SELECT COUNT(DISTINCT c.id) FROM customers c
-               WHERE ($1::boolean IS TRUE OR c.tenant_id = $2::uuid)
-                 AND (c.converted = true OR c.status = 'converted' OR EXISTS (SELECT 1 FROM bookings b WHERE b.tenant_id = c.tenant_id AND (b.contact_id = c.id OR b.notes ILIKE '%' || c.phone || '%')))
-                 AND ($3::timestamptz IS NULL OR c.created_at >= $3::timestamptz)""",
-            is_all, actual_tenant_uuid, since
-        ) or 0
+    time_series = [
+        {
+            "day": r["day"],
+            "inbound": r["inbound"] or 0,
+            "outbound": r["outbound"] or 0,
+            "total": r["total"] or 0,
+        }
+        for r in daily_rows
+    ]
 
-        total_leads = max(inbound_contacts, crm_leads)
-        lead_conv_rate = round((converted_leads / total_leads * 100), 1) if total_leads > 0 else 0.0
+    # 3. Lead & Customer Lifecycle Funnel
+    total_leads = await conn.fetchval(
+        """SELECT COUNT(DISTINCT phone_clean) FROM (
+            SELECT RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) as phone_clean
+            FROM customers
+            WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
+              AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+              AND ($4::timestamptz IS NULL OR created_at <= $4::timestamptz)
+            UNION
+            SELECT RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10) as phone_clean
+            FROM contacts c
+            JOIN conversations cv ON cv.contact_id = c.id
+            WHERE ($1::boolean IS TRUE OR c.tenant_id = $2::uuid)
+              AND ($3::timestamptz IS NULL OR cv.created_at >= $3::timestamptz)
+              AND ($4::timestamptz IS NULL OR cv.created_at <= $4::timestamptz)
+        ) combined WHERE phone_clean IS NOT NULL AND phone_clean != ''""",
+        is_all, actual_tenant_uuid, since, until
+    ) or 0
 
-        # 4. Bookings & Revenue
-        booking_stats = await conn.fetchrow(
-            """SELECT
-                COUNT(*) as total_bookings,
-                COUNT(*) FILTER (WHERE status IN ('completed', 'attended')) as completed_bookings,
-                COUNT(*) FILTER (WHERE status IN ('confirmed', 'rescheduled')) as confirmed_bookings,
-                COUNT(*) FILTER (WHERE status = 'rescheduled') as rescheduled_bookings,
-                COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled_bookings,
-                COUNT(*) FILTER (WHERE status = 'no_show') as noshow_bookings,
-                COUNT(*) FILTER (WHERE status = 'pending') as pending_bookings,
-                COALESCE(SUM(price) FILTER (WHERE status IN ('completed', 'attended')), 0.0) as total_revenue,
-                COALESCE(AVG(price) FILTER (WHERE status IN ('completed', 'attended') AND price > 0), 0.0) as avg_ticket
-               FROM bookings
-               WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
-                 AND ($3::timestamptz IS NULL OR start_time >= $3::timestamptz)""",
-            is_all, actual_tenant_uuid, since
-        )
-        total_bookings = booking_stats["total_bookings"] or 0
-        completed_bookings = booking_stats["completed_bookings"] or 0
-        confirmed_bookings = booking_stats["confirmed_bookings"] or 0
-        rescheduled_bookings = booking_stats["rescheduled_bookings"] or 0
-        cancelled_bookings = booking_stats["cancelled_bookings"] or 0
-        noshow_bookings = booking_stats["noshow_bookings"] or 0
-        pending_bookings = booking_stats["pending_bookings"] or 0
-        total_revenue = float(booking_stats["total_revenue"] or 0.0)
-        avg_ticket = float(booking_stats["avg_ticket"] or 0.0)
+    crm_leads = await conn.fetchval(
+        """SELECT COUNT(*) FROM customers
+           WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
+             AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+             AND ($4::timestamptz IS NULL OR created_at <= $4::timestamptz)""",
+        is_all, actual_tenant_uuid, since, until
+    ) or 0
 
-        attended_plus_noshow = completed_bookings + noshow_bookings
-        attendance_rate = round((completed_bookings / attended_plus_noshow * 100), 1) if attended_plus_noshow > 0 else (100.0 if completed_bookings > 0 else 0.0)
+    if total_leads < crm_leads:
+        total_leads = crm_leads
 
-        # 5. Conversations Total
-        total_convs = inbound_contacts
+    # Qualified leads (with health concerns, active CRM interest, or ongoing follow-up)
+    qualified_leads = await conn.fetchval(
+        """SELECT COUNT(DISTINCT c.id) FROM customers c
+           WHERE ($1::boolean IS TRUE OR c.tenant_id = $2::uuid)
+             AND ($3::timestamptz IS NULL OR c.created_at >= $3::timestamptz)
+             AND ($4::timestamptz IS NULL OR c.created_at <= $4::timestamptz)
+             AND (
+               (c.health_concern IS NOT NULL AND TRIM(c.health_concern) != '')
+               OR c.status IN ('converted', 'interested', 'contacted', 'follow-up')
+             )""",
+        is_all, actual_tenant_uuid, since, until
+    ) or 0
+
+    # Real converted clients: unique customers that actually have bookings or converted in this window
+    converted_clients = await conn.fetchval(
+        """SELECT COUNT(DISTINCT cu.id) FROM customers cu
+           WHERE ($1::boolean IS TRUE OR cu.tenant_id = $2::uuid)
+             AND (
+               (
+                 ($3::timestamptz IS NULL OR cu.created_at >= $3::timestamptz)
+                 AND ($4::timestamptz IS NULL OR cu.created_at <= $4::timestamptz)
+                 AND (cu.converted = true OR cu.status = 'converted')
+               )
+               OR EXISTS (
+                 SELECT 1 FROM bookings b
+                 JOIN contacts ct ON b.contact_id = ct.id
+                 WHERE b.tenant_id = cu.tenant_id
+                   AND (cu.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cu.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10))
+                   AND ($3::timestamptz IS NULL OR COALESCE(b.start_time, b.created_at) >= $3::timestamptz)
+                   AND ($4::timestamptz IS NULL OR COALESCE(b.start_time, b.created_at) <= $4::timestamptz)
+               )
+             )""",
+        is_all, actual_tenant_uuid, since, until
+    ) or 0
+
+    lead_conv_rate = round((converted_clients / total_leads * 100), 2) if total_leads > 0 else 0.0
+
+    # 4. Bookings & Revenue
+    booking_stats = await conn.fetchrow(
+        """SELECT
+            COUNT(*) as total_bookings,
+            COUNT(*) FILTER (WHERE status IN ('completed', 'attended')) as completed_bookings,
+            COUNT(*) FILTER (WHERE status IN ('confirmed', 'rescheduled')) as confirmed_bookings,
+            COUNT(*) FILTER (WHERE status = 'rescheduled') as rescheduled_bookings,
+            COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled_bookings,
+            COUNT(*) FILTER (WHERE status = 'no_show') as noshow_bookings,
+            COUNT(*) FILTER (WHERE status = 'pending') as pending_bookings,
+            COALESCE(SUM(price) FILTER (WHERE status IN ('completed', 'attended')), 0.0) as total_revenue,
+            COALESCE(AVG(price) FILTER (WHERE status IN ('completed', 'attended') AND price > 0), 0.0) as avg_ticket
+           FROM bookings
+           WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
+             AND ($3::timestamptz IS NULL OR COALESCE(start_time, created_at) >= $3::timestamptz)
+             AND ($4::timestamptz IS NULL OR COALESCE(start_time, created_at) <= $4::timestamptz)""",
+        is_all, actual_tenant_uuid, since, until
+    )
+    total_bookings = booking_stats["total_bookings"] or 0
+    completed_bookings = booking_stats["completed_bookings"] or 0
+    confirmed_bookings = booking_stats["confirmed_bookings"] or 0
+    rescheduled_bookings = booking_stats["rescheduled_bookings"] or 0
+    cancelled_bookings = booking_stats["cancelled_bookings"] or 0
+    noshow_bookings = booking_stats["noshow_bookings"] or 0
+    pending_bookings = booking_stats["pending_bookings"] or 0
+    total_revenue = round(float(booking_stats["total_revenue"] or 0.0), 2)
+    avg_ticket = round(float(booking_stats["avg_ticket"] or 0.0), 2)
+
+    attended_plus_noshow = completed_bookings + noshow_bookings
+    attendance_rate = round((completed_bookings / attended_plus_noshow * 100), 2) if attended_plus_noshow > 0 else (100.0 if completed_bookings > 0 else 0.0)
+
+    # 5. Top Services & Health Concerns Breakdown (Sorted by Revenue DESC)
+    service_rows = await conn.fetch(
+        """SELECT service,
+                  COUNT(*) as booking_count,
+                  COUNT(*) FILTER (WHERE status IN ('completed', 'attended')) as completed_count,
+                  COALESCE(SUM(price) FILTER (WHERE status IN ('completed', 'attended')), 0.0) as revenue
+           FROM bookings
+           WHERE ($1::boolean IS TRUE OR tenant_id = $2::uuid)
+             AND ($3::timestamptz IS NULL OR COALESCE(start_time, created_at) >= $3::timestamptz)
+             AND ($4::timestamptz IS NULL OR COALESCE(start_time, created_at) <= $4::timestamptz)
+             AND service IS NOT NULL AND TRIM(service) != ''
+           GROUP BY service
+           ORDER BY revenue DESC, booking_count DESC
+           LIMIT 6""",
+        is_all, actual_tenant_uuid, since, until
+    )
+    top_services = [
+        {
+            "service": r["service"],
+            "booking_count": r["booking_count"] or 0,
+            "completed_count": r["completed_count"] or 0,
+            "revenue": round(float(r["revenue"] or 0.0), 2),
+        }
+        for r in service_rows
+    ]
 
     return {
-        "period": period,
         "summary": {
             "total_messages": total_msgs,
             "inbound_messages": inbound_msgs,
@@ -639,7 +686,7 @@ async def get_dashboard_analytics(
             "ai_messages": ai_msgs,
             "human_messages": human_msgs,
             "total_leads": total_leads,
-            "converted_leads": converted_leads,
+            "converted_leads": converted_clients,
             "conversion_rate": lead_conv_rate,
             "total_bookings": total_bookings,
             "completed_bookings": completed_bookings,
@@ -649,22 +696,23 @@ async def get_dashboard_analytics(
             "no_show_bookings": noshow_bookings,
             "pending_bookings": pending_bookings,
             "attendance_rate": attendance_rate,
-            "total_revenue": round(total_revenue),
-            "average_ticket_size": round(avg_ticket),
-            "total_conversations": total_convs,
+            "total_revenue": total_revenue,
+            "average_ticket_size": avg_ticket,
+            "total_conversations": total_leads,
             "ai_conversations": ai_msgs,
             "human_conversations": human_msgs,
-            "ai_autonomous_rate": ai_autonomous_rate
+            "ai_autonomous_rate": round(ai_autonomous_rate, 2)
         },
         "time_series": time_series,
+        "top_services": top_services,
         "pipeline": {
-            "inbound_contacts": inbound_contacts,
-            "engaged_contacts": engaged_contacts,
+            "inbound_contacts": total_leads,
+            "engaged_contacts": qualified_leads,
             "crm_leads": crm_leads,
-            "new": inbound_contacts,
-            "contacted": engaged_contacts,
-            "qualified": crm_leads,
-            "converted": converted_leads,
+            "new": total_leads,
+            "contacted": qualified_leads,
+            "qualified": qualified_leads,
+            "converted": converted_clients,
             "lost": 0
         },
         "bookings_by_status": {
@@ -674,6 +722,248 @@ async def get_dashboard_analytics(
             "no_show": noshow_bookings,
             "pending": pending_bookings
         }
+    }
+
+
+@router.get("/analytics/dashboard")
+@router.get("/api/v1/crm/analytics/dashboard")
+async def get_dashboard_analytics(
+    period: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    compare: bool = Query(False),
+    compare_start_date: Optional[str] = Query(None),
+    compare_end_date: Optional[str] = Query(None),
+    target_tenant_slug: Optional[str] = Query(None),
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """
+    Comprehensive Analytics & Business Intelligence with Custom Date Ranges & Period-over-Period Comparison:
+    Returns message volume, booking funnel, revenue metrics, conversion rates, deltas, and time-series.
+    """
+    from zoneinfo import ZoneInfo
+
+    is_all = (str(tenant_id).lower() == "all")
+    actual_tenant_uuid = None if is_all else tenant_id
+
+    async with database.db_pool.acquire() as conn:
+        if target_tenant_slug and (is_all or not actual_tenant_uuid):
+            t_row = await conn.fetchrow("SELECT id FROM tenants WHERE slug = $1", target_tenant_slug.strip().lower())
+            if t_row:
+                actual_tenant_uuid = str(t_row["id"])
+                is_all = False
+
+        tenant_tz_str = "Asia/Kolkata"
+        if not is_all and actual_tenant_uuid:
+            tz_setting = await conn.fetchval("SELECT settings->>'timezone' FROM tenants WHERE id = $1::uuid", actual_tenant_uuid)
+            if tz_setting and tz_setting.strip():
+                tenant_tz_str = tz_setting.strip()
+
+        try:
+            tenant_tz = ZoneInfo(tenant_tz_str)
+        except Exception:
+            tenant_tz = ZoneInfo("Asia/Kolkata")
+            tenant_tz_str = "Asia/Kolkata"
+
+        now_tz = datetime.now(tenant_tz)
+        today_date = now_tz.date()
+        eod_today = datetime(today_date.year, today_date.month, today_date.day, 23, 59, 59, 999999, tzinfo=tenant_tz)
+
+        since = None
+        until = None
+
+        active_period = period or ("custom" if start_date and end_date else "30d")
+
+        if start_date and end_date:
+            try:
+                sd = datetime.strptime(start_date.strip(), "%Y-%m-%d").date()
+                ed = datetime.strptime(end_date.strip(), "%Y-%m-%d").date()
+                since = datetime(sd.year, sd.month, sd.day, 0, 0, 0, tzinfo=tenant_tz)
+                until = datetime(ed.year, ed.month, ed.day, 23, 59, 59, 999999, tzinfo=tenant_tz)
+                active_period = "custom"
+            except Exception:
+                sd = today_date - timedelta(days=29)
+                since = datetime(sd.year, sd.month, sd.day, 0, 0, 0, tzinfo=tenant_tz)
+                until = eod_today
+                active_period = "30d"
+        elif active_period == "today":
+            since = datetime(today_date.year, today_date.month, today_date.day, 0, 0, 0, tzinfo=tenant_tz)
+            until = eod_today
+        elif active_period == "yesterday":
+            y_date = today_date - timedelta(days=1)
+            since = datetime(y_date.year, y_date.month, y_date.day, 0, 0, 0, tzinfo=tenant_tz)
+            until = datetime(y_date.year, y_date.month, y_date.day, 23, 59, 59, 999999, tzinfo=tenant_tz)
+        elif active_period == "7d":
+            sd = today_date - timedelta(days=6)  # exactly 7 calendar days
+            since = datetime(sd.year, sd.month, sd.day, 0, 0, 0, tzinfo=tenant_tz)
+            until = eod_today
+        elif active_period == "30d":
+            sd = today_date - timedelta(days=29)  # exactly 30 calendar days
+            since = datetime(sd.year, sd.month, sd.day, 0, 0, 0, tzinfo=tenant_tz)
+            until = eod_today
+        elif active_period == "90d":
+            sd = today_date - timedelta(days=89)  # exactly 90 calendar days
+            since = datetime(sd.year, sd.month, sd.day, 0, 0, 0, tzinfo=tenant_tz)
+            until = eod_today
+        elif active_period == "this_month":
+            since = datetime(today_date.year, today_date.month, 1, 0, 0, 0, tzinfo=tenant_tz)
+            until = eod_today
+        elif active_period == "last_month":
+            first_this_month = today_date.replace(day=1)
+            last_day_prev = first_this_month - timedelta(days=1)
+            since = datetime(last_day_prev.year, last_day_prev.month, 1, 0, 0, 0, tzinfo=tenant_tz)
+            until = datetime(last_day_prev.year, last_day_prev.month, last_day_prev.day, 23, 59, 59, 999999, tzinfo=tenant_tz)
+        elif active_period == "all":
+            since = None
+            until = None
+        else:
+            sd = today_date - timedelta(days=29)
+            since = datetime(sd.year, sd.month, sd.day, 0, 0, 0, tzinfo=tenant_tz)
+            until = eod_today
+            active_period = "30d"
+
+        # 1. Fetch current slice metrics
+        current_slice = await _fetch_analytics_slice(conn, is_all, actual_tenant_uuid, since, until, tenant_tz_str)
+
+        # 2. Period Comparison Engine (Strict non-overlapping prior calendar window)
+        comparison_summary = None
+        prev_since = None
+        prev_until = None
+
+        if compare and since and until:
+            if compare_start_date and compare_end_date:
+                try:
+                    csd = datetime.strptime(compare_start_date.strip(), "%Y-%m-%d").date()
+                    ced = datetime.strptime(compare_end_date.strip(), "%Y-%m-%d").date()
+                    prev_since = datetime(csd.year, csd.month, csd.day, 0, 0, 0, tzinfo=tenant_tz)
+                    prev_until = datetime(ced.year, ced.month, ced.day, 23, 59, 59, 999999, tzinfo=tenant_tz)
+                except Exception:
+                    prev_since = None
+                    prev_until = None
+            elif active_period == "today":
+                y_date = today_date - timedelta(days=1)
+                prev_since = datetime(y_date.year, y_date.month, y_date.day, 0, 0, 0, tzinfo=tenant_tz)
+                prev_until = datetime(y_date.year, y_date.month, y_date.day, 23, 59, 59, 999999, tzinfo=tenant_tz)
+            elif active_period == "yesterday":
+                prev_y_date = today_date - timedelta(days=2)
+                prev_since = datetime(prev_y_date.year, prev_y_date.month, prev_y_date.day, 0, 0, 0, tzinfo=tenant_tz)
+                prev_until = datetime(prev_y_date.year, prev_y_date.month, prev_y_date.day, 23, 59, 59, 999999, tzinfo=tenant_tz)
+            elif active_period == "7d":
+                prev_ed = (since.date()) - timedelta(days=1)
+                prev_sd = prev_ed - timedelta(days=6)
+                prev_since = datetime(prev_sd.year, prev_sd.month, prev_sd.day, 0, 0, 0, tzinfo=tenant_tz)
+                prev_until = datetime(prev_ed.year, prev_ed.month, prev_ed.day, 23, 59, 59, 999999, tzinfo=tenant_tz)
+            elif active_period == "30d":
+                prev_ed = (since.date()) - timedelta(days=1)
+                prev_sd = prev_ed - timedelta(days=29)
+                prev_since = datetime(prev_sd.year, prev_sd.month, prev_sd.day, 0, 0, 0, tzinfo=tenant_tz)
+                prev_until = datetime(prev_ed.year, prev_ed.month, prev_ed.day, 23, 59, 59, 999999, tzinfo=tenant_tz)
+            elif active_period == "90d":
+                prev_ed = (since.date()) - timedelta(days=1)
+                prev_sd = prev_ed - timedelta(days=89)
+                prev_since = datetime(prev_sd.year, prev_sd.month, prev_sd.day, 0, 0, 0, tzinfo=tenant_tz)
+                prev_until = datetime(prev_ed.year, prev_ed.month, prev_ed.day, 23, 59, 59, 999999, tzinfo=tenant_tz)
+            elif active_period == "this_month":
+                # True Month-to-date comparison: Day 1 to min(today.day, last_prev.day) of previous month
+                first_this = today_date.replace(day=1)
+                last_prev = first_this - timedelta(days=1)
+                prev_day = min(today_date.day, last_prev.day)
+                prev_since = datetime(last_prev.year, last_prev.month, 1, 0, 0, 0, tzinfo=tenant_tz)
+                prev_until = datetime(last_prev.year, last_prev.month, prev_day, 23, 59, 59, 999999, tzinfo=tenant_tz)
+            elif active_period == "last_month":
+                first_this_month = today_date.replace(day=1)
+                last_day_prev = first_this_month - timedelta(days=1)
+                first_day_prev = last_day_prev.replace(day=1)
+                last_day_prior = first_day_prev - timedelta(days=1)
+                first_day_prior = last_day_prior.replace(day=1)
+                prev_since = datetime(first_day_prior.year, first_day_prior.month, 1, 0, 0, 0, tzinfo=tenant_tz)
+                prev_until = datetime(last_day_prior.year, last_day_prior.month, last_day_prior.day, 23, 59, 59, 999999, tzinfo=tenant_tz)
+            elif active_period == "custom":
+                curr_days = (until.date() - since.date()).days + 1
+                prev_ed = since.date() - timedelta(days=1)
+                prev_sd = prev_ed - timedelta(days=curr_days - 1)
+                prev_since = datetime(prev_sd.year, prev_sd.month, prev_sd.day, 0, 0, 0, tzinfo=tenant_tz)
+                prev_until = datetime(prev_ed.year, prev_ed.month, prev_ed.day, 23, 59, 59, 999999, tzinfo=tenant_tz)
+            else:
+                prev_since = None
+                prev_until = None
+
+            if prev_since and prev_until:
+                prev_slice = await _fetch_analytics_slice(conn, is_all, actual_tenant_uuid, prev_since, prev_until, tenant_tz_str)
+                comparison_summary = prev_slice["summary"]
+
+        def calc_delta(curr_v, prev_v):
+            curr = float(curr_v or 0.0)
+            prev = float(prev_v or 0.0)
+            abs_diff = round(curr - prev, 2)
+            if prev == 0.0:
+                pct = None  # mathematically undefined from zero baseline
+            else:
+                pct = round(((curr - prev) / prev) * 100, 2)
+            return pct, abs_diff
+
+        summary = current_slice["summary"]
+        if comparison_summary:
+            rev_pct, rev_abs = calc_delta(summary["total_revenue"], comparison_summary["total_revenue"])
+            book_pct, book_abs = calc_delta(summary["total_bookings"], comparison_summary["total_bookings"])
+            comp_pct, comp_abs = calc_delta(summary["completed_bookings"], comparison_summary["completed_bookings"])
+            leads_pct, leads_abs = calc_delta(summary["total_leads"], comparison_summary["total_leads"])
+            msg_pct, msg_abs = calc_delta(summary["total_messages"], comparison_summary["total_messages"])
+
+            summary["revenue_delta_pct"] = rev_pct
+            summary["revenue_delta_abs"] = rev_abs
+            summary["bookings_delta_pct"] = book_pct
+            summary["bookings_delta_abs"] = book_abs
+            summary["completed_delta_pct"] = comp_pct
+            summary["completed_delta_abs"] = comp_abs
+            summary["leads_delta_pct"] = leads_pct
+            summary["leads_delta_abs"] = leads_abs
+            summary["messages_delta_pct"] = msg_pct
+            summary["messages_delta_abs"] = msg_abs
+
+            summary["conv_rate_delta_pct"] = round(float(summary["conversion_rate"]) - float(comparison_summary["conversion_rate"]), 2)
+            summary["attendance_rate_delta_pct"] = round(float(summary["attendance_rate"]) - float(comparison_summary["attendance_rate"]), 2)
+            summary["prev_revenue"] = comparison_summary["total_revenue"]
+            summary["prev_bookings"] = comparison_summary["total_bookings"]
+            summary["prev_completed"] = comparison_summary["completed_bookings"]
+            summary["prev_leads"] = comparison_summary["total_leads"]
+            summary["prev_messages"] = comparison_summary["total_messages"]
+            summary["prev_conversion_rate"] = comparison_summary["conversion_rate"]
+            summary["prev_attendance_rate"] = comparison_summary["attendance_rate"]
+        else:
+            summary["revenue_delta_pct"] = None
+            summary["revenue_delta_abs"] = None
+            summary["bookings_delta_pct"] = None
+            summary["bookings_delta_abs"] = None
+            summary["completed_delta_pct"] = None
+            summary["completed_delta_abs"] = None
+            summary["leads_delta_pct"] = None
+            summary["leads_delta_abs"] = None
+            summary["messages_delta_pct"] = None
+            summary["messages_delta_abs"] = None
+            summary["conv_rate_delta_pct"] = None
+            summary["attendance_rate_delta_pct"] = None
+            summary["prev_revenue"] = None
+            summary["prev_bookings"] = None
+            summary["prev_completed"] = None
+            summary["prev_leads"] = None
+            summary["prev_messages"] = None
+            summary["prev_conversion_rate"] = None
+            summary["prev_attendance_rate"] = None
+
+    return {
+        "period": active_period,
+        "start_date": since.strftime("%Y-%m-%d") if since else None,
+        "end_date": until.strftime("%Y-%m-%d") if until else None,
+        "compare": compare,
+        "compare_start_date": prev_since.strftime("%Y-%m-%d") if prev_since else None,
+        "compare_end_date": prev_until.strftime("%Y-%m-%d") if prev_until else None,
+        "summary": summary,
+        "comparison_summary": comparison_summary,
+        "time_series": current_slice["time_series"],
+        "top_services": current_slice["top_services"],
+        "pipeline": current_slice["pipeline"],
+        "bookings_by_status": current_slice["bookings_by_status"]
     }
 
 

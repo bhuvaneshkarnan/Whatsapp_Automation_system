@@ -283,6 +283,11 @@ export interface Conversation {
 
 export interface DashboardAnalyticsData {
   period: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  compare?: boolean;
+  compare_start_date?: string | null;
+  compare_end_date?: string | null;
   summary: {
     total_messages: number;
     inbound_messages: number;
@@ -295,6 +300,7 @@ export interface DashboardAnalyticsData {
     total_bookings: number;
     completed_bookings: number;
     confirmed_bookings: number;
+    rescheduled_bookings?: number;
     cancelled_bookings: number;
     no_show_bookings: number;
     pending_bookings: number;
@@ -305,14 +311,43 @@ export interface DashboardAnalyticsData {
     ai_conversations: number;
     human_conversations: number;
     ai_autonomous_rate: number;
+    revenue_delta_pct?: number | null;
+    revenue_delta_abs?: number | null;
+    bookings_delta_pct?: number | null;
+    bookings_delta_abs?: number | null;
+    completed_delta_pct?: number | null;
+    completed_delta_abs?: number | null;
+    leads_delta_pct?: number | null;
+    leads_delta_abs?: number | null;
+    messages_delta_pct?: number | null;
+    messages_delta_abs?: number | null;
+    conv_rate_delta_pct?: number | null;
+    attendance_rate_delta_pct?: number | null;
+    prev_revenue?: number | null;
+    prev_bookings?: number | null;
+    prev_completed?: number | null;
+    prev_leads?: number | null;
+    prev_messages?: number | null;
+    prev_conversion_rate?: number | null;
+    prev_attendance_rate?: number | null;
   };
+  comparison_summary?: any;
   time_series: Array<{
     day: string;
     inbound: number;
     outbound: number;
     total: number;
   }>;
+  top_services?: Array<{
+    service: string;
+    booking_count: number;
+    completed_count: number;
+    revenue: number;
+  }>;
   pipeline: {
+    inbound_contacts?: number;
+    engaged_contacts?: number;
+    crm_leads?: number;
     new: number;
     contacted: number;
     qualified: number;
@@ -699,9 +734,52 @@ export const crm = {
       }
     ),
 
-  getDashboardAnalytics: (period: string = '30d', workspaceSlug?: string) => {
-    const slug = workspaceSlug || (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') || '';
-    const query = `/api/v1/crm/analytics/dashboard?period=${period}${slug ? `&target_tenant_slug=${encodeURIComponent(slug)}` : ''}`;
+  getDashboardAnalytics: (
+    params?: {
+      period?: string;
+      start_date?: string;
+      end_date?: string;
+      compare?: boolean;
+      compare_start_date?: string;
+      compare_end_date?: string;
+      workspaceSlug?: string;
+    } | string,
+    workspaceSlug?: string
+  ) => {
+    let p = '30d';
+    let sDate = '';
+    let eDate = '';
+    let comp = false;
+    let compStart = '';
+    let compEnd = '';
+    let slug = workspaceSlug || '';
+
+    if (typeof params === 'string') {
+      p = params;
+    } else if (params && typeof params === 'object') {
+      p = params.period || '30d';
+      sDate = params.start_date || '';
+      eDate = params.end_date || '';
+      comp = !!params.compare;
+      compStart = params.compare_start_date || '';
+      compEnd = params.compare_end_date || '';
+      if (params.workspaceSlug) slug = params.workspaceSlug;
+    }
+
+    if (!slug && typeof window !== 'undefined') {
+      slug = localStorage.getItem('tenant_slug') || '';
+    }
+
+    const qParams = new URLSearchParams();
+    if (p) qParams.append('period', p);
+    if (sDate) qParams.append('start_date', sDate);
+    if (eDate) qParams.append('end_date', eDate);
+    if (comp) qParams.append('compare', 'true');
+    if (compStart) qParams.append('compare_start_date', compStart);
+    if (compEnd) qParams.append('compare_end_date', compEnd);
+    if (slug) qParams.append('target_tenant_slug', slug);
+
+    const query = `/api/v1/crm/analytics/dashboard?${qParams.toString()}`;
     return request<DashboardAnalyticsData>(query, slug ? { headers: { 'X-Tenant-Slug': slug } } : undefined);
   },
 
@@ -1449,6 +1527,11 @@ export interface TenantSettingsResponse {
   brand_support_email?: string;
   brand_support_phone?: string;
   hide_platform_branding?: boolean;
+
+  // Missed Call → WhatsApp Auto-Reply
+  missed_call_webhook_token?: string;
+  missed_call_token?: string;
+  template_missed_call?: string;
 }
 
 export interface WhatsAppHealthStatus {
@@ -1615,6 +1698,14 @@ export interface ClientTenant {
   sales_channel?: string;
   partner_share_pct?: number;
   owner_share_pct?: number;
+
+  // Missed Call Ingestion & Setup
+  missed_call_webhook_token?: string;
+  missed_call_token?: string;
+  template_missed_call?: string;
+  missed_call_count?: number;
+  last_missed_caller?: string;
+  last_missed_at?: string;
 }
 
 export interface PartnerAgencyTemplate {
@@ -1931,6 +2022,32 @@ export const admin = {
       body: JSON.stringify({ raw_dump: rawDump }),
     });
   },
+  testMissedCallWebhook: (slug: string, token: string, callerPhone: string) =>
+    request<{
+      status: string;
+      tenant: string;
+      caller_phone: string;
+      patient_name: string;
+      customer_id?: string;
+      conversation_id?: string;
+      whatsapp_sent?: boolean;
+      template_used?: string | null;
+      detail?: string;
+    }>(`/api/v1/crm/webhooks/missed-call?tenant=${encodeURIComponent(slug)}&token=${encodeURIComponent(token)}&caller=${encodeURIComponent(callerPhone)}`, {
+      method: 'POST',
+    }),
+  getMissedCalls: (tenantId?: string) =>
+    request<Array<{
+      id: string;
+      tenant_id: string;
+      tenant_name: string;
+      tenant_slug: string;
+      caller_name: string;
+      caller_phone: string;
+      call_status: string;
+      created_at: string;
+      last_outbound_msg: string;
+    }>>(`/api/v1/crm/admin/missed-calls${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''}`),
 };
 
 // ── Marketing / Broadcast Campaigns & Automations ───────────────────────────

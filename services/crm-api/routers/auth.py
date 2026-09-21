@@ -24,7 +24,7 @@ import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException, Request
 from typing import Optional, Dict, Any, List
 import database
-from dependencies import get_tenant_id, get_caller_context, verify_super_admin
+from dependencies import get_tenant_id, get_caller_context, verify_super_admin, JWT_SECRET
 from models import *
 from utils import safe_json_loads
 import utils
@@ -255,6 +255,7 @@ async def delete_partner_template(partner_name: str, admin_user: dict = Depends(
 
 
 @router.get("/admin/tenants")
+@router.get("/api/v1/crm/admin/tenants")
 async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
     """List all client tenants with metadata, stats, billing, and primary admin email."""
     async with database.db_pool.acquire() as conn:
@@ -270,7 +271,10 @@ async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
                 (SELECT COUNT(*) FROM conversations WHERE tenant_id = t.id) as conversation_count,
                 (SELECT COUNT(*) FROM messages WHERE tenant_id = t.id) as message_count,
                 (SELECT is_active FROM tenant_credentials WHERE tenant_id = t.id AND provider = 'whatsapp' LIMIT 1) as whatsapp_configured,
-                (SELECT is_active FROM tenant_credentials WHERE tenant_id = t.id AND provider = 'google_calendar' LIMIT 1) as google_calendar_configured
+                (SELECT is_active FROM tenant_credentials WHERE tenant_id = t.id AND provider = 'google_calendar' LIMIT 1) as google_calendar_configured,
+                (SELECT COUNT(*) FROM customers WHERE tenant_id = t.id AND (call_status ILIKE '%missed%' OR id IN (SELECT customer_id FROM customer_notes WHERE note_text ILIKE '%missed%'))) as missed_call_count,
+                (SELECT phone FROM customers WHERE tenant_id = t.id AND (call_status ILIKE '%missed%' OR id IN (SELECT customer_id FROM customer_notes WHERE note_text ILIKE '%missed%')) ORDER BY created_at DESC LIMIT 1) as last_missed_caller,
+                (SELECT created_at FROM customers WHERE tenant_id = t.id AND (call_status ILIKE '%missed%' OR id IN (SELECT customer_id FROM customer_notes WHERE note_text ILIKE '%missed%')) ORDER BY created_at DESC LIMIT 1) as last_missed_at
             FROM tenants t
             ORDER BY t.created_at DESC
             """
@@ -286,6 +290,9 @@ async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
         razorpay_sub_id = r["razorpay_subscription_id"] or cfg.get("razorpay_subscription_id", "")
         next_renewal = r["next_charge_at"].strftime("%d %b %Y") if r["next_charge_at"] else cfg.get("next_renewal_date", f"Day {billing_day} of every month")
         admin_phone = cfg.get("admin_whatsapp_number", "")
+        sha_token = hashlib.sha256(f"{str(r['id'])}:{JWT_SECRET}:missed-call".encode()).hexdigest()[:16]
+        m_token = cfg.get("missed_call_token") or sha_token
+        m_tpl = cfg.get("template_missed_call") or "missed_call_followup"
         result.append({
             "id": str(r["id"]),
             "name": r["name"],
@@ -318,8 +325,67 @@ async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
             "sales_channel": (cfg.get("sales_channel") or "direct").strip(),
             "partner_share_pct": float(cfg.get("partner_share_pct") or 0.0),
             "owner_share_pct": float(cfg.get("owner_share_pct") or 100.0),
+            "missed_call_webhook_token": sha_token,
+            "missed_call_token": m_token,
+            "template_missed_call": m_tpl,
+            "missed_call_count": int(r["missed_call_count"] or 0),
+            "last_missed_caller": r["last_missed_caller"] or "",
+            "last_missed_at": r["last_missed_at"].isoformat() if r["last_missed_at"] else None,
         })
     return result
+
+
+@router.get("/admin/missed-calls")
+@router.get("/api/v1/crm/admin/missed-calls")
+async def list_admin_missed_calls(
+    tenant_id: Optional[str] = Query(None),
+    limit: int = Query(25),
+    admin_user: dict = Depends(verify_super_admin)
+):
+    """List recently captured missed calls across all tenants (or filtered by tenant_id)."""
+    async with database.db_pool.acquire() as conn:
+        if tenant_id:
+            rows = await conn.fetch(
+                """
+                SELECT c.id, c.tenant_id, t.name as tenant_name, t.slug as tenant_slug,
+                       c.name, c.phone, c.status, c.call_status, c.created_at,
+                       (SELECT body FROM messages m WHERE m.tenant_id = c.tenant_id AND m.direction = 'outbound' ORDER BY m.created_at DESC LIMIT 1) as last_outbound_msg
+                FROM customers c
+                JOIN tenants t ON t.id = c.tenant_id
+                WHERE c.tenant_id = $1::uuid AND (c.call_status ILIKE '%missed%' OR c.id IN (SELECT customer_id FROM customer_notes WHERE note_text ILIKE '%missed%'))
+                ORDER BY c.created_at DESC
+                LIMIT $2
+                """,
+                tenant_id, limit
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT c.id, c.tenant_id, t.name as tenant_name, t.slug as tenant_slug,
+                       c.name, c.phone, c.status, c.call_status, c.created_at,
+                       (SELECT body FROM messages m WHERE m.tenant_id = c.tenant_id AND m.direction = 'outbound' ORDER BY m.created_at DESC LIMIT 1) as last_outbound_msg
+                FROM customers c
+                JOIN tenants t ON t.id = c.tenant_id
+                WHERE c.call_status ILIKE '%missed%' OR c.id IN (SELECT customer_id FROM customer_notes WHERE note_text ILIKE '%missed%')
+                ORDER BY c.created_at DESC
+                LIMIT $1
+                """,
+                limit
+            )
+        return [
+            {
+                "id": str(r["id"]),
+                "tenant_id": str(r["tenant_id"]),
+                "tenant_name": r["tenant_name"],
+                "tenant_slug": r["tenant_slug"],
+                "caller_name": r["name"],
+                "caller_phone": r["phone"],
+                "call_status": r["call_status"] or "missed",
+                "created_at": r["created_at"].isoformat() if r["created_at"] else "",
+                "last_outbound_msg": r["last_outbound_msg"] or ""
+            }
+            for r in rows
+        ]
 
 
 @router.post("/admin/tenants")
