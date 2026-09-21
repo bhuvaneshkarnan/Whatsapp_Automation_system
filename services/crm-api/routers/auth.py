@@ -1823,7 +1823,15 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
     if len(digits) == 10:
         clean_phone = f"+91{digits}"
 
-    service_name = f"{payload.health_concern.strip()} ({payload.doctor_name.strip()})" if payload.doctor_name else payload.health_concern.strip()
+    # Normalize health concern(s) into clean string
+    if isinstance(payload.health_concern, list):
+        concerns = [str(c).strip() for c in payload.health_concern if str(c).strip()]
+        health_concern_str = ", ".join(concerns) if concerns else "General Consultation"
+    else:
+        health_concern_str = str(payload.health_concern or "").strip() or "General Consultation"
+
+    doc = (payload.doctor_name or payload.staff_member or "").strip() or None
+    service_name = f"{health_concern_str} ({doc})" if doc else health_concern_str
 
     async with database.db_pool.acquire() as conn:
         tenant = await conn.fetchrow("SELECT id, name, slug, settings FROM tenants WHERE slug = $1", slug.strip().lower())
@@ -1879,7 +1887,7 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                 """INSERT INTO contacts (id, tenant_id, name, phone, metadata, created_at, updated_at)
                    VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb, now(), now())""",
                 contact_id, tenant_id, clean_name, clean_phone,
-                json.dumps({"preferred_doctor": payload.doctor_name, "health_concern": payload.health_concern, "email": payload.patient_email or ""})
+                json.dumps({"preferred_doctor": doc, "health_concern": health_concern_str, "email": payload.patient_email or ""})
             )
         else:
             contact_id = str(contact["id"])
@@ -1905,8 +1913,11 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
 
         # 3. Double Booking Conflict Check & Insert within an atomic transaction
         booking_id = str(uuid.uuid4())
-        staff = (payload.doctor_name or payload.staff_member or "").strip() or None
-        combined_notes = f"Booked online via web booking page.\nDoctor: {staff or 'General'}\nConcern: {payload.health_concern}"
+        staff = doc
+        if staff:
+            combined_notes = f"Booked online via web booking page.\nPractitioner: {staff}\nConcern: {health_concern_str}"
+        else:
+            combined_notes = f"Booked online via web booking page.\nConcern: {health_concern_str}"
         if payload.notes:
             combined_notes += f"\nPatient Note: {payload.notes.strip()}"
 
@@ -1915,14 +1926,23 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
 
         async with conn.transaction():
             if slot_booking_mode != "multiple":
-                conflict = await conn.fetchrow(
-                    """SELECT id, service, start_time, end_time FROM bookings
-                       WHERE tenant_id = $1::uuid AND status = 'confirmed'
-                         AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
-                         AND start_time < $3 AND end_time > $2
-                       FOR UPDATE""",
-                    tenant_id, st_dt, et_dt, staff
-                )
+                if staff:
+                    conflict = await conn.fetchrow(
+                        """SELECT id, service, start_time, end_time FROM bookings
+                           WHERE tenant_id = $1::uuid AND status = 'confirmed'
+                             AND (staff_member IS NULL OR staff_member = $4)
+                             AND start_time < $3 AND end_time > $2
+                           FOR UPDATE""",
+                        tenant_id, st_dt, et_dt, staff
+                    )
+                else:
+                    conflict = await conn.fetchrow(
+                        """SELECT id, service, start_time, end_time FROM bookings
+                           WHERE tenant_id = $1::uuid AND status = 'confirmed'
+                             AND start_time < $3 AND end_time > $2
+                           FOR UPDATE""",
+                        tenant_id, st_dt, et_dt
+                    )
                 if conflict:
                     c_start = conflict["start_time"]
                     if hasattr(c_start, "astimezone"):
@@ -1930,13 +1950,21 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                     c_time = c_start.strftime("%I:%M %p")
                     raise HTTPException(409, f"Timeslot conflict: An appointment for '{conflict['service']}' is already scheduled at {c_time}.")
             elif max_concurrent > 1:
-                existing_count = await conn.fetchval(
-                    """SELECT COUNT(*) FROM bookings
-                       WHERE tenant_id = $1::uuid AND status = 'confirmed'
-                         AND (COALESCE(staff_member, 'general')) = (COALESCE($4, 'general'))
-                         AND start_time < $3 AND end_time > $2""",
-                    tenant_id, st_dt, et_dt, staff
-                ) or 0
+                if staff:
+                    existing_count = await conn.fetchval(
+                        """SELECT COUNT(*) FROM bookings
+                           WHERE tenant_id = $1::uuid AND status = 'confirmed'
+                             AND (staff_member IS NULL OR staff_member = $4)
+                             AND start_time < $3 AND end_time > $2""",
+                        tenant_id, st_dt, et_dt, staff
+                    ) or 0
+                else:
+                    existing_count = await conn.fetchval(
+                        """SELECT COUNT(*) FROM bookings
+                           WHERE tenant_id = $1::uuid AND status = 'confirmed'
+                             AND start_time < $3 AND end_time > $2""",
+                        tenant_id, st_dt, et_dt
+                    ) or 0
                 if existing_count >= max_concurrent:
                     raise HTTPException(409, f"Timeslot capacity reached: This slot has reached the maximum of {max_concurrent} concurrent bookings.")
 
@@ -1981,13 +2009,13 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                 await conn.execute(
                     """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, converted, health_concern, preferred_doctor, created_at, updated_at)
                        VALUES (gen_random_uuid(), $1::uuid, $2, $3, 'converted', 'hot', true, $4, $5, now(), now())
-                       ON CONFLICT (tenant_id, phone) DO UPDATE SET status = 'converted', converted = true, lead_probability = 'hot', updated_at = now()""",
-                    tenant_id, clean_phone, clean_name, payload.health_concern, payload.doctor_name
+                       ON CONFLICT (tenant_id, phone) DO UPDATE SET status = 'converted', converted = true, lead_probability = 'hot', health_concern = EXCLUDED.health_concern, preferred_doctor = COALESCE(EXCLUDED.preferred_doctor, customers.preferred_doctor), updated_at = now()""",
+                    tenant_id, clean_phone, clean_name, health_concern_str, staff
                 )
             else:
                 await conn.execute(
-                    """UPDATE customers SET name = COALESCE(NULLIF(name, ''), $1), status = 'converted', converted = true, lead_probability = 'hot', health_concern = $2, preferred_doctor = $3, updated_at = now() WHERE id = $4::uuid""",
-                    clean_name, payload.health_concern, payload.doctor_name, str(cust["id"])
+                    """UPDATE customers SET name = COALESCE(NULLIF(name, ''), $1), status = 'converted', converted = true, lead_probability = 'hot', health_concern = $2, preferred_doctor = COALESCE($3, preferred_doctor), updated_at = now() WHERE id = $4::uuid""",
+                    clean_name, health_concern_str, staff, str(cust["id"])
                 )
         except Exception as e_c:
             logger.warning("customer_directory_upsert_failed", error=str(e_c))
@@ -2130,8 +2158,8 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
         return {
             "status": "confirmed",
             "booking_id": booking_id,
-            "doctor_name": payload.doctor_name,
-            "health_concern": payload.health_concern,
+            "doctor_name": staff or "",
+            "health_concern": health_concern_str,
             "appointment_date": st_dt.strftime("%d %b %Y"),
             "appointment_time": st_dt.strftime("%I:%M %p"),
             "patient_name": clean_name,

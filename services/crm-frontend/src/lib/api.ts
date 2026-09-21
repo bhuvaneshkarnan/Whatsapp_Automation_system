@@ -2255,8 +2255,8 @@ export const publicBooking = {
     patient_name: string;
     patient_phone: string;
     patient_email?: string;
-    doctor_name: string;
-    health_concern: string;
+    doctor_name?: string;
+    health_concern: string | string[];
     booking_date: string;
     booking_time: string;
     notes?: string;
@@ -2264,7 +2264,7 @@ export const publicBooking = {
     publicRequest<{
       status: string;
       booking_id: string;
-      doctor_name: string;
+      doctor_name?: string;
       health_concern: string;
       appointment_date: string;
       appointment_time: string;

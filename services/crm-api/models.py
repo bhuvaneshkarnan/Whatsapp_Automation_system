@@ -429,7 +429,7 @@ class PublicBookingRequest(BaseModel):
     patient_email: Optional[str] = None
     doctor_name: Optional[str] = None
     staff_member: Optional[str] = None
-    health_concern: str
+    health_concern: Union[str, List[str]]
     booking_date: str  # YYYY-MM-DD
     booking_time: str  # HH:MM or 10:00 AM
     notes: Optional[str] = None
