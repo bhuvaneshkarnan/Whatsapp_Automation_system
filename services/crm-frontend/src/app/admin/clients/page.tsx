@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Building2,
+  Briefcase,
   ShoppingBag,
   Plus,
   Copy,
@@ -20,6 +21,7 @@ import {
   CreditCard,
   Send,
   ArrowLeft,
+  ArrowRight,
   DollarSign,
   TrendingUp,
   Activity,
@@ -892,18 +894,18 @@ export default function SuperAdminClients() {
 
   function getMissedCallClientMessage(tenantName: string, slug: string, customToken?: string) {
     const { androidUrl, iphoneUrl } = getMissedCallUrls(slug, customToken);
-    return `👋 Hi from ${tenantName} Team!
+    return `Hi from ${tenantName} Team!
 
 Here is your 15-second setup for Automated Missed Call WhatsApp Follow-ups. Whenever someone calls your phone number and you cannot answer, our CRM will automatically send them a WhatsApp message so you never lose a lead or patient!
 
-📱 If you use ANDROID (Instant):
+If you use ANDROID (Instant):
 1. Install "MacroDroid" from Google Play Store (Free).
 2. Tap "Add Macro" -> Trigger (+): Call/SMS -> Call Missed -> Select "Any Number".
 3. Action (+): Connectivity -> Open Website / HTTP GET -> Paste this URL:
 ${androidUrl}
 4. Turn Macro ON. Done!
 
-🍎 If you use IPHONE (Built-in Shortcuts):
+If you use IPHONE (Built-in Shortcuts):
 1. Open the built-in "Shortcuts" app -> Tap "Automation" -> New Automation (+).
 2. Select "Message" -> When Message contains: "missed call" -> Select "Run Immediately".
 3. Action (+): "Get Contents of URL" -> Paste this URL:
@@ -1039,11 +1041,11 @@ Any missed call will now automatically get followed up on WhatsApp!`;
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
-  const INDUSTRY_PRESETS = [
+  const ONBOARDING_INDUSTRY_PRESETS = [
     {
       id: 'healthcare',
       label: 'Healthcare / Clinic',
-      icon: '🏥',
+      icon: Stethoscope,
       assistant_name: 'Dr. Assistant',
       bot_goal: 'Schedule patient consultations, provide clinic hours, and answer treatment inquiries.',
       taxonomy_role: 'Doctor',
@@ -1051,7 +1053,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     {
       id: 'real_estate',
       label: 'Real Estate / Property',
-      icon: '🏢',
+      icon: Building2,
       assistant_name: 'Property Advisor',
       bot_goal: 'Qualify buyer leads, schedule site visits, and share brochure links.',
       taxonomy_role: 'Agent',
@@ -1059,7 +1061,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     {
       id: 'services',
       label: 'Consulting & Services',
-      icon: '💼',
+      icon: Briefcase,
       assistant_name: 'Client Coordinator',
       bot_goal: 'Qualify service inquiries, schedule strategy calls, and share pricing quotes.',
       taxonomy_role: 'Consultant',
@@ -1067,7 +1069,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     {
       id: 'general',
       label: 'General Business / Retail',
-      icon: '🛍️',
+      icon: ShoppingBag,
       assistant_name: 'Customer Support',
       bot_goal: 'Answer product inquiries, handle order tracking, and assist store visitors.',
       taxonomy_role: 'Specialist',
@@ -1250,7 +1252,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
         finalPassword = 'BoldAuto2026!';
       }
 
-      const preset = INDUSTRY_PRESETS.find((p) => p.id === selectedIndustryPreset) || INDUSTRY_PRESETS[0];
+      const preset = ONBOARDING_INDUSTRY_PRESETS.find((p) => p.id === selectedIndustryPreset) || ONBOARDING_INDUSTRY_PRESETS[0];
 
       const clientPayload = {
         ...formData,
@@ -2321,7 +2323,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     <PhoneCall className="w-4 h-4 text-amber-600 stroke-[1.5]" />
                     <h3 className="font-semibold text-xs text-text-primary">All Clients Configuration & Webhook Endpoints</h3>
                   </div>
-                  <span className="text-[10px] text-text-muted">Click ⚡ Test to simulate live missed call for any client</span>
+                  <span className="text-[10px] text-text-muted">Click Test to simulate live missed call for any client</span>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -2645,7 +2647,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                             <div>
                                               <span className="text-text-muted block">WhatsApp Dispatch:</span>
                                               <span className={`font-semibold ${testWebhookResult.data.whatsapp_sent ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                                {testWebhookResult.data.whatsapp_sent ? '✅ Message Sent' : '⚠️ Credential Inactive'}
+                                                {testWebhookResult.data.whatsapp_sent ? 'Message Sent' : 'Credential Inactive'}
                                               </span>
                                             </div>
                                             <div>
@@ -2669,7 +2671,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
                 <div className="p-3 border-t border-border bg-surface-subtle/20 text-[11px] text-text-muted flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                   <div>
-                    💡 <strong>Pro Tip:</strong> Tokens shown are verified SHA-256 HMAC keys. You can edit any client&apos;s Meta template name right in the table and click <strong>Save</strong>.
+                    <strong>Pro Tip:</strong> Tokens shown are verified SHA-256 HMAC keys. You can edit any client&apos;s Meta template name right in the table and click <strong>Save</strong>.
                   </div>
                   <div className="text-[10px] text-text-muted">
                     MacroDroid trigger: <strong>HTTP GET / POST</strong> to webhook endpoint.
@@ -2708,7 +2710,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     <PhoneMissed className="w-8 h-8 text-amber-500/40 mx-auto stroke-[1.5]" />
                     <p className="text-xs font-medium text-text-secondary">No missed call events captured yet</p>
                     <p className="text-[11px] text-text-muted max-w-md mx-auto">
-                      Click <strong>⚡ Test</strong> on any client row above to simulate a live missed call webhook, or install MacroDroid on a phone to start capturing real missed calls.
+                      Click <strong>Test</strong> on any client row above to simulate a live missed call webhook, or install MacroDroid on a phone to start capturing real missed calls.
                     </p>
                   </div>
                 ) : (
@@ -2814,7 +2816,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     }`}
                   >
                     <Building2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                    <span>🏢 My Direct Clients</span>
+                    <span>My Direct Clients</span>
                     <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-medium ${
                       activeOrgTab === 'direct' ? 'bg-white/20 text-white' : 'bg-surface-subtle border border-border text-text-muted'
                     }`}>
@@ -2835,7 +2837,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     }`}
                   >
                     <Globe className="w-3.5 h-3.5 stroke-[1.5]" />
-                    <span>🌐 Partnered / White-Label</span>
+                    <span>Partnered / White-Label</span>
                     <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-medium ${
                       activeOrgTab === 'partnered' ? 'bg-white/20 text-white' : 'bg-surface-subtle border border-border text-text-muted'
                     }`}>
@@ -4635,7 +4637,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                           { key: 'template_admin_cancellation_notice', label: '10. Admin Cancellation Notice', value: dbTenantSettings.template_admin_cancellation_notice || 'admin_cancellation_notice', defaultName: 'admin_cancellation_notice' },
                           { key: 'template_admin_human_request', label: '11. Admin Human Takeover Alert', value: dbTenantSettings.template_admin_human_request || 'admin_human_request', defaultName: 'admin_human_request' },
                           { key: 'template_admin_daily_digest', label: '12. Daily Admin Performance Digest', value: dbTenantSettings.template_admin_daily_digest || 'admin_daily_digest', defaultName: 'admin_daily_digest' },
-                          { key: 'template_admin_appointment_reminder', label: '13. Admin Upcoming Appointment Reminder (30m)', value: dbTenantSettings.template_admin_appointment_reminder || 'admin_appointment_reminder', defaultName: 'admin_appointment_reminder' },
+                          { key: 'template_admin_appointment_reminder', label: '13. Admin Upcoming Appointment Reminder (30m)', value: (dbTenantSettings as any)?.template_admin_appointment_reminder || 'admin_appointment_reminder', defaultName: 'admin_appointment_reminder' },
                         ]
                           .filter(item => !dbSearchQuery || item.label.toLowerCase().includes(dbSearchQuery.toLowerCase()) || String(item.value).toLowerCase().includes(dbSearchQuery.toLowerCase()))
                           .map((item) => (
@@ -5751,7 +5753,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                 meta_phone_id: data.phone_number_id,
                                 meta_waba_id: data.waba_id,
                               }));
-                              fetchClients();
+                              loadData();
                             }}
                             onError={(err) => {
                               alert(`Meta Embedded Signup error: ${err}`);
@@ -5763,7 +5765,8 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                         <div className="mt-3 p-3 bg-surface border border-emerald-300/60 dark:border-emerald-700/60 rounded-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                           <div className="space-y-0.5">
                             <span className="font-semibold text-text-primary flex items-center gap-1.5">
-                              <span>🔗 Shareable Client Onboarding Link</span>
+                              <Share2 className="w-3.5 h-3.5 text-emerald-600 stroke-[1.5]" />
+                              <span>Shareable Client Onboarding Link</span>
                             </span>
                             <p className="text-[11px] text-text-muted">
                               Send this link to your client via WhatsApp or Email. They click it, sign into their own Meta account, and their WhatsApp is instantly activated in your CRM without them sharing passwords with you!
@@ -5793,7 +5796,8 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       <details className="group border border-border/70 rounded-md bg-surface p-3.5 text-xs">
                         <summary className="cursor-pointer font-medium text-text-muted hover:text-text-primary flex items-center justify-between select-none">
                           <span className="flex items-center gap-1.5">
-                            <span>⚙️ Advanced: Custom Meta App Credentials (Manual Setup)</span>
+                            <SlidersHorizontal className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
+                            <span>Advanced: Custom Meta App Credentials (Manual Setup)</span>
                           </span>
                           <span className="text-[10px] text-text-muted group-open:rotate-180 transition-transform">▼</span>
                         </summary>
@@ -5803,9 +5807,9 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                           </p>
 
                           {/* Callback URL Box */}
-                          <div className="bg-surface-subtle border border-border p-3.5 rounded-sm space-y-2">
-                            <div className="flex justify-between items-center">
-                              <label className="text-xs font-medium text-text-primary">Webhook callback URL</label>
+                          <div className="bg-surface-subtle rounded-md border border-border p-3 space-y-1.5">
+                            <div className="flex items-center justify-between text-[11px] font-semibold text-text-primary">
+                              <span>Meta Webhook Callback URL:</span>
                               <button
                                 type="button"
                                 onClick={() => copyToClipboard(`https://crm.goboldlabs.com/webhooks/whatsapp/${editingConfigTenant.slug}`, 'drawer_url')}
@@ -6029,13 +6033,13 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                       try {
                                         const res = await fetch(testUrl);
                                         if (res.ok) {
-                                          alert(`✅ Webhook fired successfully for ${phone}!`);
+                                          alert(`Webhook fired successfully for ${phone}!`);
                                         } else {
                                           const body = await res.text();
-                                          alert(`❌ Webhook error ${res.status}: ${body}`);
+                                          alert(`Webhook error ${res.status}: ${body}`);
                                         }
                                       } catch (err) {
-                                        alert(`❌ Network error: ${err}`);
+                                        alert(`Network error: ${err}`);
                                       }
                                     }}
                                     className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium rounded transition-colors whitespace-nowrap"
@@ -6513,7 +6517,8 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                         <div className="mt-3 p-3 bg-surface border border-blue-300/60 dark:border-blue-700/60 rounded-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                           <div className="space-y-0.5">
                             <span className="font-semibold text-text-primary flex items-center gap-1.5">
-                              <span>🔗 Shareable Client Calendar Link</span>
+                              <ExternalLink className="w-3.5 h-3.5 text-blue-600 stroke-[1.5]" />
+                              <span>Shareable Client Calendar Link</span>
                             </span>
                             <p className="text-[11px] text-text-muted">
                               Send this link to your client via WhatsApp or Email. They click it, sign into their Google account, and their calendar will automatically link and sync with your CRM!
@@ -6534,7 +6539,8 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       <details className="group border border-border/70 rounded-md bg-surface p-3.5 text-xs">
                         <summary className="cursor-pointer font-medium text-text-muted hover:text-text-primary flex items-center justify-between select-none">
                           <span className="flex items-center gap-1.5">
-                            <span>⚙️ Advanced: Custom Google Cloud Project (Optional)</span>
+                            <SlidersHorizontal className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
+                            <span>Advanced: Custom Google Cloud Project (Optional)</span>
                           </span>
                           <span className="text-[10px] text-text-muted group-open:rotate-180 transition-transform">▼</span>
                         </summary>
@@ -7566,7 +7572,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                   }`}
                 >
                   <Zap className="w-3.5 h-3.5" />
-                  <span>⚡ Quick Setup (30s)</span>
+                  <span>Quick Setup (30s)</span>
                 </button>
                 <button
                   type="button"
@@ -7576,11 +7582,11 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                   }`}
                 >
                   <SlidersHorizontal className="w-3.5 h-3.5" />
-                  <span>⚙️ Full Configuration</span>
+                  <span>Full Configuration</span>
                 </button>
               </div>
               <span className="text-[11px] text-text-muted hidden sm:inline">
-                {createMode === 'quick' ? '⚡ 3 simple fields with auto defaults' : '⚙️ Custom credentials & templates'}
+                {createMode === 'quick' ? '3 simple fields with auto defaults' : 'Custom credentials & templates'}
               </span>
             </div>
 
@@ -7613,7 +7619,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     }`}
                   >
                     <Building2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                    <span>🏢 Direct Client (crm.goboldlabs.com)</span>
+                    <span>Direct Client (crm.goboldlabs.com)</span>
                   </button>
 
                   <button
@@ -7640,7 +7646,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     }`}
                   >
                     <Globe className="w-3.5 h-3.5 stroke-[1.5]" />
-                    <span>🌐 Partner Agency Client</span>
+                    <span>Partner Agency Client</span>
                   </button>
                 </div>
 
@@ -7724,32 +7730,35 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     Select Industry Template (Auto-Configures AI Agent & Taxonomy)
                   </label>
                   <div className="grid grid-cols-2 gap-2">
-                    {INDUSTRY_PRESETS.map((preset) => (
-                      <div
-                        key={preset.id}
-                        onClick={() => {
-                          setSelectedIndustryPreset(preset.id);
-                          setFormData((prev) => ({
-                            ...prev,
-                            assistant_name: preset.assistant_name,
-                            bot_goal: preset.bot_goal,
-                          }));
-                        }}
-                        className={`p-2.5 rounded-lg border text-left cursor-pointer transition-all ${
-                          selectedIndustryPreset === preset.id
-                            ? 'bg-accent/5 border-accent shadow-2xs ring-1 ring-accent/30'
-                            : 'bg-surface-subtle border border-border hover:border-border-hover'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg">{preset.icon}</span>
-                          <div>
-                            <p className="text-xs font-bold text-text-primary leading-tight">{preset.label}</p>
-                            <p className="text-[10px] text-text-muted mt-0.5 leading-tight line-clamp-1">{preset.assistant_name} • {preset.taxonomy_role}</p>
+                    {ONBOARDING_INDUSTRY_PRESETS.map((preset) => {
+                      const PresetIcon = preset.icon;
+                      return (
+                        <div
+                          key={preset.id}
+                          onClick={() => {
+                            setSelectedIndustryPreset(preset.id);
+                            setFormData((prev) => ({
+                              ...prev,
+                              assistant_name: preset.assistant_name,
+                              bot_goal: preset.bot_goal,
+                            }));
+                          }}
+                          className={`p-2.5 rounded-lg border text-left cursor-pointer transition-all ${
+                            selectedIndustryPreset === preset.id
+                              ? 'bg-accent/5 border-accent shadow-2xs ring-1 ring-accent/30'
+                              : 'bg-surface-subtle border border-border hover:border-border-hover'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <PresetIcon className="w-5 h-5 text-text-primary stroke-[1.5] shrink-0" />
+                            <div>
+                              <p className="text-xs font-bold text-text-primary leading-tight">{preset.label}</p>
+                              <p className="text-[10px] text-text-muted mt-0.5 leading-tight line-clamp-1">{preset.assistant_name} • {preset.taxonomy_role}</p>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -7816,7 +7825,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                   }`}
                 >
                   <Building2 className="w-3.5 h-3.5 stroke-[1.5]" />
-                  <span>🏢 My Direct Client</span>
+                  <span>My Direct Client</span>
                 </button>
 
                 <button
@@ -7843,7 +7852,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                   }`}
                 >
                   <Globe className="w-3.5 h-3.5 stroke-[1.5]" />
-                  <span>🌐 Partner Agency Client</span>
+                  <span>Partner Agency Client</span>
                 </button>
               </div>
 
@@ -8020,7 +8029,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                             const hasTpl = partnerTemplates.some((t) => t.partner_name.toLowerCase() === p.toLowerCase());
                             return (
                               <option key={p} value={p}>
-                                {p} {hasTpl ? '⚡ (Preset Template Available)' : ''}
+                                {p} {hasTpl ? '(Preset Template Available)' : ''}
                               </option>
                             );
                           })}
@@ -8294,7 +8303,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                 1-Click Welcome & Onboarding Guide for Client
               </label>
               {(() => {
-                const welcomeMsg = `🚀 *Welcome to your AI WhatsApp Automation CRM!*\n\nYour organization workspace (*${createdClient.name}*) is live and ready.\n\n🔗 *Login Portal:* https://crm.goboldlabs.com/login\n📧 *Username:* ${createdClient.admin_email}\n🔑 *Password:* ${createdClient.password || 'BoldAuto2026!'}\n\n*Quick 3-step setup once logged in:*\n1️⃣ Click *"1-Click WhatsApp Connect"* to link your WhatsApp Business number\n2️⃣ Connect Google Calendar for automated appointment bookings\n3️⃣ Send a test ping to verify your AI persona!\n\nNeed assistance? Reply directly to this message.`;
+                const welcomeMsg = `*Welcome to your AI WhatsApp Automation CRM!*\n\nYour organization workspace (*${createdClient.name}*) is live and ready.\n\n*Login Portal:* https://crm.goboldlabs.com/login\n*Username:* ${createdClient.admin_email}\n*Password:* ${createdClient.password || 'BoldAuto2026!'}\n\n*Quick 3-step setup once logged in:*\n1. Click *"1-Click WhatsApp Connect"* to link your WhatsApp Business number\n2. Connect Google Calendar for automated appointment bookings\n3. Send a test ping to verify your AI persona!\n\nNeed assistance? Reply directly to this message.`;
                 const cleanPhone = (createdClient.admin_whatsapp_number || '').replace(/\D/g, '');
                 const waUrl = cleanPhone
                   ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(welcomeMsg)}`
@@ -8314,7 +8323,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                         className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
                       >
                         <MessageSquare className="w-4 h-4 fill-current" />
-                        <span>📲 Share on WhatsApp</span>
+                        <span>Share on WhatsApp</span>
                       </a>
 
                       <button
@@ -9915,7 +9924,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                 </h4>
                                 {isDone ? (
                                   <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-1.5 py-0.2 rounded border border-emerald-300">
-                                    ✓ Completed
+                                    Completed
                                   </span>
                                 ) : (
                                   <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">

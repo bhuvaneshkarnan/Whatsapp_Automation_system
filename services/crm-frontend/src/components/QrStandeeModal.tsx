@@ -541,7 +541,7 @@ export default function QrStandeeModal({
                     <span>Smart Shield</span>
                   </div>
                   <p className="text-[10px] text-text-muted mt-1 leading-tight">
-                    Filters 1-3★ privately; 4-5★ sent to Google.
+                    Filters 1-3 stars privately; 4-5 stars sent to Google.
                   </p>
                 </button>
 
@@ -566,7 +566,7 @@ export default function QrStandeeModal({
 
               {targetType === 'direct' && !directUrl && (
                 <div className="p-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded text-[11px] text-amber-800 dark:text-amber-200">
-                  ⚠️ Direct Google review link is not configured for this tenant yet. Falling back to Smart Review portal.
+                  Direct Google review link is not configured for this tenant yet. Falling back to Smart Review portal.
                 </div>
               )}
 

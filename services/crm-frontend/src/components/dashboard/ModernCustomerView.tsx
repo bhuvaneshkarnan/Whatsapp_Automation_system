@@ -226,7 +226,7 @@ export function getAiSalesSnapshot(cust: Customer): AiSalesSnapshotData {
     const raw = cust.ai_summary.trim();
     if (cust.lead_probability === 'hot' || raw.toLowerCase().includes('ready') || raw.toLowerCase().includes('demo')) {
       return {
-        badge: '🔥 Ready to Close',
+        badge: 'Ready to Close',
         headline: raw,
         actionRecommendation: 'Call now to confirm appointment slot',
         theme: 'rose',
@@ -236,7 +236,7 @@ export function getAiSalesSnapshot(cust: Customer): AiSalesSnapshotData {
     }
     if (isEcommerce) {
       return {
-        badge: '🛒 Cart Recovery',
+        badge: 'Cart Recovery',
         headline: raw,
         actionRecommendation: 'Offer COD verification or instant checkout discount',
         theme: 'indigo',
@@ -245,7 +245,7 @@ export function getAiSalesSnapshot(cust: Customer): AiSalesSnapshotData {
       };
     }
     return {
-      badge: '🎯 Sales Snapshot',
+      badge: 'Sales Snapshot',
       headline: raw,
       actionRecommendation: cust.next_action ? `Action: ${cust.next_action}` : 'Pitch value proposition',
       theme: 'amber',
@@ -258,7 +258,7 @@ export function getAiSalesSnapshot(cust: Customer): AiSalesSnapshotData {
   if (cust.status === 'converted' || cust.converted || (cust.completed_bookings_count ?? 0) > 0) {
     const svc = cust.last_visit_service || cust.health_concern || 'Appointment';
     return {
-      badge: '✅ Converted / Client',
+      badge: 'Converted / Client',
       headline: `Active Client • ${svc}${formattedVal ? ` (${formattedVal})` : ''}`,
       actionRecommendation: 'Send satisfaction check-in & review request',
       theme: 'emerald',
@@ -270,7 +270,7 @@ export function getAiSalesSnapshot(cust: Customer): AiSalesSnapshotData {
   // Case 3: E-Commerce / Abandoned Cart
   if (isEcommerce) {
     return {
-      badge: '🛒 Abandoned Cart',
+      badge: 'Abandoned Cart',
       headline: `Cart value ${formattedVal || 'pending'} • ${cust.health_concern || 'Products in cart'}`,
       actionRecommendation: 'Call/Chat to offer COD or ₹200 closing discount',
       theme: 'indigo',
@@ -284,7 +284,7 @@ export function getAiSalesSnapshot(cust: Customer): AiSalesSnapshotData {
     const targetStaff = cust.preferred_doctor ? ` with ${cust.preferred_doctor}` : '';
     const svc = cust.health_concern && cust.health_concern !== 'General Consultation' ? cust.health_concern : 'Demo / Consultation';
     return {
-      badge: '🔥 Hot Buying Intent',
+      badge: 'Hot Buying Intent',
       headline: `Wants 15-min ${svc}${targetStaff} • High purchase readiness`,
       actionRecommendation: 'Call immediately to lock the calendar slot',
       theme: 'rose',
@@ -300,7 +300,7 @@ export function getAiSalesSnapshot(cust: Customer): AiSalesSnapshotData {
   ) {
     const svc = cust.health_concern && cust.health_concern !== 'General Consultation' ? cust.health_concern : 'Service';
     return {
-      badge: '⚡ Price Inquiry',
+      badge: 'Price Inquiry',
       headline: `Inquired about ${svc} pricing • Evaluating budget & value`,
       actionRecommendation: 'Pitch ROI/benefits before re-quoting price',
       theme: 'amber',
@@ -313,7 +313,7 @@ export function getAiSalesSnapshot(cust: Customer): AiSalesSnapshotData {
   if (cust.status === 'follow-up' || cust.followup_date) {
     const svc = cust.health_concern && cust.health_concern !== 'General Consultation' ? cust.health_concern : 'Consultation';
     return {
-      badge: '🎯 Consultative Closer',
+      badge: 'Consultative Closer',
       headline: `Exploring ${svc} • Follow-up scheduled`,
       actionRecommendation: cust.next_action ? `Next: ${cust.next_action}` : 'Share patient testimonial or case study',
       theme: 'sky',
@@ -325,7 +325,7 @@ export function getAiSalesSnapshot(cust: Customer): AiSalesSnapshotData {
   // Case 7: Lost / Cold
   if (cust.status === 'lost' || cust.lead_probability === 'cold') {
     return {
-      badge: '❄️ Cold Lead',
+      badge: 'Cold Lead',
       headline: `${cust.latest_note ? `"${cust.latest_note.slice(0, 45)}..."` : 'Inactive inquiry / price objection'}`,
       actionRecommendation: 'Re-engage via monthly broadcast with special offer',
       theme: 'slate',
@@ -337,7 +337,7 @@ export function getAiSalesSnapshot(cust: Customer): AiSalesSnapshotData {
   // Fallback: New Contact
   const defaultSvc = cust.health_concern && cust.health_concern !== 'General Consultation' ? cust.health_concern : 'General Inquiry';
   return {
-    badge: '📋 New Inquiry',
+    badge: 'New Inquiry',
     headline: `Inquiring about ${defaultSvc} • Fresh inbound lead`,
     actionRecommendation: 'Send personalized consultative welcome & ask 1 qualifying question',
     theme: 'amber',
@@ -458,7 +458,7 @@ function FollowupSchedulerPopover({
               </label>
               {friendlyPreview && (
                 <span className="text-[10px] text-emerald-600 font-semibold truncate max-w-[150px]">
-                  ✓ {friendlyPreview}
+                  {friendlyPreview}
                 </span>
               )}
             </div>

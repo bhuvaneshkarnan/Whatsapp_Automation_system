@@ -576,22 +576,22 @@ function getDisplayMessageBody(msg: {
 }): string {
   const b = msg.body;
   const tName = msg.template_name;
-  if (tName && (!b || b.startsWith('[Template:') || b.startsWith('📋 [Template:'))) {
+  if (tName && (!b || b.startsWith('[Template:') || b.startsWith('Template:'))) {
     const expanded = expandKnownTemplate(tName, msg.template_params);
     if (expanded) return expanded;
-    return `📋 Template: ${tName.replace(/_/g, ' ')}`;
+    return `Template: ${tName.replace(/_/g, ' ')}`;
   }
   if (b && b.trim()) {
     return b;
   }
   const ct = msg.content_type;
-  if (ct === 'image') return '📷 [Photo]';
-  if (ct === 'video') return '🎥 [Video]';
-  if (ct === 'document') return '📄 [Document]';
-  if (ct === 'audio') return '🎵 [Audio]';
-  if (ct === 'sticker') return '🏷️ [Sticker]';
-  if (ct === 'location') return '📍 [Location]';
-  if (tName) return `📋 Template: ${tName.replace(/_/g, ' ')}`;
+  if (ct === 'image') return '[Photo]';
+  if (ct === 'video') return '[Video]';
+  if (ct === 'document') return '[Document]';
+  if (ct === 'audio') return '[Audio]';
+  if (ct === 'sticker') return '[Sticker]';
+  if (ct === 'location') return '[Location]';
+  if (tName) return `Template: ${tName.replace(/_/g, ' ')}`;
   return '[Message]';
 }
 
@@ -9885,7 +9885,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-surface-subtle/60 border border-border/50">
                     <span className="w-5 h-5 rounded-full bg-accent text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">2</span>
                     <p className="leading-snug">
-                      Scroll down and tap <strong className="text-text-primary font-semibold">"Add to Home Screen"</strong> <span className="inline-block px-1 py-0.5 rounded bg-surface border border-border text-[11px]">➕</span>.
+                      Scroll down and tap <strong className="text-text-primary font-semibold">"Add to Home Screen"</strong> <span className="inline-block px-1.5 py-0.5 rounded bg-surface border border-border text-[11px] font-bold">+</span>.
                     </p>
                   </div>
 
@@ -19334,7 +19334,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                         {/* How it works */}
                         <div className="p-3 bg-amber-50/60 border border-amber-100 rounded-md text-xs text-amber-900 space-y-1">
-                          <p className="font-bold text-amber-800 flex items-center gap-1.5"><span>⚡</span> How it works</p>
+                          <p className="font-bold text-amber-800 flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-amber-600 inline shrink-0" /> How it works</p>
                           <ul className="list-disc list-inside space-y-0.5 text-amber-800">
                             <li>Your phone detects a missed call and triggers MacroDroid or iPhone Shortcuts.</li>
                             <li>It sends an HTTP request to the webhook URL below with the caller's number.</li>
@@ -19432,7 +19432,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <details className="group">
                           <summary className="cursor-pointer list-none flex items-center justify-between p-3 bg-surface-subtle/60 border border-border rounded-md text-xs font-semibold text-text-primary hover:bg-surface-subtle transition-colors">
                             <span className="flex items-center gap-2">
-                              <span>📱</span>
+                              <Smartphone className="w-3.5 h-3.5 text-text-muted" />
                               <span>Setup Guide: Android MacroDroid & iPhone Shortcuts</span>
                             </span>
                             <ChevronDown className="w-4 h-4 text-text-muted group-open:rotate-180 transition-transform" />
@@ -19441,7 +19441,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                             {/* Android */}
                             <div>
-                              <p className="font-bold text-text-primary mb-1.5 flex items-center gap-1.5"><span>🤖</span> Android — MacroDroid</p>
+                              <p className="font-bold text-text-primary mb-1.5 flex items-center gap-1.5">Android — MacroDroid</p>
                               <ol className="list-decimal list-inside space-y-1.5 text-text-secondary">
                                 <li>Open <strong>MacroDroid</strong> → tap <strong>+ Add Macro</strong>.</li>
                                 <li><strong>Trigger:</strong> Phone Call → Missed Call (select &quot;Any number&quot; or a specific number).</li>
@@ -19459,7 +19459,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                             {/* iPhone */}
                             <div>
-                              <p className="font-bold text-text-primary mb-1.5 flex items-center gap-1.5"><span>🍎</span> iPhone — Shortcuts Automation</p>
+                              <p className="font-bold text-text-primary mb-1.5 flex items-center gap-1.5">iPhone — Shortcuts Automation</p>
                               <ol className="list-decimal list-inside space-y-1.5 text-text-secondary">
                                 <li>Open <strong>Shortcuts</strong> app → tap <strong>Automation</strong> tab → <strong>+</strong> → <strong>Create Personal Automation</strong>.</li>
                                 <li>Choose <strong>Phone</strong> → select <strong>Call Ends</strong> (choose &quot;Incoming Call&quot; if available, or all calls).</li>
@@ -19500,12 +19500,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   const data = await res.json();
                                   if (resultEl) {
                                     resultEl.textContent = res.ok
-                                      ? `✅ Success — WhatsApp ${data.whatsapp_sent ? 'sent' : 'not sent'} to ${data.caller_phone || phone}. Template: ${data.template_used || '—'}`
-                                      : `❌ Error ${res.status}: ${data.detail || JSON.stringify(data)}`;
+                                      ? `Success — WhatsApp ${data.whatsapp_sent ? 'sent' : 'not sent'} to ${data.caller_phone || phone}. Template: ${data.template_used || '—'}`
+                                      : `Error ${res.status}: ${data.detail || JSON.stringify(data)}`;
                                     resultEl.className = `text-xs mt-1 ${res.ok ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium'}`;
                                   }
                                 } catch (err: any) {
-                                  if (resultEl) { resultEl.textContent = `❌ Network error: ${err.message}`; resultEl.className = 'text-xs mt-1 text-rose-600 font-medium'; }
+                                  if (resultEl) { resultEl.textContent = `Network error: ${err.message}`; resultEl.className = 'text-xs mt-1 text-rose-600 font-medium'; }
                                 }
                               }}
                               className="shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -19734,7 +19734,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <details className="group border border-border/70 rounded-md bg-surface p-3.5 text-xs">
                           <summary className="cursor-pointer font-medium text-text-muted hover:text-text-primary flex items-center justify-between select-none">
                             <span className="flex items-center gap-1.5">
-                              <span>⚙️ Advanced: Custom Google Cloud Project (Optional)</span>
+                              <SlidersHorizontal className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
+                              <span>Advanced: Custom Google Cloud Project (Optional)</span>
                             </span>
                             <span className="text-[10px] text-text-muted group-open:rotate-180 transition-transform">▼</span>
                           </summary>
@@ -20025,7 +20026,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <div className="text-xs text-blue-900 dark:text-blue-200 space-y-0.5">
                             <p className="font-semibold">Automatic Website Form Lead Attribution</p>
                             <p className="text-[11px] leading-relaxed opacity-90">
-                              Every patient booking via this embed form is automatically tracked in your CRM with <span className="font-semibold font-mono bg-blue-100 dark:bg-blue-900/60 px-1 py-0.2 rounded text-blue-800 dark:text-blue-300">source: "{embedSource || 'website_form'}"</span>, marked with a <span className="font-semibold">🌐 Website Form</span> badge, and logged on the customer activity timeline.
+                              Every patient booking via this embed form is automatically tracked in your CRM with <span className="font-semibold font-mono bg-blue-100 dark:bg-blue-900/60 px-1 py-0.2 rounded text-blue-800 dark:text-blue-300">source: "{embedSource || 'website_form'}"</span>, marked with a <span className="font-semibold">Website Form</span> badge, and logged on the customer activity timeline.
                             </p>
                           </div>
                         </div>
@@ -20189,7 +20190,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       : 'text-slate-400 hover:text-slate-200'
                                   }`}
                                 >
-                                  ✨ Dynamic Auto-Fit (Zero Empty Space)
+                                  Dynamic Auto-Fit (Zero Empty Space)
                                 </button>
                                 <button
                                   type="button"
@@ -24553,8 +24554,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       <QrStandeeModal
         isOpen={qrStandeeModalOpen}
         onClose={() => setQrStandeeModalOpen(false)}
-        tenantName={settingsForm.name || user?.tenant_name || 'Our Business'}
-        tenantSlug={settingsForm.slug || user?.tenant_slug || (slug as string) || 'review'}
+        tenantName={settingsForm.name || (user as any)?.tenant_name || 'Our Business'}
+        tenantSlug={settingsForm.slug || (user as any)?.tenant_slug || 'review'}
         gmbReviewUrl={settingsForm.gmb_review_url || settingsForm.google_review_link}
         customDomain={settingsForm.custom_domain || (typeof window !== 'undefined' ? window.location.hostname : '')}
       />
@@ -24586,7 +24587,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-2xl">📱</span>
+                  <Smartphone className="w-6 h-6 text-emerald-700 shrink-0" />
                   <div>
                     <p className="text-sm font-bold text-emerald-800">1-Click WhatsApp Connect</p>
                     <p className="text-xs text-emerald-700">Sign in with your Meta Business account — no copy-pasting keys.</p>
@@ -24603,18 +24604,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 <div className="flex flex-wrap gap-3 text-[11px] text-emerald-800">
                   {whatsappHealth.phone_number_id && (
                     <span className="bg-white border border-emerald-200 rounded px-2 py-1 font-mono">
-                      📞 {whatsappHealth.phone_number_id}
+                      Phone ID: {whatsappHealth.phone_number_id}
                     </span>
                   )}
                   {whatsappHealth.waba_id && (
                     <span className="bg-white border border-emerald-200 rounded px-2 py-1 font-mono">
-                      🏢 {whatsappHealth.waba_id}
+                      WABA ID: {whatsappHealth.waba_id}
                     </span>
                   )}
                 </div>
               )}
               <WhatsAppEmbeddedSignupButton
-                label={whatsappHealth?.is_configured ? '🔄 Reconnect via Meta' : '🚀 Connect WhatsApp via Meta'}
+                label={whatsappHealth?.is_configured ? 'Reconnect via Meta' : 'Connect WhatsApp via Meta'}
                 onSuccess={async (_data) => {
                   await loadWhatsAppHealth(true);
                   await loadSettings();
@@ -24643,8 +24644,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {/* ── Advanced accordion ───────────────────────────────── */}
             <details className="group rounded-lg border border-border bg-surface-subtle">
               <summary className="flex items-center justify-between px-4 py-3 cursor-pointer select-none text-xs font-semibold text-text-secondary hover:text-text-primary list-none">
-                <span>⚙️ Advanced: Manual Credential Entry</span>
-                <span className="transition-transform group-open:rotate-180 text-text-muted text-base leading-none">▾</span>
+                <span>Advanced: Manual Credential Entry</span>
+                <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180 text-text-muted" />
               </summary>
               <div className="px-4 pb-4 pt-1">
                 <form onSubmit={handleSaveWhatsAppCredentials} className="space-y-4 text-xs">
@@ -24683,9 +24684,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         Permanent System User Access Token {!whatsappHealth?.is_configured && <span className="text-rose-500">*</span>}
                       </label>
                       {whatsappHealth?.is_connected && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                          ✓ Current Token Active
+                          Current Token Active
                         </span>
                       )}
                     </div>
