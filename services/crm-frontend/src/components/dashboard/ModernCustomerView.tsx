@@ -2104,15 +2104,6 @@ export function ModernCustomerView({
                           <td className="py-2 pl-2 pr-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                             <div className="flex flex-col items-end gap-1">
                               <div className="flex items-center gap-1 justify-end">
-                                <button
-                                  type="button"
-                                  onClick={() => onOpenChat(cust)}
-                                  className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold rounded-sm border border-emerald-200 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                                  title="Open live WhatsApp chat in popup"
-                                >
-                                  <WhatsAppIcon className="w-3 h-3 text-[#25D366]" />
-                                  <span>Chat</span>
-                                </button>
                                 {cust.phone && (
                                   <a
                                     href={`tel:${cust.phone}`}
