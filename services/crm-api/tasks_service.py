@@ -1,6 +1,4 @@
 import os
-
-import os
 import re
 import csv
 import io
@@ -12,13 +10,7 @@ import hashlib
 import html
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Union
-
-import json
-import uuid
-import asyncio
 import structlog
-from typing import Optional, Dict, Any
-from datetime import datetime
 import asyncpg
 
 logger = structlog.get_logger('crm-api-tasks')
@@ -295,7 +287,7 @@ async def check_and_notify_due_tasks():
                 tenant_id = str(r["tenant_id"])
                 slug = r["tenant_slug"] or "boldlabs"
                 cust_name = r["customer_name"] or "Customer"
-                title = f"⏰ Follow-up Due: {r['title']}"
+                title = f"Follow-up Due: {r['title']}"
                 body = f"Scheduled follow-up for {cust_name} is due now. Click to review."
                 target_url = f"/{slug}#follow-ups"
 
@@ -319,8 +311,8 @@ async def check_and_notify_due_tasks():
                     logger.warning("due_task_push_failed", task_id=task_id, error=str(push_err))
 
                 await conn.execute(
-                    "UPDATE tasks SET notified_due = true, updated_at = now() WHERE id = $1::uuid",
-                    r["id"]
+                    "UPDATE tasks SET notified_due = true, updated_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                    r["id"], r["tenant_id"]
                 )
                 logger.info("due_task_notification_dispatched", task_id=task_id, title=r["title"])
     except Exception as ex:

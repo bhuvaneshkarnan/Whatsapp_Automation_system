@@ -279,8 +279,8 @@ async def execute_marketing_broadcast(
                     await upd_conn.execute(
                         """UPDATE marketing_campaigns
                            SET status = 'completed', sent_count = $1
-                           WHERE id = $2::uuid""",
-                        success_count, c_id
+                           WHERE id = $2::uuid AND tenant_id = $3::uuid""",
+                        success_count, c_id, t_id
                     )
             except Exception as ue:
                 logger.error("broadcast_stats_update_failed", campaign_id=c_id, error=str(ue))

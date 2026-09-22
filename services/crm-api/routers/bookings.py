@@ -188,7 +188,7 @@ async def create_booking(
         if contact_row:
             contact_id = str(contact_row["id"])
             if payload.contact_name and (not contact_row["name"] or contact_row["name"] != clean_name):
-                await conn.execute("UPDATE contacts SET name = $1 WHERE id = $2::uuid", clean_name, contact_id)
+                await conn.execute("UPDATE contacts SET name = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid", clean_name, contact_id, tenant_id)
         else:
             contact_id = str(uuid.uuid4())
             await conn.execute(
@@ -271,8 +271,8 @@ async def create_booking(
                     """UPDATE bookings
                        SET service = $1, start_time = $2, end_time = $3, notes = $4, price = $5,
                            staff_member = $6, updated_at = NOW()
-                       WHERE id = $7::uuid""",
-                    payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0), staff, booking_id
+                       WHERE id = $7::uuid AND tenant_id = $8::uuid""",
+                    payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0), staff, booking_id, tenant_id
                 )
             else:
                 await conn.execute(
@@ -305,8 +305,8 @@ async def create_booking(
                            lead_probability = 'hot', 
                            preferred_doctor = COALESCE(preferred_doctor, $2),
                            updated_at = now() 
-                       WHERE id = $3::uuid""",
-                    clean_name, staff, str(existing_cust["id"])
+                       WHERE id = $3::uuid AND tenant_id = $4::uuid""",
+                    clean_name, staff, str(existing_cust["id"]), tenant_id
                 )
         except Exception as e_cust_link:
             logger.warning("booking_customer_auto_link_warn", error=str(e_cust_link))
@@ -703,8 +703,8 @@ async def update_booking_status(
         # 1. Handle Cancellation
         if payload.status == "cancelled":
             await conn.execute(
-                "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND status = 'pending'",
-                booking_id
+                "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND status = 'pending'",
+                booking_id, tenant_id
             )
             if booking.get("google_event_id"):
                 try:
@@ -736,7 +736,7 @@ async def update_booking_status(
                             # Direct Gmail API Cancellation Email to Admin & Customer
                             admin_notif_email = g_data.get("notification_email") or t_settings_dict.get("notification_email")
                             customer_email = ""
-                            c_meta = await conn.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid", booking["contact_id"])
+                            c_meta = await conn.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid", booking["contact_id"], tenant_id)
                             if c_meta:
                                 if isinstance(c_meta, str):
                                     try: c_meta = json.loads(c_meta)
@@ -781,15 +781,15 @@ async def update_booking_status(
                     await conn.execute(
                         """UPDATE scheduled_jobs
                            SET scheduled_at = $1, status = 'pending'
-                           WHERE booking_id = $2::uuid AND job_type = 'reminder'""",
-                        new_reminder_time, booking_id
+                           WHERE booking_id = $2::uuid AND tenant_id = $3::uuid AND job_type = 'reminder'""",
+                        new_reminder_time, booking_id, tenant_id
                     )
                     new_admin_reminder_time = booking["start_time"] - timedelta(minutes=30)
                     await conn.execute(
                         """UPDATE scheduled_jobs
                            SET scheduled_at = $1, status = 'pending'
-                           WHERE booking_id = $2::uuid AND job_type = 'admin_reminder'""",
-                        new_admin_reminder_time, booking_id
+                           WHERE booking_id = $2::uuid AND tenant_id = $3::uuid AND job_type = 'admin_reminder'""",
+                        new_admin_reminder_time, booking_id, tenant_id
                     )
                     # Reset reminder_sent_at so the fallback _process_appointment_reminders
                     # can also fire at the new appointment time if the scheduled_jobs path misses.
@@ -848,17 +848,17 @@ async def update_booking_status(
                                 ins_req = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all")
                                 event = await asyncio.to_thread(lambda: ins_req.execute())
                                 if event and event.get("id"):
-                                    await conn.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid", event["id"], booking_id)
+                                    await conn.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid", event["id"], booking_id, tenant_id)
                         else:
                             ins_req = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all")
                             event = await asyncio.to_thread(lambda: ins_req.execute())
                             if event and event.get("id"):
-                                await conn.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid", event["id"], booking_id)
+                                await conn.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid", event["id"], booking_id, tenant_id)
 
                         # Fetch customer & admin emails for direct Gmail notifications
                         admin_notif_email = g_data.get("notification_email") or t_settings_dict.get("notification_email")
                         customer_email = ""
-                        c_meta = await conn.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid", booking["contact_id"])
+                        c_meta = await conn.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid", booking["contact_id"], tenant_id)
                         if c_meta:
                             if isinstance(c_meta, str):
                                 try: c_meta = json.loads(c_meta)
@@ -997,7 +997,7 @@ async def update_booking_status(
                     dispatch_template = str(t_review_tpl).strip()
                     dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", smart_review_url]
                     # Update review_sent_at timestamp immediately to avoid race conditions
-                    await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid", booking_id)
+                    await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", booking_id, tenant_id)
 
                     # Cancel any pending scheduled_jobs for review_request for this booking since we are sending it now
                     await conn.execute(
@@ -1009,7 +1009,7 @@ async def update_booking_status(
                     try:
                         c_email = customer_email
                         if not c_email and booking.get("contact_id"):
-                            c_email = await conn.fetchval("SELECT metadata->>'email' FROM contacts WHERE id = $1::uuid", booking["contact_id"])
+                            c_email = await conn.fetchval("SELECT metadata->>'email' FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid", booking["contact_id"], tenant_id)
                         c_email = sanitize_and_fix_email(c_email)
                         if c_email and "@" in c_email:
                             gcal_row = await conn.fetchrow(

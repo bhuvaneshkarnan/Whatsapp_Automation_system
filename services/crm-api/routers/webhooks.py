@@ -667,7 +667,7 @@ async def handle_missed_call_webhook(
                    VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'template', $5, $6, $7::jsonb, 'sent', false)""",
                 msg_id, conv_id, tenant_id, tpl_wamid, fallback_msg, tpl_name, json.dumps(tpl_params)
             )
-            await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+            await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
             logger.info("missed_call_wa_dispatched", tenant=tenant_slug, to=wa_phone, template=tpl_name)
 
         return {

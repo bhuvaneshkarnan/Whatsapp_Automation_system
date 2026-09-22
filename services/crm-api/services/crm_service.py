@@ -506,8 +506,8 @@ async def create_google_calendar_event(
         event_id = event.get("id") if event else None
         if event_id:
             await conn.execute(
-                "UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid",
-                event_id, booking_id
+                "UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                event_id, booking_id, tenant_id
             )
             logger.info("google_calendar_event_created", event_id=event_id, booking_id=booking_id, source=source)
 

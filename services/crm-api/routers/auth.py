@@ -1970,8 +1970,8 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
         else:
             contact_id = str(contact["id"])
             await conn.execute(
-                """UPDATE contacts SET name = $1, metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('source', $2::text), updated_at = now() WHERE id = $3::uuid""",
-                clean_name, booking_source, contact_id
+                """UPDATE contacts SET name = $1, metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('source', $2::text), updated_at = now() WHERE id = $3::uuid AND tenant_id = $4::uuid""",
+                clean_name, booking_source, contact_id, tenant_id
             )
 
         # 2. Get or create conversation
@@ -2105,8 +2105,8 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                            source = COALESCE(customers.source, $4),
                            metadata = COALESCE(customers.metadata, '{}'::jsonb) || jsonb_build_object('last_booking_source', $4::text),
                            updated_at = now() 
-                       WHERE id = $5::uuid""",
-                    clean_name, health_concern_str, staff, booking_source, cust_id
+                       WHERE id = $5::uuid AND tenant_id = $6::uuid""",
+                    clean_name, health_concern_str, staff, booking_source, cust_id, tenant_id
                 )
 
             # Record customer timeline activity note

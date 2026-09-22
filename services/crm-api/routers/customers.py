@@ -1646,7 +1646,7 @@ async def merge_customers(
                     VALUES ($1::uuid, $2::uuid, $3, $4, $5, '{}'::jsonb)
                     ON CONFLICT (tenant_id, phone) DO NOTHING
                 """, p_contact_id, tenant_id, p_phone, primary["name"], primary.get("internal_name"))
-                primary_contact = await conn.fetchrow("SELECT id, metadata FROM contacts WHERE id = $1::uuid", p_contact_id)
+                primary_contact = await conn.fetchrow("SELECT id, metadata FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid", p_contact_id, tenant_id)
             
             p_contact_id = str(primary_contact["id"])
 
@@ -2851,8 +2851,8 @@ async def toggle_task_completion(
 
         new_status = not row["completed"]
         await conn.execute(
-            "UPDATE tasks SET completed = $1, updated_at = now() WHERE id = $2::uuid",
-            new_status, task_id
+            "UPDATE tasks SET completed = $1, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
+            new_status, task_id, tenant_id
         )
     return {"status": "ok", "id": task_id, "completed": new_status}
 
