@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import {
   Calendar as CalendarIcon,
@@ -97,15 +97,49 @@ export default function BookingClient() {
     }
   }, []);
 
-  // Dispatch postMessage for host websites (auto-resize iframe height)
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Dispatch postMessage for host websites (auto-resize iframe height to eliminate white space)
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+    if (typeof window === 'undefined') return;
+    const isIframe = window.self !== window.top;
+    if (!isIframe && !isEmbedded) return;
+
+    const dispatchHeight = () => {
       try {
-        const height = document.body.scrollHeight || document.documentElement.scrollHeight;
-        window.parent.postMessage({ type: 'CRM_FRAME_RESIZE', height: height + 24 }, '*');
+        const el = containerRef.current || document.body;
+        const rect = el.getBoundingClientRect();
+        const contentHeight = Math.ceil(rect.height || el.offsetHeight);
+        if (contentHeight > 50 && window.parent) {
+          window.parent.postMessage(
+            {
+              type: 'CRM_FRAME_RESIZE',
+              height: contentHeight + (hideHeader ? 14 : 24),
+            },
+            '*'
+          );
+        }
       } catch (_) {}
+    };
+
+    dispatchHeight();
+    const t1 = setTimeout(dispatchHeight, 50);
+    const t2 = setTimeout(dispatchHeight, 180);
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      observer = new ResizeObserver(() => {
+        dispatchHeight();
+      });
+      observer.observe(containerRef.current);
     }
-  }, [currentStep, layoutMode, selectedConcerns, selectedDate, bookingSuccess, formError]);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      if (observer) observer.disconnect();
+    };
+  }, [currentStep, layoutMode, selectedConcerns, selectedDate, bookingSuccess, formError, info, isEmbedded, hideHeader]);
 
   // Load clinic/tenant public info
   useEffect(() => {
@@ -298,7 +332,7 @@ export default function BookingClient() {
     const waChatUrl = `https://wa.me/${cleanBot}?text=Hello%20${encodeURIComponent(info.name)}%2C%20I%20have%20booked%20an%20appointment%20for%20${encodeURIComponent(bookingSuccess.health_concern)}%20on%20${encodeURIComponent(bookingSuccess.appointment_date)}%20at%20${encodeURIComponent(bookingSuccess.appointment_time)}.%20Reference%3A%20${encodeURIComponent(bookingSuccess.booking_id.slice(0, 8))}`;
 
     return (
-      <div className="min-h-screen bg-canvas text-text-body flex flex-col font-sans">
+      <div className={`bg-canvas text-text-body flex flex-col font-sans ${isEmbedded ? 'min-h-0' : 'min-h-screen'}`}>
         {/* Minimal Header */}
         {!isEmbedded && !hideHeader && (
           <header className="h-12 px-4 sm:px-8 border-b border-border bg-surface flex items-center justify-between shrink-0">
@@ -317,8 +351,8 @@ export default function BookingClient() {
           </header>
         )}
 
-        <div className="flex-1 flex items-center justify-center p-3 sm:p-6">
-          <div className="w-full max-w-lg bg-surface border border-border rounded-xl p-5 sm:p-7 shadow-sm space-y-4">
+        <div className={`${isEmbedded ? 'p-1 sm:p-2' : 'flex-1 flex items-center justify-center p-3 sm:p-6'}`}>
+          <div ref={containerRef} className="w-full max-w-lg bg-surface border border-border rounded-xl p-5 sm:p-7 shadow-sm space-y-4">
             {/* Header check icon */}
             <div className="text-center space-y-1.5">
               <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto ring-4 ring-emerald-50">
@@ -396,7 +430,7 @@ export default function BookingClient() {
 
   // ── Booking Intake Screen ─────────────────────────────────────────────────
   return (
-    <div className={`bg-canvas text-text-body font-sans flex flex-col ${isEmbedded ? 'p-1 sm:p-2' : 'min-h-screen'}`}>
+    <div className={`bg-canvas text-text-body font-sans flex flex-col ${isEmbedded ? 'min-h-0 p-0' : 'min-h-screen'}`}>
       
       {/* ── Top Header Navigation Bar (Hidden when embedded in website or hideHeader=true) ── */}
       {!isEmbedded && !hideHeader && (
@@ -424,8 +458,8 @@ export default function BookingClient() {
       )}
 
       {/* ── Main Intake Form Container ── */}
-      <div className={`flex-1 ${isEmbedded ? 'py-1 px-1' : 'py-4 sm:py-6 px-2 sm:px-4'}`}>
-        <div className="max-w-xl mx-auto space-y-3">
+      <div className={`${isEmbedded ? 'py-1 px-1' : 'flex-1 py-4 sm:py-6 px-2 sm:px-4'}`}>
+        <div ref={containerRef} className="max-w-xl mx-auto space-y-3">
           
           {/* Clinic Information Compact Banner (Can be hidden via ?hide_header=true for website contact section) */}
           {!hideHeader && (

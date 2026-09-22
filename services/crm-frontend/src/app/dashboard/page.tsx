@@ -1751,6 +1751,20 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [embedCopied, setEmbedCopied] = useState(false);
   const [embedLinkCopied, setEmbedLinkCopied] = useState(false);
   const [embedPreviewDevice, setEmbedPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
+  const [embedIncludeScript, setEmbedIncludeScript] = useState(true);
+  const [embedPreviewHeight, setEmbedPreviewHeight] = useState(380);
+
+  useEffect(() => {
+    const handleFrameResize = (e: MessageEvent) => {
+      if (e.data && e.data.type === 'CRM_FRAME_RESIZE' && typeof e.data.height === 'number') {
+        setEmbedPreviewHeight(Math.max(320, e.data.height));
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('message', handleFrameResize);
+      return () => window.removeEventListener('message', handleFrameResize);
+    }
+  }, []);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentTxnRef, setPaymentTxnRef] = useState('');
   const [submittingPaymentProof, setSubmittingPaymentProof] = useState(false);
@@ -19945,13 +19959,33 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     const currentSlug = settingsForm.slug || (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') || 'tenant';
                     const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://crm.goboldlabs.com';
                     const bookingUrl = `${baseUrl}/${currentSlug}/book?mode=${embedLayout}&source=${encodeURIComponent(embedSource || 'website_form')}${embedHideHeader ? '&hide_header=true' : ''}`;
-                    const iframeSnippet = `<!-- Boldlabs CRM Appointment Booking Form Embed -->
+                    const iframeSnippet = embedIncludeScript
+                      ? `<!-- Boldlabs CRM Appointment Booking Form Embed (Dynamic Auto-Fit, Zero Empty Space) -->
+<iframe
+  id="crm-booking-widget"
+  src="${bookingUrl}"
+  width="100%"
+  height="${embedLayout === 'steps' ? '380' : '680'}"
+  frameborder="0"
+  style="border: none; border-radius: 12px; max-width: 580px; width: 100%; transition: height 0.25s ease;"
+  title="Book Appointment"
+  loading="lazy"
+></iframe>
+<script>
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'CRM_FRAME_RESIZE') {
+      var f = document.getElementById('crm-booking-widget');
+      if (f && e.data.height) f.style.height = e.data.height + 'px';
+    }
+  });
+</script>`
+                      : `<!-- Boldlabs CRM Appointment Booking Form Embed -->
 <iframe
   src="${bookingUrl}"
   width="100%"
-  height="${embedLayout === 'steps' ? '620' : '720'}"
+  height="${embedLayout === 'steps' ? '390' : '680'}"
   frameborder="0"
-  style="border: none; border-radius: 12px; max-width: 620px; width: 100%; min-height: 580px; box-shadow: 0 4px 20px rgba(0,0,0,0.06);"
+  style="border: none; border-radius: 12px; max-width: 580px; width: 100%;"
   title="Book Appointment"
   loading="lazy"
 ></iframe>`;
@@ -20120,8 +20154,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </label>
 
                           {/* HTML iFrame Snippet Box */}
-                          <div className="p-4 bg-slate-900 text-slate-100 rounded-xl space-y-2 border border-slate-800 shadow-sm">
-                            <div className="flex items-center justify-between">
+                          <div className="p-4 bg-slate-900 text-slate-100 rounded-xl space-y-3 border border-slate-800 shadow-sm">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-800">
                               <span className="text-xs font-mono font-semibold text-slate-300 flex items-center gap-1.5">
                                 <Code className="w-3.5 h-3.5 text-emerald-400" />
                                 <span>HTML iFrame Embed Code (Paste in your Contact Section)</span>
@@ -20135,19 +20169,56 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     setTimeout(() => setEmbedCopied(false), 2500);
                                   }
                                 }}
-                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
                               >
                                 {embedCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                                 <span>{embedCopied ? 'Copied Code!' : 'Copy Embed Code'}</span>
                               </button>
                             </div>
 
+                            {/* Embed Variant Toggle: Auto-fit vs Pure HTML */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] text-slate-400 font-medium">Embed Type:</span>
+                              <div className="inline-flex p-0.5 bg-slate-950 rounded-lg border border-slate-800">
+                                <button
+                                  type="button"
+                                  onClick={() => setEmbedIncludeScript(true)}
+                                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors cursor-pointer ${
+                                    embedIncludeScript
+                                      ? 'bg-emerald-700 text-white shadow-xs'
+                                      : 'text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  ✨ Dynamic Auto-Fit (Zero Empty Space)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEmbedIncludeScript(false)}
+                                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors cursor-pointer ${
+                                    !embedIncludeScript
+                                      ? 'bg-emerald-700 text-white shadow-xs'
+                                      : 'text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  Simple HTML Only
+                                </button>
+                              </div>
+                            </div>
+
                             <pre className="p-3 bg-slate-950 rounded-lg text-[11px] font-mono overflow-x-auto text-emerald-300/90 whitespace-pre-wrap leading-relaxed border border-slate-800">
                               {iframeSnippet}
                             </pre>
 
-                            <p className="text-[10px] text-slate-400 pt-1">
-                              <strong>How to install:</strong> In WordPress, Webflow, Shopify, Squarespace, or Wix, add a "Custom HTML" or "Embed" block to your contact page and paste this snippet.
+                            <p className="text-[10px] text-slate-400 pt-1 leading-relaxed">
+                              {embedIncludeScript ? (
+                                <>
+                                  <strong className="text-emerald-400">Zero Empty White Space:</strong> The included 4-line script automatically hugs the exact height of Step 1, Step 2, and Step 3, eliminating all bottom blank space on your website.
+                                </>
+                              ) : (
+                                <>
+                                  <strong className="text-slate-300">Simple iFrame:</strong> Standard embed without JavaScript. Compact default height to minimize blank space.
+                                </>
+                              )}
                             </p>
                           </div>
 
@@ -20237,7 +20308,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 key={`${embedLayout}-${embedHideHeader}-${embedSource}`}
                                 src={bookingUrl}
                                 width="100%"
-                                height="600"
+                                height={embedPreviewHeight}
+                                style={{ height: `${embedPreviewHeight}px`, transition: 'height 0.25s ease' }}
                                 className="w-full border-0"
                                 title="Website Form Preview"
                               />
