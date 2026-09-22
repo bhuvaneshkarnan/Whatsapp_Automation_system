@@ -44,6 +44,7 @@ import {
   ShoppingCart,
   DollarSign,
   Sparkles,
+  FileText,
 } from 'lucide-react';
 import { Customer, FollowupTask, CrmDropdownOptions, DuplicateCustomerGroup, crm as api } from '@/lib/api';
 
@@ -342,6 +343,41 @@ export function getAiSalesSnapshot(cust: Customer): AiSalesSnapshotData {
     icon: 'sparkles',
     isEcommerce: false,
   };
+}
+
+/**
+ * Concise summary of what the customer is actually looking for + overall small details,
+ * displayed directly in the Notes cell.
+ */
+export function getCustomerInquiryNote(cust: Customer): string | null {
+  // 1. If AI summary exists, clean up robotic prefixes to extract core intent
+  if (cust.ai_summary && cust.ai_summary.trim()) {
+    let s = cust.ai_summary.trim();
+    s = s.replace(/^(Ready to close|High intent|Inquiring about|Price inquiry on|Inactive \/ price objection):\s*/i, '');
+    s = s.replace(/\s*•\s*(Call to confirm|Call immediately|pitch value\/ROI|Consultative closer recommended|Re-engage later with special offer)$/i, '');
+    if (s.length > 0) return s;
+  }
+
+  // 2. Health concern or service inquiry
+  const concern = cust.health_concern && cust.health_concern !== 'General Consultation'
+    ? cust.health_concern
+    : (cust.last_visit_service || cust.primary_concerns?.[0] || null);
+
+  const parts: string[] = [];
+  if (concern) {
+    parts.push(concern);
+  }
+  if (cust.preferred_doctor && !concern?.toLowerCase().includes(cust.preferred_doctor.toLowerCase())) {
+    parts.push(`Dr. ${cust.preferred_doctor.replace(/^Dr\.?\s*/i, '')}`);
+  }
+  if (cust.location) {
+    parts.push(cust.location);
+  }
+  if (cust.next_action) {
+    parts.push(cust.next_action);
+  }
+
+  return parts.length > 0 ? parts.join(' • ') : null;
 }
 
 // Clean Minimalist Shopify-Style Follow-up Scheduler Popover with Direct Typing
@@ -1681,7 +1717,7 @@ export function ModernCustomerView({
                 <thead className="bg-surface-subtle/80 border-b border-border text-text-secondary font-semibold text-[10.5px] uppercase tracking-wider sticky top-0 z-10 select-none">
                   <tr>
                     <th className="py-2.5 pl-3 pr-2 min-w-[170px]">Client / Contact</th>
-                    <th className="py-2.5 px-2 min-w-[130px] max-w-[190px]">Notes</th>
+                    <th className="py-2.5 px-2 min-w-[150px] max-w-[220px]">Notes & Inquiry</th>
                     <th className="py-2.5 px-2 min-w-[130px]">Status</th>
                     <th className="py-2.5 px-2 min-w-[110px]">Service / Inquiry</th>
                     <th className="py-2.5 px-2 min-w-[100px]">Assigned To</th>
@@ -1834,83 +1870,83 @@ export function ModernCustomerView({
                                     <span>{lastAct.label}</span>
                                   </span>
                                 </div>
-
-                                {/* AI Sales Snapshot ("Cheat Sheet" for Sales Reps) */}
-                                {(() => {
-                                  const snap = getAiSalesSnapshot(cust);
-                                  const dealVal = getEffectiveDealValue(cust);
-                                  const themePill = {
-                                    rose: 'bg-rose-50/90 text-rose-800 border-rose-200/90 dark:bg-rose-950/40 dark:text-rose-200 dark:border-rose-800',
-                                    amber: 'bg-amber-50/90 text-amber-800 border-amber-200/90 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800',
-                                    emerald: 'bg-emerald-50/90 text-emerald-800 border-emerald-200/90 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-800',
-                                    indigo: 'bg-indigo-50/90 text-indigo-800 border-indigo-200/90 dark:bg-indigo-950/40 dark:text-indigo-200 dark:border-indigo-800',
-                                    sky: 'bg-sky-50/90 text-sky-800 border-sky-200/90 dark:bg-sky-950/40 dark:text-sky-200 dark:border-sky-800',
-                                    slate: 'bg-slate-50 text-slate-700 border-slate-200/90 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-800',
-                                  }[snap.theme];
-
-                                  return (
-                                    <div className="mt-1.5 flex items-center gap-1.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
-                                      {dealVal > 0 && (
-                                        <span
-                                          className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.2 rounded-xs font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 shrink-0 shadow-2xs"
-                                          title={`Potential Deal / Cart Value: ${formatINR(dealVal)}`}
-                                        >
-                                          {formatINR(dealVal)}
-                                        </span>
-                                      )}
-                                      <div
-                                        className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-xs border text-[9.5px] max-w-[260px] sm:max-w-[340px] truncate shadow-2xs ${themePill}`}
-                                        title={`AI Sales Cheat Sheet:\n${snap.headline}\n\nRecommended Action:\n${snap.actionRecommendation}`}
-                                      >
-                                        <span className="font-bold shrink-0">{snap.badge}:</span>
-                                        <span className="truncate font-medium">{snap.headline}</span>
-                                      </div>
-                                    </div>
-                                  );
-                                })()}
                               </div>
                             </div>
                           </td>
 
-                          {/* 2. Notes (Visible right next to Client / Contact!) */}
-                          <td className="py-2 px-2 max-w-[190px]" onClick={(e) => e.stopPropagation()}>
-                            {cust.latest_note ? (
-                              <div
-                                onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
-                                className="group/note flex items-start gap-1 p-1 px-1.5 rounded bg-amber-50/90 hover:bg-amber-100/90 border border-amber-200/90 cursor-pointer transition-all text-[10.5px] text-amber-950 shadow-2xs"
-                                title="Click to view or edit this note"
-                              >
-                                <StickyNote className="w-2.5 h-2.5 text-amber-600 mt-0.5 shrink-0 stroke-[1.8]" />
-                                <div className="min-w-0 flex-1">
-                                  <p className="line-clamp-2 italic font-normal leading-snug break-words">
-                                    "{cust.latest_note}"
-                                  </p>
-                                </div>
-                                {onDeleteLatestNote && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onDeleteLatestNote(cust);
-                                    }}
-                                    className="opacity-0 group-hover/note:opacity-100 text-text-muted hover:text-rose-600 p-0.5 transition-opacity shrink-0 cursor-pointer"
-                                    title="Delete note"
+                          {/* 2. Notes & Inquiry Context */}
+                          <td className="py-2 px-2 min-w-[150px] max-w-[220px]" onClick={(e) => e.stopPropagation()}>
+                            {(() => {
+                              const inquiryNote = getCustomerInquiryNote(cust);
+                              const hasManualNote = Boolean(cust.latest_note);
+
+                              if (hasManualNote) {
+                                return (
+                                  <div className="space-y-1">
+                                    <div
+                                      onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
+                                      className="group/note flex items-start gap-1 p-1 px-1.5 rounded bg-amber-50/90 hover:bg-amber-100/90 border border-amber-200/90 cursor-pointer transition-all text-[10.5px] text-amber-950 shadow-2xs"
+                                      title="Click to view or edit staff note"
+                                    >
+                                      <StickyNote className="w-2.5 h-2.5 text-amber-600 mt-0.5 shrink-0 stroke-[1.8]" />
+                                      <div className="min-w-0 flex-1">
+                                        <p className="line-clamp-2 italic font-normal leading-snug break-words">
+                                          "{cust.latest_note}"
+                                        </p>
+                                      </div>
+                                      {onDeleteLatestNote && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            onDeleteLatestNote(cust);
+                                          }}
+                                          className="opacity-0 group-hover/note:opacity-100 text-text-muted hover:text-rose-600 p-0.5 transition-opacity shrink-0 cursor-pointer"
+                                          title="Delete note"
+                                        >
+                                          <Trash2 className="w-2.5 h-2.5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                    {inquiryNote && inquiryNote.toLowerCase() !== cust.latest_note?.toLowerCase() && (
+                                      <p className="text-[9.5px] text-text-muted truncate px-0.5 font-medium" title={`Customer inquiry: ${inquiryNote}`}>
+                                        <span className="text-text-secondary font-semibold">Looking for:</span> {inquiryNote}
+                                      </p>
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              if (inquiryNote) {
+                                return (
+                                  <div
+                                    onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
+                                    className="group/note flex items-start gap-1.5 p-1 px-1.5 rounded bg-surface-subtle hover:bg-surface border border-border/80 cursor-pointer transition-all text-[10px] text-text-secondary shadow-2xs hover:border-accent/50"
+                                    title={`What customer is looking for: ${inquiryNote}. Click to add staff note`}
                                   >
-                                    <Trash2 className="w-2.5 h-2.5" />
-                                  </button>
-                                )}
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
-                                className="text-[10px] text-text-muted hover:text-accent font-medium flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-border hover:border-accent transition-colors cursor-pointer"
-                                title="Add note"
-                              >
-                                <Plus className="w-2.5 h-2.5" />
-                                <span>Note</span>
-                              </button>
-                            )}
+                                    <FileText className="w-2.5 h-2.5 text-text-muted group-hover/note:text-accent mt-0.5 shrink-0 stroke-[1.8]" />
+                                    <div className="min-w-0 flex-1">
+                                      <p className="line-clamp-2 leading-snug font-medium text-text-primary group-hover/note:text-accent transition-colors">
+                                        {inquiryNote}
+                                      </p>
+                                    </div>
+                                    <Plus className="w-2.5 h-2.5 text-text-muted opacity-0 group-hover/note:opacity-100 mt-0.5 shrink-0" />
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
+                                  className="text-[10px] text-text-muted hover:text-accent font-medium flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-border hover:border-accent transition-colors cursor-pointer"
+                                  title="Add note"
+                                >
+                                  <Plus className="w-2.5 h-2.5" />
+                                  <span>Note</span>
+                                </button>
+                              );
+                            })()}
                           </td>
 
                           {/* 3. Status Dropdown - Single Universal Business Stages */}
@@ -2409,27 +2445,6 @@ export function ModernCustomerView({
                               </div>
                             </div>
 
-                            {/* AI Sales Snapshot ("Cheat Sheet" for Reps) */}
-                            {aiSnapshot && (
-                              <div
-                                className="px-2 py-1 bg-gradient-to-r from-purple-50/90 via-indigo-50/80 to-blue-50/70 dark:from-purple-950/40 dark:via-indigo-950/40 dark:to-blue-950/30 border border-purple-200/70 dark:border-purple-800/40 rounded-xs flex items-start gap-1.5 shadow-2xs"
-                                title={`AI Sales Cheat Sheet:\n${aiSnapshot.headline}\n\nRecommended Action:\n${aiSnapshot.actionRecommendation}`}
-                              >
-                                <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5 animate-pulse" />
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[7.5px] font-extrabold uppercase tracking-wider text-purple-700 dark:text-purple-300 font-mono">
-                                      AI Sales Snapshot
-                                    </span>
-                                  </div>
-                                  <p className="text-[9.5px] font-medium text-purple-950 dark:text-purple-100 leading-tight mt-0.5 line-clamp-2">
-                                    <span className="font-bold mr-1">{aiSnapshot.badge}:</span>
-                                    <span>{aiSnapshot.headline}</span>
-                                  </p>
-                                </div>
-                              </div>
-                            )}
-
                             {/* Service / Inquiry tag */}
                             {(cust.health_concern || cust.last_visit_service) && (
                               <p className="text-[9px] text-text-secondary bg-surface-subtle px-1.5 py-0.5 rounded-xs border border-border/50 truncate font-medium block">
@@ -2437,12 +2452,25 @@ export function ModernCustomerView({
                               </p>
                             )}
 
-                            {/* Inline Note Snippet */}
-                            {cust.latest_note && (
-                              <div className="px-1.5 py-1 rounded-xs bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 text-amber-950 dark:text-amber-200 text-[9.5px] leading-snug line-clamp-2 italic">
-                                "{cust.latest_note}"
-                              </div>
-                            )}
+                            {/* Inline Note or Inquiry Snippet */}
+                            {(() => {
+                              const inq = getCustomerInquiryNote(cust);
+                              if (cust.latest_note) {
+                                return (
+                                  <div className="px-1.5 py-1 rounded-xs bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 text-amber-950 dark:text-amber-200 text-[9.5px] leading-snug line-clamp-2 italic">
+                                    "{cust.latest_note}"
+                                  </div>
+                                );
+                              }
+                              if (inq && inq !== cust.health_concern && inq !== cust.last_visit_service) {
+                                return (
+                                  <div className="px-1.5 py-1 rounded-xs bg-surface-subtle border border-border/60 text-text-secondary text-[9px] leading-snug line-clamp-2">
+                                    <span className="font-semibold text-text-primary">Note:</span> {inq}
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()}
 
                             {/* Card Footer: Follow-up & Chat Button */}
                             <div
