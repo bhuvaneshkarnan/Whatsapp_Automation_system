@@ -39,3 +39,10 @@ Thumbs.db
 backups/
 *.sql
 *.sql.gz
+
+# Scratch & Archive
+archive/scratch_scripts/
+scratch/
+_next/
+boldlabs/
+frontend_dist/
