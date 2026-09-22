@@ -2319,10 +2319,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [activeCalendarPopover, setActiveCalendarPopover] = useState<{ customerId: string } | null>(null);
   const [activeTimePopover, setActiveTimePopover] = useState<{ customerId: string } | null>(null);
   const [calViewDate, setCalViewDate] = useState<Date>(() => new Date());
-  const [quickNoteCustomer, setQuickNoteCustomer] = useState<{ customerId: string; name: string; noteId?: string | null } | null>(null);
+  const [quickNoteCustomer, setQuickNoteCustomer] = useState<{
+    customerId: string;
+    name: string;
+    phone?: string | null;
+    noteId?: string | null;
+    ai_summary?: string | null;
+    health_concern?: string | null;
+  } | null>(null);
   const [quickNoteText, setQuickNoteText] = useState('');
   const [quickNoteColor, setQuickNoteColor] = useState('slate');
   const [savingQuickNote, setSavingQuickNote] = useState(false);
+  const [summarizingChat, setSummarizingChat] = useState(false);
 
   // ── CRM Dropdown Options Manager Modal ──────────────────────────────────────
   const [dropdownOptionsModalOpen, setDropdownOptionsModalOpen] = useState(false);
@@ -5174,22 +5182,40 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (!quickNoteCustomer || !quickNoteText.trim()) return;
     setSavingQuickNote(true);
     try {
-      await crm.addCustomerNote(quickNoteCustomer.customerId, {
-        author: 'Staff',
-        note_text: quickNoteText.trim(),
-        color: quickNoteColor,
-      });
+      if (quickNoteCustomer.noteId) {
+        try {
+          await crm.updateCustomerNote(quickNoteCustomer.customerId, quickNoteCustomer.noteId, {
+            author: 'Staff',
+            note_text: quickNoteText.trim(),
+            color: quickNoteColor,
+          });
+        } catch {
+          // If update endpoint fails (e.g. older backend), add note
+          await crm.addCustomerNote(quickNoteCustomer.customerId, {
+            author: 'Staff',
+            note_text: quickNoteText.trim(),
+            color: quickNoteColor,
+          });
+        }
+      } else {
+        await crm.addCustomerNote(quickNoteCustomer.customerId, {
+          author: 'Staff',
+          note_text: quickNoteText.trim(),
+          color: quickNoteColor,
+        });
+      }
+
       setCustomers((prev) =>
         prev.map((c) =>
           c.id === quickNoteCustomer.customerId
-            ? { ...c, notes_count: (c.notes_count || 0) + 1, latest_note: quickNoteText.trim(), latest_note_color: quickNoteColor }
+            ? { ...c, notes_count: (c.notes_count || 0) + (quickNoteCustomer.noteId ? 0 : 1), latest_note: quickNoteText.trim(), latest_note_color: quickNoteColor }
             : c
         )
       );
       if (selectedCustomer && selectedCustomer.id === quickNoteCustomer.customerId) {
         setSelectedCustomer((prev) =>
           prev
-            ? { ...prev, notes_count: (prev.notes_count || 0) + 1, latest_note: quickNoteText.trim(), latest_note_color: quickNoteColor }
+            ? { ...prev, notes_count: (prev.notes_count || 0) + (quickNoteCustomer.noteId ? 0 : 1), latest_note: quickNoteText.trim(), latest_note_color: quickNoteColor }
             : null
         );
         crm.getCustomerNotes(quickNoteCustomer.customerId).then((nts) => {
@@ -5205,6 +5231,41 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       alert('Failed to save note.');
     } finally {
       setSavingQuickNote(false);
+    }
+  };
+
+  const handleSummarizeCustomerChat = async (customerId: string) => {
+    setSummarizingChat(true);
+    try {
+      const res = await crm.summarizeCustomerChat(customerId);
+      if (res && res.summary) {
+        setCustomers((prev) =>
+          prev.map((c) =>
+            c.id === customerId ? { ...c, ai_summary: res.summary } : c
+          )
+        );
+        if (selectedCustomer && selectedCustomer.id === customerId) {
+          setSelectedCustomer((prev) => (prev ? { ...prev, ai_summary: res.summary } : null));
+          crm.getCustomerNotes(customerId).then((nts) => {
+            if (Array.isArray(nts)) setCustomerNotes(nts);
+          }).catch(() => {});
+        }
+        if (quickNoteCustomer && quickNoteCustomer.customerId === customerId) {
+          setQuickNoteCustomer((prev) => (prev ? { ...prev, ai_summary: res.summary } : null));
+          if (!quickNoteText.trim()) {
+            setQuickNoteText(res.summary);
+          }
+        }
+        setActionNotice('WhatsApp chat summary updated.');
+        setTimeout(() => setActionNotice(null), 2500);
+      } else {
+        alert(res?.message || 'No chat messages found to summarize.');
+      }
+    } catch (err: any) {
+      console.error('Failed to summarize chat:', err);
+      alert('Unable to summarize chat right now.');
+    } finally {
+      setSummarizingChat(false);
     }
   };
 
@@ -8754,6 +8815,31 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </span>
               </button>
             </div>
+
+            {/* WhatsApp Chat Summary */}
+            {selectedCustomer.ai_summary && (
+              <div className="p-2.5 rounded-sm bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-800/60 text-xs space-y-1">
+                <div className="flex items-center justify-between font-semibold text-[10.5px] text-blue-700 dark:text-blue-300">
+                  <div className="flex items-center gap-1.5">
+                    <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                    <span>WhatsApp Chat Summary</span>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={summarizingChat}
+                    onClick={() => handleSummarizeCustomerChat(selectedCustomer.id)}
+                    className="text-[10px] text-blue-600 hover:text-blue-800 dark:text-blue-300 font-medium flex items-center gap-0.5 cursor-pointer disabled:opacity-50"
+                    title="Re-analyze and refresh WhatsApp chat summary"
+                  >
+                    <Sparkles className="w-2.5 h-2.5" />
+                    <span>{summarizingChat ? 'Refreshing...' : 'Refresh'}</span>
+                  </button>
+                </div>
+                <p className="italic text-text-secondary text-[11px] leading-relaxed">
+                  "{selectedCustomer.ai_summary}"
+                </p>
+              </div>
+            )}
 
             {/* 3. Notes History & Add Note */}
             <div className="space-y-2 border-t border-border pt-3">
@@ -14649,11 +14735,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   onAddTask={() => setShowAddTaskModal(true)}
                   onToggleTask={handleToggleTask}
                   onDeleteTask={handleDeleteTask}
-                  onOpenQuickNote={(cust) => {
+                  onOpenQuickNote={(cust: any) => {
                     setQuickNoteCustomer({
                       customerId: cust.id,
                       name: cust.name || 'Customer',
-                      noteId: cust.latest_note_id,
+                      phone: cust.phone || null,
+                      noteId: cust.latest_note_id || null,
+                      ai_summary: cust.ai_summary || null,
+                      health_concern: cust.health_concern || null,
                     });
                     setQuickNoteText(cust.latest_note || '');
                     setQuickNoteColor((cust.latest_note_color || 'slate').toLowerCase());
@@ -14926,23 +15015,72 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <div className="flex items-center justify-between pb-2 border-b border-border">
                     <div className="flex items-center gap-2">
                       <StickyNote className={`w-4 h-4 transition-colors ${getNoteBadgeStyle(quickNoteColor).icon}`} />
-                      <h3 className="text-xs font-bold text-text-primary">Note for {quickNoteCustomer.name}</h3>
+                      <div>
+                        <h3 className="text-xs font-bold text-text-primary">Note for {quickNoteCustomer.name}</h3>
+                        {quickNoteCustomer.phone && (
+                          <span className="text-[10px] text-text-muted font-mono">{quickNoteCustomer.phone}</span>
+                        )}
+                      </div>
                     </div>
-                    <button
-                      onClick={() => setQuickNoteCustomer(null)}
-                      className="text-text-muted hover:text-text-primary p-1 rounded-md hover:bg-surface-subtle"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={summarizingChat}
+                        onClick={() => handleSummarizeCustomerChat(quickNoteCustomer.customerId)}
+                        className="px-2 py-1 text-[10px] bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 font-medium rounded border border-blue-200 dark:border-blue-800 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        title="Summarize what happened in this customer's WhatsApp chat"
+                      >
+                        <Sparkles className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
+                        <span>{summarizingChat ? 'Summarizing...' : 'Summarize Chat'}</span>
+                      </button>
+                      <button
+                        onClick={() => setQuickNoteCustomer(null)}
+                        className="text-text-muted hover:text-text-primary p-1 rounded-md hover:bg-surface-subtle cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
+                  {/* WhatsApp Chat Summary Preview Card */}
+                  {quickNoteCustomer.ai_summary && (
+                    <div className="p-2.5 rounded-md bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-800/60 text-xs space-y-1">
+                      <div className="flex items-center justify-between font-semibold text-[10.5px] text-blue-700 dark:text-blue-300">
+                        <div className="flex items-center gap-1.5">
+                          <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                          <span>WhatsApp Chat Summary</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setQuickNoteText(quickNoteCustomer.ai_summary || '')}
+                          className="text-[10px] text-blue-600 hover:text-blue-800 dark:text-blue-300 font-semibold underline cursor-pointer"
+                          title="Copy chat summary to note input below"
+                        >
+                          Copy to note
+                        </button>
+                      </div>
+                      <p className="italic text-text-secondary text-[11px] leading-relaxed">
+                        "{quickNoteCustomer.ai_summary}"
+                      </p>
+                    </div>
+                  )}
+
                   <div>
-                    <label className="text-[10px] text-text-muted font-medium block mb-1">Note Content</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] text-text-muted font-medium block">
+                        {quickNoteCustomer.noteId ? 'Edit Staff Note' : 'Staff Note'}
+                      </label>
+                      {quickNoteCustomer.health_concern && (
+                        <span className="text-[9.5px] text-text-muted">
+                          Service: <span className="font-semibold text-text-secondary">{quickNoteCustomer.health_concern}</span>
+                        </span>
+                      )}
+                    </div>
                     <textarea
                       rows={3}
                       value={quickNoteText}
                       onChange={(e) => setQuickNoteText(e.target.value)}
-                      placeholder="e.g. Needs consultation on lower back pain. Free after 4 PM."
+                      placeholder={quickNoteCustomer.ai_summary ? "Add staff note or click 'Copy to note' above..." : "e.g. Free after 4 PM. Wants to confirm booking on Friday."}
                       className="w-full px-3 py-2 text-xs bg-surface-subtle border border-border rounded-md text-text-primary focus:outline-none focus:ring-1 focus:ring-accent resize-none placeholder:text-text-muted"
                       autoFocus
                     />
@@ -14990,7 +15128,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setQuickNoteCustomer(null)}
-                        className="px-3 py-1 text-xs font-medium text-text-secondary hover:text-text-primary rounded-md hover:bg-surface-subtle"
+                        className="px-3 py-1 text-xs font-medium text-text-secondary hover:text-text-primary rounded-md hover:bg-surface-subtle cursor-pointer"
                       >
                         Cancel
                       </button>

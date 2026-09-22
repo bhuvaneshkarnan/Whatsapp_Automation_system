@@ -4083,19 +4083,23 @@ class CoreWorker:
                 dynamic_params.append(followup_time)
                 idx += 1
 
-            # 3b. Synthesize AI Sales Snapshot ("Cheat Sheet" for Sales Reps)
+            # 3b. Synthesize Clean, Natural Customer Chat Note
             ai_snapshot = None
             if booking_action or status == "converted":
                 svc = (booking_action.get("service") if isinstance(booking_action, dict) else None) or extracted_concern or "Consultation"
-                ai_snapshot = f"Ready to close: {svc} booked/scheduled • Call to confirm"
-            elif lead_prob == "hot":
-                ai_snapshot = f"High intent: Wants demo / consultation for {extracted_concern or 'service'} • Call immediately"
+                ai_snapshot = f"Booked {svc} appointment via WhatsApp."
+            elif any(kw in full_text for kw in ["call me", "please call", "call back", "talk to doctor", "speak with"]):
+                ai_snapshot = f"Requested callback regarding {extracted_concern or 'services'}."
             elif any(kw in full_text for kw in ["cost", "price", "fee", "fees", "how much", "charges"]):
-                ai_snapshot = f"Price inquiry on {extracted_concern or 'service'} • Hesitant on pricing, pitch value/ROI"
+                ai_snapshot = f"Inquired about pricing and details for {extracted_concern or 'services'}."
             elif extracted_concern:
-                ai_snapshot = f"Inquiring about {extracted_concern} • Consultative closer recommended"
+                ai_snapshot = f"Inquired about {extracted_concern} via WhatsApp."
+            elif lead_prob == "hot":
+                ai_snapshot = f"High intent: Interested in {extracted_concern or 'services'}."
             elif status == "lost" or lead_prob == "cold":
-                ai_snapshot = "Inactive / price objection • Re-engage later with special offer"
+                ai_snapshot = "Expressed price objection / not interested currently."
+            elif message_text and 5 <= len(message_text.strip()) <= 80:
+                ai_snapshot = f"Customer asked: {message_text.strip()}"
 
             if ai_snapshot:
                 updates.append(f"ai_summary = ${idx}")
@@ -4130,7 +4134,38 @@ class CoreWorker:
                   )
             """
             await self.db_pool.execute(query, *params)
-            logger.info("lead_analyzed_and_updated", phone=phone, lead_prob=lead_prob, status=status, concern=extracted_concern)
+            logger.info("lead_analyzed_and_updated", phone=phone, lead_prob=lead_prob, status=status, concern=extracted_concern, ai_note=ai_snapshot)
+
+            # 3d. Store clean AI chat summary into customer_notes (debounced to once every 30 mins)
+            if ai_snapshot:
+                try:
+                    recent_note = await self.db_pool.fetchval(
+                        """SELECT id FROM customer_notes
+                           WHERE tenant_id = $1::uuid
+                             AND customer_id = (
+                                 SELECT id FROM customers WHERE tenant_id = $1::uuid AND (
+                                     phone = $2 OR phone = ('+' || $2) OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $3
+                                 ) LIMIT 1
+                             )
+                             AND author = 'AI Chat Summary'
+                             AND created_at > (NOW() - INTERVAL '30 minutes')
+                           LIMIT 1""",
+                        tenant_id, phone, last10
+                    )
+                    if not recent_note:
+                        await self.db_pool.execute(
+                            """INSERT INTO customer_notes (id, tenant_id, customer_id, author, note_text, color, created_at)
+                               SELECT gen_random_uuid(), $1::uuid, c.id, 'AI Chat Summary', $4, 'blue', now()
+                               FROM customers c
+                               WHERE c.tenant_id = $1::uuid
+                                 AND (
+                                     c.phone = $2 OR c.phone = ('+' || $2) OR RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10) = $3
+                                 )
+                               LIMIT 1""",
+                            tenant_id, phone, last10, ai_snapshot
+                        )
+                except Exception as e_note:
+                    logger.warning("ai_chat_note_insert_failed", error=str(e_note))
 
             if extracted_concern:
                 try:

@@ -1295,9 +1295,20 @@ getCustomerStats: async (filters?: {
       method: 'DELETE',
     }),
 
+  updateCustomerNote: (customerId: string, noteId: string, data: { author?: string; note_text: string; color?: string }) =>
+    request<{ status: string; id: string; note_text: string; color: string }>(`/api/v1/crm/customers/${customerId}/notes/${noteId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
   deleteLatestCustomerNote: (customerId: string) =>
     request<{ status: string; customer_id: string; deleted_note_id?: string }>(`/api/v1/crm/customers/${customerId}/latest-note`, {
       method: 'DELETE',
+    }),
+
+  summarizeCustomerChat: (customerId: string) =>
+    request<{ status: string; summary: string | null; note_id?: string; message?: string }>(`/api/v1/crm/customers/${customerId}/summarize-chat`, {
+      method: 'POST',
     }),
 
   getCustomerChat: async (customerId: string): Promise<CustomerChatHistory | null> => {

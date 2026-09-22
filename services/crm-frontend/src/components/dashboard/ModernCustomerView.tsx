@@ -350,7 +350,7 @@ export function getAiSalesSnapshot(cust: Customer): AiSalesSnapshotData {
  * displayed directly in the Notes cell.
  */
 export function getCustomerInquiryNote(cust: Customer): string | null {
-  // 1. If AI summary exists, clean up robotic prefixes to extract core intent
+  // 1. If AI chat summary exists, clean up any robotic prefixes to extract core intent
   if (cust.ai_summary && cust.ai_summary.trim()) {
     let s = cust.ai_summary.trim();
     s = s.replace(/^(Ready to close|High intent|Inquiring about|Price inquiry on|Inactive \/ price objection):\s*/i, '');
@@ -358,26 +358,19 @@ export function getCustomerInquiryNote(cust: Customer): string | null {
     if (s.length > 0) return s;
   }
 
-  // 2. Health concern or service inquiry
+  // 2. Specific service inquiry (if distinct from General Consultation)
   const concern = cust.health_concern && cust.health_concern !== 'General Consultation'
     ? cust.health_concern
     : (cust.last_visit_service || cust.primary_concerns?.[0] || null);
 
-  const parts: string[] = [];
   if (concern) {
-    parts.push(concern);
-  }
-  if (cust.preferred_doctor && !concern?.toLowerCase().includes(cust.preferred_doctor.toLowerCase())) {
-    parts.push(`Dr. ${cust.preferred_doctor.replace(/^Dr\.?\s*/i, '')}`);
-  }
-  if (cust.location) {
-    parts.push(cust.location);
-  }
-  if (cust.next_action) {
-    parts.push(cust.next_action);
+    if (cust.preferred_doctor && !concern.toLowerCase().includes(cust.preferred_doctor.toLowerCase())) {
+      return `${concern} (Dr. ${cust.preferred_doctor.replace(/^Dr\.?\s*/i, '')})`;
+    }
+    return concern;
   }
 
-  return parts.length > 0 ? parts.join(' • ') : null;
+  return null;
 }
 
 // Clean Minimalist Shopify-Style Follow-up Scheduler Popover with Direct Typing
@@ -739,7 +732,7 @@ interface ModernCustomerViewProps {
   onAddTask?: () => void;
   onToggleTask?: (taskId: string) => void;
   onDeleteTask?: (taskId: string) => void;
-  onOpenQuickNote?: (cust: { id: string; name?: string | null; latest_note?: string | null; latest_note_id?: string | null; latest_note_color?: string | null }) => void;
+  onOpenQuickNote?: (cust: Customer | { id: string; name?: string | null; latest_note?: string | null; latest_note_id?: string | null; latest_note_color?: string | null; ai_summary?: string | null; health_concern?: string | null; phone?: string | null }) => void;
   onDeleteLatestNote?: (cust: { id: string; name?: string | null; latest_note_id?: string | null }) => void;
   onOpenMergeModal?: (cust: Customer, initialSecondaryId?: string | null) => void;
 }
@@ -1888,6 +1881,7 @@ export function ModernCustomerView({
                             {(() => {
                               const inquiryNote = getCustomerInquiryNote(cust);
                               const hasManualNote = Boolean(cust.latest_note);
+                              const hasAiSummary = Boolean(cust.ai_summary && cust.ai_summary.trim());
 
                               if (hasManualNote) {
                                 return (
@@ -1917,11 +1911,30 @@ export function ModernCustomerView({
                                         </button>
                                       )}
                                     </div>
-                                    {inquiryNote && inquiryNote.toLowerCase() !== cust.latest_note?.toLowerCase() && (
-                                      <p className="text-[9.5px] text-text-muted truncate px-0.5 font-medium" title={`Customer inquiry: ${inquiryNote}`}>
-                                        <span className="text-text-secondary font-semibold">Looking for:</span> {inquiryNote}
+                                    {hasAiSummary && cust.ai_summary?.trim().toLowerCase() !== cust.latest_note?.trim().toLowerCase() && (
+                                      <p className="text-[9.5px] text-blue-700 dark:text-blue-400 truncate px-0.5 font-medium flex items-center gap-1" title={`WhatsApp Chat: ${cust.ai_summary}`}>
+                                        <MessageSquare className="w-2.5 h-2.5 text-blue-500 shrink-0" />
+                                        <span className="truncate italic">"{cust.ai_summary}"</span>
                                       </p>
                                     )}
+                                  </div>
+                                );
+                              }
+
+                              if (hasAiSummary) {
+                                return (
+                                  <div
+                                    onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
+                                    className="group/note flex items-start gap-1.5 p-1 px-1.5 rounded bg-blue-50/90 hover:bg-blue-100/90 border border-blue-200/90 cursor-pointer transition-all text-[10px] text-blue-950 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-200 shadow-2xs"
+                                    title={`WhatsApp Chat Summary: ${cust.ai_summary}. Click to view or add staff note`}
+                                  >
+                                    <MessageSquare className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0 stroke-[1.8]" />
+                                    <div className="min-w-0 flex-1">
+                                      <p className="line-clamp-2 italic leading-snug font-normal">
+                                        "{cust.ai_summary}"
+                                      </p>
+                                    </div>
+                                    <Plus className="w-2.5 h-2.5 text-blue-500 opacity-0 group-hover/note:opacity-100 mt-0.5 shrink-0" />
                                   </div>
                                 );
                               }
@@ -1931,12 +1944,12 @@ export function ModernCustomerView({
                                   <div
                                     onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
                                     className="group/note flex items-start gap-1.5 p-1 px-1.5 rounded bg-surface-subtle hover:bg-surface border border-border/80 cursor-pointer transition-all text-[10px] text-text-secondary shadow-2xs hover:border-accent/50"
-                                    title={`What customer is looking for: ${inquiryNote}. Click to add staff note`}
+                                    title={`Inquiry: ${inquiryNote}. Click to add staff note`}
                                   >
                                     <FileText className="w-2.5 h-2.5 text-text-muted group-hover/note:text-accent mt-0.5 shrink-0 stroke-[1.8]" />
                                     <div className="min-w-0 flex-1">
                                       <p className="line-clamp-2 leading-snug font-medium text-text-primary group-hover/note:text-accent transition-colors">
-                                        {inquiryNote}
+                                        Inquiry: {inquiryNote}
                                       </p>
                                     </div>
                                     <Plus className="w-2.5 h-2.5 text-text-muted opacity-0 group-hover/note:opacity-100 mt-0.5 shrink-0" />

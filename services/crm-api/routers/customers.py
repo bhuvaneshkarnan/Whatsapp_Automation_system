@@ -2146,6 +2146,151 @@ async def delete_customer_latest_note(
     return {"status": "success", "customer_id": customer_id, "deleted_note_id": str(latest_id) if latest_id else None}
 
 
+@router.put("/customers/{customer_id}/notes/{note_id}")
+@router.put("/api/v1/crm/customers/{customer_id}/notes/{note_id}")
+@router.put("/notes/{note_id}")
+@router.put("/api/v1/crm/notes/{note_id}")
+async def update_customer_note(
+    note_id: str,
+    payload: CustomerNotePayload,
+    customer_id: Optional[str] = None,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Update an existing customer note."""
+    if not payload.note_text.strip():
+        raise HTTPException(400, "Note text cannot be empty.")
+    note_color = (payload.color or "slate").lower().strip()
+    async with database.db_pool.acquire() as conn:
+        res = await conn.execute(
+            """UPDATE customer_notes
+               SET note_text = $1, color = $2, author = COALESCE($3, author)
+               WHERE id = $4::uuid AND tenant_id = $5::uuid""",
+            payload.note_text.strip(), note_color, payload.author or "Staff", note_id, tenant_id
+        )
+        if customer_id:
+            await conn.execute(
+                """UPDATE customers SET notes = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid""",
+                payload.note_text.strip(), customer_id, tenant_id
+            )
+    return {"status": "ok", "id": note_id, "note_text": payload.note_text.strip(), "color": note_color}
+
+
+@router.post("/customers/{customer_id}/summarize-chat")
+@router.post("/api/v1/crm/customers/{customer_id}/summarize-chat")
+async def summarize_customer_chat(
+    customer_id: str,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Summarize what went on in WhatsApp chats into a clean, simple note for staff."""
+    async with database.db_pool.acquire() as conn:
+        cust = await conn.fetchrow(
+            "SELECT phone, name, health_concern FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            customer_id, tenant_id
+        )
+        if not cust:
+            raise HTTPException(404, "Customer not found")
+
+        phone = cust["phone"].replace("+", "").replace(" ", "").replace("-", "").strip()
+
+        conv = await conn.fetchrow(
+            """SELECT c.id
+               FROM conversations c
+               JOIN contacts ct ON c.contact_id = ct.id AND ct.tenant_id = c.tenant_id
+               WHERE c.tenant_id = $2::uuid
+                 AND (
+                   ct.phone = $1 
+                   OR REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g') = $1
+                   OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT($1, 10)
+                 )
+               ORDER BY c.last_message_at DESC NULLS LAST LIMIT 1""",
+            phone, tenant_id
+        )
+
+        if not conv:
+            return {"status": "ok", "summary": None, "message": "No conversation found for this customer."}
+
+        msg_rows = await conn.fetch(
+            """SELECT direction, body, content_type, template_name, created_at
+               FROM messages
+               WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid
+               ORDER BY created_at DESC LIMIT 15""",
+            conv["id"], tenant_id
+        )
+
+        if not msg_rows:
+            return {"status": "ok", "summary": None, "message": "No chat messages found to summarize."}
+
+        msgs = list(reversed(msg_rows))
+        dialogue = []
+        customer_last_query = ""
+        for m in msgs:
+            role = "Customer" if m["direction"] == "inbound" else "Assistant"
+            text = (m["body"] or "").strip()
+            if not text:
+                if m.get("template_name"): text = f"Sent template {m['template_name']}"
+                elif m.get("content_type"): text = f"Shared {m['content_type']}"
+            if text:
+                dialogue.append(f"{role}: {text}")
+                if role == "Customer":
+                    customer_last_query = text
+
+        conversation_str = "\n".join(dialogue)
+
+        summary = None
+        gemini_key_row = await conn.fetchrow(
+            "SELECT api_key FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'gemini' AND is_active = true",
+            tenant_id
+        )
+        gkey = (gemini_key_row["api_key"] if gemini_key_row else None) or os.getenv("GEMINI_API_KEY")
+
+        if gkey and len(dialogue) >= 1:
+            try:
+                import httpx
+                prompt = (
+                    "You are a CRM assistant. In 1 concise sentence (under 15 words, plain English, no robotic tags or jargon), "
+                    "summarize what the customer discussed, inquired about, or requested in this WhatsApp chat. "
+                    "Example: 'Inquired about WhatsApp automation pricing and requested callback.'\n\n"
+                    f"Chat Conversation:\n{conversation_str}\n\nConcise 1-sentence note:"
+                )
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    resp = await client.post(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gkey}",
+                        json={"contents": [{"parts": [{"text": prompt}]}]}
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        raw_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+                        if raw_text:
+                            summary = raw_text.replace('"', '').replace('\n', ' ').strip()
+            except Exception as e_ai:
+                logger.warning("gemini_chat_summary_failed", error=str(e_ai))
+
+        if not summary:
+            concern = cust.get("health_concern")
+            if customer_last_query and len(customer_last_query) < 80:
+                summary = f"Customer inquired: {customer_last_query}"
+            elif concern and concern != "General Consultation":
+                summary = f"Inquired about {concern} via WhatsApp."
+            else:
+                summary = "Active conversation on WhatsApp regarding services."
+
+        # Update customer ai_summary
+        await conn.execute(
+            "UPDATE customers SET ai_summary = $1, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
+            summary, customer_id, tenant_id
+        )
+
+        # Record in customer_notes
+        note_id = str(uuid.uuid4())
+        await conn.execute(
+            """INSERT INTO customer_notes (id, tenant_id, customer_id, author, note_text, color, created_at)
+               VALUES ($1::uuid, $2::uuid, $3::uuid, 'AI Chat Summary', $4, 'blue', now())""",
+            note_id, tenant_id, customer_id, summary
+        )
+
+        return {"status": "ok", "summary": summary, "note_id": note_id}
+
+
 @router.get("/customers/{customer_id}/chat")
 @router.get("/api/v1/crm/customers/{customer_id}/chat")
 async def get_customer_chat_history(
