@@ -34,16 +34,12 @@ db_pool: asyncpg.Pool = None
 try:
     import crm_api.main as crm_mod
     import auth_service.main as auth_mod
-    import booking_service.main as booking_mod
-    import calendar_sync.main as calendar_mod
     from core_worker.main import worker as core_worker, app as worker_app
 
     crm_app = crm_mod.app
     auth_app = auth_mod.app
-    booking_app = booking_mod.app
-    calendar_app = calendar_mod.app
 
-    for sub in (crm_app, auth_app, booking_app, calendar_app):
+    for sub in (crm_app, auth_app):
         sub.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
@@ -75,8 +71,6 @@ except Exception as _al_err:
 app.mount("/api/v1/crm", crm_app)
 app.mount("/api/v1/marketing", crm_app)
 app.mount("/api/v1/auth", auth_app)
-app.mount("/api/v1/bookings", booking_app)
-app.mount("/api/v1/calendar", calendar_app)
 app.mount("/api/v1/worker", worker_app)
 
 @app.on_event("startup")
@@ -116,8 +110,6 @@ async def startup():
         if 'database' in k:
             logger.info('module_debug', key=k, pool=getattr(v, 'db_pool', 'missing'))
     auth_mod.db_pool = db_pool
-    booking_mod.db_pool = db_pool
-    calendar_mod.db_pool = db_pool
 
     # Ensure database migrations and customer sync
     try:
