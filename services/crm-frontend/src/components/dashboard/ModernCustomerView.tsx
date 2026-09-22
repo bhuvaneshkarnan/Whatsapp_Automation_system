@@ -2132,17 +2132,7 @@ export function ModernCustomerView({
                                   <User className="w-3 h-3 stroke-[1.5]" />
                                   <span>Details</span>
                                 </button>
-                                {onOpenMergeModal && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onOpenMergeModal(cust)}
-                                    className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 text-[11px] font-semibold rounded-sm border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                                    title="Merge this profile with a duplicate"
-                                  >
-                                    <GitMerge className="w-3 h-3 stroke-[2]" />
-                                    <span>Merge</span>
-                                  </button>
-                                )}
+
                               </div>
                               <div
                                 className="text-[9px] text-text-muted font-mono flex items-center justify-end gap-1"
@@ -2538,22 +2528,7 @@ export function ModernCustomerView({
                                   <WhatsAppIcon className="w-2.5 h-2.5 text-[#25D366]" />
                                   <span>Chat</span>
                                 </button>
-                                {onOpenMergeModal && (
-                                  <button
-                                    type="button"
-                                    draggable={false}
-                                    onDragStart={(e) => e.stopPropagation()}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onOpenMergeModal(cust);
-                                    }}
-                                    className="px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 font-semibold rounded-xs border border-indigo-200 dark:border-indigo-800 transition-colors flex items-center gap-0.5 shadow-2xs text-[9.5px] cursor-pointer"
-                                    title="Merge this profile with a duplicate"
-                                  >
-                                    <GitMerge className="w-2.5 h-2.5 stroke-[2]" />
-                                    <span>Merge</span>
-                                  </button>
-                                )}
+
                               </div>
 
                               {/* Popover inside Kanban card */}
