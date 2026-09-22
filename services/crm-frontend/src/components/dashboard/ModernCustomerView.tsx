@@ -2355,11 +2355,9 @@ export function ModernCustomerView({
                               setDragOverStage(null);
                             }}
                             onClick={() => onSelectCustomer(cust)}
-                            className={`p-2.5 bg-surface dark:bg-surface border-2 rounded-md shadow-xs hover:shadow-md ${col.cardHover} transition-all cursor-grab active:cursor-grabbing select-none space-y-2 ${
-                              isSelected
-                                ? 'border-accent ring-2 ring-accent/20'
-                                : 'border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-500'
-                            } ${isDragging ? 'opacity-40 border-dashed border-accent' : ''}`}
+                            className={`p-2.5 bg-surface dark:bg-surface border-2 border-black dark:border-white rounded-md shadow-sm hover:shadow-md transition-all cursor-grab active:cursor-grabbing select-none space-y-2 ${
+                              isSelected ? 'ring-2 ring-accent ring-offset-1' : ''
+                            } ${isDragging ? 'opacity-40 border-dashed border-black' : ''}`}
                           >
                             {/* Card Header: Drag Handle, Name & Temperature / Deal Value */}
                             <div className="flex items-start justify-between gap-1">
