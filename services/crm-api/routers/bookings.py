@@ -1,37 +1,36 @@
-from services.whatsapp_service import dispatch_automated_status_whatsapp, dispatch_admin_reschedule_whatsapp, dispatch_admin_cancellation_whatsapp
-import os
-
 import os
 import re
-import csv
-import io
-import time
-import uuid
 import json
+import uuid
 import asyncio
-import hashlib
-import html
-from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any, Union
-from utils import safe_json_loads
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
-
-import json
-import uuid
-from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any, Union
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
-from typing import Optional, List
 import database
 from models import BookingCreatePayload, BookingStatusPayload, BookingPricePayload
 from dependencies import get_tenant_id, get_caller_context
-from services.crm_service import *
-from services.whatsapp_service import *
 from routers.auth import get_admin_tenant_settings
 import utils
-from services.crm_service import create_google_calendar_event, send_gmail_direct_notification
-from utils import sanitize_and_fix_email
-from services.crm_service import build_cancellation_admin_email_html, build_cancellation_customer_email_html, build_reschedule_admin_email_html, build_reschedule_customer_email_html, build_review_customer_email_html
+from utils import safe_json_loads, sanitize_and_fix_email
+from services.crm_service import (
+    create_google_calendar_event,
+    send_gmail_direct_notification,
+    build_booking_admin_email_html,
+    build_booking_customer_email_html,
+    build_cancellation_admin_email_html,
+    build_cancellation_customer_email_html,
+    build_reschedule_admin_email_html,
+    build_reschedule_customer_email_html,
+    build_review_customer_email_html,
+)
+from services.whatsapp_service import (
+    dispatch_whatsapp_message,
+    dispatch_automated_status_whatsapp,
+    dispatch_admin_reschedule_whatsapp,
+    dispatch_admin_cancellation_whatsapp,
+)
 
 router = APIRouter()
 logger = structlog.get_logger('crm-api-bookings')

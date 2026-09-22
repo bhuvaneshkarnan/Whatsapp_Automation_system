@@ -1,32 +1,19 @@
 import os
-
-import os
 import re
-import csv
-import io
-import time
-import uuid
 import json
+import uuid
 import asyncio
-import hashlib
-import html
-from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any, Union
-
-import json
-import uuid
 from datetime import datetime, timezone, timedelta
+from typing import Optional, Dict, Any, List, Union
 import structlog
-from fastapi import APIRouter, Depends, Query, HTTPException, Request, BackgroundTasks
-from typing import Optional, Dict, Any, List
 import httpx
+from fastapi import APIRouter, Depends, Query, HTTPException, Request, BackgroundTasks
 import database
 from dependencies import get_tenant_id, get_caller_context, verify_super_admin
-from models import *
+from models import MarketingBroadcastPayload, TriggerCreatePayload, CreateTemplatePayload
 from tasks_service import dispatch_push_notification
 import utils
-from utils import expand_template_body
-from utils import KNOWN_TEMPLATES_EXPANSION
+from utils import expand_template_body, KNOWN_TEMPLATES_EXPANSION
 
 router = APIRouter()
 logger = structlog.get_logger('crm-api-marketing')

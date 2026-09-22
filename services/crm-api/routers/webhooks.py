@@ -1,33 +1,21 @@
 import os
-
-import os
 import re
-import csv
-import io
-import time
+import json
 import uuid
-import json
 import asyncio
-import hashlib
-import html
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Union
-
-import json
-from datetime import datetime, timezone
 import structlog
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks, Header, Query
-from typing import Optional
 import database
 import razorpay_client
 from routers.marketing import execute_marketing_broadcast
-from services.whatsapp_service import dispatch_automated_status_whatsapp
+from services.whatsapp_service import dispatch_automated_status_whatsapp, dispatch_whatsapp_message
+from services.crm_service import send_gmail_direct_notification
+from tasks_service import dispatch_push_notification
+from dependencies import JWT_SECRET
 import utils
 from utils import safe_json_loads, get_tenant_base_url
-from services.crm_service import send_gmail_direct_notification
-from services.whatsapp_service import dispatch_whatsapp_message
-from dependencies import JWT_SECRET
-from tasks_service import dispatch_push_notification
 
 router = APIRouter()
 logger = structlog.get_logger('crm-api-webhooks')

@@ -1,33 +1,22 @@
 import os
-import structlog
-logger = structlog.get_logger('settings')
-from utils import APP_BASE_URL
-from routers.marketing import execute_meta_template_sync
-
-
-import os
 import re
-import csv
-import io
-import time
-import uuid
 import json
+import uuid
 import asyncio
-import hashlib
-import html
 import httpx
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Union
-
-import json
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from typing import Optional
 import database
 from models import TenantSettingsUpdate
 from dependencies import get_tenant_id, get_caller_context
+from utils import APP_BASE_URL
+from routers.marketing import execute_meta_template_sync
 
 router = APIRouter()
+logger = structlog.get_logger('settings')
 
 @router.get("/settings")
 async def get_tenant_settings(

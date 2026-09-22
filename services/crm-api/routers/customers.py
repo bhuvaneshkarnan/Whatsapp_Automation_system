@@ -1,32 +1,29 @@
 import os
-
-import os
 import re
-import csv
-import io
-import time
-import uuid
 import json
+import uuid
 import asyncio
-import hashlib
-import html
-from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any, Union
-
-import json
-import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
+from typing import Optional, Dict, Any, List, Union
 import structlog
+import httpx
 from fastapi import APIRouter, Depends, Query, HTTPException, Request, Header
-from typing import Optional, Dict, Any, List
 import database
 from tasks_service import sync_completed_google_tasks_for_tenant
 from dependencies import get_tenant_id, get_caller_context, verify_super_admin
-from models import *
-
+from models import (
+    ContactConsentPayload,
+    BatchConsentPayload,
+    CustomerCreatePayload,
+    CustomerUpdatePayload,
+    CustomerMergePayload,
+    CrmDropdownsUpdatePayload,
+    CustomerNotePayload,
+    CustomerChatSendPayload,
+    TaskCreatePayload,
+)
 import utils
-import httpx
-from zoneinfo import ZoneInfo
 
 router = APIRouter()
 logger = structlog.get_logger('crm-api-customers')

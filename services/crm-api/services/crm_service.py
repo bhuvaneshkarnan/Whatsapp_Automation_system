@@ -1,23 +1,11 @@
 import os
-
-import os
 import re
-import csv
-import io
-import time
+import json
 import uuid
-import json
 import asyncio
-import hashlib
-import html
-from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any, Union
-
-import json
-import asyncio
-import structlog
-from typing import Optional, Any
 from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any, Union
+import structlog
 import database
 
 logger = structlog.get_logger('crm-api-crm-service')

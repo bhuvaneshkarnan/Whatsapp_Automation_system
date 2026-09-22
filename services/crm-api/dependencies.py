@@ -1,26 +1,13 @@
 import os
-import structlog
-logger = structlog.get_logger('dependencies')
-
-
-import os
-import re
-import csv
-import io
-import time
-import uuid
-import json
-import asyncio
-import hashlib
-import html
-from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any, Union
-
 import json
 import urllib.parse
+from typing import Optional, List, Dict, Any, Union
 from fastapi import Request, Header, HTTPException, Depends
-from typing import Optional
+from jose import jwt
+import structlog
 import database
+
+logger = structlog.get_logger('dependencies')
 
 JWT_SECRET = os.getenv('JWT_SECRET', '')
 ALGORITHM = 'HS256'

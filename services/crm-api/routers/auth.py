@@ -1,40 +1,41 @@
-from routers.marketing import execute_meta_template_sync
-from routers.settings import update_tenant_settings
-from tasks_service import VAPID_PUBLIC_KEY
-import os
-
 import os
 import re
-import csv
-import io
-import time
-import uuid
 import json
+import uuid
 import asyncio
-import hashlib
-import html
-from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any, Union
-
-import json
-import uuid
 import bcrypt
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
+from typing import Optional, Dict, Any, List, Union
 import structlog
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException, Request
-from typing import Optional, Dict, Any, List
 import database
 from dependencies import get_tenant_id, get_caller_context, verify_super_admin, JWT_SECRET
-from models import *
-from utils import safe_json_loads
+from models import (
+    TenantCreate,
+    TenantUpdate,
+    TenantSettingsUpdate,
+    SyncGlobalRulesPayload,
+    PartnerTemplatePayload,
+    PasswordReset,
+    PaymentReminderRequest,
+    TenantBillingUpdate,
+    AdminDueAlertRequest,
+    PushSubscribePayload,
+    PushUnsubscribePayload,
+    PublicBookingRequest,
+    StaffCreateRequest,
+    StaffUpdateRequest,
+)
 import utils
-import httpx
-from zoneinfo import ZoneInfo
+from utils import safe_json_loads
 import razorpay_client
 from services.crm_service import create_google_calendar_event
-from services.whatsapp_service import dispatch_whatsapp_message
-from tasks_service import dispatch_push_notification
-from services.whatsapp_service import dispatch_automated_status_whatsapp
+from services.whatsapp_service import dispatch_whatsapp_message, dispatch_automated_status_whatsapp
+from tasks_service import dispatch_push_notification, VAPID_PUBLIC_KEY
+from routers.marketing import execute_meta_template_sync
+from routers.settings import update_tenant_settings
 
 router = APIRouter()
 logger = structlog.get_logger('crm-api-auth')
