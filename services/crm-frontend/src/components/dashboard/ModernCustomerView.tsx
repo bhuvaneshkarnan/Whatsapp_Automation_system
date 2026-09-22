@@ -823,6 +823,19 @@ export function ModernCustomerView({
   const nextActions = useMemo(() => {
     return Array.isArray(crmDropdowns?.next_actions) ? crmDropdowns.next_actions : [];
   }, [crmDropdowns]);
+  const servicesList = useMemo(() => {
+    const fromDropdowns = [
+      ...(Array.isArray(crmDropdowns?.services_list) ? crmDropdowns.services_list : []),
+      ...(Array.isArray(crmDropdowns?.concerns_list) ? crmDropdowns.concerns_list : []),
+    ];
+    const fromCustomers = customers.map((c) => c.health_concern).filter((c): c is string => Boolean(c && c.trim()));
+    const seen = new Set<string>();
+    return [...fromDropdowns, ...fromCustomers].filter((s) => {
+      if (!s || !s.trim() || seen.has(s)) return false;
+      seen.add(s);
+      return true;
+    });
+  }, [crmDropdowns, customers]);
 
   // Computed Executive KPI Stats
   const kpis = useMemo(() => {
@@ -1971,30 +1984,28 @@ export function ModernCustomerView({
                             </select>
                           </td>
 
-                          {/* 4. Service / Inquiry & Value */}
-                          <td className="py-2 px-2">
-                            <div className="space-y-0.5">
-                              {cust.health_concern || cust.last_visit_service ? (
-                                <span
-                                  className="text-[10.5px] font-medium text-text-secondary bg-surface-subtle border border-border/80 px-1.5 py-0.5 rounded-sm inline-block max-w-[140px] truncate"
-                                  title={cust.health_concern || cust.last_visit_service || ''}
-                                >
-                                  {cust.health_concern || cust.last_visit_service}
-                                </span>
-                              ) : (
-                                <span className="text-text-muted text-[11px]">—</span>
-                              )}
-                              {(() => {
-                                const dv = getEffectiveDealValue(cust);
-                                if (dv <= 0) return null;
-                                return (
-                                  <div className="text-[10px] font-bold font-mono text-emerald-700 dark:text-emerald-400">
-                                    {formatINR(dv)}
-                                  </div>
-                                );
-                              })()}
-                            </div>
+                          {/* 4. Service / Inquiry */}
+                          <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
+                            <select
+                              value={cust.health_concern || cust.last_visit_service || ''}
+                              onChange={(e) => handleQuickUpdate(cust.id, { health_concern: e.target.value || null })}
+                              disabled={updatingId === cust.id}
+                              className="text-[10.5px] font-medium px-1.5 py-1 h-7 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer w-full max-w-[140px] truncate shadow-2xs"
+                            >
+                              <option value="">— Select service —</option>
+                              {servicesList.map((svc) => (
+                                <option key={svc} value={svc}>{svc}</option>
+                              ))}
+                              {/* Preserve current value if not in the list */}
+                              {(cust.health_concern || cust.last_visit_service) &&
+                                !servicesList.includes(cust.health_concern || cust.last_visit_service || '') && (
+                                  <option value={cust.health_concern || cust.last_visit_service || ''}>
+                                    {cust.health_concern || cust.last_visit_service}
+                                  </option>
+                                )}
+                            </select>
                           </td>
+
 
                           {/* 5. Assigned To Dropdown */}
                           <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
