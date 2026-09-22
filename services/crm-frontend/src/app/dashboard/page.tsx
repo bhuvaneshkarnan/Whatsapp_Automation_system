@@ -5259,11 +5259,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         setActionNotice('WhatsApp chat summary updated.');
         setTimeout(() => setActionNotice(null), 2500);
       } else {
-        alert(res?.message || 'No chat messages found to summarize.');
+        setActionNotice(res?.message || 'No chat messages to summarize yet.');
+        setTimeout(() => setActionNotice(null), 3000);
       }
     } catch (err: any) {
       console.error('Failed to summarize chat:', err);
-      alert('Unable to summarize chat right now.');
+      setActionNotice('Unable to summarize chat right now.');
+      setTimeout(() => setActionNotice(null), 3000);
     } finally {
       setSummarizingChat(false);
     }

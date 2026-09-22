@@ -2269,6 +2269,8 @@ async def summarize_customer_chat(
             concern = cust.get("health_concern")
             if customer_last_query and len(customer_last_query) < 80:
                 summary = f"Customer inquired: {customer_last_query}"
+            elif any(m["direction"] == "outbound" for m in msgs) and not any(m["direction"] == "inbound" for m in msgs):
+                summary = "Automated outreach sent via WhatsApp. Waiting for customer response."
             elif concern and concern != "General Consultation":
                 summary = f"Inquired about {concern} via WhatsApp."
             else:
