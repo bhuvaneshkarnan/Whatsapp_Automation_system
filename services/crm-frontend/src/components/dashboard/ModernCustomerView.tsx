@@ -1983,7 +1983,7 @@ export function ModernCustomerView({
                           {/* 4. Service / Inquiry */}
                           <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                             <select
-                              value={cust.health_concern || cust.last_visit_service || ''}
+                              value={servicesList.includes(cust.health_concern || '') ? (cust.health_concern || '') : ''}
                               onChange={(e) => handleQuickUpdate(cust.id, { health_concern: e.target.value || null })}
                               disabled={updatingId === cust.id}
                               className="text-[10.5px] font-medium px-1.5 py-1 h-7 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer w-full max-w-[140px] truncate shadow-2xs"
@@ -1992,13 +1992,6 @@ export function ModernCustomerView({
                               {servicesList.map((svc) => (
                                 <option key={svc} value={svc}>{svc}</option>
                               ))}
-                              {/* Preserve current value if not in the list */}
-                              {(cust.health_concern || cust.last_visit_service) &&
-                                !servicesList.includes(cust.health_concern || cust.last_visit_service || '') && (
-                                  <option value={cust.health_concern || cust.last_visit_service || ''}>
-                                    {cust.health_concern || cust.last_visit_service}
-                                  </option>
-                                )}
                             </select>
                           </td>
 
