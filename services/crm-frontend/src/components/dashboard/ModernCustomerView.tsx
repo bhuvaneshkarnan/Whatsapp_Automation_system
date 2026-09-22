@@ -2411,7 +2411,10 @@ export function ModernCustomerView({
 
                             {/* AI Sales Snapshot ("Cheat Sheet" for Reps) */}
                             {aiSnapshot && (
-                              <div className="px-2 py-1 bg-gradient-to-r from-purple-50/90 via-indigo-50/80 to-blue-50/70 dark:from-purple-950/40 dark:via-indigo-950/40 dark:to-blue-950/30 border border-purple-200/70 dark:border-purple-800/40 rounded-xs flex items-start gap-1.5 shadow-2xs">
+                              <div
+                                className="px-2 py-1 bg-gradient-to-r from-purple-50/90 via-indigo-50/80 to-blue-50/70 dark:from-purple-950/40 dark:via-indigo-950/40 dark:to-blue-950/30 border border-purple-200/70 dark:border-purple-800/40 rounded-xs flex items-start gap-1.5 shadow-2xs"
+                                title={`AI Sales Cheat Sheet:\n${aiSnapshot.headline}\n\nRecommended Action:\n${aiSnapshot.actionRecommendation}`}
+                              >
                                 <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5 animate-pulse" />
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-1">
@@ -2420,7 +2423,8 @@ export function ModernCustomerView({
                                     </span>
                                   </div>
                                   <p className="text-[9.5px] font-medium text-purple-950 dark:text-purple-100 leading-tight mt-0.5 line-clamp-2">
-                                    {aiSnapshot}
+                                    <span className="font-bold mr-1">{aiSnapshot.badge}:</span>
+                                    <span>{aiSnapshot.headline}</span>
                                   </p>
                                 </div>
                               </div>

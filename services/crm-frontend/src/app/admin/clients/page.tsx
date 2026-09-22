@@ -1655,7 +1655,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     domain = domain.replace(/^https?:\/\//, '').replace(/\/+$/, '');
 
     if (domain && typeof window !== 'undefined' && domain !== window.location.hostname) {
-      window.open(`https://${domain}/${tenant.slug}?token=${encodeURIComponent(token)}`, '_blank');
+      window.open(`https://${domain}/${tenant.slug}?token=${encodeURIComponent(token)}&tenant_id=${encodeURIComponent(tenant.id)}&tenant_slug=${encodeURIComponent(tenant.slug)}`, '_blank');
       return;
     }
     router.push(`/${tenant.slug}`);

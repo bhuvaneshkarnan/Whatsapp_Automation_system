@@ -524,17 +524,11 @@ async def create_booking(
             full_location=full_location if send_wa else ""
         )
 
-        # Schedule automatic 24h & 2h reminders and post-session review request (only if WhatsApp notifications enabled)
+        # Schedule automatic 2h reminder and 30m admin reminder (only if WhatsApp notifications enabled)
+        # Note: 24h reminder is omitted because Meta template 'appointment_ramainder' explicitly states 'coming up today'
         if send_wa:
             try:
                 now_dt = datetime.now(tenant_tz)
-                remind_24h = st_dt - timedelta(hours=24)
-                if remind_24h > now_dt:
-                    await conn.execute(
-                        """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
-                           VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
-                        tenant_id, booking_id, remind_24h
-                    )
                 remind_2h = st_dt - timedelta(hours=2)
                 if remind_2h > now_dt:
                     await conn.execute(
@@ -793,6 +787,12 @@ async def update_booking_status(
                            SET scheduled_at = $1, status = 'pending'
                            WHERE booking_id = $2::uuid AND job_type = 'admin_reminder'""",
                         new_admin_reminder_time, booking_id
+                    )
+                    # Reset reminder_sent_at so the fallback _process_appointment_reminders
+                    # can also fire at the new appointment time if the scheduled_jobs path misses.
+                    await conn.execute(
+                        "UPDATE bookings SET reminder_sent_at = NULL WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                        booking_id, tenant_id
                     )
                 except Exception as e_rem:
                     logger.warning("reminder_job_reschedule_failed", error=str(e_rem))

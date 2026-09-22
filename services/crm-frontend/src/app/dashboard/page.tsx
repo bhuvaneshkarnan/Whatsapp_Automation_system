@@ -4107,8 +4107,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     if (typeof window !== 'undefined') {
       const searchParams = new URLSearchParams(window.location.search);
       const tokenParam = searchParams.get('token');
+      const tenantIdParam = searchParams.get('tenant_id');
+      const tenantSlugParam = searchParams.get('tenant_slug');
       if (tokenParam) {
         localStorage.setItem('auth_token', tokenParam);
+        if (tenantIdParam) localStorage.setItem('tenant_id', tenantIdParam);
+        if (tenantSlugParam) {
+          localStorage.setItem('tenant_slug', tenantSlugParam);
+          if (tenantIdParam) registerTenantSlug(tenantSlugParam, tenantIdParam);
+        }
         const cleanUrl = window.location.pathname + (window.location.hash || '');
         window.history.replaceState(null, '', cleanUrl);
       }
@@ -7528,8 +7535,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           dangerouslySetInnerHTML={{
             __html: `
               try {
-                if (!localStorage.getItem('auth_token')) {
-                  window.location.replace('/login');
+                var sp = new URLSearchParams(window.location.search);
+                var t = sp.get('token');
+                var tid = sp.get('tenant_id');
+                var tslug = sp.get('tenant_slug');
+                if (t) {
+                  localStorage.setItem('auth_token', t);
+                  if (tid) localStorage.setItem('tenant_id', tid);
+                  if (tslug) localStorage.setItem('tenant_slug', tslug);
+                } else if (!localStorage.getItem('auth_token')) {
+                  var p = window.location.pathname;
+                  var r = p && p !== '/' && p !== '/login' ? '?redirect=' + encodeURIComponent(p) : '';
+                  window.location.replace('/login' + r);
                 }
               } catch (e) {}
             `,
@@ -15781,10 +15798,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             const tomorrow = new Date();
                                             tomorrow.setDate(tomorrow.getDate() + 1);
                                             const dStr = tomorrow.toISOString().split('T')[0];
+                                            const cleanSvc = cust.last_visit_service && !cust.last_visit_service.toLowerCase().includes('door step')
+                                              ? cust.last_visit_service
+                                              : (currentTaxonomy.default_service || 'Consultation');
                                             setNewBookingForm({
                                               contact_name: cust.name || '',
                                               contact_phone: cust.phone || '',
-                                              service: cust.last_visit_service || currentTaxonomy.default_service || 'Consultation',
+                                              service: cleanSvc,
                                               staff_member: '',
                                               date: dStr,
                                               time: '10:00',
@@ -20945,10 +20965,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     type="text"
                     required
                     placeholder="e.g. Consultation"
+                    list="booking-service-suggestions"
                     value={newBookingForm.service}
                     onChange={(e) => setNewBookingForm({ ...newBookingForm, service: e.target.value })}
                     className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans transition-colors duration-150"
                   />
+                  <datalist id="booking-service-suggestions">
+                    {(currentTaxonomy?.requirement_presets || []).map((srv: string) => (
+                      <option key={srv} value={srv} />
+                    ))}
+                    <option value="Treatment" />
+                    <option value="Consultation and Treatment" />
+                    <option value="Consultation" />
+                    <option value="Follow up session" />
+                    <option value="Foot reflexology and meditation" />
+                  </datalist>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

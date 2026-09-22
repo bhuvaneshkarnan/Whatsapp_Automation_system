@@ -236,13 +236,13 @@ async def execute_marketing_broadcast(
         except Exception:
             scheduled_dt = datetime.utcnow() + timedelta(hours=1)
 
-    status_str = "scheduled" if is_sched else "completed"
-    
-    # Calculate realistic initial performance counters for completed broadcasts
-    delivered_val = round(total_count * 0.98) if not is_sched else 0
-    read_val = round(total_count * 0.82) if not is_sched else 0
-    replied_val = round(total_count * 0.38) if not is_sched else 0
-    converted_val = round(total_count * 0.18) if not is_sched else 0
+    status_str = "scheduled" if is_sched else "in_progress"
+
+    # Do NOT pre-fill stats — real counts are written after the background task completes
+    delivered_val = 0
+    read_val = 0
+    replied_val = 0
+    converted_val = 0
 
     async with database.db_pool.acquire() as conn:
         await conn.execute(
@@ -256,11 +256,13 @@ async def execute_marketing_broadcast(
             campaign_id, tenant_id, data.campaign_name.strip(), data.target_audience or "contacts_only",
             data.message_mode or "template", data.message_text or "", data.template_name or "",
             json.dumps(data.template_params or []), json.dumps(clean_phones), total_count,
-            total_count if not is_sched else 0, delivered_val, read_val, replied_val, converted_val,
+            0, delivered_val, read_val, replied_val, converted_val,
             status_str, scheduled_dt
         )
 
     if not is_sched:
+        c_id = campaign_id  # capture for closure
+
         async def _run_broadcast_job(t_id: str, phones: List[str], text: Optional[str], t_name: Optional[str], t_params: Optional[List[str]], c_name: str):
             success_count = 0
             for p in phones:
@@ -270,6 +272,18 @@ async def execute_marketing_broadcast(
                     await asyncio.sleep(0.5)  # 500ms safety interval
                 except Exception as ex:
                     logger.error("marketing_broadcast_item_failed", phone=p, error=str(ex))
+
+            # Update campaign row with real sent_count now that all messages have been dispatched
+            try:
+                async with database.db_pool.acquire() as upd_conn:
+                    await upd_conn.execute(
+                        """UPDATE marketing_campaigns
+                           SET status = 'completed', sent_count = $1
+                           WHERE id = $2::uuid""",
+                        success_count, c_id
+                    )
+            except Exception as ue:
+                logger.error("broadcast_stats_update_failed", campaign_id=c_id, error=str(ue))
 
             try:
                 await dispatch_push_notification(
@@ -480,8 +494,8 @@ async def test_marketing_trigger(
 
         # Increment reached counter
         await conn.execute(
-            "UPDATE marketing_triggers SET reached_count = reached_count + 1, last_triggered_at = now() WHERE id = $1::uuid",
-            trigger_id
+            "UPDATE marketing_triggers SET reached_count = reached_count + 1, last_triggered_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            trigger_id, tenant_id
         )
 
     return {

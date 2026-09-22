@@ -8,6 +8,18 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      const tokenParam = searchParams.get('token');
+      const tenantIdParam = searchParams.get('tenant_id');
+      const tenantSlugParam = searchParams.get('tenant_slug');
+      if (tokenParam) {
+        localStorage.setItem('auth_token', tokenParam);
+        if (tenantIdParam) localStorage.setItem('tenant_id', tenantIdParam);
+        if (tenantSlugParam) localStorage.setItem('tenant_slug', tenantSlugParam);
+      }
+    }
+
     const token = localStorage.getItem('auth_token');
     if (!token) {
       router.replace('/login');

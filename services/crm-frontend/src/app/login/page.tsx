@@ -43,10 +43,19 @@ export default function LoginPage() {
     const tokenParam = searchParams.get('token');
     if (tokenParam) {
       localStorage.setItem('auth_token', tokenParam);
+      const tenantIdParam = searchParams.get('tenant_id');
+      const tenantSlugParam = searchParams.get('tenant_slug');
+      if (tenantIdParam) localStorage.setItem('tenant_id', tenantIdParam);
+      if (tenantSlugParam) {
+        localStorage.setItem('tenant_slug', tenantSlugParam);
+        if (tenantIdParam) registerTenantSlug(tenantSlugParam, tenantIdParam);
+      }
       const redirectUrl = searchParams.get('redirect');
       if (redirectUrl) {
         const cleanRedirect = redirectUrl.replace(/\\/g, '/').trim();
         window.location.replace(cleanRedirect);
+      } else if (tenantSlugParam) {
+        window.location.replace(`/${tenantSlugParam}`);
       } else {
         window.location.replace('/dashboard');
       }

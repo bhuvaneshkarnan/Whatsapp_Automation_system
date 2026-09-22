@@ -20,6 +20,51 @@ class LLMError(Exception):
     pass
 
 
+COMMON_SENTENCE_ABBREVS = [
+    ("Dr.", "__TITLE_DR__"),
+    ("dr.", "__TITLE_dr__"),
+    ("Mr.", "__TITLE_MR__"),
+    ("mr.", "__TITLE_mr__"),
+    ("Mrs.", "__TITLE_MRS__"),
+    ("mrs.", "__TITLE_mrs__"),
+    ("Ms.", "__TITLE_MS__"),
+    ("ms.", "__TITLE_ms__"),
+    ("Prof.", "__TITLE_PROF__"),
+    ("prof.", "__TITLE_prof__"),
+    ("vs.", "__TITLE_VS__"),
+    ("e.g.", "__ABBR_EG__"),
+    ("i.e.", "__ABBR_IE__"),
+    ("etc.", "__ABBR_ETC__"),
+    ("approx.", "__ABBR_APPROX__"),
+    ("appt.", "__ABBR_APPT__"),
+    ("Rs.", "__ABBR_RS__"),
+    ("rs.", "__ABBR_rs__"),
+    ("A.M.", "__ABBR_AM_CAP__"),
+    ("P.M.", "__ABBR_PM_CAP__"),
+    ("a.m.", "__ABBR_AM__"),
+    ("p.m.", "__ABBR_PM__"),
+]
+
+def _split_into_sentences(text: str) -> list[str]:
+    """Split text into sentences while strictly protecting abbreviations, doctor titles, and currencies."""
+    if not text or not text.strip():
+        return []
+    protected = text
+    for orig, placeholder in COMMON_SENTENCE_ABBREVS:
+        protected = re.sub(rf'\b{re.escape(orig)}', placeholder, protected)
+
+    raw_splits = [s.strip() for s in re.split(r'(?<=[.!?])\s+', protected) if s.strip()]
+    if not raw_splits:
+        raw_splits = [protected.strip()]
+
+    restored = []
+    for s in raw_splits:
+        for orig, placeholder in COMMON_SENTENCE_ABBREVS:
+            s = s.replace(placeholder, orig)
+        restored.append(s)
+    return restored
+
+
 def clean_llm_response(text: str, single_line: bool = False) -> str:
     """
     Strips internal thinking process (<think>...</think>), reasoning blocks,
@@ -49,6 +94,15 @@ def clean_llm_response(text: str, single_line: bool = False) -> str:
     for tag in action_tags:
         cleaned = cleaned.replace(tag, "").strip()
 
+    # Protect URLs and emails from hyphen replacement
+    url_matches = re.findall(r'https?://[^\s]+', cleaned)
+    for i, u in enumerate(url_matches):
+        cleaned = cleaned.replace(u, f"__URL_TOKEN_{i}__")
+
+    email_matches = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', cleaned)
+    for i, em in enumerate(email_matches):
+        cleaned = cleaned.replace(em, f"__EMAIL_TOKEN_{i}__")
+
     # Strip markdown headers (e.g. "### ...")
     cleaned = re.sub(r'^#{1,6}\s+.*$', '', cleaned, flags=re.MULTILINE)
 
@@ -65,14 +119,21 @@ def clean_llm_response(text: str, single_line: bool = False) -> str:
     # Remove any remaining stray hyphens
     cleaned = re.sub(r'-', ' ', cleaned)
 
+    # Restore URLs and emails
+    for i, em in enumerate(email_matches):
+        cleaned = cleaned.replace(f"__EMAIL_TOKEN_{i}__", em)
+
+    for i, u in enumerate(url_matches):
+        cleaned = cleaned.replace(f"__URL_TOKEN_{i}__", u)
+
     if single_line:
         # STRICT SINGLE LINE WHATSAPP ENFORCEMENT
         # Flatten all newlines and multiple spaces into a single space
         cleaned = re.sub(r'[\r\n]+', ' ', cleaned).strip()
         cleaned = re.sub(r'\s{2,}', ' ', cleaned)
 
-        # Split into sentences
-        raw_sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
+        # Split into sentences using abbreviation-protected splitter
+        raw_sentences = _split_into_sentences(cleaned)
         if len(raw_sentences) > 2:
             # If the last sentence is a question, keep the first sentence + the question
             if raw_sentences[-1].endswith('?'):
@@ -107,35 +168,34 @@ def clean_llm_response(text: str, single_line: bool = False) -> str:
             cleaned
         )
 
-        # 1 LINE MOSTLY, 2 LINES ONLY WHEN GENUINELY NEEDED:
         lines = [l.strip() for l in cleaned.split("\n") if l.strip()]
         
-        # Sentence cap: limit to max 2 sentences across the message to respect "1-2 lines only" prompt.
-        raw_sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
-        if len(raw_sentences) > 2:
-            # If the last sentence is a question, keep first + question. Otherwise keep first two.
+        # Sentence cap: allow up to 3 sentences to support the 3-Beat Consultative Sales Formula
+        # (1. Direct Answer, 2. Value/Diagnostic hook, 3. Binary closing question) without dropping the middle explanation.
+        raw_sentences = _split_into_sentences(cleaned)
+        if len(raw_sentences) > 3:
+            # If the last sentence is a closing question, keep first 2 sentences + the question
             if raw_sentences[-1].endswith('?'):
-                sentences_kept = set([raw_sentences[0], raw_sentences[-1]])
+                sentences_kept = set([raw_sentences[0], raw_sentences[1], raw_sentences[-1]])
             else:
-                sentences_kept = set(raw_sentences[:2])
+                sentences_kept = set(raw_sentences[:3])
             
             rebuilt = []
             for l in lines:
-                l_sents = [s.strip() for s in re.split(r'(?<=[.!?])\s+', l) if s.strip()]
+                l_sents = _split_into_sentences(l)
                 kept = [s for s in l_sents if s in sentences_kept]
                 if kept:
                     rebuilt.append(" ".join(kept))
             lines = rebuilt
 
-        # If lines == 2, only keep double newline if both lines are substantial (e.g. detailed answer + separate call to action)
-        # If line 0 is a short opener (<= 5 words or <= 30 chars), or if total words <= 25, join into a single continuous message
+        # If lines == 2, only keep double newline if both lines are substantial
         if len(lines) == 2:
             if len(lines[0].split()) <= 5 or len(lines[0]) <= 30 or len(" ".join(lines).split()) <= 25:
                 cleaned = f"{lines[0]} {lines[1]}"
             else:
                 cleaned = "\n\n".join(lines)
         elif len(lines) > 2:
-            cleaned = "\n\n".join(lines[:2])
+            cleaned = "\n\n".join(lines[:3])
         else:
             cleaned = "\n".join(lines)
 

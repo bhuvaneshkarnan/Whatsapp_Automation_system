@@ -3915,15 +3915,9 @@ class CoreWorker:
                     except Exception as e:
                         logger.error("google_calendar_sync_error", error=str(e), booking_id=booking_id)
 
-            # 4. Queue automatic 24h & 2h reminders and post-session review request in scheduled_jobs
+            # 4. Queue automatic 2h reminder in scheduled_jobs
+            # Note: 24h reminder is omitted because Meta template 'appointment_ramainder' explicitly states 'coming up today'
             try:
-                remind_24h = st_dt - datetime.timedelta(hours=24)
-                if remind_24h > datetime.datetime.now(tz):
-                    await self.db_pool.execute(
-                        """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
-                           VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
-                        tenant_id, booking_id, remind_24h
-                    )
                 remind_2h = st_dt - datetime.timedelta(hours=2)
                 if remind_2h > datetime.datetime.now(tz):
                     await self.db_pool.execute(
@@ -4121,12 +4115,19 @@ class CoreWorker:
             # tenant_id and phone are always the last two params
             tid_idx = idx
             phone_idx = idx + 1
-            params = dynamic_params + [tenant_id, phone]
+            clean_digits = re.sub(r'\D', '', str(phone or ""))
+            last10 = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
+            params = dynamic_params + [tenant_id, phone, last10]
 
             query = f"""
                 UPDATE customers
                 SET {', '.join(updates)}
-                WHERE tenant_id = ${tid_idx}::uuid AND phone = ${phone_idx}
+                WHERE tenant_id = ${tid_idx}::uuid
+                  AND (
+                    phone = ${phone_idx}
+                    OR phone = ('+' || ${phone_idx})
+                    OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = ${phone_idx + 1}
+                  )
             """
             await self.db_pool.execute(query, *params)
             logger.info("lead_analyzed_and_updated", phone=phone, lead_prob=lead_prob, status=status, concern=extracted_concern)
@@ -4196,14 +4197,14 @@ class CoreWorker:
             if not contact_id:
                 return
 
-            # Find active booking
+            # Find active booking (confirmed or rescheduled)
             booking = await self.db_pool.fetchrow(
                 """SELECT b.id, b.service, b.start_time, b.google_event_id
                    FROM bookings b
                    LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
                    WHERE b.tenant_id = $1::uuid 
                      AND (b.contact_id = $2::uuid OR b.conversation_id = $3::uuid OR c.phone = $4 OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($4, '[^0-9]', '', 'g'), 10))
-                     AND b.status = 'confirmed'
+                     AND b.status IN ('confirmed', 'rescheduled')
                    ORDER BY b.start_time DESC LIMIT 1""",
                 tenant_id, contact_id, conv_id, contact_phone
             )
@@ -4218,14 +4219,14 @@ class CoreWorker:
             formatted_time = st_dt.strftime("%I:%M %p")
             name = customer_name or "Valued Customer"
 
-            # 1. Update status in DB
+            # 1. Update status in DB with strict multi-tenancy
             await self.db_pool.execute(
-                "UPDATE bookings SET status = 'cancelled', updated_at = now() WHERE id = $1::uuid",
-                booking_id
+                "UPDATE bookings SET status = 'cancelled', updated_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                booking_id, tenant_id
             )
             await self.db_pool.execute(
-                "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND status = 'pending'",
-                booking_id
+                "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND status = 'pending'",
+                booking_id, tenant_id
             )
             logger.info("ai_booking_cancelled", booking_id=booking_id)
 
@@ -4532,14 +4533,14 @@ class CoreWorker:
             if not contact_id:
                 return
 
-            # Find existing confirmed booking
+            # Find existing confirmed or rescheduled booking
             old_booking = await self.db_pool.fetchrow(
                 """SELECT b.id, b.service, b.google_event_id
                    FROM bookings b
                    LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
                    WHERE b.tenant_id = $1::uuid
                      AND (b.contact_id = $2::uuid OR b.conversation_id = $3::uuid OR c.phone = $4 OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($4, '[^0-9]', '', 'g'), 10))
-                     AND b.status = 'confirmed'
+                     AND b.status IN ('confirmed', 'rescheduled')
                    ORDER BY b.start_time DESC LIMIT 1""",
                 tenant_id, contact_id, conv_id, contact_phone
             )
@@ -4561,9 +4562,9 @@ class CoreWorker:
                 booking_id = str(old_booking["id"])
                 await self.db_pool.execute(
                     """UPDATE bookings
-                       SET start_time = $1, end_time = $2, service = $3, notes = $4, status = 'confirmed', updated_at = now()
-                       WHERE id = $5::uuid""",
-                    st_dt, et_dt, service_name, notes, booking_id
+                       SET start_time = $1, end_time = $2, service = $3, notes = $4, status = 'rescheduled', reminder_sent_at = NULL, updated_at = now()
+                       WHERE id = $5::uuid AND tenant_id = $6::uuid""",
+                    st_dt, et_dt, service_name, notes, booking_id, tenant_id
                 )
                 logger.info("ai_booking_rescheduled", booking_id=booking_id, new_start=str(st_dt))
             else:
@@ -4696,14 +4697,18 @@ class CoreWorker:
             # Update pending scheduled reminders and review requests to new appointment times
             try:
                 reminder_time = st_dt - datetime.timedelta(hours=2)
-                if reminder_time > datetime.datetime.now(tz):
+                res = await self.db_pool.execute(
+                    """UPDATE scheduled_jobs
+                       SET scheduled_at = $1, status = 'pending'
+                       WHERE booking_id = $2::uuid AND tenant_id = $3::uuid AND job_type = 'reminder'""",
+                    reminder_time, booking_id, tenant_id
+                )
+                if res == "UPDATE 0":
                     await self.db_pool.execute(
-                        """UPDATE scheduled_jobs
-                           SET scheduled_at = $1, status = 'pending'
-                           WHERE booking_id = $2::uuid AND job_type = 'reminder'""",
-                        reminder_time, booking_id
+                        """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                           VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
+                        tenant_id, booking_id, reminder_time
                     )
-                pass
             except Exception as e_rem:
                 logger.warning("reminder_job_reschedule_failed", error=str(e_rem))
 
@@ -5335,7 +5340,7 @@ class CoreWorker:
                                AND t.grace_period_until > NOW())
                        )
                    JOIN tenant_credentials tc ON tc.tenant_id = b.tenant_id AND tc.provider = 'whatsapp'
-                   WHERE b.status = 'confirmed'
+                   WHERE b.status IN ('confirmed', 'rescheduled')
                      AND b.reminder_sent_at IS NULL
                      AND b.start_time <= (now() + interval '2 hours 5 minutes')
                      AND b.start_time >= now()
@@ -5391,14 +5396,14 @@ class CoreWorker:
 
                 # 1. Mark as sent immediately in both bookings and any pending scheduled_jobs to avoid duplicate dispatch
                 await self.db_pool.execute(
-                    "UPDATE bookings SET reminder_sent_at = now() WHERE id = $1::uuid",
-                    booking_id
+                    "UPDATE bookings SET reminder_sent_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                    booking_id, tenant_id
                 )
                 await self.db_pool.execute(
                     """UPDATE scheduled_jobs
                        SET status = 'sent', sent_at = now()
-                       WHERE booking_id = $1::uuid AND job_type = 'reminder' AND status = 'pending'""",
-                    booking_id
+                       WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND job_type = 'reminder' AND status = 'pending'""",
+                    booking_id, tenant_id
                 )
 
                 # 2. Dispatch Meta Template or Text
@@ -5449,8 +5454,8 @@ class CoreWorker:
                WHERE sj.status = 'pending'
                  AND sj.scheduled_at <= now()
                  AND (
-                   (sj.job_type = 'reminder' AND b.status = 'confirmed')
-                   OR (sj.job_type = 'admin_reminder' AND b.status = 'confirmed')
+                    (sj.job_type = 'reminder' AND b.status IN ('confirmed', 'rescheduled'))
+                    OR (sj.job_type = 'admin_reminder' AND b.status IN ('confirmed', 'rescheduled'))
                    OR (sj.job_type = 'review_request' AND b.status IN ('completed', 'attended'))
                    OR (sj.job_type = 'post_treatment_followup' AND b.status IN ('completed', 'attended'))
                    OR (sj.job_type = 'reschedule_nudge' AND b.status IN ('no_show', 'no-show'))
@@ -5481,8 +5486,8 @@ class CoreWorker:
                             if elapsed < 14400:  # within 4 hours
                                 logger.info("scheduled_reminder_skipped_already_sent_recently", booking_id=booking_id, elapsed_sec=elapsed)
                                 await self.db_pool.execute(
-                                    "UPDATE scheduled_jobs SET status = 'skipped_already_sent', sent_at = now() WHERE id = $1",
-                                    job["id"]
+                                    "UPDATE scheduled_jobs SET status = 'skipped_already_sent', sent_at = now() WHERE id = $1 AND tenant_id = $2::uuid",
+                                    job["id"], job["tenant_id"]
                                 )
                                 continue
 
@@ -5499,8 +5504,8 @@ class CoreWorker:
                             if not await self.redis.set(lock_2h, "1", ex=14400, nx=True):
                                 logger.info("scheduled_reminder_skipped_2h_lock_held", booking_id=booking_id, phone=job_ph, slot=st_key)
                                 await self.db_pool.execute(
-                                    "UPDATE scheduled_jobs SET status = 'skipped_duplicate', sent_at = now() WHERE id = $1",
-                                    job["id"]
+                                    "UPDATE scheduled_jobs SET status = 'skipped_duplicate', sent_at = now() WHERE id = $1 AND tenant_id = $2::uuid",
+                                    job["id"], job["tenant_id"]
                                 )
                                 continue
 
@@ -5509,8 +5514,8 @@ class CoreWorker:
                     if not await self.redis.set(lock_admin, "1", ex=14400, nx=True):
                         logger.info("scheduled_admin_reminder_skipped_lock_held", booking_id=booking_id)
                         await self.db_pool.execute(
-                            "UPDATE scheduled_jobs SET status = 'skipped_duplicate', sent_at = now() WHERE id = $1",
-                            job["id"]
+                            "UPDATE scheduled_jobs SET status = 'skipped_duplicate', sent_at = now() WHERE id = $1 AND tenant_id = $2::uuid",
+                            job["id"], job["tenant_id"]
                         )
                         continue
 
@@ -5544,6 +5549,24 @@ class CoreWorker:
 
                 # 1. Reminder job: Send approved appointment_ramainder template
                 if job_type == "reminder" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
+                    # Safeguard: The approved 'appointment_ramainder' template explicitly says "is coming up today at {time}".
+                    # Refuse to send it if the appointment is on a different day or more than 6 hours away!
+                    if isinstance(start, datetime.datetime):
+                        now_tz = datetime.datetime.now(tz)
+                        if st_tz.date() != now_tz.date() or (st_tz - now_tz).total_seconds() > 6 * 3600:
+                            logger.warning(
+                                "scheduled_reminder_skipped_not_today",
+                                booking_id=booking_id,
+                                appointment_time=str(st_tz),
+                                now=str(now_tz),
+                                reason="appointment_ramainder template says 'today', cannot send for future dates"
+                            )
+                            await self.db_pool.execute(
+                                "UPDATE scheduled_jobs SET status = 'cancelled', sent_at = now() WHERE id = $1 AND tenant_id = $2::uuid",
+                                job["id"], job["tenant_id"]
+                            )
+                            continue
+
                     template_name = (
                         creds.get("template_appointment_reminder") or
                         t_st.get("template_appointment_reminder") or
@@ -5580,8 +5603,8 @@ class CoreWorker:
                     if not clean_admin_phone or len(clean_admin_phone) < 10:
                         logger.info("admin_reminder_skipped_no_phone", booking_id=booking_id)
                         await self.db_pool.execute(
-                            "UPDATE scheduled_jobs SET status = 'skipped_no_admin_phone', sent_at = now() WHERE id = $1",
-                            job["id"]
+                            "UPDATE scheduled_jobs SET status = 'skipped_no_admin_phone', sent_at = now() WHERE id = $1 AND tenant_id = $2::uuid",
+                            job["id"], job["tenant_id"]
                         )
                         continue
 
@@ -5638,15 +5661,15 @@ class CoreWorker:
                     raw_tpl = creds.get("template_review_request") or t_st.get("template_review_request")
                     if not raw_tpl or str(raw_tpl).strip().lower() in ("", "none", "disabled", "off", "false"):
                         logger.info("scheduled_review_request_disabled_skipping", job_id=str(job["id"]))
-                        await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE id = $1", job["id"])
+                        await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE id = $1 AND tenant_id = $2::uuid", job["id"], job["tenant_id"])
                         continue
 
                     # Deduplication: check if review was already sent for this booking
                     if job.get("booking_id"):
-                        b_row = await self.db_pool.fetchrow("SELECT review_sent_at FROM bookings WHERE id = $1::uuid", job["booking_id"])
+                        b_row = await self.db_pool.fetchrow("SELECT review_sent_at FROM bookings WHERE id = $1::uuid AND tenant_id = $2::uuid", job["booking_id"], job["tenant_id"])
                         if b_row and b_row["review_sent_at"]:
                             logger.info("scheduled_review_already_sent_skipping", job_id=str(job["id"]))
-                            await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE id = $1", job["id"])
+                            await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE id = $1 AND tenant_id = $2::uuid", job["id"], job["tenant_id"])
                             continue
 
                     review_link = (t_st.get("google_review_link") or creds.get("google_review_link") or "").strip() or "https://g.page"
@@ -5680,7 +5703,7 @@ class CoreWorker:
                     raw_tpl = creds.get("template_post_treatment_followup") or t_st.get("template_post_treatment_followup") or "post_treatment_followup"
                     if not raw_tpl or str(raw_tpl).strip().lower() in ("", "none", "disabled", "off", "false"):
                         logger.info("scheduled_post_treatment_followup_disabled_skipping", job_id=str(job["id"]))
-                        await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE id = $1", job["id"])
+                        await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE id = $1 AND tenant_id = $2::uuid", job["id"], job["tenant_id"])
                         continue
 
                     template_name = str(raw_tpl).strip()
@@ -5740,23 +5763,23 @@ class CoreWorker:
                 # 4. Strict policy: Never fallback to freeform text for scheduled template jobs
                 if not sent_via_template:
                     logger.warning("scheduled_job_template_failed_text_suppressed", job_id=str(job["id"]), job_type=job_type)
-                    await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'failed' WHERE id = $1", job["id"])
+                    await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'failed' WHERE id = $1 AND tenant_id = $2::uuid", job["id"], job["tenant_id"])
                     continue
 
                 await self.db_pool.execute(
-                    "UPDATE scheduled_jobs SET status = 'sent', sent_at = now() WHERE id = $1",
-                    job["id"],
+                    "UPDATE scheduled_jobs SET status = 'sent', sent_at = now() WHERE id = $1 AND tenant_id = $2::uuid",
+                    job["id"], job["tenant_id"]
                 )
 
                 if job_type == "reminder":
                     await self.db_pool.execute(
-                        "UPDATE bookings SET reminder_sent_at = now() WHERE id = $1::uuid",
-                        booking_id
+                        "UPDATE bookings SET reminder_sent_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                        booking_id, job["tenant_id"]
                     )
                 elif job_type == "review_request" and booking_id:
                     await self.db_pool.execute(
-                        "UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid",
-                        booking_id
+                        "UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                        booking_id, job["tenant_id"]
                     )
 
                 if job.get("contact_id") and job.get("tenant_id") and job_type != "admin_reminder":
@@ -5857,10 +5880,11 @@ class CoreWorker:
                     except Exception as e_send:
                         logger.error("scheduled_campaign_item_error", phone=clean_p, error=str(e_send))
 
-                delivered = round(success_count * 0.98)
-                read_cnt = round(success_count * 0.82)
-                replied = round(success_count * 0.38)
-                converted = round(success_count * 0.18)
+                # Do NOT fabricate stats — set to 0 until real webhook data arrives
+                delivered = 0
+                read_cnt = 0
+                replied = 0
+                converted = 0
 
                 await self.db_pool.execute(
                     """UPDATE marketing_campaigns 
@@ -5968,6 +5992,11 @@ class CoreWorker:
                         AND b.status IN ('confirmed', 'pending') 
                         AND b.start_time >= (NOW() - INTERVAL '4 hours')
                   )
+                  -- Exclude tenant admin phone number from automated lead recovery nudges
+                  AND RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) NOT IN (
+                      RIGHT(REGEXP_REPLACE(COALESCE(tc.credential_data->>'admin_whatsapp_number', ''), '[^0-9]', '', 'g'), 10),
+                      RIGHT(REGEXP_REPLACE(COALESCE(t.settings->>'admin_whatsapp_number', ''), '[^0-9]', '', 'g'), 10)
+                  )
                   -- Multi-touch free window conditions (Touch 1 at 2h+, Touch 2 at 20h+):
                   AND (
                       -- Touch 1: 2h <= inactivity < 19h, and no touch 1 sent for this inbound session
@@ -6025,6 +6054,14 @@ class CoreWorker:
                         try: wa_creds = json.loads(wa_creds)
                         except: wa_creds = {}
 
+                    # Secondary guard: strictly skip if contact phone matches admin WhatsApp number
+                    admin_phone = (wa_creds.get("admin_whatsapp_number") or tenant_st.get("admin_whatsapp_number") or "").strip()
+                    clean_admin_digits = re.sub(r'[^0-9]', '', admin_phone)[-10:]
+                    clean_contact_digits = re.sub(r'[^0-9]', '', contact_phone)[-10:]
+                    if clean_admin_digits and clean_contact_digits and clean_admin_digits == clean_contact_digits:
+                        logger.info("incomplete_followup_skipped_admin_phone", phone=contact_phone, tenant=tenant_name)
+                        continue
+
                     phone_number_id = wa_creds.get("phone_number_id")
                     access_token = wa_creds.get("access_token")
                     if not phone_number_id or not access_token or not contact_phone:
@@ -6040,6 +6077,7 @@ class CoreWorker:
                         tenant_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
 
                     now_local = datetime.datetime.now(tenant_tz)
+                    time_str = now_local.strftime("%I:%M %p")
 
                     # Dynamic morning start (default 09:00, or tenant's opening_time if between 08:30 and 10:00)
                     start_hour = 9
@@ -6113,9 +6151,14 @@ class CoreWorker:
                         continue
 
                     # Retrieve contact details (health concern, doctor, preferred language) for richer context
+                    cust_phone_clean = re.sub(r'[^0-9]', '', str(contact_phone or ""))
+                    cust_last10 = cust_phone_clean[-10:] if len(cust_phone_clean) >= 10 else cust_phone_clean
                     cust_row = await self.db_pool.fetchrow(
-                        "SELECT name, health_concern, preferred_doctor, preferred_language FROM customers WHERE tenant_id = $1::uuid AND phone = $2",
-                        tenant_id, contact_phone
+                        """SELECT name, health_concern, preferred_doctor, preferred_language FROM customers 
+                           WHERE tenant_id = $1::uuid 
+                             AND (phone = $2 OR phone = ('+' || $2) OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $3)
+                           ORDER BY created_at DESC LIMIT 1""",
+                        tenant_id, contact_phone, cust_last10
                     )
                     cust_concern = cust_row.get("health_concern") if cust_row else None
                     cust_saved_lang = (cust_row.get("preferred_language") or "").strip() if cust_row else ""
@@ -6204,9 +6247,15 @@ class CoreWorker:
 
                     # Stage-Aware Drop-off Analysis from recent turns
                     chat_context_text = " ".join([m.get("content", "").lower() for m in recent_turns])
+                    tenant_industry = (tenant_st.get("industry") or "").lower().strip()
+                    is_clinic = tenant_industry in ("clinic", "healthcare", "wellness", "hospital", "doctor", "dental")
+
                     is_price_drop = any(kw in chat_context_text for kw in ["price", "cost", "fee", "fees", "charge", "charges", "rate", "evlo", "kitna", "rupees", "₹"])
                     is_slot_drop = any(kw in chat_context_text for kw in ["time", "slot", "tomorrow", "today", "morning", "evening", "appointment", "schedule", "book", "available", "timing"])
-                    is_symptom_drop = any(kw in chat_context_text for kw in ["pain", "treatment", "doctor", "problem", "issue", "symptom", "therapy", "clinic", "consultation", "vali", "dard"])
+                    # Medical symptoms: only for clinic/healthcare businesses with strictly medical terms
+                    is_symptom_drop = is_clinic and any(kw in chat_context_text for kw in [
+                        "pain", "ache", "stiffness", "swelling", "symptom", "vali", "dard", "headache", "backache", "knee pain", "neck pain", "sciatica", "migraine"
+                    ])
 
                     if is_touch_2:
                         mission_title = "TOUCH 2: PRE-24H FREE WINDOW EXPIRY CLOSER"
@@ -6222,21 +6271,32 @@ class CoreWorker:
                         )
                     elif is_price_drop:
                         mission_title = "STAGE 1: PRICE INQUIRY DROP-OFF RECOVERY"
-                        mission_prompt_text = (
-                            "The customer stopped replying after asking about fees or pricing.\n"
-                            "1. Remind them warmly of the complete value, root-cause diagnosis, or treatment roadmap included with our specialist.\n"
-                            "2. Offer a low-friction micro-step: ask if they would like to tentatively hold a consultation slot, or if a quick 5-minute call with the clinic coordinator would help clear their doubts."
-                        )
-                        followup_instruction = (
-                            f"[Customer dropped off after pricing inquiry. Remind them warmly of the value/relief included and offer a tentative slot or 5-minute coordinator call in {style_profile['label']}. "
-                            f"Write a short, clear 1-2 sentence followup without robotic fillers.]"
-                        )
+                        if is_clinic:
+                            mission_prompt_text = (
+                                "The customer stopped replying after asking about fees or pricing.\n"
+                                "1. Remind them warmly of the complete value, root-cause diagnosis, or treatment roadmap included with our specialist.\n"
+                                "2. Offer a low-friction micro-step: ask if they would like to tentatively hold a consultation slot, or if a quick 5-minute call with our coordinator would help clear their doubts."
+                            )
+                            followup_instruction = (
+                                f"[Customer dropped off after pricing inquiry. Remind them warmly of the value/relief included and offer a tentative slot or 5-minute call in {style_profile['label']}. "
+                                f"Write a short, clear 1-2 sentence followup without robotic fillers.]"
+                            )
+                        else:
+                            mission_prompt_text = (
+                                f"The customer stopped replying after asking about pricing or rates for {tenant_name}.\n"
+                                "1. Remind them warmly of the value and results we deliver.\n"
+                                "2. Offer a low-friction micro-step: ask if they would like a quick 5-minute call or walkthrough to see how it fits their specific requirements."
+                            )
+                            followup_instruction = (
+                                f"[Customer dropped off after pricing inquiry. Warmly reiterate the value/ROI and offer a quick 5-minute walkthrough or call in {style_profile['label']}. "
+                                f"Write a short, clear 1-2 sentence followup without robotic fillers.]"
+                            )
                     elif is_symptom_drop:
                         mission_title = "STAGE 1: HEALTH CONCERN / PAIN DROP-OFF RECOVERY"
                         mission_prompt_text = (
                             "The customer stopped replying after discussing their pain, symptom, or condition.\n"
                             "1. Express genuine care for their condition (leaving pain unassessed often worsens stiffness).\n"
-                            "2. Offer a binary choice: ask if a morning or evening checkup with the doctor would suit them better to get it diagnosed."
+                            "2. Offer a binary choice: ask if a morning or evening checkup with the specialist would suit them better to get it diagnosed."
                         )
                         followup_instruction = (
                             f"[Customer dropped off after discussing symptoms/pain. Follow up with care about their condition and offer a binary choice (morning or evening visit) in {style_profile['label']}. "
@@ -6256,7 +6316,7 @@ class CoreWorker:
                     else:
                         mission_title = "STAGE 1: SMART 2-HOUR CONTEXTUAL TOPIC CONTINUATION"
                         mission_prompt_text = (
-                            "The customer was chatting with us 2 hours ago and stopped replying after our last message.\n"
+                            f"The customer was chatting with {tenant_name} 2 hours ago and stopped replying after our last message.\n"
                             "Your goal is to send a short, warm, non-intrusive 1-2 sentence follow-up that directly continues the specific topic discussed in their last 3-4 messages."
                         )
                         followup_instruction = (
@@ -6313,11 +6373,9 @@ class CoreWorker:
 
                     continuation_prompt = "\n\n".join(followup_blocks)
 
-                    followup_instruction = (
-                        f"[Customer stopped replying 2 hours ago. Look at their last 3-4 messages above. "
-                        f"Write a short, clear, warm 1-2 sentence followup directly continuing the specific topic they were discussing "
-                        f"in {style_profile['label']}. Do not say 'Just checking in' and do not push canned demo times.]"
-                    )
+                    # followup_instruction is already set by the stage-aware block above
+                    # (is_touch_2, is_price_drop, is_symptom_drop, is_slot_drop).
+                    # DO NOT overwrite it here — the stage-specific instruction must reach the LLM.
                     followup_messages = history + [{"role": "user", "content": followup_instruction}]
 
                     raw_reply, prov = await call_llm_cascade(
@@ -6365,12 +6423,39 @@ class CoreWorker:
                         prov=prov,
                     )
 
-                    wa_id = await send_text(
-                        phone_number_id=phone_number_id,
-                        access_token=access_token,
-                        to=contact_phone,
-                        body=followup_text,
-                    )
+                    try:
+                        wa_id = await send_text(
+                            phone_number_id=phone_number_id,
+                            access_token=access_token,
+                            to=contact_phone,
+                            body=followup_text,
+                        )
+                    except Exception as send_err:
+                        err_str = str(send_err).lower()
+                        # If Meta rejects due to 24-hour window (error code 131047 / "24 hour" / "window"), fall back to approved client_followup_checkin template!
+                        if any(k in err_str for k in ("131047", "24 hour", "window", "re-engagement")):
+                            logger.info("incomplete_followup_24h_window_expired_fallback_template", conv_id=conv_id, to=contact_phone)
+                            contact_disp_name = (cust_row.get("name") if cust_row else None) or row.get("contact_name") or "there"
+                            assistant_name = (tenant_st.get("ai_agent_name") or "Assistant").strip() if isinstance(tenant_st, dict) else "Assistant"
+                            tpl_name = wa_creds.get("template_client_followup_checkin") or wa_creds.get("template_client_followup") or tenant_st.get("template_client_followup_checkin") or "client_followup_checkin"
+                            wa_id = await send_template(
+                                phone_number_id=phone_number_id,
+                                access_token=access_token,
+                                to=contact_phone,
+                                template_name=tpl_name,
+                                language_code="en",
+                                components=[{
+                                    "type": "body",
+                                    "parameters": [
+                                        {"type": "text", "text": contact_disp_name},
+                                        {"type": "text", "text": assistant_name},
+                                        {"type": "text", "text": tenant_name},
+                                    ]
+                                }]
+                            )
+                            followup_text = f"[Template: {tpl_name}] Hi {contact_disp_name}, this is {assistant_name} from {tenant_name}. Just checking in to see if you have any questions or if you'd like to book an appointment."
+                        else:
+                            raise send_err
 
                     out_msg_id = str(uuid.uuid4())
                     await self.db_pool.execute(
@@ -6408,14 +6493,17 @@ class CoreWorker:
 
                     # Update customer record so CRM dashboard reflects the sent follow-up date and time
                     try:
+                        cust_phone_clean = re.sub(r'[^0-9]', '', str(contact_phone or ""))
+                        cust_last10 = cust_phone_clean[-10:] if len(cust_phone_clean) >= 10 else cust_phone_clean
                         await self.db_pool.execute(
                             """UPDATE customers
                                SET last_messaged_at = NOW(),
                                    followup_date = CURRENT_DATE,
                                    followup_time = $3,
                                    updated_at = NOW()
-                               WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10))""",
-                            tenant_id, contact_phone, time_str
+                               WHERE tenant_id = $1::uuid 
+                                 AND (phone = $2 OR phone = ('+' || $2) OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4)""",
+                            tenant_id, contact_phone, time_str, cust_last10
                         )
                     except Exception as cust_up_err:
                         logger.warning("incomplete_followup_customer_update_failed", error=str(cust_up_err))
