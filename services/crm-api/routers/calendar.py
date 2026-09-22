@@ -3,6 +3,7 @@ import json
 import uuid
 import base64
 import hmac
+import hashlib
 import urllib.parse
 from urllib.parse import urlencode
 from datetime import datetime, timezone, timedelta, time

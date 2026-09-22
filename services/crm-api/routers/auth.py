@@ -4,6 +4,7 @@ import json
 import uuid
 import asyncio
 import bcrypt
+import hashlib
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, Dict, Any, List, Union

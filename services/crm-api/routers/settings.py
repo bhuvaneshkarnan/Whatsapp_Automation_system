@@ -4,6 +4,7 @@ import json
 import uuid
 import asyncio
 import httpx
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Union
 import structlog

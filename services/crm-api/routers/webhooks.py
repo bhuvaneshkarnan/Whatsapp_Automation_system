@@ -3,6 +3,7 @@ import re
 import json
 import uuid
 import asyncio
+import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Union
 import structlog
