@@ -205,8 +205,8 @@ async def dispatch_push_notification(
     payload_json = json.dumps({
         "title": title,
         "body": body,
-        "icon": "/favicon.ico",
-        "badge": "/favicon.ico",
+        "icon": "/icon-192.png",
+        "badge": "/icon-192.png",
         "tag": f"{notif_type}-{int(datetime.now().timestamp())}",
         "data": merged_data
     })
@@ -233,7 +233,8 @@ async def dispatch_push_notification(
                     data=payload_json,
                     vapid_private_key=VAPID_PRIVATE_KEY,
                     vapid_claims=vapid_claims,
-                    ttl=86400
+                    ttl=86400,
+                    headers={"Urgency": "high"}
                 )
                 sent_count += 1
             except WebPushException as ex:

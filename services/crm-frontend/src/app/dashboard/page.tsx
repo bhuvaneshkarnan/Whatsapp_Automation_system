@@ -153,6 +153,9 @@ import {
   ExternalLink,
   Printer,
   Lock,
+  Code,
+  Smartphone,
+  Monitor,
 } from 'lucide-react';
 
 const COUNTRY_CODES = [
@@ -1740,8 +1743,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
     return 'overview';
   });
-  const [sidebarFilter, setSidebarFilter] = useState<'all' | 'recent' | 'favorites' | 'active'>('all');
-  const [settingsTab, setSettingsTab] = useState<'branding' | 'billing' | 'whatsapp' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team' | 'ai_usage'>('billing');
+  const [settingsTab, setSettingsTab] = useState<'branding' | 'billing' | 'whatsapp' | 'notifications' | 'localization' | 'terminology' | 'calendar' | 'account' | 'team' | 'ai_usage' | 'website_form'>('billing');
+  const [embedLayout, setEmbedLayout] = useState<'steps' | 'single'>('steps');
+  const [embedHideHeader, setEmbedHideHeader] = useState(true);
+  const [embedSource, setEmbedSource] = useState('website_form');
+  const [embedCopied, setEmbedCopied] = useState(false);
+  const [embedLinkCopied, setEmbedLinkCopied] = useState(false);
+  const [embedPreviewDevice, setEmbedPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentTxnRef, setPaymentTxnRef] = useState('');
   const [submittingPaymentProof, setSubmittingPaymentProof] = useState(false);
@@ -1977,6 +1985,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [isPushLoading, setIsPushLoading] = useState(false);
   const [testingPush, setTestingPush] = useState(false);
 
+  // ── PWA & App Install State ───────────────────────────────────────────────────
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+  const [isInstalledApp, setIsInstalledApp] = useState(false);
+  const [isIOSDevice, setIsIOSDevice] = useState(false);
+  const [showIOSInstallModal, setShowIOSInstallModal] = useState(false);
+
   const fetchNotifications = async () => {
     try {
       const res = await notificationsApi.list(50);
@@ -2059,9 +2074,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       // Fire an immediate confirmation notification banner
       try {
         await reg.showNotification(`${settingsForm.name || 'CRM'} Web Push Enabled`, {
-          body: 'Real-time notifications are now active on your laptop!',
-          icon: '/favicon.ico',
-          badge: '/favicon.ico',
+          body: 'Real-time notifications are now active on this device!',
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
           tag: 'push-enabled-welcome',
           requireInteraction: true,
         });
@@ -2089,8 +2104,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             if (reg) {
               await reg.showNotification(`${settingsForm.name || 'CRM'} Live Alert`, {
                 body: 'Real notification is active on this device!',
-                icon: '/favicon.ico',
-                badge: '/favicon.ico',
+                icon: '/icon-192.png',
+                badge: '/icon-192.png',
                 tag: `test-alert-${Date.now()}`,
                 renotify: true,
                 requireInteraction: true,
@@ -2185,6 +2200,77 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       }
     } else if (notif.type === 'booking' || notif.type === 'cancellation' || notif.type === 'reschedule') {
       navigateTo('bookings');
+    }
+  };
+
+  // ── PWA Lifecycle & Install Prompt Listener ──────────────────────────────────
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Check if running as installed standalone PWA
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true;
+    setIsInstalledApp(isStandalone);
+
+    // Detect iOS
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isIOS = /iphone|ipad|ipod/.test(userAgent);
+    setIsIOSDevice(isIOS && !isStandalone);
+
+    // Register Service Worker early on page load so PWA installability criteria is met
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then((reg) => {
+          reg.update();
+          checkPushStatus();
+        })
+        .catch((err) => {
+          console.warn('SW registration info:', err);
+        });
+    }
+
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+
+    const handleAppInstalled = () => {
+      setIsInstalledApp(true);
+      setIsInstallable(false);
+      setDeferredPrompt(null);
+      setActionNotice('Boldlabs CRM App installed successfully!');
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (isIOSDevice) {
+      setShowIOSInstallModal(true);
+      return;
+    }
+    if (!deferredPrompt) {
+      setActionNotice('To install, open your browser menu (⋮) and tap "Install app" or "Add to Home Screen".');
+      return;
+    }
+    try {
+      deferredPrompt.prompt();
+      const choiceResult = await deferredPrompt.userChoice;
+      if (choiceResult && choiceResult.outcome === 'accepted') {
+        setIsInstallable(false);
+      }
+      setDeferredPrompt(null);
+    } catch (err) {
+      console.warn('Install prompt error:', err);
     }
   };
 
@@ -8229,6 +8315,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   {selectedCustomer.lead_probability}
                 </span>
               )}
+              {(selectedCustomer.source === 'website_form' || selectedCustomer.metadata?.source === 'website_form' || selectedCustomer.metadata?.booked_via === 'website_form') && (
+                <span
+                  className="text-[9px] font-semibold px-1.5 py-0.2 rounded-xs bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1 shrink-0"
+                  title="Booked from Website Form"
+                >
+                  <Globe className="w-2.5 h-2.5" />
+                  Website Form
+                </span>
+              )}
               {Array.isArray(selectedCustomer.metadata?.merged_phones) && selectedCustomer.metadata.merged_phones.length > 0 && (
                 <span
                   className="text-[9px] font-medium px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1 shrink-0"
@@ -9520,6 +9615,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             </button>
           )}
 
+          {/* PWA Install Button (Visible on Desktop Chrome/Edge, Android, or iOS Safari if not already installed) */}
+          {!isInstalledApp && (isInstallable || isIOSDevice) && (
+            <button
+              onClick={handleInstallApp}
+              className="px-2.5 py-1 rounded-sm transition-all duration-150 flex items-center gap-1.5 text-xs font-semibold bg-accent text-white hover:bg-accent-hover shadow-sm cursor-pointer animate-pulse hover:animate-none"
+              title="Install Boldlabs CRM as Desktop / Mobile App"
+            >
+              <Download className="w-3.5 h-3.5 stroke-[2]" />
+              <span className="hidden sm:inline">Install App</span>
+              <span className="sm:hidden">Install</span>
+            </button>
+          )}
+
           {/* Notification Bell with Dropdown Popover */}
           <div className="relative">
             <button
@@ -9729,6 +9837,60 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </>
             )}
           </div>
+
+          {/* iOS Add to Home Screen Guided Modal */}
+          {showIOSInstallModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+              <div className="bg-surface border border-border rounded-xl max-w-sm w-full p-5 shadow-2xl relative text-left">
+                <button
+                  onClick={() => setShowIOSInstallModal(false)}
+                  className="absolute top-3 right-3 p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-subtle cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+
+                <div className="flex items-center gap-2.5 mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+                    <Download className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-text-primary">Install Boldlabs CRM on iOS</h3>
+                    <p className="text-[11px] text-text-muted">Enables Real Push Alerts & Fullscreen App</p>
+                  </div>
+                </div>
+
+                <div className="space-y-3 my-4 text-xs text-text-secondary">
+                  <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-surface-subtle/60 border border-border/50">
+                    <span className="w-5 h-5 rounded-full bg-accent text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">1</span>
+                    <p className="leading-snug">
+                      Tap the <strong className="text-text-primary font-semibold">Share</strong> button <span className="inline-block px-1 py-0.5 rounded bg-surface border border-border text-[11px]">⎋</span> at the bottom of Safari.
+                    </p>
+                  </div>
+
+                  <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-surface-subtle/60 border border-border/50">
+                    <span className="w-5 h-5 rounded-full bg-accent text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">2</span>
+                    <p className="leading-snug">
+                      Scroll down and tap <strong className="text-text-primary font-semibold">"Add to Home Screen"</strong> <span className="inline-block px-1 py-0.5 rounded bg-surface border border-border text-[11px]">➕</span>.
+                    </p>
+                  </div>
+
+                  <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-surface-subtle/60 border border-border/50">
+                    <span className="w-5 h-5 rounded-full bg-accent text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">3</span>
+                    <p className="leading-snug">
+                      Tap <strong className="text-text-primary font-semibold">"Add"</strong> in top right. Launch from your Home Screen to get real push notifications!
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowIOSInstallModal(false)}
+                  className="w-full py-2 px-3 rounded-lg text-xs font-semibold bg-accent text-white hover:bg-accent-hover text-center transition-colors cursor-pointer"
+                >
+                  Got it, thanks!
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* User Profile & Logout */}
           <div className="flex items-center gap-2 pl-2 border-l border-border">
@@ -11070,7 +11232,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               </td>
 
                               <td className="p-3 text-xs text-text-body">
-                                {b.service}
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span>{b.service}</span>
+                                  {(b.source === 'website_form' || (b.notes || '').toLowerCase().includes('website form')) && (
+                                    <span className="text-[9.5px] font-semibold px-1.5 py-0.2 rounded-xs bg-indigo-50 text-indigo-700 border border-indigo-200 inline-flex items-center gap-0.5" title="Booked from Website Form">
+                                      <Globe className="w-2.5 h-2.5" />
+                                      <span>Website Form</span>
+                                    </span>
+                                  )}
+                                </div>
                               </td>
 
                               <td className="p-3 font-mono text-xs text-text-muted">
@@ -18212,6 +18382,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       { id: 'branding', label: isReviewOnly ? 'Business & Google Review Profile' : 'Profile & Branding', icon: Building2 },
                       { id: 'whatsapp', label: 'WhatsApp & Meta API', icon: MessageSquare },
                       ...(!isReviewOnly ? [{ id: 'calendar', label: 'Google Calendar & Scheduling', icon: CalendarDays }] : []),
+                      ...(!isReviewOnly ? [{ id: 'website_form', label: 'Website Form & Embed', icon: Code }] : []),
                       { id: 'notifications', label: isReviewOnly ? 'Review Notification Alerts' : 'Alert Channels', icon: Bell },
                       { id: 'localization', label: 'Regional & Currency', icon: Globe },
                       ...(!isReviewOnly ? [{ id: 'terminology', label: 'CRM Terminology', icon: Sliders }] : []),
@@ -19767,6 +19938,314 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </div>
                     </div>
                   )}
+
+                  {/* ── 1.5. WEBSITE BOOKING FORM & EMBED GENERATOR ────────── */}
+                  {settingsTab === 'website_form' && settingsForm.plan !== 'review_only' && (() => {
+                    const currentSlug = settingsForm.slug || (typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : '') || 'tenant';
+                    const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://crm.goboldlabs.com';
+                    const bookingUrl = `${baseUrl}/${currentSlug}/book?mode=${embedLayout}&source=${encodeURIComponent(embedSource || 'website_form')}${embedHideHeader ? '&hide_header=true' : ''}`;
+                    const iframeSnippet = `<!-- Boldlabs CRM Appointment Booking Form Embed -->
+<iframe
+  src="${bookingUrl}"
+  width="100%"
+  height="${embedLayout === 'steps' ? '620' : '720'}"
+  frameborder="0"
+  style="border: none; border-radius: 12px; max-width: 620px; width: 100%; min-height: 580px; box-shadow: 0 4px 20px rgba(0,0,0,0.06);"
+  title="Book Appointment"
+  loading="lazy"
+></iframe>`;
+
+                    return (
+                      <div className="space-y-6 bg-surface p-5 sm:p-6 rounded-md border border-border">
+                        {/* Section Header */}
+                        <div className="pb-3 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center">
+                                <Code className="w-4 h-4" />
+                              </div>
+                              <h4 className="font-bold text-sm text-text-primary">Website Booking Form & Embed Generator</h4>
+                            </div>
+                            <p className="text-xs text-text-muted mt-1">
+                              Embed your appointment booking form into the Contact section of your website. Patients can choose services, pick dates/times, and get instant WhatsApp confirmation.
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <a
+                              href={bookingUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 bg-surface-subtle hover:bg-border text-text-primary text-xs font-semibold rounded-md border border-border transition-colors flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span>Open Live Form</span>
+                            </a>
+                          </div>
+                        </div>
+
+                        {/* Attribution Highlight Banner */}
+                        <div className="p-3.5 bg-blue-50/80 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-lg flex items-start gap-2.5">
+                          <Globe className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                          <div className="text-xs text-blue-900 dark:text-blue-200 space-y-0.5">
+                            <p className="font-semibold">Automatic Website Form Lead Attribution</p>
+                            <p className="text-[11px] leading-relaxed opacity-90">
+                              Every patient booking via this embed form is automatically tracked in your CRM with <span className="font-semibold font-mono bg-blue-100 dark:bg-blue-900/60 px-1 py-0.2 rounded text-blue-800 dark:text-blue-300">source: "{embedSource || 'website_form'}"</span>, marked with a <span className="font-semibold">🌐 Website Form</span> badge, and logged on the customer activity timeline.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Step 1: Choose Layout Mode */}
+                        <div className="space-y-2.5">
+                          <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">
+                            1. Select Form Layout Mode
+                          </label>
+                          <p className="text-xs text-text-muted">
+                            Choose between a paginated multi-step wizard (ideal for website contact sections to prevent long scrolling) or a traditional single page form.
+                          </p>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                            {/* Option A: Multi-Step Pages */}
+                            <div
+                              onClick={() => setEmbedLayout('steps')}
+                              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                                embedLayout === 'steps'
+                                  ? 'border-emerald-600 bg-emerald-50/40 dark:bg-emerald-950/20 shadow-xs'
+                                  : 'border-border bg-surface hover:bg-surface-subtle'
+                              }`}
+                            >
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <div className={`w-6 h-6 rounded-md flex items-center justify-center ${
+                                      embedLayout === 'steps' ? 'bg-emerald-700 text-white' : 'bg-surface-subtle text-text-muted'
+                                    }`}>
+                                      <Layers className="w-3.5 h-3.5" />
+                                    </div>
+                                    <span className="font-bold text-xs text-text-primary">Multi-Step Pages (Wizard)</span>
+                                  </div>
+                                  <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                    Recommended for Websites
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-text-secondary leading-relaxed">
+                                  Splits the booking into <strong>3 concise steps</strong>: (1) Select Concern/Service → (2) Pick Date & Time → (3) Contact Details. Keeps your contact section neat and compact.
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-800">
+                                <CheckCircle className={`w-3.5 h-3.5 ${embedLayout === 'steps' ? 'text-emerald-600' : 'text-transparent'}`} />
+                                <span>{embedLayout === 'steps' ? 'Selected Layout' : 'Click to Select'}</span>
+                              </div>
+                            </div>
+
+                            {/* Option B: Single Page */}
+                            <div
+                              onClick={() => setEmbedLayout('single')}
+                              className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                                embedLayout === 'single'
+                                  ? 'border-emerald-600 bg-emerald-50/40 dark:bg-emerald-950/20 shadow-xs'
+                                  : 'border-border bg-surface hover:bg-surface-subtle'
+                              }`}
+                            >
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <div className={`w-6 h-6 rounded-md flex items-center justify-center ${
+                                      embedLayout === 'single' ? 'bg-emerald-700 text-white' : 'bg-surface-subtle text-text-muted'
+                                    }`}>
+                                      <FileText className="w-3.5 h-3.5" />
+                                    </div>
+                                    <span className="font-bold text-xs text-text-primary">Single Page (All-in-One)</span>
+                                  </div>
+                                  <span className="text-[9.5px] font-medium px-1.5 py-0.2 rounded-full bg-surface-subtle text-text-muted border border-border">
+                                    Full Scroll
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-text-secondary leading-relaxed">
+                                  Displays all 3 sections on a single continuous page. Best suited for full-height dedicated booking pages or wide desktop containers.
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-800">
+                                <CheckCircle className={`w-3.5 h-3.5 ${embedLayout === 'single' ? 'text-emerald-600' : 'text-transparent'}`} />
+                                <span>{embedLayout === 'single' ? 'Selected Layout' : 'Click to Select'}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Step 2: Embed Configuration Options */}
+                        <div className="space-y-3 pt-2">
+                          <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">
+                            2. Embed Display Options
+                          </label>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {/* Seamless Mode Toggle */}
+                            <div className="p-3.5 bg-surface-subtle border border-border rounded-lg space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <span className="font-semibold text-xs text-text-primary block">Seamless Mode (Hide Header)</span>
+                                  <span className="text-[11px] text-text-muted">Hides clinic logo & hours card so the widget matches your website contact section header</span>
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  id="toggle-hide-header"
+                                  checked={embedHideHeader}
+                                  onChange={(e) => setEmbedHideHeader(e.target.checked)}
+                                  className="w-4 h-4 text-emerald-600 rounded border-border focus:ring-emerald-500 cursor-pointer"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Custom Source Tag */}
+                            <div className="p-3.5 bg-surface-subtle border border-border rounded-lg space-y-1.5">
+                              <label className="font-semibold text-xs text-text-primary block">Lead Source Tag</label>
+                              <input
+                                type="text"
+                                value={embedSource}
+                                onChange={(e) => setEmbedSource(e.target.value.toLowerCase().replace(/\s+/g, '_'))}
+                                placeholder="website_form"
+                                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded text-xs font-mono text-text-primary focus:outline-none focus:border-accent"
+                              />
+                              <p className="text-[10px] text-text-muted">Used to filter leads in CRM by source (e.g. <code>website_form</code>, <code>contact_us</code>).</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Step 3: Copy Code & Embed Snippets */}
+                        <div className="space-y-3 pt-2">
+                          <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">
+                            3. Copy Embed Code & Direct Link
+                          </label>
+
+                          {/* HTML iFrame Snippet Box */}
+                          <div className="p-4 bg-slate-900 text-slate-100 rounded-xl space-y-2 border border-slate-800 shadow-sm">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-mono font-semibold text-slate-300 flex items-center gap-1.5">
+                                <Code className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>HTML iFrame Embed Code (Paste in your Contact Section)</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (typeof navigator !== 'undefined') {
+                                    navigator.clipboard.writeText(iframeSnippet);
+                                    setEmbedCopied(true);
+                                    setTimeout(() => setEmbedCopied(false), 2500);
+                                  }
+                                }}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                              >
+                                {embedCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                                <span>{embedCopied ? 'Copied Code!' : 'Copy Embed Code'}</span>
+                              </button>
+                            </div>
+
+                            <pre className="p-3 bg-slate-950 rounded-lg text-[11px] font-mono overflow-x-auto text-emerald-300/90 whitespace-pre-wrap leading-relaxed border border-slate-800">
+                              {iframeSnippet}
+                            </pre>
+
+                            <p className="text-[10px] text-slate-400 pt-1">
+                              <strong>How to install:</strong> In WordPress, Webflow, Shopify, Squarespace, or Wix, add a "Custom HTML" or "Embed" block to your contact page and paste this snippet.
+                            </p>
+                          </div>
+
+                          {/* Direct Public Link Box */}
+                          <div className="p-3.5 bg-surface-subtle border border-border rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                            <div className="min-w-0">
+                              <span className="text-xs font-semibold text-text-primary block">Direct Public Booking URL</span>
+                              <span className="text-[11px] font-mono text-text-muted truncate block max-w-md">
+                                {bookingUrl}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (typeof navigator !== 'undefined') {
+                                    navigator.clipboard.writeText(bookingUrl);
+                                    setEmbedLinkCopied(true);
+                                    setTimeout(() => setEmbedLinkCopied(false), 2500);
+                                  }
+                                }}
+                                className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium rounded-md border border-border transition-colors flex items-center gap-1 cursor-pointer"
+                              >
+                                {embedLinkCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                                <span>{embedLinkCopied ? 'Copied Link!' : 'Copy Link'}</span>
+                              </button>
+                              <a
+                                href={bookingUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium rounded-md border border-border transition-colors flex items-center gap-1 cursor-pointer"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                                <span>Test URL</span>
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Step 4: Interactive Live Preview */}
+                        <div className="space-y-3 pt-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <label className="text-xs font-bold text-text-primary uppercase tracking-wider block">
+                                4. Live Interactive Form Preview
+                              </label>
+                              <span className="text-xs text-text-muted">
+                                Test how your booking form renders and functions in real-time.
+                              </span>
+                            </div>
+
+                            {/* Device Switcher */}
+                            <div className="inline-flex p-0.5 bg-surface-subtle border border-border rounded-md shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setEmbedPreviewDevice('desktop')}
+                                className={`flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded transition-colors cursor-pointer ${
+                                  embedPreviewDevice === 'desktop'
+                                    ? 'bg-surface text-text-primary font-semibold shadow-2xs'
+                                    : 'text-text-muted hover:text-text-primary'
+                                }`}
+                              >
+                                <Monitor className="w-3 h-3" />
+                                <span>Desktop</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEmbedPreviewDevice('mobile')}
+                                className={`flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded transition-colors cursor-pointer ${
+                                  embedPreviewDevice === 'mobile'
+                                    ? 'bg-surface text-text-primary font-semibold shadow-2xs'
+                                    : 'text-text-muted hover:text-text-primary'
+                                }`}
+                              >
+                                <Smartphone className="w-3 h-3" />
+                                <span>Mobile</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Preview Frame Container */}
+                          <div className="p-4 sm:p-6 bg-slate-100 dark:bg-slate-950 rounded-xl border border-border flex justify-center overflow-x-auto">
+                            <div className={`transition-all duration-200 bg-white rounded-xl shadow-md overflow-hidden border border-border ${
+                              embedPreviewDevice === 'mobile' ? 'w-[380px] max-w-full' : 'w-[620px] max-w-full'
+                            }`}>
+                              <iframe
+                                key={`${embedLayout}-${embedHideHeader}-${embedSource}`}
+                                src={bookingUrl}
+                                width="100%"
+                                height="600"
+                                className="w-full border-0"
+                                title="Website Form Preview"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* ── 2. ALERT CHANNELS & NOTIFICATIONS ───────────────────── */}
                   {settingsTab === 'notifications' && (
@@ -21769,6 +22248,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 <span>Converted</span>
                               </span>
                             ) : null}
+                            {(selectedCustomer.source === 'website_form' || selectedCustomer.metadata?.source === 'website_form' || selectedCustomer.metadata?.booked_via === 'website_form') && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800" title="Booked from Website Form">
+                                <Globe className="w-3 h-3 text-indigo-600" />
+                                <span>Website Form</span>
+                              </span>
+                            )}
                           </div>
 
                           {/* Quick Action Bar for Phone & Chat */}

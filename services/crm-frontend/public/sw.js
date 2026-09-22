@@ -12,6 +12,13 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Pass-through fetch event handler to satisfy Chromium PWA criteria
+self.addEventListener('fetch', (event) => {
+  event.respondWith(
+    fetch(event.request).catch(() => caches.match(event.request))
+  );
+});
+
 self.addEventListener('push', (event) => {
   let data = {};
   if (event.data) {
@@ -33,10 +40,11 @@ self.addEventListener('push', (event) => {
     tag: data.tag || `crm-alert-${Date.now()}`,
     renotify: true,
     requireInteraction: true,
-    vibrate: [200, 100, 200],
-    data: data.data || { url: '/boldlabs' },
+    vibrate: [200, 100, 200, 100, 200],
+    data: data.data || { url: '/dashboard' },
     actions: [
-      { action: 'open', title: 'Open CRM' }
+      { action: 'open', title: 'Open Chat' },
+      { action: 'dismiss', title: 'Dismiss' }
     ]
   };
 
@@ -47,7 +55,12 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const rawUrl = (event.notification.data && event.notification.data.url) ? event.notification.data.url : '/boldlabs';
+
+  if (event.action === 'dismiss') {
+    return;
+  }
+
+  const rawUrl = (event.notification.data && event.notification.data.url) ? event.notification.data.url : '/dashboard';
   
   // Resolve full target URL
   const targetUrl = new URL(rawUrl, self.location.origin).href;

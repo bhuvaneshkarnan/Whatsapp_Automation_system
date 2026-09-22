@@ -707,8 +707,8 @@ async def dispatch_push_notification(
     payload_json = json.dumps({
         "title": title,
         "body": body,
-        "icon": "/favicon.ico",
-        "badge": "/favicon.ico",
+        "icon": "/icon-192.png",
+        "badge": "/icon-192.png",
         "tag": f"{notif_type}-{int(time.time())}",
         "data": merged_data
     }, default=str)
@@ -735,7 +735,8 @@ async def dispatch_push_notification(
                     data=payload_json,
                     vapid_private_key=VAPID_PRIVATE_KEY,
                     vapid_claims=vapid_claims,
-                    ttl=86400
+                    ttl=86400,
+                    headers={"Urgency": "high"}
                 )
                 sent_count += 1
             except WebPushException as ex:
@@ -1157,6 +1158,24 @@ class CoreWorker:
                 content_type=safe_content_type,
                 media_url=inbound_media_url,
             )
+
+            # ── 5a. Dispatch Web Push for inbound customer WhatsApp message ────
+            try:
+                contact_display = fields.get("contactName") or fields.get("from") or "Customer"
+                body_snippet = (body_text[:120] + "...") if len(body_text) > 120 else body_text
+                asyncio.create_task(
+                    dispatch_push_notification(
+                        pool=self.db_pool,
+                        tenant_id=tenant_id,
+                        title=f"💬 {contact_display}",
+                        body=body_snippet,
+                        notif_type="message",
+                        url="/dashboard#inbox",
+                        data={"contact_phone": fields.get("from", ""), "conversation_id": conv_id}
+                    )
+                )
+            except Exception as push_err:
+                logger.warning("inbound_msg_push_failed", error=str(push_err))
 
             # ── 5b. Auto-detect & persist customer email if mentioned in message ───
             if body_text and "@" in body_text:
