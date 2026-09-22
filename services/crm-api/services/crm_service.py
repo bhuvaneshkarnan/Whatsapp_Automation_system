@@ -1,5 +1,6 @@
 import os
 import re
+import html
 import json
 import uuid
 import asyncio

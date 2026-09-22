@@ -3,7 +3,7 @@ import re
 import json
 import uuid
 import asyncio
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, time
 from zoneinfo import ZoneInfo
 from typing import Optional, Dict, Any, List, Union
 import structlog
@@ -1429,7 +1429,6 @@ async def update_customer(
             await auto_route_lead_to_specialty(conn, tenant_id, row["phone"], payload.health_concern)
 
     return {
-        "status": "ok",
         "id": str(row["id"]),
         "name": row["name"],
         "internal_name": row["internal_name"] or None,

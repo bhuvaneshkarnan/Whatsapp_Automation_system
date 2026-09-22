@@ -886,7 +886,7 @@ async def update_booking_status(
                         # Send tailored copy to Customer
                         full_loc = (t_settings_dict.get("full_location_text") or "").strip()
                         if not full_loc:
-                            full_loc = (wa_data.get("full_location_text") if "wa_data" in locals() else "").strip()
+                            full_loc = ""
                         if not full_loc:
                             wa_loc_row = await conn.fetchrow("SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp'", tenant_id)
                             if wa_loc_row and wa_loc_row["credential_data"]:
