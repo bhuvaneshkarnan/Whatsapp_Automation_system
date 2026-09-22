@@ -2197,7 +2197,7 @@ export function ModernCustomerView({
                       : 'bg-surface-subtle text-text-secondary hover:text-text-primary'
                   }`}
                 >
-                  {stg.label} {stg.rev > 0 ? `• ${formatINR(stg.rev)}` : ''}
+                  {stg.label}
                 </button>
               ))}
             </div>
@@ -2423,11 +2423,6 @@ export function ModernCustomerView({
                                   )}
                                   <span>{cust.lead_probability || 'warm'}</span>
                                 </span>
-                                {dealVal > 0 && (
-                                  <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.2 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800 rounded-xs font-mono shrink-0 shadow-2xs" title="Deal / Cart Value">
-                                    <span>{formatINR(dealVal)}</span>
-                                  </span>
-                                )}
                               </div>
                             </div>
 
