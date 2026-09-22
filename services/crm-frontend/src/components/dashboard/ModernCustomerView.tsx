@@ -2510,21 +2510,6 @@ export function ModernCustomerView({
                                     <span>Call</span>
                                   </a>
                                 )}
-                                <button
-                                  type="button"
-                                  draggable={false}
-                                  onDragStart={(e) => e.stopPropagation()}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenChat(cust);
-                                  }}
-                                  className="px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 font-semibold rounded-xs border border-emerald-200 dark:border-emerald-800 transition-colors flex items-center gap-1 shadow-2xs text-[9.5px] cursor-pointer"
-                                  title="Open live WhatsApp chat in popup"
-                                >
-                                  <WhatsAppIcon className="w-2.5 h-2.5 text-[#25D366]" />
-                                  <span>Chat</span>
-                                </button>
-
                               </div>
 
                               {/* Popover inside Kanban card */}

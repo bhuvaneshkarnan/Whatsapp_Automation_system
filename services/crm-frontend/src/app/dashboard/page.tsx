@@ -8576,139 +8576,167 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
         {/* TAB 2: Profile, Notes & Follow-up View */}
         {drawerActiveTab === 'profile' && (
-          <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
-            {/* WhatsApp Quick Jump Banner */}
+          <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5 text-xs">
+            {/* 1. WhatsApp Quick Jump Card */}
             <div
               onClick={() => setDrawerActiveTab('chat')}
-              className="p-2.5 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200 rounded-sm flex items-center justify-between cursor-pointer transition-colors group"
-              title="Switch to WhatsApp Chat tab"
+              className="p-3 bg-emerald-50/80 hover:bg-emerald-100/90 dark:bg-emerald-950/40 border border-emerald-200/90 dark:border-emerald-800/60 rounded-md flex items-center justify-between cursor-pointer transition-all shadow-2xs group"
+              title="Open WhatsApp chat conversation"
             >
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                  <MessageSquare className="w-3.5 h-3.5" />
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <MessageSquare className="w-4 h-4 text-white" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold text-emerald-950 flex items-center gap-1.5">
-                    <span>WhatsApp Conversation</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-xs text-emerald-950 dark:text-emerald-100 font-headline">WhatsApp Conversation</span>
                     {customerChat?.unread_count ? (
-                      <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-bold">
+                      <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-bold animate-pulse">
                         {customerChat.unread_count} new
                       </span>
                     ) : null}
+                    {customerChat?.messages && customerChat.messages.length > 0 && (
+                      <span className="text-[10px] text-emerald-700 dark:text-emerald-300 font-mono">
+                        ({customerChat.messages.length} messages)
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-emerald-800 dark:text-emerald-300 truncate italic mt-0.5">
+                    {selectedCustomer.last_message ? `"${selectedCustomer.last_message}"` : 'Click to view full chat history and send WhatsApp messages'}
                   </p>
-                  {selectedCustomer.last_message ? (
-                    <p className="text-[11px] text-emerald-800 truncate italic">
-                      "{selectedCustomer.last_message}"
-                    </p>
-                  ) : (
-                    <p className="text-[10px] text-emerald-700">
-                      Click to read conversation & send replies
-                    </p>
-                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-1 text-[11px] font-medium text-emerald-700 group-hover:text-emerald-800 shrink-0">
+              <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 group-hover:text-emerald-900 dark:group-hover:text-emerald-100 group-hover:translate-x-0.5 transition-all shrink-0 ml-2">
                 <span>View Chat</span>
-                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                <ChevronRight className="w-3.5 h-3.5" />
               </div>
             </div>
 
-            {/* 1. Identity & Attributes Card */}
-            <div className="space-y-2 p-3 bg-surface-subtle border border-border rounded-sm">
-              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Customer Details</p>
-              
+            {/* 2. Contact Details & Business Requirements Card */}
+            <div className="p-3.5 bg-surface border border-border rounded-md shadow-2xs space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-border/70">
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4 text-accent stroke-[1.8]" />
+                  <h4 className="font-bold text-xs text-text-primary uppercase tracking-wider font-headline">Customer Profile</h4>
+                </div>
+                {selectedCustomer.phone && (
+                  <span className="text-[10.5px] font-mono text-text-muted bg-surface-subtle px-1.5 py-0.5 rounded border border-border/60">
+                    {selectedCustomer.phone}
+                  </span>
+                )}
+              </div>
+
+              {/* Internal Name / Alias */}
               <div>
-                <label className="text-[10px] text-text-muted block mb-1">
-                  Internal Patient Name / Label (CRM Only)
+                <label className="text-[10.5px] font-medium text-text-muted block mb-1">
+                  Internal Label / Reference (CRM Only)
                 </label>
                 <input
                   type="text"
                   value={drawerInternalName}
                   onChange={(e) => setDrawerInternalName(e.target.value)}
-                  placeholder={selectedCustomer.name ? `e.g. ${selectedCustomer.name} (VIP)` : 'Internal patient label...'}
-                  className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                  placeholder={selectedCustomer.name ? `e.g. ${selectedCustomer.name} (VIP)` : 'Internal client label or nickname...'}
+                  className="w-full px-2.5 py-1.5 text-xs bg-surface-subtle hover:bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent focus:bg-surface transition-colors"
                 />
-                <span className="text-[9px] text-text-muted mt-0.5 block">
-                  Private CRM label. Does not alter the patient&apos;s external WhatsApp name.
-                </span>
               </div>
 
+              {/* Service / Inquiry Selection */}
               <div>
-                <label className="text-[10px] text-text-muted block mb-1">{currentTaxonomy.requirement_label || 'Requirement / Concern'}</label>
-                <textarea
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10.5px] font-medium text-text-muted">
+                    {currentTaxonomy.requirement_label || 'Service / Inquiry'}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={openPresetEditor}
+                    className="text-[10px] text-accent hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                    title="Manage service presets"
+                  >
+                    <Pencil className="w-2.5 h-2.5" />
+                    <span>Manage Services</span>
+                  </button>
+                </div>
+                <input
+                  type="text"
                   value={drawerConcern}
                   onChange={(e) => setDrawerConcern(e.target.value)}
-                  rows={2}
-                  placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
-                  className="w-full px-2.5 py-1.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent resize-none"
+                  placeholder={`Type or select ${(currentTaxonomy.requirement_label || 'service').toLowerCase()}...`}
+                  className="w-full px-2.5 py-1.5 text-xs bg-surface-subtle hover:bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent focus:bg-surface transition-colors font-medium"
                 />
-                {/* Prebuilt Chips */}
+
+                {/* Prebuilt Quick Chips */}
                 {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
                   ? settingsForm.taxonomy.requirement_presets
                   : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
                 ) && (
-                  <div className="flex flex-wrap gap-1 mt-1">
+                  <div className="flex flex-wrap gap-1 mt-1.5">
                     {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
                       ? settingsForm.taxonomy.requirement_presets
                       : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
-                    ).map((chip) => (
-                      <button
-                        key={chip}
-                        type="button"
-                        onClick={() => setDrawerConcern(chip)}
-                        className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${
-                          drawerConcern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'
-                        }`}
-                      >
-                        {chip}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={openPresetEditor}
-                      title="Edit presets (add or remove)"
-                      className="px-1.5 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-text-muted hover:text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
-                    >
-                      <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
-                      <span>Edit</span>
-                    </button>
+                    ).map((chip) => {
+                      const isSelectedChip = drawerConcern === chip;
+                      return (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => setDrawerConcern(chip)}
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-medium border cursor-pointer transition-all ${
+                            isSelectedChip
+                              ? 'bg-accent text-white border-accent shadow-2xs'
+                              : 'bg-surface hover:bg-surface-subtle text-text-secondary border-border hover:border-accent/60 hover:text-accent'
+                          }`}
+                        >
+                          {chip}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-2 pt-1">
+              {/* Location & Age in Clean 2-Column Grid */}
+              <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="text-[10px] text-text-muted block mb-1">Age</label>
+                  <label className="text-[10.5px] font-medium text-text-muted flex items-center gap-1 mb-1">
+                    <MapPin className="w-2.5 h-2.5 opacity-60" />
+                    <span>Location</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={drawerLocation}
+                    onChange={(e) => setDrawerLocation(e.target.value)}
+                    placeholder="e.g. Chennai, Mumbai"
+                    className="w-full px-2.5 py-1.5 text-xs bg-surface-subtle hover:bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent focus:bg-surface transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10.5px] font-medium text-text-muted flex items-center gap-1 mb-1">
+                    <User className="w-2.5 h-2.5 opacity-60" />
+                    <span>Age / Ref</span>
+                  </label>
                   <input
                     type="number" min="1" max="120"
                     value={drawerAge}
                     onChange={(e) => setDrawerAge(e.target.value)}
                     placeholder="e.g. 35"
-                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-text-muted block mb-1">Location</label>
-                  <input
-                    type="text"
-                    value={drawerLocation}
-                    onChange={(e) => setDrawerLocation(e.target.value)}
-                    placeholder="e.g. Mumbai"
-                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                    className="w-full px-2.5 py-1.5 text-xs bg-surface-subtle hover:bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent focus:bg-surface transition-colors"
                   />
                 </div>
               </div>
 
-              <div className="pt-1">
+              {/* Assigned Staff */}
+              <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[10px] text-text-muted">{currentTaxonomy.staff_label || 'Assigned Staff / Doctor'}</label>
+                  <label className="text-[10.5px] font-medium text-text-muted">
+                    {currentTaxonomy.staff_label || 'Assigned Staff / Member'}
+                  </label>
                   <button
                     type="button"
                     onClick={openDoctorEditor}
                     className="text-[10px] text-accent hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
                   >
                     <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
-                    <span>Manage {currentTaxonomy.staff_label ? currentTaxonomy.staff_label.split('/')[0].trim() + 's' : 'Staff'}</span>
+                    <span>Manage Staff</span>
                   </button>
                 </div>
                 <div className="space-y-1">
@@ -8728,28 +8756,28 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 type="button"
                 onClick={handleSaveDrawerAttributes}
                 disabled={savingDrawerAttributes}
-                className="w-full py-1.5 px-3 bg-accent hover:bg-accent-hover disabled:opacity-60 text-white text-[11px] font-medium rounded-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 mt-2"
+                className="w-full py-2 px-3 bg-accent hover:bg-accent-hover disabled:opacity-60 text-white text-xs font-semibold rounded-md transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
               >
-                <Save className="w-3 h-3 stroke-[1.5]" />
-                {savingDrawerAttributes ? 'Saving...' : 'Save Attributes'}
+                <Save className="w-3.5 h-3.5 stroke-[2]" />
+                <span>{savingDrawerAttributes ? 'Saving...' : 'Save Profile Changes'}</span>
               </button>
             </div>
 
-            {/* 2. Schedule Follow-up Card */}
-            <div className="p-3 bg-surface-subtle border border-border rounded-sm space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-                  <CalendarClock className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                  <span>Schedule Follow-up</span>
+            {/* 3. Schedule Follow-up Card */}
+            <div className="p-3.5 bg-surface border border-border rounded-md shadow-2xs space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-border/70">
+                <span className="text-xs font-bold text-text-primary flex items-center gap-1.5 uppercase tracking-wider font-headline">
+                  <CalendarClock className="w-4 h-4 text-accent stroke-[1.8]" />
+                  <span>Next Step & Follow-up</span>
                 </span>
                 <div className="flex items-center gap-1.5">
                   {selectedCustomer.google_task_id && (
-                    <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-sm font-medium">
+                    <span className="text-[9.5px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-medium">
                       Tasks Synced
                     </span>
                   )}
                   {selectedCustomer.google_calendar_event_id && (
-                    <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-sm font-medium">
+                    <span className="text-[9.5px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded font-medium">
                       Calendar Synced
                     </span>
                   )}
@@ -8757,23 +8785,22 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <button
                       type="button"
                       onClick={() => handleDeleteCustomerFollowup(selectedCustomer.id)}
-                      className="px-2 py-0.5 text-[10px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-sm font-medium transition-colors cursor-pointer flex items-center gap-1"
-                      title="Delete scheduled follow-up"
+                      className="px-2 py-0.5 text-[10px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded font-medium transition-colors cursor-pointer flex items-center gap-1"
+                      title="Clear scheduled follow-up"
                     >
                       <Trash2 className="w-2.5 h-2.5 stroke-[1.5]" />
-                      <span>Delete Follow-up</span>
+                      <span>Remove</span>
                     </button>
                   )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-[10px] text-text-muted">Follow-up Date</label>
-                    <span className="text-[9px] font-mono text-accent">{selectedCustomer.followup_date || ''}</span>
+                    <label className="text-[10.5px] font-medium text-text-muted">Follow-up Date</label>
+                    <span className="text-[9.5px] font-mono text-accent">{selectedCustomer.followup_date || ''}</span>
                   </div>
-
                   <input
                     type="date"
                     value={selectedCustomer.followup_date || ''}
@@ -8781,15 +8808,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       followup_date: e.target.value,
                       ...(selectedCustomer.status === 'new' || !selectedCustomer.status ? { status: 'follow-up' as any } : {})
                     })}
-                    className="w-full px-2 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
+                    className="w-full px-2.5 py-1.5 text-xs bg-surface-subtle hover:bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent focus:bg-surface transition-colors"
                   />
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-[10px] text-text-muted">Follow-up Time</label>
-                    <span className="text-[9px] font-mono text-accent">{selectedCustomer.followup_time || '10:00 AM'}</span>
+                    <label className="text-[10.5px] font-medium text-text-muted">Follow-up Time</label>
+                    <span className="text-[9.5px] font-mono text-accent">{selectedCustomer.followup_time || '10:00 AM'}</span>
                   </div>
-
                   <FollowupTimeInput
                     value={selectedCustomer.followup_time || '10:00 AM'}
                     onChange={(newTime) => handleUpdateCustomer(selectedCustomer.id, {
@@ -8805,7 +8831,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 type="button"
                 disabled={syncingGoogleTasks}
                 onClick={() => handleSyncCustomerToGoogleTasks(selectedCustomer.id)}
-                className="w-full py-1.5 px-2.5 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium border border-border rounded-sm flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+                className="w-full py-1.5 px-2.5 bg-surface hover:bg-surface-subtle text-text-primary text-xs font-medium border border-border rounded-md flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
               >
                 <CalendarCheck className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
                 <span>
@@ -8818,52 +8844,76 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </button>
             </div>
 
-            {/* WhatsApp Chat Summary */}
-            {selectedCustomer.ai_summary && (
-              <div className="p-2.5 rounded-sm bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-800/60 text-xs space-y-1">
-                <div className="flex items-center justify-between font-semibold text-[10.5px] text-blue-700 dark:text-blue-300">
-                  <div className="flex items-center gap-1.5">
-                    <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
-                    <span>WhatsApp Chat Summary</span>
+            {/* 4. WhatsApp Chat Summary Card (Auto-Captured) */}
+            {(() => {
+              const summarySnippet = (selectedCustomer.ai_summary && selectedCustomer.ai_summary.trim())
+                ? selectedCustomer.ai_summary.trim()
+                : (selectedCustomer.last_message && selectedCustomer.last_message.trim())
+                  ? selectedCustomer.last_message.trim()
+                  : null;
+
+              if (!summarySnippet) return null;
+
+              return (
+                <div className="p-3 bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200/90 dark:border-blue-800/60 rounded-md shadow-2xs space-y-1.5">
+                  <div className="flex items-center justify-between font-semibold text-[11px] text-blue-700 dark:text-blue-300">
+                    <div className="flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      <span>WhatsApp Conversation Highlights</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setNewCustomerNoteText(summarySnippet)}
+                        className="text-[10px] text-blue-600 hover:text-blue-800 dark:text-blue-300 font-semibold underline cursor-pointer"
+                        title="Copy to staff note input below"
+                      >
+                        Copy to note
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDrawerActiveTab('chat')}
+                        className="text-[10px] text-blue-700 dark:text-blue-300 font-semibold hover:underline flex items-center gap-0.5 cursor-pointer"
+                      >
+                        <span>Open chat</span>
+                        <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    disabled={summarizingChat}
-                    onClick={() => handleSummarizeCustomerChat(selectedCustomer.id)}
-                    className="text-[10px] text-blue-600 hover:text-blue-800 dark:text-blue-300 font-medium flex items-center gap-0.5 cursor-pointer disabled:opacity-50"
-                    title="Re-analyze and refresh WhatsApp chat summary"
-                  >
-                    <Sparkles className="w-2.5 h-2.5" />
-                    <span>{summarizingChat ? 'Refreshing...' : 'Refresh'}</span>
-                  </button>
-                </div>
-                <p className="italic text-text-secondary text-[11px] leading-relaxed">
-                  "{selectedCustomer.ai_summary}"
-                </p>
-              </div>
-            )}
-
-            {/* 3. Notes History & Add Note */}
-            <div className="space-y-2 border-t border-border pt-3">
-              <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-                <StickyNote className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                <span>Staff Notes ({customerNotes.length})</span>
-              </span>
-
-              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-                {loadingCustomerNotes ? (
-                  <p className="text-[11px] text-text-muted text-center py-2">Loading notes...</p>
-                ) : customerNotes.length === 0 ? (
-                  <p className="text-[11px] text-text-muted text-center py-2 bg-surface-subtle/50 rounded-sm border border-border">
-                    No notes added yet.
+                  <p className="italic text-text-secondary text-[11px] leading-relaxed bg-surface/60 p-2 rounded border border-blue-100 dark:border-blue-900/60">
+                    "{summarySnippet}"
                   </p>
+                </div>
+              );
+            })()}
+
+            {/* 5. Staff Notes Timeline & Composer */}
+            <div className="p-3.5 bg-surface border border-border rounded-md shadow-2xs space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-border/70">
+                <span className="text-xs font-bold text-text-primary flex items-center gap-1.5 uppercase tracking-wider font-headline">
+                  <StickyNote className="w-4 h-4 text-accent stroke-[1.8]" />
+                  <span>Staff Notes ({customerNotes.length})</span>
+                </span>
+                <span className="text-[10px] text-text-muted">Internal notes visible to staff</span>
+              </div>
+
+              {/* Notes History List */}
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {loadingCustomerNotes ? (
+                  <p className="text-[11px] text-text-muted text-center py-3">Loading notes...</p>
+                ) : customerNotes.length === 0 ? (
+                  <div className="text-center py-4 px-3 bg-surface-subtle/60 rounded-md border border-dashed border-border text-text-muted">
+                    <StickyNote className="w-5 h-5 mx-auto mb-1 opacity-40" />
+                    <p className="text-[11px] font-medium text-text-secondary">No staff notes yet</p>
+                    <p className="text-[10px] text-text-muted mt-0.5">Add your first note below to keep your team in sync.</p>
+                  </div>
                 ) : (
                   customerNotes.map((nt) => {
                     const noteStyle = getNoteBadgeStyle(nt.color);
                     return (
-                      <div key={nt.id} className={`pl-2.5 pr-2.5 py-2 border rounded-sm space-y-1 ${noteStyle.leftBorder}`}>
+                      <div key={nt.id} className={`p-2.5 border rounded-md space-y-1.5 ${noteStyle.leftBorder} bg-surface-subtle/50`}>
                         <div className="flex items-center justify-between text-[10px]">
-                          <span className={`font-semibold px-1.5 py-0.5 rounded-sm text-[10px] ${noteStyle.badge}`}>{nt.author}</span>
+                          <span className={`font-semibold px-1.5 py-0.5 rounded text-[10px] ${noteStyle.badge}`}>{nt.author}</span>
                           <div className="flex items-center gap-1.5">
                             <span className="text-text-muted font-mono">
                               {formatDateTime12(nt.created_at)}
@@ -8872,7 +8922,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               type="button"
                               onClick={() => handleDeleteNote(nt.id)}
                               title="Delete note"
-                              className="p-0.5 text-text-muted hover:text-rose-600 rounded cursor-pointer"
+                              className="p-0.5 text-text-muted hover:text-rose-600 rounded cursor-pointer transition-colors"
                             >
                               <Trash2 className="w-3 h-3 stroke-[1.5]" />
                             </button>
@@ -8885,48 +8935,49 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 )}
               </div>
 
-              <form onSubmit={handleAddCustomerNote} className="space-y-2 pt-1">
-                <div className="flex gap-1.5">
-                  <input
-                    type="text"
-                    value={newCustomerNoteAuthor}
-                    onChange={(e) => setNewCustomerNoteAuthor(e.target.value)}
-                    placeholder="Author"
-                    className="w-24 px-2 py-1 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                  />
-                  <input
-                    type="text"
-                    value={newCustomerNoteText}
-                    onChange={(e) => setNewCustomerNoteText(e.target.value)}
-                    placeholder="Add a staff note..."
-                    className="flex-1 px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-text-muted">Color:</span>
-                    {(['slate','blue','amber','rose','emerald','violet'] as const).map(c => {
-                      const dotClasses: Record<string, string> = {
-                        slate:'bg-slate-400', blue:'bg-blue-400', amber:'bg-amber-400',
-                        rose:'bg-rose-400', emerald:'bg-emerald-400', violet:'bg-violet-400'
-                      };
-                      return (
-                        <button
-                          type="button"
-                          key={c}
-                          title={`Note color: ${c}`}
-                          onClick={() => setNewCustomerNoteColor(c)}
-                          className={`w-4 h-4 rounded-full ${dotClasses[c]} cursor-pointer transition-transform ${newCustomerNoteColor === c ? 'ring-2 ring-offset-1 ring-text-primary scale-115' : 'opacity-60 hover:opacity-100'}`}
-                        />
-                      );
-                    })}
+              {/* Add Note Composer */}
+              <form onSubmit={handleAddCustomerNote} className="space-y-2 pt-2 border-t border-border/70">
+                <textarea
+                  value={newCustomerNoteText}
+                  onChange={(e) => setNewCustomerNoteText(e.target.value)}
+                  rows={2}
+                  placeholder="Write a staff note (e.g. Call summary, customer preferences, follow-up outcome)..."
+                  className="w-full px-3 py-2 text-xs bg-surface-subtle hover:bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent focus:bg-surface resize-none transition-colors"
+                />
+
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={newCustomerNoteAuthor}
+                      onChange={(e) => setNewCustomerNoteAuthor(e.target.value)}
+                      placeholder="Author name"
+                      className="w-24 px-2 py-1 text-[11px] bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent font-medium"
+                    />
+                    <div className="flex items-center gap-1">
+                      {(['slate','blue','amber','rose','emerald','violet'] as const).map(c => {
+                        const dotClasses: Record<string, string> = {
+                          slate:'bg-slate-400', blue:'bg-blue-400', amber:'bg-amber-400',
+                          rose:'bg-rose-400', emerald:'bg-emerald-400', violet:'bg-violet-400'
+                        };
+                        return (
+                          <button
+                            type="button"
+                            key={c}
+                            title={`Note color: ${c}`}
+                            onClick={() => setNewCustomerNoteColor(c)}
+                            className={`w-3.5 h-3.5 rounded-full ${dotClasses[c]} cursor-pointer transition-transform ${newCustomerNoteColor === c ? 'ring-2 ring-offset-1 ring-text-primary scale-120' : 'opacity-60 hover:opacity-100'}`}
+                          />
+                        );
+                      })}
+                    </div>
                   </div>
                   <button
                     type="submit"
                     disabled={!newCustomerNoteText.trim() || addingCustomerNote}
-                    className="px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer disabled:opacity-50"
+                    className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-colors cursor-pointer disabled:opacity-50 shadow-2xs"
                   >
-                    {addingCustomerNote ? 'Saving...' : '+ Save Note'}
+                    {addingCustomerNote ? 'Saving...' : '+ Save Staff Note'}
                   </button>
                 </div>
               </form>
