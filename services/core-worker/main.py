@@ -1026,13 +1026,14 @@ class CoreWorker:
             # ── 4. Process Voice Notes / Audio Messages ───────────────────────
             msg_type = fields.get("type", "text")
             body_text = fields.get("body", "")
-
-            if msg_type in ["audio", "voice"] or (not body_text and fields.get("rawJson")) or fields.get("rawJson"):
-                raw_data = {}
+            raw_data = {}
+            if fields.get("rawJson"):
                 try:
-                    raw_data = json.loads(fields.get("rawJson", "{}"))
+                    raw_data = json.loads(fields["rawJson"]) if isinstance(fields["rawJson"], str) else (fields["rawJson"] or {})
                 except Exception:
-                    pass
+                    raw_data = {}
+
+            if msg_type in ["audio", "voice"] or (not body_text and raw_data) or raw_data:
 
                 # Extract button / quick reply clicks
                 if msg_type == "button" or "button" in raw_data:
@@ -1246,13 +1247,15 @@ class CoreWorker:
                     )
 
             messages_processed.labels(tenant=tenant_id, status="success").inc()
-            await self.redis.xack(STREAM_KEY, CONSUMER_GROUP, stream_msg_id)
+            if self.redis:
+                await self.redis.xack(STREAM_KEY, CONSUMER_GROUP, stream_msg_id)
 
         except Exception as e:
             logger.error("message_handling_failed", tenant_id=tenant_id, wa_id=wa_message_id, error=str(e))
             messages_processed.labels(tenant=tenant_id, status="error").inc()
             # ACK anyway to prevent poison-pill loop; dead letter handled by ops
-            await self.redis.xack(STREAM_KEY, CONSUMER_GROUP, stream_msg_id)
+            if self.redis:
+                await self.redis.xack(STREAM_KEY, CONSUMER_GROUP, stream_msg_id)
         finally:
             self.in_flight_messages.discard(stream_msg_id)
             elapsed = time.monotonic() - start
