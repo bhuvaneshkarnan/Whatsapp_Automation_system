@@ -657,7 +657,7 @@ async def list_customers(
             )
             SELECT 
                 c.id, c.tenant_id, c.phone, c.name, c.internal_name, c.metadata, c.age, c.location, c.preferred_doctor, c.status,
-                COALESCE(c.source, c.metadata->>'source', 'whatsapp') AS source,
+                COALESCE(NULLIF(to_jsonb(c)->>'source', ''), c.metadata->>'source', 'whatsapp') AS source,
                 c.health_concern, c.lead_probability, c.converted, c.followup_date,
                 c.followup_time, c.google_task_id, c.google_calendar_event_id, c.last_visited_at, c.last_messaged_at, c.preferred_language, c.created_at, c.updated_at,
                 COALESCE(c.conversion_rate, CASE WHEN c.converted THEN 100 WHEN c.lead_probability = 'hot' THEN 80 WHEN c.lead_probability = 'cold' THEN 20 ELSE 50 END) AS conversion_rate,
@@ -2239,11 +2239,25 @@ async def summarize_customer_chat(
         conversation_str = "\n".join(dialogue)
 
         summary = None
-        gemini_key_row = await conn.fetchrow(
-            "SELECT api_key FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'gemini' AND is_active = true",
-            tenant_id
-        )
-        gkey = (gemini_key_row["api_key"] if gemini_key_row else None) or os.getenv("GEMINI_API_KEY")
+        gkey = None
+        try:
+            gemini_key_row = await conn.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = $2 AND is_active = true",
+                tenant_id, "gemini"
+            )
+            if gemini_key_row and gemini_key_row.get("credential_data"):
+                cdata = gemini_key_row["credential_data"]
+                if isinstance(cdata, str):
+                    try:
+                        cdata = json.loads(cdata)
+                    except Exception:
+                        cdata = {}
+                gkey = cdata.get("api_key") or cdata.get("apiKey")
+        except Exception as _k_err:
+            logger.warning("fetch_gemini_key_failed", error=str(_k_err))
+
+        if not gkey:
+            gkey = os.getenv("GEMINI_API_KEY")
 
         if gkey and len(dialogue) >= 1:
             try:
@@ -2256,7 +2270,7 @@ async def summarize_customer_chat(
                 )
                 async with httpx.AsyncClient(timeout=8.0) as client:
                     resp = await client.post(
-                        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gkey}",
+                        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gkey}",
                         json={"contents": [{"parts": [{"text": prompt}]}]}
                     )
                     if resp.status_code == 200:

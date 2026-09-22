@@ -94,6 +94,7 @@ async def run_migrations(pool: asyncpg.Pool):
                 );
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS age INT;
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS location TEXT;
+                ALTER TABLE customers ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'whatsapp';
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS google_calendar_event_id TEXT;
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_visited_at TIMESTAMPTZ;
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_messaged_at TIMESTAMPTZ;

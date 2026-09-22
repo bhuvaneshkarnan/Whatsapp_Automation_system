@@ -124,6 +124,7 @@ async def startup():
         async with db_pool.acquire() as conn:
             await conn.execute("""
                 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS notified_due BOOLEAN DEFAULT false;
+                ALTER TABLE customers ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'whatsapp';
                 CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_uniq ON customers(tenant_id, phone);
                 INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, created_at, updated_at)
                 SELECT gen_random_uuid(), c.tenant_id, REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), COALESCE(c.name, c.wa_profile_name, 'Customer'), 'new', 'warm', c.created_at, now()
