@@ -303,8 +303,8 @@ async def call_gemini(
         },
     }
 
-    # Verified active Gemini models; primary candidate first, then active fallback models
-    active_gemini_models = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"]
+    # Verified active Gemini models on live API (sub-second generation)
+    active_gemini_models = ["gemini-3.1-flash-lite", "gemini-3.5-flash"]
     candidate_models = []
     if model and model in active_gemini_models:
         candidate_models.append(model)
@@ -369,12 +369,14 @@ async def call_groq(
     for m in sanitized:
         formatted_msgs.append({"role": m["role"], "content": m["content"]})
 
-    # Verified active models on Groq: qwen/qwen3.8-27b (fastest) and groq/compound-mini (70k TPM high volume fallback)
+    # Verified active models on Groq: qwen/qwen3.8-27b
+    active_groq_models = ["qwen/qwen3.8-27b"]
     candidate_models = []
-    if model and model in ["qwen/qwen3.8-27b", "groq/compound-mini"]:
+    if model and model in active_groq_models:
         candidate_models.append(model)
-    candidate_models.extend(["qwen/qwen3.8-27b", "groq/compound-mini"])
-    candidate_models = list(dict.fromkeys(candidate_models))
+    for m in active_groq_models:
+        if m not in candidate_models:
+            candidate_models.append(m)
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -427,7 +429,7 @@ async def call_opencode(
     api_key: str,
     system_prompt: str,
     base_url: str = "https://opencode.ai/zen/v1",
-    model: str = "nemotron-3.5-lightning-free",
+    model: str = "deepseek-chat",
     max_tokens: int = 2048,
     temperature: float = 0.3,
     timeout_seconds: float = 10.0,
@@ -449,27 +451,12 @@ async def call_opencode(
     for m in messages:
         formatted_msgs.append({"role": m["role"], "content": m["content"]})
 
-    # If OpenCode Zen or key starts with sk-PUap
-    if "opencode" in clean_base or (api_key and api_key.startswith("sk-PUap")):
-        if "opencode.ai" not in clean_base:
-            url = "https://opencode.ai/zen/v1/chat/completions"
-        candidate_models = [
-            model,
-            "nemotron-3.5-lightning-free",
-            "mimo-v2.5-free",
-            "gpt-5.4-mini",
-            "gemini-3.5-flash-lite",
-            "claude-haiku-4-5",
-            "deepseek-v4-flash-free",
-        ]
-    else:
-        candidate_models = [
-            model or "gpt-4o-mini",
-            "gpt-4o-mini",
-            "deepseek-chat",
-            "gpt-4o",
-            "qwen/qwen-2.5-72b-instruct",
-        ]
+    candidate_models = [
+        model or "deepseek-chat",
+        "deepseek-chat",
+        "gpt-4o-mini",
+        "qwen/qwen-2.5-72b-instruct",
+    ]
     candidate_models = [m for m in candidate_models if m]
     candidate_models = list(dict.fromkeys(candidate_models))
 
