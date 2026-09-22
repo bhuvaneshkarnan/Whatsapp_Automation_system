@@ -15024,24 +15024,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        disabled={summarizingChat}
-                        onClick={() => handleSummarizeCustomerChat(quickNoteCustomer.customerId)}
-                        className="px-2 py-1 text-[10px] bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 font-medium rounded border border-blue-200 dark:border-blue-800 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                        title="Summarize what happened in this customer's WhatsApp chat"
-                      >
-                        <Sparkles className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
-                        <span>{summarizingChat ? 'Summarizing...' : 'Summarize Chat'}</span>
-                      </button>
-                      <button
-                        onClick={() => setQuickNoteCustomer(null)}
-                        className="text-text-muted hover:text-text-primary p-1 rounded-md hover:bg-surface-subtle cursor-pointer"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => setQuickNoteCustomer(null)}
+                      className="text-text-muted hover:text-text-primary p-1 rounded-md hover:bg-surface-subtle cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </div>
 
                   {/* WhatsApp Chat Summary Preview Card */}

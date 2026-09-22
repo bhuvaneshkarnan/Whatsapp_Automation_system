@@ -1527,19 +1527,7 @@ export function ModernCustomerView({
           >
             <TrendingUp className="w-3.5 h-3.5 text-emerald-600 stroke-[1.8]" />
             <span className="font-bold text-emerald-700">{kpis.converted}</span>
-            <span>Converted ({kpis.winRate}%)</span>
           </button>
-
-          <div className="h-3 w-px bg-border/80 shrink-0" />
-
-          <div
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded shrink-0 bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60"
-            title={`Total Active Pipeline Value: ${formatINR(kpis.totalPipelineValue)} | Converted: ${formatINR(kpis.convertedPipelineValue)}`}
-          >
-            <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 stroke-[2]" />
-            <span className="text-[11px] text-emerald-800 dark:text-emerald-300 font-medium">Pipeline:</span>
-            <span className="font-bold text-emerald-900 dark:text-emerald-200 font-mono text-xs">{formatINR(kpis.totalPipelineValue)}</span>
-          </div>
         </div>
 
         {(warmthFilter !== 'all' || stageFilter !== 'all' || staffFilter !== 'all' || searchQuery.trim()) && (
@@ -1926,35 +1914,47 @@ export function ModernCustomerView({
                               {/* ── DIVIDER LINE ── */}
                               <div className="border-t border-border/70" />
 
-                              {/* ── BOTTOM SECTION: Auto WhatsApp Chat Summary ── */}
+                              {/* ── BOTTOM SECTION: Auto WhatsApp Chat Summary / Recent Chat ── */}
                               <div>
-                                {cust.ai_summary && cust.ai_summary.trim() ? (
-                                  <div
-                                    onClick={() => (onOpenChat ? onOpenChat(cust) : onOpenDetails(cust))}
-                                    className="group/chat flex items-start gap-1 p-1 px-1.5 rounded bg-blue-50/80 hover:bg-blue-100/90 border border-blue-200/80 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-200 cursor-pointer transition-all text-[10px] text-blue-950 shadow-2xs"
-                                    title="Auto WhatsApp Chat Summary (Click to open chat)"
-                                  >
-                                    <MessageSquare className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0 stroke-[1.8]" />
-                                    <div className="min-w-0 flex-1">
-                                      <p className="line-clamp-2 italic leading-snug font-normal">
-                                        "{cust.ai_summary}"
-                                      </p>
+                                {(() => {
+                                  const chatSnippet = (cust.ai_summary && cust.ai_summary.trim())
+                                    ? cust.ai_summary.trim()
+                                    : (cust.last_message && cust.last_message.trim())
+                                      ? cust.last_message.trim()
+                                      : null;
+
+                                  if (chatSnippet) {
+                                    return (
+                                      <div
+                                        onClick={() => (onOpenChat ? onOpenChat(cust) : onOpenDetails(cust))}
+                                        className="group/chat flex items-start gap-1 p-1 px-1.5 rounded bg-blue-50/80 hover:bg-blue-100/90 border border-blue-200/80 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-200 cursor-pointer transition-all text-[10px] text-blue-950 shadow-2xs"
+                                        title="WhatsApp Chat (Click to open chat)"
+                                      >
+                                        <MessageSquare className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0 stroke-[1.8]" />
+                                        <div className="min-w-0 flex-1">
+                                          <p className="line-clamp-2 italic leading-snug font-normal">
+                                            "{chatSnippet}"
+                                          </p>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+
+                                  return (
+                                    <div
+                                      onClick={() => (onOpenChat ? onOpenChat(cust) : onOpenDetails(cust))}
+                                      className="px-1.5 py-0.5 text-[9.5px] text-text-muted/80 flex items-center gap-1 cursor-pointer hover:text-text-primary transition-colors"
+                                      title="Click to open WhatsApp chat"
+                                    >
+                                      <MessageSquare className="w-2.5 h-2.5 opacity-40 shrink-0" />
+                                      <span className="truncate italic">
+                                        {cust.health_concern && cust.health_concern !== 'General Consultation'
+                                          ? `Inquiry: ${cust.health_concern}`
+                                          : 'Awaiting chat...'}
+                                      </span>
                                     </div>
-                                  </div>
-                                ) : (
-                                  <div
-                                    onClick={() => (onOpenChat ? onOpenChat(cust) : onOpenDetails(cust))}
-                                    className="px-1.5 py-0.5 text-[9.5px] text-text-muted/80 flex items-center gap-1 cursor-pointer hover:text-text-primary transition-colors"
-                                    title="Click to open WhatsApp chat"
-                                  >
-                                    <MessageSquare className="w-2.5 h-2.5 opacity-40 shrink-0" />
-                                    <span className="truncate italic">
-                                      {cust.health_concern && cust.health_concern !== 'General Consultation'
-                                        ? `Inquiry: ${cust.health_concern}`
-                                        : 'Awaiting chat...'}
-                                    </span>
-                                  </div>
-                                )}
+                                  );
+                                })()}
                               </div>
                             </div>
                           </td>
@@ -2317,11 +2317,6 @@ export function ModernCustomerView({
                       </h4>
                     </div>
                     <div className="flex items-center gap-1 shrink-0 ml-1">
-                      {colRevenue > 0 && (
-                        <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded-full font-mono bg-emerald-100/90 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200 border border-emerald-300/60 shadow-2xs" title={`Stage Pipeline Value: ${formatINR(colRevenue)}`}>
-                          {formatINR(colRevenue)}
-                        </span>
-                      )}
                       <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full font-mono ${col.badge}`}>
                         {colLeads.length}
                       </span>
@@ -2329,7 +2324,7 @@ export function ModernCustomerView({
                   </div>
 
                   {/* Column Card List */}
-                  <div className="p-1.5 flex-1 overflow-y-auto space-y-1.5 min-h-0 scrollbar-thin">
+                  <div className="p-2 flex-1 overflow-y-auto space-y-2.5 min-h-0 scrollbar-thin">
                     {/* Active Drop Guide */}
                     {isDropTarget && draggedCustomerId && !colLeads.some((c) => c.id === draggedCustomerId) && (
                       <div className="p-2 border-2 border-dashed border-accent/70 bg-accent/10 rounded-sm text-center text-[10px] font-semibold text-accent animate-pulse">
@@ -2360,8 +2355,10 @@ export function ModernCustomerView({
                               setDragOverStage(null);
                             }}
                             onClick={() => onSelectCustomer(cust)}
-                            className={`p-2 bg-surface dark:bg-surface border rounded-sm shadow-2xs hover:shadow-xs ${col.cardHover} transition-all cursor-grab active:cursor-grabbing select-none space-y-1.5 ${
-                              isSelected ? 'border-accent ring-1 ring-accent' : 'border-border/80'
+                            className={`p-2.5 bg-surface dark:bg-surface border-2 rounded-md shadow-xs hover:shadow-md ${col.cardHover} transition-all cursor-grab active:cursor-grabbing select-none space-y-2 ${
+                              isSelected
+                                ? 'border-accent ring-2 ring-accent/20'
+                                : 'border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-500'
                             } ${isDragging ? 'opacity-40 border-dashed border-accent' : ''}`}
                           >
                             {/* Card Header: Drag Handle, Name & Temperature / Deal Value */}
