@@ -50,6 +50,7 @@ async def list_bookings(
         query = """
             SELECT b.id, b.service, b.staff_member, b.start_time, b.end_time, b.status,
                    b.notes, b.price, b.currency, b.created_at,
+                   COALESCE(b.source, b.metadata->>'source', 'crm') AS source,
                    c.name as contact_name, c.phone as contact_phone,
                    (SELECT cu.health_concern FROM customers cu WHERE cu.tenant_id = b.tenant_id AND (cu.phone = c.phone OR RIGHT(REGEXP_REPLACE(cu.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10)) LIMIT 1) as customer_health_concern
             FROM bookings b
@@ -96,6 +97,7 @@ async def list_bookings(
                 "created_at": r["created_at"].isoformat() if r["created_at"] else "",
                 "is_occupied_only": True,
                 "health_concern": "Other Department",
+                "source": r.get("source") or "crm",
             })
         else:
             result.append({
@@ -114,6 +116,7 @@ async def list_bookings(
                 "created_at": r["created_at"].isoformat() if r["created_at"] else "",
                 "is_occupied_only": False,
                 "health_concern": c_concern or None,
+                "source": r["source"] or "crm",
             })
     return result
 

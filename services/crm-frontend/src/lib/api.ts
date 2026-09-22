@@ -436,6 +436,8 @@ export interface Customer {
   interested_services?: string[] | null;
   deal_value?: number | null;
   ai_summary?: string | null;
+  source?: string | null;
+  last_messaged_at?: string | null;
 }
 
 export interface DuplicateCustomerCandidate {
@@ -1784,6 +1786,8 @@ export interface PublicBookingInfo {
     slot_duration_minutes: number;
   };
   bot_phone?: string;
+  plan?: string;
+  operating_hours?: string;
 }
 
 export interface ClientCreatePayload {
@@ -2390,6 +2394,7 @@ export const publicBooking = {
     booking_date: string;
     booking_time: string;
     notes?: string;
+    source?: string;
   }) =>
     publicRequest<{
       status: string;

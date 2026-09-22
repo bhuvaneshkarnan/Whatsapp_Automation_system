@@ -437,6 +437,7 @@ class PublicBookingRequest(BaseModel):
     booking_date: str  # YYYY-MM-DD
     booking_time: str  # HH:MM or 10:00 AM
     notes: Optional[str] = None
+    source: Optional[str] = "website_form"
 
 
 class StaffCreateRequest(BaseModel):

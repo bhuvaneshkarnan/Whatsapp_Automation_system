@@ -182,6 +182,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS customers_tenant_phone_uniq ON customers(tenan
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS deal_value NUMERIC DEFAULT 0;
                 ALTER TABLE customers ADD COLUMN IF NOT EXISTS ai_summary TEXT;
+                ALTER TABLE customers ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'whatsapp';
+                ALTER TABLE bookings ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'whatsapp';
                 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS internal_name TEXT;
                 CREATE INDEX IF NOT EXISTS idx_contacts_merged_phones ON contacts USING gin ((metadata->'merged_phones'));
                 CREATE INDEX IF NOT EXISTS idx_customers_merged_phones ON customers USING gin ((metadata->'merged_phones'));

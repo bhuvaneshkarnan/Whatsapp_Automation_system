@@ -1944,6 +1944,8 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
             st_dt = st_dt.replace(tzinfo=tenant_tz)
         et_dt = st_dt + timedelta(minutes=30)
 
+        booking_source = getattr(payload, "source", None) or "website_form"
+
         # 1. Upsert contact using normalized phone matching
         contact = await conn.fetchrow(
             """SELECT id FROM contacts 
@@ -1963,13 +1965,13 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                 """INSERT INTO contacts (id, tenant_id, name, phone, metadata, created_at, updated_at)
                    VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb, now(), now())""",
                 contact_id, tenant_id, clean_name, clean_phone,
-                json.dumps({"preferred_doctor": doc, "health_concern": health_concern_str, "email": payload.patient_email or ""})
+                json.dumps({"preferred_doctor": doc, "health_concern": health_concern_str, "email": payload.patient_email or "", "source": booking_source})
             )
         else:
             contact_id = str(contact["id"])
             await conn.execute(
-                """UPDATE contacts SET name = $1, updated_at = now() WHERE id = $2::uuid""",
-                clean_name, contact_id
+                """UPDATE contacts SET name = $1, metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('source', $2::text), updated_at = now() WHERE id = $3::uuid""",
+                clean_name, booking_source, contact_id
             )
 
         # 2. Get or create conversation
@@ -1990,10 +1992,11 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
         # 3. Double Booking Conflict Check & Insert within an atomic transaction
         booking_id = str(uuid.uuid4())
         staff = doc
+        source_label = "Website Form" if booking_source == "website_form" else booking_source
         if staff:
-            combined_notes = f"Booked online via web booking page.\nPractitioner: {staff}\nConcern: {health_concern_str}"
+            combined_notes = f"Booked online via {source_label}.\nPractitioner: {staff}\nConcern: {health_concern_str}"
         else:
-            combined_notes = f"Booked online via web booking page.\nConcern: {health_concern_str}"
+            combined_notes = f"Booked online via {source_label}.\nConcern: {health_concern_str}"
         if payload.notes:
             combined_notes += f"\nPatient Note: {payload.notes.strip()}"
 
@@ -2045,9 +2048,9 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                     raise HTTPException(409, f"Timeslot capacity reached: This slot has reached the maximum of {max_concurrent} concurrent bookings.")
 
             await conn.execute(
-                """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member)
-                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR', $9)""",
-                booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, combined_notes, staff
+                """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member, source, metadata)
+                   VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR', $9, $10, $11::jsonb)""",
+                booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, combined_notes, staff, booking_source, json.dumps({"source": booking_source, "channel": "website_form"})
             )
 
         # 3b. Queue automated 24h & 2h reminders and post-session review request in scheduled_jobs
@@ -2082,17 +2085,40 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
         try:
             cust = await conn.fetchrow("SELECT id FROM customers WHERE tenant_id = $1::uuid AND phone = $2", tenant_id, clean_phone)
             if not cust:
+                cust_id = str(uuid.uuid4())
                 await conn.execute(
-                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, converted, health_concern, preferred_doctor, created_at, updated_at)
-                       VALUES (gen_random_uuid(), $1::uuid, $2, $3, 'converted', 'hot', true, $4, $5, now(), now())
-                       ON CONFLICT (tenant_id, phone) DO UPDATE SET status = 'converted', converted = true, lead_probability = 'hot', health_concern = EXCLUDED.health_concern, preferred_doctor = COALESCE(EXCLUDED.preferred_doctor, customers.preferred_doctor), updated_at = now()""",
-                    tenant_id, clean_phone, clean_name, health_concern_str, staff
+                    """INSERT INTO customers (id, tenant_id, phone, name, status, lead_probability, converted, health_concern, preferred_doctor, source, metadata, created_at, updated_at)
+                       VALUES ($1::uuid, $2::uuid, $3, $4, 'converted', 'hot', true, $5, $6, $7, $8::jsonb, now(), now())
+                       ON CONFLICT (tenant_id, phone) DO UPDATE SET status = 'converted', converted = true, lead_probability = 'hot', health_concern = EXCLUDED.health_concern, preferred_doctor = COALESCE(EXCLUDED.preferred_doctor, customers.preferred_doctor), source = COALESCE(customers.source, EXCLUDED.source), metadata = COALESCE(customers.metadata, '{}'::jsonb) || EXCLUDED.metadata, updated_at = now()""",
+                    cust_id, tenant_id, clean_phone, clean_name, health_concern_str, staff, booking_source, json.dumps({"source": booking_source, "booked_via": "website_form"})
                 )
             else:
+                cust_id = str(cust["id"])
                 await conn.execute(
-                    """UPDATE customers SET name = COALESCE(NULLIF(name, ''), $1), status = 'converted', converted = true, lead_probability = 'hot', health_concern = $2, preferred_doctor = COALESCE($3, preferred_doctor), updated_at = now() WHERE id = $4::uuid""",
-                    clean_name, health_concern_str, staff, str(cust["id"])
+                    """UPDATE customers 
+                       SET name = COALESCE(NULLIF(name, ''), $1), 
+                           status = 'converted', 
+                           converted = true, 
+                           lead_probability = 'hot', 
+                           health_concern = $2, 
+                           preferred_doctor = COALESCE($3, preferred_doctor),
+                           source = COALESCE(customers.source, $4),
+                           metadata = COALESCE(customers.metadata, '{}'::jsonb) || jsonb_build_object('last_booking_source', $4::text),
+                           updated_at = now() 
+                       WHERE id = $5::uuid""",
+                    clean_name, health_concern_str, staff, booking_source, cust_id
                 )
+
+            # Record customer timeline activity note
+            try:
+                date_str_short = st_dt.strftime("%d %b %Y at %I:%M %p")
+                await conn.execute(
+                    """INSERT INTO customer_notes (id, tenant_id, customer_id, author, note_text, color, created_at)
+                       VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'Website Form', $3, 'emerald', now())""",
+                    tenant_id, cust_id, f"📅 Booked appointment via Website Form for '{health_concern_str}' on {date_str_short}."
+                )
+            except Exception as e_note:
+                logger.warning("public_booking_customer_note_failed", error=str(e_note))
         except Exception as e_c:
             logger.warning("customer_directory_upsert_failed", error=str(e_c))
 

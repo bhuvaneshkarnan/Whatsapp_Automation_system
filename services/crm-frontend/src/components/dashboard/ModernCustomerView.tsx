@@ -45,6 +45,7 @@ import {
   DollarSign,
   Sparkles,
   FileText,
+  Globe,
 } from 'lucide-react';
 import { Customer, FollowupTask, CrmDropdownOptions, DuplicateCustomerGroup, crm as api } from '@/lib/api';
 
@@ -1777,6 +1778,12 @@ export function ModernCustomerView({
                                       New
                                     </span>
                                   )}
+                                  {(cust.source === 'website_form' || cust.metadata?.source === 'website_form' || cust.metadata?.booked_via === 'website_form') && (
+                                    <span className="text-[9px] font-semibold px-1 py-0.2 rounded-xs bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0 flex items-center gap-0.5" title="Booked from Website Form">
+                                      <Globe className="w-2.5 h-2.5" />
+                                      <span>Website Form</span>
+                                    </span>
+                                  )}
                                 </div>
                                 {cust.internal_name && (cust.name || cust.wa_profile_name) && (
                                   <div className="text-[9.5px] text-text-muted truncate max-w-[130px] font-medium" title={`WhatsApp Name: ${cust.name || cust.wa_profile_name}`}>
@@ -1985,7 +1992,7 @@ export function ModernCustomerView({
                           <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                             <select
                               value={servicesList.includes(cust.health_concern || '') ? (cust.health_concern || '') : ''}
-                              onChange={(e) => handleQuickUpdate(cust.id, { health_concern: e.target.value || null })}
+                              onChange={(e) => handleQuickUpdate(cust.id, { health_concern: e.target.value || undefined })}
                               disabled={updatingId === cust.id}
                               className="text-[10.5px] font-medium px-1.5 py-1 h-7 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer w-full max-w-[140px] truncate shadow-2xs"
                             >
@@ -2362,6 +2369,12 @@ export function ModernCustomerView({
                                     {cust.internal_name && (
                                       <span className="text-[8px] font-bold px-1 py-0.1 bg-purple-50 text-purple-700 border border-purple-200 rounded shrink-0">
                                         Internal
+                                      </span>
+                                    )}
+                                    {(cust.source === 'website_form' || cust.metadata?.source === 'website_form' || cust.metadata?.booked_via === 'website_form') && (
+                                      <span className="text-[8px] font-bold px-1 py-0.1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded shrink-0 flex items-center gap-0.5" title="Booked from Website Form">
+                                        <Globe className="w-2 h-2" />
+                                        Website Form
                                       </span>
                                     )}
                                   </div>

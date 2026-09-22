@@ -1,9 +1,9 @@
 {
   "name": "Boldlabs AI WhatsApp CRM",
   "short_name": "Boldlabs CRM",
-  "start_url": "/boldlabs",
+  "start_url": "/dashboard",
   "scope": "/",
-  "id": "/boldlabs",
+  "id": "/",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#090d16",
@@ -22,11 +22,22 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Live WhatsApp Inbox",
+      "short_name": "Inbox",
+      "description": "Open customer WhatsApp chats",
+      "url": "/dashboard#inbox",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "src": "/favicon.ico",
-      "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
+      "name": "Customers & Leads",
+      "short_name": "Customers",
+      "description": "View CRM customer database",
+      "url": "/dashboard#customers",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

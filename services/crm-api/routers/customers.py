@@ -657,6 +657,7 @@ async def list_customers(
             )
             SELECT 
                 c.id, c.tenant_id, c.phone, c.name, c.internal_name, c.metadata, c.age, c.location, c.preferred_doctor, c.status,
+                COALESCE(c.source, c.metadata->>'source', 'whatsapp') AS source,
                 c.health_concern, c.lead_probability, c.converted, c.followup_date,
                 c.followup_time, c.google_task_id, c.google_calendar_event_id, c.last_visited_at, c.last_messaged_at, c.preferred_language, c.created_at, c.updated_at,
                 COALESCE(c.conversion_rate, CASE WHEN c.converted THEN 100 WHEN c.lead_probability = 'hot' THEN 80 WHEN c.lead_probability = 'cold' THEN 20 ELSE 50 END) AS conversion_rate,
@@ -778,6 +779,7 @@ async def list_customers(
             "wa_profile_name": r["wa_profile_name"] or None,
             "preferred_doctor": r["preferred_doctor"],
             "status": r["status"] or "new",
+            "source": r["source"] or "whatsapp",
             "health_concern": r["health_concern"] or "General Consultation",
             "lead_probability": r["lead_probability"] or "warm",
             "converted": bool(r["converted"]),
