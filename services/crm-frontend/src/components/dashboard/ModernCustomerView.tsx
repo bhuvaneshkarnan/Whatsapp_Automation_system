@@ -824,18 +824,17 @@ export function ModernCustomerView({
     return Array.isArray(crmDropdowns?.next_actions) ? crmDropdowns.next_actions : [];
   }, [crmDropdowns]);
   const servicesList = useMemo(() => {
-    const fromDropdowns = [
+    const seen = new Set<string>();
+    const list = [
       ...(Array.isArray(crmDropdowns?.services_list) ? crmDropdowns.services_list : []),
       ...(Array.isArray(crmDropdowns?.concerns_list) ? crmDropdowns.concerns_list : []),
     ];
-    const fromCustomers = customers.map((c) => c.health_concern).filter((c): c is string => Boolean(c && c.trim()));
-    const seen = new Set<string>();
-    return [...fromDropdowns, ...fromCustomers].filter((s) => {
+    return list.filter((s) => {
       if (!s || !s.trim() || seen.has(s)) return false;
       seen.add(s);
       return true;
     });
-  }, [crmDropdowns, customers]);
+  }, [crmDropdowns]);
 
   // Computed Executive KPI Stats
   const kpis = useMemo(() => {
