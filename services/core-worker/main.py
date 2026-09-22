@@ -4096,8 +4096,9 @@ class CoreWorker:
                 idx += 1
 
             if followup_date:
-                updates.append(f"followup_date = COALESCE(customers.followup_date, ${idx}::date)")
-                dynamic_params.append(followup_date.isoformat())
+                updates.append(f"followup_date = COALESCE(customers.followup_date, ${idx})")
+                f_date_val = followup_date if isinstance(followup_date, datetime.date) else datetime.date.fromisoformat(str(followup_date)[:10])
+                dynamic_params.append(f_date_val)
                 idx += 1
 
             if followup_time:
