@@ -2326,7 +2326,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // ── CRM Dropdown Options Manager Modal ──────────────────────────────────────
   const [dropdownOptionsModalOpen, setDropdownOptionsModalOpen] = useState(false);
-  const [dropdownActiveTab, setDropdownActiveTab] = useState<'outcome_statuses' | 'next_actions' | 'services_list' | 'concerns_list'>('outcome_statuses');
+  const [dropdownActiveTab, setDropdownActiveTab] = useState<'outcome_statuses' | 'next_actions' | 'services_list'>('outcome_statuses');
   const [editingDropdowns, setEditingDropdowns] = useState<CrmDropdownOptions>({
     outcome_statuses: [],
     next_actions: [],
@@ -14732,7 +14732,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         { id: 'outcome_statuses' as const, label: 'Outcome Statuses', count: editingDropdowns.outcome_statuses?.length || 0 },
                         { id: 'next_actions' as const, label: 'Next Actions', count: editingDropdowns.next_actions?.length || 0 },
                         { id: 'services_list' as const, label: 'Services', count: editingDropdowns.services_list?.length || 0 },
-                        { id: 'concerns_list' as const, label: 'Concerns / Requirements', count: editingDropdowns.concerns_list?.length || 0 },
                       ].map((tab) => (
                         <button
                           key={tab.id}
@@ -14770,8 +14769,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1.5">
                         Add New {
                           dropdownActiveTab === 'outcome_statuses' ? 'Outcome Status' :
-                          dropdownActiveTab === 'next_actions' ? 'Next Action' :
-                          dropdownActiveTab === 'services_list' ? 'Service' : 'Concern'
+                          dropdownActiveTab === 'next_actions' ? 'Next Action' : 'Service'
                         }
                       </label>
                       <div className="flex gap-2">
@@ -14788,7 +14786,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           placeholder={`Type a new ${
                             dropdownActiveTab === 'outcome_statuses' ? 'outcome status (e.g. Needs Follow-up)' :
                             dropdownActiveTab === 'next_actions' ? 'next action (e.g. Schedule Call)' :
-                            dropdownActiveTab === 'services_list' ? 'service (e.g. Physiotherapy)' : 'concern (e.g. Shoulder pain)'
+                            'service (e.g. Physiotherapy)'
                           }...`}
                           className="flex-1 px-3 py-1.5 text-xs bg-surface-subtle border border-border rounded-md text-text-primary focus:bg-surface focus:border-accent focus:outline-none transition-colors"
                         />

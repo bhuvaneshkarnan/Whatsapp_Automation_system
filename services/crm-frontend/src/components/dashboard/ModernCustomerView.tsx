@@ -825,10 +825,7 @@ export function ModernCustomerView({
   }, [crmDropdowns]);
   const servicesList = useMemo(() => {
     const seen = new Set<string>();
-    const list = [
-      ...(Array.isArray(crmDropdowns?.services_list) ? crmDropdowns.services_list : []),
-      ...(Array.isArray(crmDropdowns?.concerns_list) ? crmDropdowns.concerns_list : []),
-    ];
+    const list = Array.isArray(crmDropdowns?.services_list) ? crmDropdowns.services_list : [];
     return list.filter((s) => {
       if (!s || !s.trim() || seen.has(s)) return false;
       seen.add(s);
