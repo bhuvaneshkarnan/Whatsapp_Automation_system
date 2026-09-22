@@ -2144,7 +2144,6 @@ async def delete_customer_latest_note(
         )
         if latest_id:
             await conn.execute("DELETE FROM customer_notes WHERE id = $1::uuid AND tenant_id = $2::uuid", latest_id, tenant_id)
-        await conn.execute("UPDATE customers SET notes = NULL WHERE id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
     return {"status": "success", "customer_id": customer_id, "deleted_note_id": str(latest_id) if latest_id else None}
 
 
@@ -2170,10 +2169,7 @@ async def update_customer_note(
             payload.note_text.strip(), note_color, payload.author or "Staff", note_id, tenant_id
         )
         if customer_id:
-            await conn.execute(
-                """UPDATE customers SET notes = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid""",
-                payload.note_text.strip(), customer_id, tenant_id
-            )
+            pass  # note belongs to customer_notes table; no denormalized column on customers
     return {"status": "ok", "id": note_id, "note_text": payload.note_text.strip(), "color": note_color}
 
 
