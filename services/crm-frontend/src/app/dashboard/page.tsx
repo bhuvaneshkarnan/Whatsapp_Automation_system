@@ -14348,7 +14348,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <th className="p-2.5 text-right pr-4">{currentTaxonomy.actions_label || 'Action'}</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-border">
+                          <tbody className="divide-y-2 divide-black dark:divide-slate-700">
                             {loadingCustomers ? (
                               <tr>
                                 <td colSpan={10} className="p-8 text-center text-text-muted">
@@ -14368,8 +14368,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <tr
                                     key={cust.id}
                                     onClick={() => handleSelectCustomer(cust)}
-                                    className={`cursor-pointer transition-colors duration-150 ${
-                                      isSelected ? 'bg-blue-50/50 border-l-2 border-l-accent' : 'hover:bg-surface-subtle/70'
+                                    className={`border-b-2 border-black dark:border-slate-700 cursor-pointer transition-colors duration-150 ${
+                                      isSelected ? 'bg-blue-50/50 border-l-4 border-l-accent' : 'hover:bg-surface-subtle/70'
                                     }`}
                                   >
                                     <td className="p-2.5 pl-4">

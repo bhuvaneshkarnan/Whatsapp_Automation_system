@@ -1704,7 +1704,7 @@ export function ModernCustomerView({
           <div className="flex-1 flex flex-col border border-border rounded-md bg-surface overflow-hidden">
             <div className="flex-1 overflow-y-auto overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-surface-subtle/80 border-b border-border text-text-secondary font-semibold text-[10.5px] uppercase tracking-wider sticky top-0 z-10 select-none">
+                <thead className="bg-surface-subtle/80 border-b-2 border-black dark:border-slate-700 text-text-secondary font-semibold text-[10.5px] uppercase tracking-wider sticky top-0 z-10 select-none">
                   <tr>
                     <th className="py-2.5 pl-3 pr-2 min-w-[170px]">Client / Contact</th>
                     <th className="py-2.5 px-2 min-w-[160px] max-w-[240px]">Notes & Chat Summary</th>
@@ -1715,7 +1715,7 @@ export function ModernCustomerView({
                     <th className="py-2.5 pl-2 pr-3 text-right min-w-[170px]">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border">
+                <tbody className="divide-y-2 divide-black dark:divide-slate-700">
                   {loading ? (
                     <tr>
                       <td colSpan={7} className="p-10 text-center text-text-muted">
@@ -1747,8 +1747,8 @@ export function ModernCustomerView({
                         <tr
                           key={cust.id}
                           onClick={() => onSelectCustomer(cust)}
-                          className={`cursor-pointer transition-colors duration-150 group ${
-                            isSelected ? 'bg-accent-subtle/40 border-l-2 border-l-accent' : 'hover:bg-surface-subtle/60'
+                          className={`border-b-2 border-black dark:border-slate-700 cursor-pointer transition-colors duration-150 group ${
+                            isSelected ? 'bg-accent-subtle/40 border-l-4 border-l-accent' : 'hover:bg-surface-subtle/60'
                           }`}
                         >
                           {/* 1. Client & Contact (with Buying Intent & Last Activity) */}
