@@ -362,6 +362,40 @@ async def create_booking(
                 "booking_confirmationn"
             )
             
+            # Check 24-hour Customer Service Window (Meta WhatsApp policy: raw text can only be sent if recipient messaged in last 24h)
+            is_inside_24h = False
+            try:
+                last_inbound_time = await conn.fetchval(
+                    """SELECT created_at FROM messages
+                       WHERE tenant_id = $1::uuid AND conversation_id = $2::uuid AND direction = 'inbound'
+                       ORDER BY created_at DESC LIMIT 1""",
+                    tenant_id, conv_id
+                )
+                if last_inbound_time:
+                    if last_inbound_time.tzinfo is None:
+                        last_inbound_time = last_inbound_time.replace(tzinfo=timezone.utc)
+                    is_inside_24h = (datetime.now(timezone.utc) - last_inbound_time).total_seconds() < 86400
+            except Exception as e_24h:
+                logger.warning("booking_24h_window_check_warn", error=str(e_24h))
+
+            full_location = (creds.get("full_location_text") or tenant_settings.get("full_location_text") or "").strip()
+            
+            # Smart location summary / Google Maps link extraction for outside-24h template embedding
+            loc_snippet = ""
+            if full_location and not is_inside_24h:
+                map_links = re.findall(r'https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|www\.google\.com/maps|maps\.google\.com)[^\s]+', full_location)
+                if not map_links:
+                    map_links = re.findall(r'https?://[^\s]+', full_location)
+                if map_links:
+                    if len(map_links) == 1:
+                        loc_snippet = f"(📍 Directions: {map_links[0]})"
+                    else:
+                        loc_snippet = f"(📍 Gate 1: {map_links[0]} | Gate 2: {map_links[1]})"
+                else:
+                    first_lines = [l.strip() for l in full_location.splitlines() if l.strip()]
+                    if first_lines:
+                        loc_snippet = f"(📍 {first_lines[0][:50]})"
+
             # Mind Body Recovery alone: strictly protect patient privacy (no doctor, concern, or service)
             is_mbr = (
                 str(tenant_id) == "b97ca3e5-7d43-44cf-8021-6e3659def878"
@@ -369,13 +403,17 @@ async def create_booking(
             )
             if is_mbr:
                 if tpl_name in ("mbr_appointment_confirmed", "appointment_confirmation_simple"):
-                    tpl_params = [clean_name or "Valued Customer", date_str, clock_str]
+                    time_param = f"{clock_str} {loc_snippet}".strip() if loc_snippet else clock_str
+                    tpl_params = [clean_name or "Valued Customer", date_str, time_param]
                 else:
-                    tpl_params = [clean_name or "Valued Customer", "Appointment", date_str, clock_str]
-                confirmation_msg = f"Hello {clean_name},\n\nYour appointment has been confirmed.\nDate: {date_str}\nTime: {clock_str}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you."
+                    svc_param = f"Appointment {loc_snippet}".strip() if loc_snippet else "Appointment"
+                    tpl_params = [clean_name or "Valued Customer", svc_param, date_str, clock_str]
+                confirmation_msg = f"Hello {clean_name},\n\nYour appointment has been confirmed.\nDate: {date_str}\nTime: {clock_str}\n" + (f"\nLocation: {loc_snippet}\n" if loc_snippet else "") + "\nIf you need to make any changes, just reply to this chat. We look forward to seeing you."
             else:
-                tpl_params = [clean_name or "Valued Customer", payload.service.strip(), date_str, clock_str]
-                confirmation_msg = f"Hello {clean_name},\n\nYour appointment is confirmed.\nService: {payload.service.strip()}\nDate: {date_str}\nTime: {clock_str}\n\nIf you need to make any changes, just reply to this chat. We look forward to seeing you."
+                base_svc = payload.service.strip()
+                svc_param = f"{base_svc} {loc_snippet}".strip() if loc_snippet else base_svc
+                tpl_params = [clean_name or "Valued Customer", svc_param, date_str, clock_str]
+                confirmation_msg = f"Hello {clean_name},\n\nYour appointment is confirmed.\nService: {base_svc}\nDate: {date_str}\nTime: {clock_str}\n" + (f"\nLocation: {loc_snippet}\n" if loc_snippet else "") + "\nIf you need to make any changes, just reply to this chat. We look forward to seeing you."
 
             if creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
                 headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
@@ -437,30 +475,76 @@ async def create_booking(
                 await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
 
             # 4b. Send Business Address & Google Maps Location (if configured)
-            full_location = (creds.get("full_location_text") or tenant_settings.get("full_location_text") or "").strip()
-
             if full_location and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-                loc_msg = f"*Location & Directions:*\n{full_location}"
-                location_wamid = None
-                try:
-                    import httpx
-                    async with httpx.AsyncClient(timeout=8.0) as client:
-                        loc_res = await client.post(
-                            f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages",
-                            headers={"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"},
-                            json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": loc_msg}}
+                if is_inside_24h:
+                    # Inside 24h window: Meta allows rich free-form text. Dispatch complete address & parking instructions!
+                    loc_msg = f"*Location & Directions:*\n{full_location}"
+                    location_wamid = None
+                    try:
+                        import httpx
+                        async with httpx.AsyncClient(timeout=8.0) as client:
+                            loc_res = await client.post(
+                                f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages",
+                                headers={"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"},
+                                json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": loc_msg}}
+                            )
+                            if loc_res.status_code in (200, 201):
+                                location_wamid = loc_res.json().get("messages", [{}])[0].get("id")
+                        loc_id = str(uuid.uuid4())
+                        await conn.execute(
+                            """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, status, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'text', $5, 'sent', false)""",
+                            loc_id, conv_id, tenant_id, location_wamid, loc_msg
                         )
-                        if loc_res.status_code in (200, 201):
-                            location_wamid = loc_res.json().get("messages", [{}])[0].get("id")
-                    loc_id = str(uuid.uuid4())
-                    await conn.execute(
-                        """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, status, ai_used_fallback)
-                           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'text', $5, 'sent', false)""",
-                        loc_id, conv_id, tenant_id, location_wamid, loc_msg
-                    )
-                    await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
-                except Exception as e:
-                    logger.error("manual_booking_location_send_error", error=str(e))
+                        await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                    except Exception as e:
+                        logger.error("manual_booking_location_send_error", error=str(e))
+                else:
+                    # Outside 24h window: Meta strictly rejects plain text (error 131047).
+                    # Check if tenant has an approved dedicated Meta Utility Template for location directions:
+                    loc_tpl = creds.get("template_location_directions") or tenant_settings.get("template_location_directions")
+                    if loc_tpl:
+                        try:
+                            import httpx
+                            payload_loc_tpl = {
+                                "messaging_product": "whatsapp",
+                                "to": clean_wa_phone,
+                                "type": "template",
+                                "template": {
+                                    "name": loc_tpl,
+                                    "language": {"code": "en"},
+                                    "components": [
+                                        {
+                                            "type": "body",
+                                            "parameters": [{"type": "text", "text": full_location[:1000]}]
+                                        }
+                                    ]
+                                }
+                            }
+                            async with httpx.AsyncClient(timeout=8.0) as client:
+                                loc_res = await client.post(
+                                    f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages",
+                                    headers={"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"},
+                                    json=payload_loc_tpl
+                                )
+                                if loc_res.status_code in (200, 201):
+                                    loc_wamid = loc_res.json().get("messages", [{}])[0].get("id")
+                                    loc_id = str(uuid.uuid4())
+                                    await conn.execute(
+                                        """INSERT INTO messages (id, conversation_id, tenant_id, wa_message_id, direction, content_type, body, template_name, status, ai_used_fallback)
+                                           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'template', $5, $6, 'sent', false)""",
+                                        loc_id, conv_id, tenant_id, loc_wamid, full_location, loc_tpl
+                                    )
+                                    await conn.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                        except Exception as e_tpl:
+                            logger.error("manual_booking_location_template_error", error=str(e_tpl))
+                    else:
+                        logger.info(
+                            "manual_booking_location_raw_text_suppressed_outside_24h",
+                            tenant_id=tenant_id,
+                            phone=clean_phone,
+                            reason="24h customer window closed; directions safely embedded in confirmation template"
+                        )
 
             # 5. Push Admin WhatsApp notification (if configured)
             admin_phone = creds.get("admin_whatsapp_number") or tenant_settings.get("admin_whatsapp_number")

@@ -82,18 +82,22 @@ def apply_rule_engine(
     text_lower = message_text.lower().strip()
 
     for rule in all_rules:
-        if rule.trigger_type == "fallback":
-            logger.info("rule_fallback_triggered", tenant_id=tenant_id)
-            return rule.response_text
-
         if rule.trigger_value and rule.trigger_type in ("keyword", "regex"):
             try:
                 if re.search(rule.trigger_value, text_lower, re.IGNORECASE):
                     logger.info("rule_matched", rule=rule.name, tenant_id=tenant_id)
-                    return rule.response_text
+                    return rule.response_text.replace("{assistant_name}", assistant_name).replace("{business_name}", business_name)
             except re.error:
                 # Bad regex in DB — skip this rule
                 continue
+
+        if rule.trigger_type == "fallback":
+            logger.info("rule_fallback_triggered", tenant_id=tenant_id)
+            if len(text_lower.split()) > 3 and not any(text_lower.startswith(g) for g in ["hi", "hello", "hey", "good morning", "good evening"]):
+                b_name = business_name.strip() if business_name else "our team"
+                return f"Thank you for sharing this with {b_name}. We have noted your details and will guide you with the best consultation and appointment options shortly! 🙏"
+            resp = rule.response_text or "Thank you for reaching out! How can we assist you today?"
+            return resp.replace("{assistant_name}", assistant_name).replace("{business_name}", business_name)
 
     return "Thank you for reaching out! We'll be in touch shortly. 🙏"
 
