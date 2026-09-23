@@ -377,6 +377,8 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
         "brand_support_phone": "+91 99999 99999",
         "hide_platform_branding": False,
         "custom_domain": None,
+        "canonical_domain": "crm.goboldlabs.com",
+        "is_domain_match": True,
         "tenant_id": None,
         "tenant_slug": None,
         "tenant_name": "Boldlabs",
@@ -415,7 +417,21 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
                 clean_slug
             )
 
-        if clean_domain and clean_domain not in ("crm.boldlabs.com", "boldlabs.com", "crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197"):
+            # If tenant exists, resolve the partner template strictly for THIS tenant
+            if tenant:
+                t_settings = tenant["settings"] if tenant["settings"] else {}
+                if isinstance(t_settings, str):
+                    try: t_settings = json.loads(t_settings)
+                    except Exception: t_settings = {}
+                t_partner = (t_settings.get("partner_name") or "").strip()
+                if t_partner:
+                    partner = await conn.fetchrow(
+                        "SELECT * FROM partner_agency_templates WHERE LOWER(partner_name) = $1 LIMIT 1",
+                        t_partner.lower()
+                    )
+
+        # Only if no tenant was resolved by slug, resolve partner and tenant by clean_domain
+        if not tenant and clean_domain and clean_domain not in ("crm.boldlabs.com", "boldlabs.com", "crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197"):
             alt_domain = clean_domain[4:] if clean_domain.startswith("www.") else f"www.{clean_domain}"
             partner = await conn.fetchrow(
                 """
@@ -428,37 +444,27 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
                 clean_domain,
                 alt_domain
             )
-            if not tenant:
-                tenant = await conn.fetchrow(
-                    """
-                    SELECT t.id, t.name, t.slug, t.settings,
-                           COALESCE(
-                               NULLIF(TRIM(t.settings->>'custom_domain'), ''),
-                               NULLIF(TRIM(pat.custom_domain), '')
-                           ) as custom_domain
-                    FROM tenants t
-                    LEFT JOIN partner_agency_templates pat 
-                           ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
-                    WHERE LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $1
-                       OR LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $2
-                    LIMIT 1
-                    """,
-                    clean_domain,
-                    alt_domain
-                )
-
-        # If tenant has a partner_name, resolve partner template for fallback branding
-        if tenant and not partner:
-            t_settings = tenant["settings"] if tenant and tenant["settings"] else {}
-            if isinstance(t_settings, str):
-                try: t_settings = json.loads(t_settings)
-                except Exception: t_settings = {}
-            t_partner = (t_settings.get("partner_name") or "").strip()
-            if t_partner:
-                partner = await conn.fetchrow(
-                    "SELECT * FROM partner_agency_templates WHERE LOWER(partner_name) = $1 LIMIT 1",
-                    t_partner.lower()
-                )
+            tenant = await conn.fetchrow(
+                """
+                SELECT t.id, t.name, t.slug, t.settings,
+                       COALESCE(
+                           NULLIF(TRIM(t.settings->>'custom_domain'), ''),
+                           NULLIF(TRIM(pat.custom_domain), '')
+                       ) as custom_domain
+                FROM tenants t
+                LEFT JOIN partner_agency_templates pat 
+                       ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
+                WHERE LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $1
+                   OR LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $2
+                   OR (pat.custom_domain IS NOT NULL AND (
+                       LOWER(TRIM(pat.custom_domain)) = $1 OR LOWER(TRIM(pat.custom_domain)) = $2
+                   ))
+                ORDER BY t.created_at ASC
+                LIMIT 1
+                """,
+                clean_domain,
+                alt_domain
+            )
 
     if not tenant and not partner:
         return default_branding
@@ -471,7 +477,10 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
             s = {}
 
     p_dict = dict(partner) if partner else {}
-    tenant_custom_domain = (tenant.get("custom_domain") if tenant else None) or (s.get("custom_domain") or p_dict.get("custom_domain") or "").strip().lower() or None
+    if tenant:
+        tenant_custom_domain = (tenant.get("custom_domain") or s.get("custom_domain") or "").strip().lower() or None
+    else:
+        tenant_custom_domain = (p_dict.get("custom_domain") or "").strip().lower() or None
     tenant_canonical = tenant_custom_domain or "crm.goboldlabs.com"
 
     is_platform_request = not clean_domain or clean_domain in ("crm.boldlabs.com", "boldlabs.com", "crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197")
