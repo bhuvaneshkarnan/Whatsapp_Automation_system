@@ -9656,9 +9656,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         {/* Logo & Current View Title */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
-            {(settingsForm.logo_url || branding.brand_logo_url) && (
+            {settingsForm.logo_url && (
               <img
-                src={settingsForm.logo_url || branding.brand_logo_url}
+                src={settingsForm.logo_url}
                 alt={settingsForm.name || branding.brand_name || 'Logo'}
                 className="h-7 w-auto max-w-[130px] object-contain rounded-xs"
                 onError={(e) => {
