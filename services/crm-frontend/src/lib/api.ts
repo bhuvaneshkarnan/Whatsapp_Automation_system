@@ -1686,8 +1686,8 @@ export const getPublicBranding = async (domain?: string, slug?: string): Promise
   return {
     is_whitelabel: false,
     brand_name: 'Boldlabs CRM',
-    brand_logo_url: '/boldlabs-logo.png',
-    brand_favicon_url: '/icon-192.png',
+    brand_logo_url: '/boldlabs-logo.png?v=2',
+    brand_favicon_url: '/icon-192.png?v=2',
     brand_primary_color: '#059669',
     brand_support_email: 'support@goboldlabs.com',
     brand_support_phone: '+91 99999 99999',
