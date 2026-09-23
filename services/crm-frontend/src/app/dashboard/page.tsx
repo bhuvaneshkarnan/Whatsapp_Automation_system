@@ -4319,8 +4319,24 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
         // 2. Post-Auth Domain Guard: Verify logged-in user's tenant matches current host
         if (data.role !== 'super_admin' && typeof window !== 'undefined') {
-          if (enforceDomainRedirect(window.location.hostname, data.custom_domain)) {
-            return;
+          const currentHostname = window.location.hostname;
+          const { checkDomainMatch, isPlatformHost } = await import('@/lib/branding');
+          if (!checkDomainMatch(currentHostname, data.custom_domain)) {
+            // On a whitelabel/custom domain (e.g. ai.bizpipe.in), don't redirect the user
+            // away to their home tenant domain (e.g. crm.goboldlabs.com).
+            // Instead, clear the stale cross-domain token and show the login page for
+            // THIS domain so they can sign in with the correct account.
+            if (!isPlatformHost(currentHostname)) {
+              localStorage.removeItem('auth_token');
+              localStorage.removeItem('tenant_id');
+              localStorage.removeItem('tenant_slug');
+              window.location.replace('/login');
+              return;
+            }
+            // On the main platform domain, still enforce the normal cross-domain redirect
+            if (enforceDomainRedirect(currentHostname, data.custom_domain)) {
+              return;
+            }
           }
         }
 
