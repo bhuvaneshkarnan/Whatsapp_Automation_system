@@ -1948,12 +1948,13 @@ class CoreWorker:
     ):
         """Call Gemini / Groq / OpenCode Cascade → fallback to rule engine → send via WhatsApp."""
 
-        # Get AI config and all tenant keys
+        # Get AI config, tenant keys (Tier 1), and platform master keys (Tier 2 fallback)
         ai_cfg = await self._get_ai_config(tenant_id)
         assistant_name = ai_cfg.get("assistant_name") or "Assistant"
-        gemini_key = await self._get_gemini_key(tenant_id)
-        groq_key = await self._get_groq_key(tenant_id)
-        opencode_key, opencode_base = await self._get_opencode_creds(tenant_id)
+        gemini_key = await self._get_tenant_gemini_key(tenant_id)
+        groq_key = await self._get_tenant_groq_key(tenant_id)
+        opencode_key, opencode_base = await self._get_tenant_opencode_creds(tenant_id)
+        master_keys = self._get_master_ai_keys()
         primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("gemini" if gemini_key else "groq")
         response_style = (ai_cfg.get("response_style") or "short").strip()
         is_single_line = bool(
@@ -2887,6 +2888,10 @@ class CoreWorker:
             groq_key=groq_key,
             opencode_key=opencode_key,
             opencode_base_url=opencode_base,
+            master_gemini_key=master_keys.get("gemini_key"),
+            master_groq_key=master_keys.get("groq_key"),
+            master_opencode_key=master_keys.get("opencode_key"),
+            master_opencode_base_url=master_keys.get("opencode_base_url"),
             primary_provider=primary_provider,
             gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
             max_tokens=150,
@@ -2900,7 +2905,7 @@ class CoreWorker:
         booking_action = None
         cancel_action = False
         reschedule_action = None
-        ai_used_fallback = (provider_used != primary_provider and provider_used != "gemini")
+        ai_used_fallback = (provider_used != primary_provider and provider_used != "gemini") or str(provider_used).startswith("master_")
 
         # Inbound Customer Cancellation Intent Safety Net
         inbound_lower = (message_text or "").lower().strip()
@@ -5065,7 +5070,7 @@ class CoreWorker:
                 return {}
         return dict(data)
 
-    async def _get_gemini_key(self, tenant_id: str) -> Optional[str]:
+    async def _get_tenant_gemini_key(self, tenant_id: str) -> Optional[str]:
         row = await self.db_pool.fetchrow(
             """SELECT credential_data FROM tenant_credentials
                WHERE tenant_id = $1::uuid AND provider = 'gemini' AND is_active = true""",
@@ -5074,19 +5079,14 @@ class CoreWorker:
         if row and row["credential_data"]:
             data = row["credential_data"]
             if isinstance(data, str):
-                try:
-                    data = json.loads(data)
-                except Exception:
-                    data = {}
+                try: data = json.loads(data)
+                except Exception: data = {}
             k = data.get("api_key")
             if k and str(k).strip() and not str(k).endswith("_CHANGE_ME") and not str(k).startswith("AIzaSy_DRAINED") and len(str(k)) > 15:
                 return str(k).strip()
-        env_k = os.getenv("GEMINI_API_KEY")
-        if env_k and str(env_k).strip() and not str(env_k).endswith("_CHANGE_ME") and len(str(env_k)) > 15:
-            return str(env_k).strip()
         return None
 
-    async def _get_groq_key(self, tenant_id: str) -> Optional[str]:
+    async def _get_tenant_groq_key(self, tenant_id: str) -> Optional[str]:
         row = await self.db_pool.fetchrow(
             """SELECT credential_data FROM tenant_credentials
                WHERE tenant_id = $1::uuid AND provider = 'groq' AND is_active = true""",
@@ -5095,14 +5095,14 @@ class CoreWorker:
         if row and row["credential_data"]:
             data = row["credential_data"]
             if isinstance(data, str):
-                try:
-                    data = json.loads(data)
-                except Exception:
-                    data = {}
-            return data.get("api_key")
-        return os.getenv("GROQ_API_KEY") or None
+                try: data = json.loads(data)
+                except Exception: data = {}
+            k = data.get("api_key")
+            if k and str(k).strip() and not str(k).endswith("_CHANGE_ME") and len(str(k)) > 15:
+                return str(k).strip()
+        return None
 
-    async def _get_opencode_creds(self, tenant_id: str) -> tuple[Optional[str], str]:
+    async def _get_tenant_opencode_creds(self, tenant_id: str) -> tuple[Optional[str], str]:
         row = await self.db_pool.fetchrow(
             """SELECT credential_data FROM tenant_credentials
                WHERE tenant_id = $1::uuid AND provider = 'opencode' AND is_active = true""",
@@ -5111,13 +5111,46 @@ class CoreWorker:
         if row and row["credential_data"]:
             data = row["credential_data"]
             if isinstance(data, str):
-                try:
-                    data = json.loads(data)
-                except Exception:
-                    data = {}
+                try: data = json.loads(data)
+                except Exception: data = {}
             api_key = data.get("api_key")
             base_url = data.get("base_url") or "https://opencode.ai/zen/v1"
-            return api_key, base_url
+            if api_key and str(api_key).strip() and not str(api_key).endswith("_CHANGE_ME") and len(str(api_key)) > 15:
+                return str(api_key).strip(), base_url
+        return None, "https://opencode.ai/zen/v1"
+
+    def _get_master_ai_keys(self) -> dict:
+        """Fetch central platform master AI keys from environment as safety parachute."""
+        gemini_k = os.getenv("GEMINI_API_KEY") or os.getenv("MASTER_GEMINI_API_KEY") or ""
+        groq_k = os.getenv("GROQ_API_KEY") or os.getenv("MASTER_GROQ_API_KEY") or ""
+        opencode_k = os.getenv("OPENCODE_API_KEY") or os.getenv("MASTER_OPENCODE_API_KEY") or ""
+        opencode_b = os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1")
+        return {
+            "gemini_key": gemini_k.strip() if len(gemini_k.strip()) > 15 and not gemini_k.endswith("_CHANGE_ME") else None,
+            "groq_key": groq_k.strip() if len(groq_k.strip()) > 15 and not groq_k.endswith("_CHANGE_ME") else None,
+            "opencode_key": opencode_k.strip() if len(opencode_k.strip()) > 15 and not opencode_k.endswith("_CHANGE_ME") else None,
+            "opencode_base_url": opencode_b.strip(),
+        }
+
+    async def _get_gemini_key(self, tenant_id: str) -> Optional[str]:
+        t_key = await self._get_tenant_gemini_key(tenant_id)
+        if t_key:
+            return t_key
+        env_k = os.getenv("GEMINI_API_KEY")
+        if env_k and str(env_k).strip() and not str(env_k).endswith("_CHANGE_ME") and len(str(env_k)) > 15:
+            return str(env_k).strip()
+        return None
+
+    async def _get_groq_key(self, tenant_id: str) -> Optional[str]:
+        t_key = await self._get_tenant_groq_key(tenant_id)
+        if t_key:
+            return t_key
+        return os.getenv("GROQ_API_KEY") or None
+
+    async def _get_opencode_creds(self, tenant_id: str) -> tuple[Optional[str], str]:
+        t_key, t_base = await self._get_tenant_opencode_creds(tenant_id)
+        if t_key:
+            return t_key, t_base
         return os.getenv("OPENCODE_API_KEY") or None, "https://opencode.ai/zen/v1"
 
     async def _get_ai_config(self, tenant_id: str) -> dict:
@@ -6245,9 +6278,10 @@ class CoreWorker:
                             ]
                         )
                     )
-                    gemini_key = await self._get_gemini_key(tenant_id)
-                    groq_key = await self._get_groq_key(tenant_id)
-                    opencode_key, opencode_base = await self._get_opencode_creds(tenant_id)
+                    gemini_key = await self._get_tenant_gemini_key(tenant_id)
+                    groq_key = await self._get_tenant_groq_key(tenant_id)
+                    opencode_key, opencode_base = await self._get_tenant_opencode_creds(tenant_id)
+                    master_keys = self._get_master_ai_keys()
                     assistant_name = ai_cfg.get("assistant_name") or "Assistant"
                     tenant_system_prompt = (ai_cfg.get("system_prompt") or "").strip()
                     tenant_services = (ai_cfg.get("services_text") or "").strip()
@@ -6443,6 +6477,10 @@ class CoreWorker:
                         groq_key=groq_key,
                         opencode_key=opencode_key,
                         opencode_base_url=opencode_base,
+                        master_gemini_key=master_keys.get("gemini_key"),
+                        master_groq_key=master_keys.get("groq_key"),
+                        master_opencode_key=master_keys.get("opencode_key"),
+                        master_opencode_base_url=master_keys.get("opencode_base_url"),
                         primary_provider="gemini" if gemini_key else "groq",
                         gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
                         max_tokens=150,

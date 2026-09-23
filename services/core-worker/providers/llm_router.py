@@ -506,7 +506,11 @@ async def call_llm_cascade(
     groq_key: Optional[str] = None,
     opencode_key: Optional[str] = None,
     opencode_base_url: str = "https://opencode.ai/zen/v1",
-    primary_provider: str = "groq",
+    master_gemini_key: Optional[str] = None,
+    master_groq_key: Optional[str] = None,
+    master_opencode_key: Optional[str] = None,
+    master_opencode_base_url: str = "https://opencode.ai/zen/v1",
+    primary_provider: str = "gemini",
     gemini_model: str = "gemini-3.1-flash-lite",
     max_tokens: int = 2048,
     temperature: float = 0.3,
@@ -515,10 +519,13 @@ async def call_llm_cascade(
     single_line: bool = False,
 ) -> Tuple[Optional[str], str]:
     """
-    Ultra-Fast Multi-LLM Cascading Router with 3-Model Fallback:
-    1. Primary (Groq / Gemini) executes with ultra-fast latency.
-    2. If primary fails or is rate-limited, secondary model seamlessly provides reply.
-    3. If both primary & secondary fail, tertiary 3rd model (OpenCode) executes and replies.
+    Two-Tier Multi-LLM Cascading Router:
+    1. Tier 1 (Tenant-First): Each tenant strictly uses their own 3 AI provider keys
+       (Gemini -> Groq -> OpenCode or ordered by primary_provider).
+    2. Tier 2 (Platform Master Parachute): Only if ALL 3 tenant keys fail/exhaust,
+       it automatically falls back to the central Master AI Keys.
+    3. Self-Healing Return: Evaluated per-message, so the exact moment the tenant's
+       rate-limit window resets or quota refreshes, the next message immediately uses Tier 1 again.
     """
     effective_max_tokens = min(max_tokens, 75) if single_line else min(max_tokens, 500)
 
@@ -576,28 +583,28 @@ async def call_llm_cascade(
             except Exception as e:
                 logger.warning("racer_remaining_task_failed", tenant_id=tenant_id, error=str(e))
 
-    # ── Option B: Strict Priority-Based Sequential Cascade ──
-    providers = []
+    # ── Tier 1: Tenant's Own 3 AI Keys (Evaluated First on Every Message) ──
+    tenant_providers = []
     if primary_provider == "groq":
-        providers = [
+        tenant_providers = [
             ("groq", groq_key),
             ("gemini", gemini_key),
             ("opencode", opencode_key),
         ]
     elif primary_provider == "opencode":
-        providers = [
+        tenant_providers = [
             ("opencode", opencode_key),
             ("gemini", gemini_key),
             ("groq", groq_key),
         ]
     else:  # Default to "gemini" as primary for highest prompt fidelity
-        providers = [
+        tenant_providers = [
             ("gemini", gemini_key),
             ("groq", groq_key),
             ("opencode", opencode_key),
         ]
 
-    for name, key in providers:
+    for name, key in tenant_providers:
         if not key:
             continue
 
@@ -615,6 +622,7 @@ async def call_llm_cascade(
                     single_line=single_line,
                 )
                 if text and len(text.strip()) > 0:
+                    logger.info("tenant_ai_success", tenant_id=tenant_id, provider="gemini")
                     return text, "gemini"
 
             elif name == "groq":
@@ -630,6 +638,7 @@ async def call_llm_cascade(
                     single_line=single_line,
                 )
                 if text and len(text.strip()) > 0:
+                    logger.info("tenant_ai_success", tenant_id=tenant_id, provider="groq")
                     return text, "groq"
 
             elif name == "opencode":
@@ -646,16 +655,100 @@ async def call_llm_cascade(
                     single_line=single_line,
                 )
                 if text and len(text.strip()) > 0:
+                    logger.info("tenant_ai_success", tenant_id=tenant_id, provider="opencode")
                     return text, "opencode"
 
         except Exception as e:
             logger.warning(
-                "llm_provider_failed_cascading",
+                "tenant_ai_provider_failed_cascading",
                 tenant_id=tenant_id,
                 provider=name,
                 error=str(e),
             )
             continue
+
+    # ── Tier 2: Platform Master Key Fallback (Only executed when ALL 3 tenant keys fail) ──
+    # Master keys act as a parachute to guarantee 100% uptime for customers.
+    # Note: On the very next message, Tier 1 is attempted again so it returns to tenant keys automatically.
+    master_providers = [
+        ("gemini", master_gemini_key, gemini_key, "gemini-3.1-flash-lite", None),
+        ("groq", master_groq_key, groq_key, "qwen/qwen3.8-27b", None),
+        ("opencode", master_opencode_key, opencode_key, "nemotron-3.5-lightning-free", master_opencode_base_url),
+    ]
+
+    has_any_master = any(k and (not tk or k.strip() != tk.strip()) for _, k, tk, _, _ in master_providers)
+    if has_any_master:
+        logger.warning(
+            "all_tenant_ai_keys_exhausted_falling_back_to_master",
+            tenant_id=tenant_id,
+            has_master_gemini=bool(master_gemini_key),
+            has_master_groq=bool(master_groq_key),
+            has_master_opencode=bool(master_opencode_key),
+        )
+
+        for name, m_key, t_key, m_model, custom_base in master_providers:
+            # Skip if master key is missing or is identical to the tenant key that just failed
+            if not m_key or (t_key and m_key.strip() == t_key.strip()):
+                continue
+
+            try:
+                if name == "gemini":
+                    text = await call_gemini(
+                        messages=messages,
+                        api_key=m_key,
+                        system_prompt=system_prompt,
+                        model=m_model,
+                        max_tokens=effective_max_tokens,
+                        temperature=temperature,
+                        timeout_seconds=min(timeout_seconds, 10.0),
+                        tenant_id=tenant_id,
+                        single_line=single_line,
+                    )
+                    if text and len(text.strip()) > 0:
+                        logger.info("master_ai_fallback_success", tenant_id=tenant_id, provider="gemini")
+                        return text, "master_gemini"
+
+                elif name == "groq":
+                    text = await call_groq(
+                        messages=messages,
+                        api_key=m_key,
+                        system_prompt=system_prompt,
+                        model=m_model,
+                        max_tokens=effective_max_tokens,
+                        temperature=temperature,
+                        timeout_seconds=min(timeout_seconds, 6.0),
+                        tenant_id=tenant_id,
+                        single_line=single_line,
+                    )
+                    if text and len(text.strip()) > 0:
+                        logger.info("master_ai_fallback_success", tenant_id=tenant_id, provider="groq")
+                        return text, "master_groq"
+
+                elif name == "opencode":
+                    text = await call_opencode(
+                        messages=messages,
+                        api_key=m_key,
+                        base_url=custom_base or "https://opencode.ai/zen/v1",
+                        system_prompt=system_prompt,
+                        model=m_model,
+                        max_tokens=effective_max_tokens,
+                        temperature=temperature,
+                        timeout_seconds=8.0,
+                        tenant_id=tenant_id,
+                        single_line=single_line,
+                    )
+                    if text and len(text.strip()) > 0:
+                        logger.info("master_ai_fallback_success", tenant_id=tenant_id, provider="opencode")
+                        return text, "master_opencode"
+
+            except Exception as e:
+                logger.warning(
+                    "master_ai_provider_failed",
+                    tenant_id=tenant_id,
+                    provider=name,
+                    error=str(e),
+                )
+                continue
 
     # Fast emergency single-turn recovery
     latest_user_text = ""
