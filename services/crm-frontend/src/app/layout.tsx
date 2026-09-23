@@ -35,8 +35,12 @@ export const metadata: Metadata = {
     title: "Boldlabs CRM",
   },
   icons: {
-    icon: "/icon-192.png",
-    apple: "/icon-192.png",
+    icon: [
+      { url: "/icon-192.png?v=3", sizes: "192x192", type: "image/png" },
+      { url: "/favicon.ico?v=3" },
+    ],
+    shortcut: "/favicon.ico?v=3",
+    apple: "/icon-192.png?v=3",
   },
 };
 
@@ -56,8 +60,10 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Boldlabs CRM" />
-        <link rel="icon" type="image/png" href="/icon-192.png?v=2" />
-        <link rel="apple-touch-icon" href="/icon-192.png?v=2" />
+        <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=3" />
+        <link rel="icon" type="image/x-icon" href="/favicon.ico?v=3" />
+        <link rel="shortcut icon" href="/favicon.ico?v=3" />
+        <link rel="apple-touch-icon" href="/icon-192.png?v=3" />
         <link rel="manifest" href="/manifest.json" />
         <meta httpEquiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
         <meta httpEquiv="Pragma" content="no-cache" />

@@ -370,10 +370,10 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
     default_branding = {
         "is_whitelabel": False,
         "brand_name": "Boldlabs CRM",
-        "brand_logo_url": "/boldlabs-logo.png?v=2",
-        "brand_favicon_url": "/icon-192.png?v=2",
+        "brand_logo_url": "/boldlabs-logo.png?v=3",
+        "brand_favicon_url": "/icon-192.png?v=3",
         "brand_primary_color": "#059669",
-        "brand_support_email": "support@goboldlabs.com",
+        "brand_support_email": "bhuvaneshkarnan@gmail.com",
         "brand_support_phone": "+91 99999 99999",
         "hide_platform_branding": False,
         "custom_domain": None,

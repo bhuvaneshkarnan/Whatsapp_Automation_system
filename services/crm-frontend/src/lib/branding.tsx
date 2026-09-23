@@ -6,10 +6,10 @@ import { getPublicBranding, PublicBrandingResponse, registerTenantSlug } from '.
 const DEFAULT_BRANDING: PublicBrandingResponse = {
   is_whitelabel: false,
   brand_name: 'Boldlabs CRM',
-  brand_logo_url: '/boldlabs-logo.png?v=2',
-  brand_favicon_url: '/icon-192.png?v=2',
+  brand_logo_url: '/boldlabs-logo.png?v=3',
+  brand_favicon_url: '/icon-192.png?v=3',
   brand_primary_color: '#059669',
-  brand_support_email: 'support@goboldlabs.com',
+  brand_support_email: 'bhuvaneshkarnan@gmail.com',
   brand_support_phone: '+91 99999 99999',
   hide_platform_branding: false,
   custom_domain: null,
@@ -106,35 +106,44 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
     async function resolveBranding() {
       try {
         const data = await getPublicBranding(hostname);
-        if (data && data.is_whitelabel) {
-          setBranding(data);
+        const resolved = data ? { ...DEFAULT_BRANDING, ...data } : DEFAULT_BRANDING;
+        setBranding(resolved);
 
-          // Dynamically set Document Title
-          if (data.brand_name) {
-            document.title = `${data.brand_name} | Portal`;
-          }
+        // Dynamically set Document Title
+        if (resolved.brand_name) {
+          document.title = resolved.is_whitelabel
+            ? `${resolved.brand_name} | Portal`
+            : `${resolved.brand_name} | Enterprise WhatsApp Platform`;
+        }
 
-          // Dynamically inject Accent / Primary Brand Color as CSS variable
-          if (data.brand_primary_color) {
-            document.documentElement.style.setProperty('--brand-primary', data.brand_primary_color);
-            document.documentElement.style.setProperty('--accent', data.brand_primary_color);
-          }
+        // Dynamically inject Accent / Primary Brand Color as CSS variable
+        if (resolved.brand_primary_color) {
+          document.documentElement.style.setProperty('--brand-primary', resolved.brand_primary_color);
+          document.documentElement.style.setProperty('--accent', resolved.brand_primary_color);
+        }
 
-          // Dynamically inject Favicon
-          if (data.brand_favicon_url) {
-            let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
-            if (!link) {
-              link = document.createElement('link');
-              link.rel = 'icon';
-              document.head.appendChild(link);
-            }
-            link.href = data.brand_favicon_url;
-          }
+        // Force browser favicon update to defeat aggressive caching
+        const favUrl = resolved.brand_favicon_url || DEFAULT_BRANDING.brand_favicon_url;
+        const versionedFav = favUrl.includes('?') ? favUrl : `${favUrl}?v=3`;
 
-          // Register tenant slug & ID in client memory
-          if (data.tenant_slug && data.tenant_id) {
-            registerTenantSlug(data.tenant_slug, data.tenant_id);
-          }
+        const existingLinks = document.querySelectorAll("link[rel*='icon']");
+        existingLinks.forEach((el) => el.parentNode?.removeChild(el));
+
+        const linkIcon = document.createElement('link');
+        linkIcon.rel = 'icon';
+        linkIcon.type = 'image/png';
+        linkIcon.sizes = '192x192';
+        linkIcon.href = versionedFav;
+        document.head.appendChild(linkIcon);
+
+        const linkShortcut = document.createElement('link');
+        linkShortcut.rel = 'shortcut icon';
+        linkShortcut.href = versionedFav;
+        document.head.appendChild(linkShortcut);
+
+        // Register tenant slug & ID in client memory
+        if (resolved.tenant_slug && resolved.tenant_id) {
+          registerTenantSlug(resolved.tenant_slug, resolved.tenant_id);
         }
       } catch (err) {
         console.warn('Failed to resolve dynamic white-label branding:', err);

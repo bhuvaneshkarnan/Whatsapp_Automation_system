@@ -241,7 +241,7 @@ export default function LoginPage() {
 
           {/* Footer */}
           <p className="text-center text-xs text-text-muted mt-6">
-            Need assistance? Contact support at {branding.brand_support_email || 'support@boldlabs.ai'}
+            Need assistance? Contact support at {branding.brand_support_email || 'bhuvaneshkarnan@gmail.com'}
           </p>
         </div>
       </div>
@@ -252,32 +252,24 @@ export default function LoginPage() {
     <div className="min-h-screen bg-canvas text-text-primary flex flex-col justify-center items-center px-4 font-sans">
       <div className="w-full max-w-sm">
         {/* Brand */}
-        <div className="text-center mb-6">
+        <div className="flex justify-center items-center mb-6">
           {branding.brand_logo_url ? (
-            <div className="flex items-center justify-center mb-3">
-              <img
-                src={branding.brand_logo_url}
-                alt={branding.brand_name || 'Logo'}
-                className="h-12 max-w-[200px] object-contain"
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
-              />
-            </div>
+            <img
+              src={branding.brand_logo_url}
+              alt={branding.brand_name || 'Boldlabs'}
+              className="h-14 sm:h-16 max-w-[240px] object-contain drop-shadow-sm"
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
           ) : (
             <div
-              className="inline-flex items-center justify-center w-10 h-10 rounded-sm bg-accent text-white mb-3 shadow-sm"
+              className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-accent text-white shadow-sm"
               style={branding.brand_primary_color ? { backgroundColor: branding.brand_primary_color } : undefined}
             >
-              <MessageSquare className="w-5 h-5 stroke-[1.5]" />
+              <MessageSquare className="w-6 h-6 stroke-[1.5]" />
             </div>
           )}
-          <h1 className="text-xl font-semibold text-text-primary">
-            {branding.brand_name || 'Boldlabs CRM'}
-          </h1>
-          <p className="text-xs text-text-muted mt-1">
-            Sign in to access your business inbox and bookings
-          </p>
         </div>
 
         {/* Form Container */}
@@ -398,14 +390,12 @@ export default function LoginPage() {
               <ArrowRight className="w-3 h-3 stroke-[1.5]" />
             </a>
           )}
-          {branding.brand_support_email && (
-            <p className="text-center text-xs text-text-muted">
-              Need support?{' '}
-              <a href={`mailto:${branding.brand_support_email}`} className="text-accent hover:underline">
-                {branding.brand_support_email}
-              </a>
-            </p>
-          )}
+          <p className="text-center text-xs text-text-muted">
+            Need support?{' '}
+            <a href={`mailto:${branding.brand_support_email || 'bhuvaneshkarnan@gmail.com'}`} className="text-accent hover:underline">
+              {branding.brand_support_email || 'bhuvaneshkarnan@gmail.com'}
+            </a>
+          </p>
           <p className="text-center text-xs text-text-muted">
             &copy; {new Date().getFullYear()} {branding.brand_name || 'Boldlabs CRM'}. All rights reserved.
           </p>
