@@ -370,8 +370,8 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
     default_branding = {
         "is_whitelabel": False,
         "brand_name": "Boldlabs CRM",
-        "brand_logo_url": "",
-        "brand_favicon_url": "/favicon.ico",
+        "brand_logo_url": "/boldlabs-logo.png",
+        "brand_favicon_url": "/icon-192.png",
         "brand_primary_color": "#059669",
         "brand_support_email": "support@goboldlabs.com",
         "brand_support_phone": "+91 99999 99999",
@@ -391,27 +391,32 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
     clean_slug = slug.strip().lower() if slug else ""
 
     # Known platform defaults that use standard Boldlabs branding
-    if (not clean_domain or clean_domain in ("crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197")) and not clean_slug:
+    if (not clean_domain or clean_domain in ("crm.boldlabs.com", "boldlabs.com", "crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197")) and not clean_slug:
         return default_branding
 
     async with database.db_pool.acquire() as conn:
         tenant = None
         partner = None
 
-        if clean_domain and clean_domain not in ("crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197"):
-            alt_domain = clean_domain[4:] if clean_domain.startswith("www.") else f"www.{clean_domain}"
+        if clean_slug:
             tenant = await conn.fetchrow(
                 """
-                SELECT id, name, slug, settings
-                FROM tenants
-                WHERE LOWER(TRIM(COALESCE(settings->>'custom_domain', ''))) = $1
-                   OR LOWER(TRIM(COALESCE(settings->>'custom_domain', ''))) = $2
+                SELECT t.id, t.name, t.slug, t.settings,
+                       COALESCE(
+                           NULLIF(TRIM(t.settings->>'custom_domain'), ''),
+                           NULLIF(TRIM(pat.custom_domain), '')
+                       ) as custom_domain
+                FROM tenants t
+                LEFT JOIN partner_agency_templates pat 
+                       ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
+                WHERE LOWER(t.slug) = $1
                 LIMIT 1
                 """,
-                clean_domain,
-                alt_domain
+                clean_slug
             )
-            # Also check partner agency templates for partner white-label domain
+
+        if clean_domain and clean_domain not in ("crm.boldlabs.com", "boldlabs.com", "crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197"):
+            alt_domain = clean_domain[4:] if clean_domain.startswith("www.") else f"www.{clean_domain}"
             partner = await conn.fetchrow(
                 """
                 SELECT *
@@ -423,17 +428,24 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
                 clean_domain,
                 alt_domain
             )
-
-        if not tenant and clean_slug:
-            tenant = await conn.fetchrow(
-                """
-                SELECT id, name, slug, settings
-                FROM tenants
-                WHERE LOWER(slug) = $1
-                LIMIT 1
-                """,
-                clean_slug
-            )
+            if not tenant:
+                tenant = await conn.fetchrow(
+                    """
+                    SELECT t.id, t.name, t.slug, t.settings,
+                           COALESCE(
+                               NULLIF(TRIM(t.settings->>'custom_domain'), ''),
+                               NULLIF(TRIM(pat.custom_domain), '')
+                           ) as custom_domain
+                    FROM tenants t
+                    LEFT JOIN partner_agency_templates pat 
+                           ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
+                    WHERE LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $1
+                       OR LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $2
+                    LIMIT 1
+                    """,
+                    clean_domain,
+                    alt_domain
+                )
 
         # If tenant has a partner_name, resolve partner template for fallback branding
         if tenant and not partner:
@@ -459,7 +471,16 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
             s = {}
 
     p_dict = dict(partner) if partner else {}
-    c_dom = (s.get("custom_domain") or p_dict.get("custom_domain") or "").strip().lower()
+    tenant_custom_domain = (tenant.get("custom_domain") if tenant else None) or (s.get("custom_domain") or p_dict.get("custom_domain") or "").strip().lower() or None
+    tenant_canonical = tenant_custom_domain or "crm.goboldlabs.com"
+
+    is_platform_request = not clean_domain or clean_domain in ("crm.boldlabs.com", "boldlabs.com", "crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197")
+    if tenant_canonical == "crm.goboldlabs.com":
+        is_domain_match = is_platform_request
+    else:
+        is_domain_match = (clean_domain == tenant_canonical) or (clean_domain in ("localhost", "127.0.0.1"))
+
+    c_dom = tenant_custom_domain or ""
     b_name = (s.get("brand_name") or p_dict.get("brand_name") or (tenant["name"] if tenant else "") or p_dict.get("partner_name") or "Boldlabs CRM").strip()
     b_logo = (s.get("brand_logo_url") or s.get("logo_url") or p_dict.get("brand_logo_url") or "").strip()
     b_fav = (s.get("brand_favicon_url") or p_dict.get("brand_favicon_url") or "/favicon.ico").strip()
@@ -479,12 +500,15 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
         "brand_support_email": b_email,
         "brand_support_phone": b_phone,
         "hide_platform_branding": hide_platform,
-        "custom_domain": c_dom or clean_domain or None,
+        "custom_domain": c_dom or None,
+        "canonical_domain": tenant_canonical,
+        "is_domain_match": is_domain_match,
         "tenant_id": str(tenant["id"]) if tenant else None,
         "tenant_slug": tenant["slug"] if tenant else None,
         "tenant_name": tenant["name"] if tenant else b_name,
         "partner_name": (s.get("partner_name") or p_dict.get("partner_name") or "").strip() or None,
     }
+
 
 
 @router.put("/settings")

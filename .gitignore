@@ -2,6 +2,8 @@
 Oracle key/
 *.key
 *.pem
+*.enc
+.backup_key
 .env
 .env.*
 !.env.example

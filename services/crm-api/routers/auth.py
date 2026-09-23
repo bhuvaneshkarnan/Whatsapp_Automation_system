@@ -1754,25 +1754,42 @@ async def clear_all_notifications(
 
 
 @router.get("/tenants/resolve/{slug}")
+@router.get("/api/v1/crm/tenants/resolve/{slug}")
 async def resolve_tenant_by_slug(slug: str):
     """
-    Resolve a tenant workspace slug to its tenant ID and basic metadata.
-    Used by frontend routing to establish strict tenant context.
+    Resolve a tenant workspace slug to its tenant ID, canonical domain, and basic metadata.
+    Used by frontend routing to establish strict tenant context and domain isolation.
     """
     clean_slug = slug.strip().lower()
     async with database.db_pool.acquire() as conn:
         tenant = await conn.fetchrow(
-            "SELECT id, name, slug, plan, is_active FROM tenants WHERE LOWER(slug) = $1",
+            """
+            SELECT t.id, t.name, t.slug, t.plan, t.is_active,
+                   COALESCE(
+                       NULLIF(TRIM(t.settings->>'custom_domain'), ''),
+                       NULLIF(TRIM(pat.custom_domain), '')
+                   ) as custom_domain
+            FROM tenants t
+            LEFT JOIN partner_agency_templates pat 
+                   ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
+            WHERE LOWER(t.slug) = $1
+            LIMIT 1
+            """,
             clean_slug
         )
         if not tenant:
             raise HTTPException(404, detail="Tenant organization not found")
+        
+        c_dom = (tenant["custom_domain"] or "").strip().lower() or None
+        canonical = c_dom or "crm.goboldlabs.com"
         return {
             "id": str(tenant["id"]),
             "name": tenant["name"],
             "slug": tenant["slug"],
             "plan": tenant["plan"],
-            "is_active": tenant["is_active"]
+            "is_active": tenant["is_active"],
+            "custom_domain": c_dom,
+            "canonical_domain": canonical,
         }
 
 
@@ -1781,6 +1798,7 @@ async def resolve_tenant_by_slug(slug: str):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/public/{slug}/booking-info")
+@router.get("/api/v1/crm/public/{slug}/booking-info")
 async def get_public_booking_info(slug: str):
     """
     Public endpoint for /{slug}/book page.
@@ -1789,12 +1807,23 @@ async def get_public_booking_info(slug: str):
     """
     async with database.db_pool.acquire() as conn:
         tenant = await conn.fetchrow(
-            """SELECT id, name, slug, plan, is_active, settings
-               FROM tenants WHERE slug = $1""",
+            """
+            SELECT t.id, t.name, t.slug, t.plan, t.is_active, t.settings,
+                   COALESCE(
+                       NULLIF(TRIM(t.settings->>'custom_domain'), ''),
+                       NULLIF(TRIM(pat.custom_domain), '')
+                   ) as custom_domain
+            FROM tenants t
+            LEFT JOIN partner_agency_templates pat 
+                   ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
+            WHERE LOWER(t.slug) = $1
+            LIMIT 1
+            """,
             slug.strip().lower()
         )
         if not tenant:
             raise HTTPException(404, "Organization not found")
+
 
         cfg = tenant["settings"] or {}
         if isinstance(cfg, str):
@@ -1879,8 +1908,11 @@ async def get_public_booking_info(slug: str):
                 "close": close_time,
                 "slot_duration_minutes": 30
             },
-            "bot_phone": bot_phone
+            "bot_phone": bot_phone,
+            "custom_domain": (tenant.get("custom_domain") or "").strip().lower() or None,
+            "canonical_domain": (tenant.get("custom_domain") or "").strip().lower() or "crm.goboldlabs.com"
         }
+
 
 
 @router.post("/public/{slug}/book")

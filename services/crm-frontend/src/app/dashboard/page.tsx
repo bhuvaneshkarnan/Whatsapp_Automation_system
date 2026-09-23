@@ -40,7 +40,8 @@ import { ModernCustomerView } from '@/components/dashboard/ModernCustomerView';
 import { MergeCustomersModal } from '@/components/dashboard/MergeCustomersModal';
 import QrStandeeModal from '@/components/QrStandeeModal';
 import WhatsAppEmbeddedSignupButton from '@/components/WhatsAppEmbeddedSignupButton';
-import { useBranding } from '@/lib/branding';
+import { useBranding, enforceDomainRedirect, checkDomainMatch, getCanonicalDomain } from '@/lib/branding';
+
 import {
   MessageSquare,
   Megaphone,
@@ -2689,7 +2690,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [broadcastSuccessNotice, setBroadcastSuccessNotice] = useState<string | null>(null);
 
   // User state
-  const [user, setUser] = useState<{ id?: string; tenant_id?: string; email?: string; role: string; name?: string; display_name?: string; permissions?: StaffPermissions } | null>(null);
+  const [user, setUser] = useState<{
+    id?: string;
+    tenant_id?: string;
+    tenant_slug?: string;
+    role: string;
+    name?: string;
+    display_name?: string;
+    permissions?: StaffPermissions;
+    custom_domain?: string | null;
+    canonical_domain?: string | null;
+  } | null>(null);
+
 
   // Granular role-based permissions derived from logged-in user
   const perms = user?.permissions;
@@ -4265,32 +4277,56 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       }
     }
 
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-    if (!token) {
-      if (typeof window !== 'undefined') {
-        const currentPath = window.location.pathname;
-        const redirectParam = currentPath && currentPath !== '/' && currentPath !== '/login'
-          ? `?redirect=${encodeURIComponent(currentPath)}`
-          : '';
-        window.location.replace(`/login${redirectParam}`);
-      }
-      return;
-    }
+    // Determine effective target slug from props, params, or URL path
+    const rawSlug = routeSlug || (params?.slug as string) || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : '') || '';
+    const targetSlug = rawSlug && !['dashboard', 'login', 'bhuvanesh', 'admin'].includes(rawSlug.toLowerCase().trim())
+      ? rawSlug.toLowerCase().trim()
+      : '';
 
     async function initWorkspace() {
+      // 1. Strict Domain Guard on Target Slug:
+      // Prevent custom domains (e.g. ai.bizpipe.in) from opening main platform tenants (e.g. /boldlabs),
+      // and prevent main platform domain from opening custom domain tenants (e.g. /bizpipe-demo).
+      if (targetSlug && typeof window !== 'undefined') {
+        try {
+          const preResolved = await crm.resolveTenantBySlug(targetSlug);
+          if (isCancelled) return;
+          if (preResolved && preResolved.canonical_domain) {
+            if (enforceDomainRedirect(window.location.hostname, preResolved.custom_domain)) {
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn('[Domain Guard] Pre-check resolve error:', err);
+        }
+      }
+
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+      if (!token) {
+        if (typeof window !== 'undefined') {
+          const currentPath = window.location.pathname;
+          const redirectParam = currentPath && currentPath !== '/' && currentPath !== '/login'
+            ? `?redirect=${encodeURIComponent(currentPath)}`
+            : '';
+          window.location.replace(`/login${redirectParam}`);
+        }
+        return;
+      }
+
       try {
         const data = await crm.getMe();
         if (isCancelled) return;
 
-        // Determine effective target slug from props, params, or URL path
-        const rawSlug = routeSlug || (params?.slug as string) || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : '') || '';
-        const targetSlug = rawSlug && !['dashboard', 'login', 'bhuvanesh', 'admin'].includes(rawSlug.toLowerCase().trim())
-          ? rawSlug.toLowerCase().trim()
-          : '';
+        // 2. Post-Auth Domain Guard: Verify logged-in user's tenant matches current host
+        if (data.role !== 'super_admin' && typeof window !== 'undefined') {
+          if (enforceDomainRedirect(window.location.hostname, data.custom_domain)) {
+            return;
+          }
+        }
 
         let activeTenantId = targetSlug ? getCachedTenantId(targetSlug) : null;
 
-        // 1. Regular client admin / agent: STRICT WORKSPACE LOCK
+        // 3. Regular client admin / agent: STRICT WORKSPACE LOCK
         if (data.role !== 'super_admin') {
           const userSlug = (data.tenant_slug || '').toLowerCase().trim();
           if (data.tenant_id) {
@@ -4309,6 +4345,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             }
           }
         } 
+
         // 2. Super Admin: Dynamic workspace resolution and switching
         else if (data.role === 'super_admin') {
           if (targetSlug) {

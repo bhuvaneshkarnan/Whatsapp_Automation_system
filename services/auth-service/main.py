@@ -157,7 +157,7 @@ async def login_for_access_token(
     username_clean = (form_data.username or "").strip().lower()
     clean_tenant_slug = tenant_slug.strip().lower() if tenant_slug and tenant_slug.strip() else None
     clean_domain = domain.strip().lower() if domain and domain.strip() else None
-    if clean_domain in ("crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197"):
+    if clean_domain in ("crm.boldlabs.com", "boldlabs.com", "crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197"):
         clean_domain = None
 
     client_ip = request.client.host if request.client else "unknown"
@@ -166,51 +166,104 @@ async def login_for_access_token(
 
     async with db_pool.acquire() as conn:
         user = None
-        if clean_tenant_slug:
+        if clean_domain:
             user = await conn.fetchrow(
                 """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
-                          t.slug as tenant_slug, t.name as tenant_name
+                          t.slug as tenant_slug, t.name as tenant_name,
+                          COALESCE(
+                              NULLIF(TRIM(t.settings->>'custom_domain'), ''),
+                              NULLIF(TRIM(pat.custom_domain), '')
+                          ) as custom_domain
                    FROM users u
                    LEFT JOIN tenants t ON u.tenant_id = t.id
-                   WHERE LOWER(TRIM(u.email)) = $1 
-                     AND (LOWER(TRIM(t.slug)) = $2 OR LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $2)""",
-                username_clean, clean_tenant_slug
-            )
-
-        if not user and clean_domain:
-            user = await conn.fetchrow(
-                """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
-                          t.slug as tenant_slug, t.name as tenant_name
-                   FROM users u
-                   LEFT JOIN tenants t ON u.tenant_id = t.id
+                   LEFT JOIN partner_agency_templates pat 
+                          ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
                    WHERE LOWER(TRIM(u.email)) = $1 
                      AND (
                        LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $2
-                       OR LOWER(TRIM(COALESCE(t.settings->>'partner_name', ''))) IN (
-                         SELECT LOWER(TRIM(partner_name)) FROM partner_agency_templates WHERE LOWER(TRIM(custom_domain)) = $2
-                       )
+                       OR LOWER(TRIM(COALESCE(pat.custom_domain, ''))) = $2
                      )""",
                 username_clean, clean_domain
             )
-
-        if not user:
-            users = await conn.fetch(
-                """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
-                          t.slug as tenant_slug, t.name as tenant_name
-                   FROM users u
-                   LEFT JOIN tenants t ON u.tenant_id = t.id
-                   WHERE LOWER(TRIM(u.email)) = $1""",
-                username_clean
-            )
-            if len(users) == 1:
-                user = users[0]
-            elif len(users) > 1 and not (clean_tenant_slug or clean_domain):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Multiple organizations found for this email. Please specify your organization slug (tenant_slug) to log in."
+            if not user:
+                other_user = await conn.fetchrow(
+                    """SELECT u.id, t.slug as tenant_slug,
+                              COALESCE(
+                                  NULLIF(TRIM(t.settings->>'custom_domain'), ''),
+                                  NULLIF(TRIM(pat.custom_domain), '')
+                              ) as custom_domain
+                       FROM users u
+                       LEFT JOIN tenants t ON u.tenant_id = t.id
+                       LEFT JOIN partner_agency_templates pat 
+                              ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
+                       WHERE LOWER(TRIM(u.email)) = $1""",
+                    username_clean
                 )
-            elif len(users) > 1:
-                user = users[0]
+                if other_user:
+                    target_host = (other_user.get("custom_domain") or "crm.goboldlabs.com").strip().lower()
+                    record_failed_login(rate_limit_key)
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"This account does not belong to {clean_domain}. Please log in at https://{target_host}/login"
+                    )
+                record_failed_login(rate_limit_key)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid email or password. Please check your credentials and try again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        else:
+            if clean_tenant_slug:
+                user = await conn.fetchrow(
+                    """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
+                              t.slug as tenant_slug, t.name as tenant_name,
+                              COALESCE(
+                                  NULLIF(TRIM(t.settings->>'custom_domain'), ''),
+                                  NULLIF(TRIM(pat.custom_domain), '')
+                              ) as custom_domain
+                       FROM users u
+                       LEFT JOIN tenants t ON u.tenant_id = t.id
+                       LEFT JOIN partner_agency_templates pat 
+                              ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
+                       WHERE LOWER(TRIM(u.email)) = $1 
+                         AND (LOWER(TRIM(t.slug)) = $2 OR LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $2)""",
+                    username_clean, clean_tenant_slug
+                )
+
+            if not user:
+                users = await conn.fetch(
+                    """SELECT u.id, u.tenant_id, u.password_hash, u.role, u.display_name, u.permissions, u.is_active,
+                              t.slug as tenant_slug, t.name as tenant_name,
+                              COALESCE(
+                                  NULLIF(TRIM(t.settings->>'custom_domain'), ''),
+                                  NULLIF(TRIM(pat.custom_domain), '')
+                              ) as custom_domain
+                       FROM users u
+                       LEFT JOIN tenants t ON u.tenant_id = t.id
+                       LEFT JOIN partner_agency_templates pat 
+                              ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
+                       WHERE LOWER(TRIM(u.email)) = $1""",
+                    username_clean
+                )
+                if len(users) == 1:
+                    user = users[0]
+                elif len(users) > 1 and not clean_tenant_slug:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Multiple organizations found for this email. Please specify your organization slug (tenant_slug) to log in."
+                    )
+                elif len(users) > 1:
+                    user = users[0]
+
+            if user and user.get("role") != "super_admin":
+                user_cd = (user.get("custom_domain") or "").strip().lower()
+                if user_cd and user_cd not in ("crm.boldlabs.com", "boldlabs.com", "crm.goboldlabs.com", "goboldlabs.com"):
+                    record_failed_login(rate_limit_key)
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"This account belongs to {user_cd}. Please log in at https://{user_cd}/login"
+                    )
+
 
         if not user:
             record_failed_login(rate_limit_key)
@@ -315,12 +368,31 @@ async def read_users_me(token: str = Depends(oauth2_scheme)):
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
 
-        if not tenant_slug and tenant_id and str(tenant_id).lower() != "none" and db_pool:
+        custom_domain = None
+        canonical_domain = "crm.goboldlabs.com"
+        if tenant_id and str(tenant_id).lower() != "none" and db_pool:
             try:
                 async with db_pool.acquire() as conn:
-                    tenant_slug = await conn.fetchval(
-                        "SELECT slug FROM tenants WHERE id = $1::uuid", tenant_id
+                    t_info = await conn.fetchrow(
+                        """
+                        SELECT t.slug,
+                               COALESCE(
+                                   NULLIF(TRIM(t.settings->>'custom_domain'), ''),
+                                   NULLIF(TRIM(pat.custom_domain), '')
+                               ) as custom_domain
+                        FROM tenants t
+                        LEFT JOIN partner_agency_templates pat 
+                               ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
+                        WHERE t.id = $1::uuid
+                        """,
+                        tenant_id
                     )
+                    if t_info:
+                        if t_info.get("slug"):
+                            tenant_slug = t_info["slug"]
+                        if t_info.get("custom_domain"):
+                            custom_domain = t_info["custom_domain"].strip().lower()
+                            canonical_domain = custom_domain
             except Exception:
                 pass
 
@@ -362,7 +434,10 @@ async def read_users_me(token: str = Depends(oauth2_scheme)):
             "role": role,
             "email": email,
             "display_name": display_name,
-            "permissions": payload.get("permissions") or {}
+            "permissions": payload.get("permissions") or {},
+            "custom_domain": custom_domain,
+            "canonical_domain": canonical_domain
         }
+
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")

@@ -30,7 +30,18 @@ async def get_public_review_info(slug: str):
     slug_clean = (slug or "").strip().lower()
     async with database.db_pool.acquire() as conn:
         tenant = await conn.fetchrow(
-            "SELECT id, name, slug, plan, settings FROM tenants WHERE LOWER(slug) = $1 OR id::text = $1 LIMIT 1",
+            """
+            SELECT t.id, t.name, t.slug, t.plan, t.settings,
+                   COALESCE(
+                       NULLIF(TRIM(t.settings->>'custom_domain'), ''),
+                       NULLIF(TRIM(pat.custom_domain), '')
+                   ) as custom_domain
+            FROM tenants t
+            LEFT JOIN partner_agency_templates pat 
+                   ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
+            WHERE LOWER(t.slug) = $1 OR t.id::text = $1
+            LIMIT 1
+            """,
             slug_clean
         )
         if not tenant:
@@ -77,6 +88,8 @@ async def get_public_review_info(slug: str):
                 gmb_url = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote_plus(tenant['name'])}"
 
         loc_city = extract_city(cfg.get("full_location_text", "")) or cfg.get("city") or cfg.get("location") or ""
+        c_dom = (tenant.get("custom_domain") or "").strip().lower() or None
+        canonical = c_dom or "crm.goboldlabs.com"
 
         return {
             "status": "ok",
@@ -90,8 +103,11 @@ async def get_public_review_info(slug: str):
             "requirement_presets": services,
             "services": services,
             "city": loc_city,
-            "location": loc_city
+            "location": loc_city,
+            "custom_domain": c_dom,
+            "canonical_domain": canonical
         }
+
 
 
 def clean_human_review_text(text: str) -> str:

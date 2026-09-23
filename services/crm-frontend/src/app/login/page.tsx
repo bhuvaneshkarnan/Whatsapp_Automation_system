@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth, crm, registerTenantSlug } from '@/lib/api';
-import { useBranding } from '@/lib/branding';
+import { useBranding, enforceDomainRedirect } from '@/lib/branding';
+
 import {
   MessageSquare,
   Lock,
@@ -59,8 +60,26 @@ export default function LoginPage() {
       } else {
         window.location.replace('/dashboard');
       }
+      return;
+    }
+
+    // Guard: If redirect query parameter targets a tenant slug on the wrong domain, redirect immediately
+    const redirectUrl = searchParams.get('redirect');
+    if (redirectUrl) {
+      const cleanRedirect = redirectUrl.replace(/\\/g, '/').trim();
+      const firstSegment = cleanRedirect.split('/').filter(Boolean)[0] || '';
+      if (firstSegment && !['dashboard', 'login', 'bhuvanesh', 'admin'].includes(firstSegment.toLowerCase())) {
+        crm.resolveTenantBySlug(firstSegment.toLowerCase())
+          .then((resolved) => {
+            if (resolved && resolved.canonical_domain) {
+              enforceDomainRedirect(window.location.hostname, resolved.custom_domain);
+            }
+          })
+          .catch(() => {});
+      }
     }
   }, []);
+
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -317,9 +336,35 @@ export default function LoginPage() {
             {error && (
               <div className="p-3 bg-status-error-bg border border-status-error-border text-status-error text-xs rounded-sm flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-status-error shrink-0 mt-0.5 stroke-[1.5]" />
-                <span>{error}</span>
+                <div className="leading-relaxed">
+                  {error.includes('https://') ? (
+                    (() => {
+                      const match = error.match(/(https:\/\/[^\s]+)/);
+                      if (match) {
+                        const [before, after] = error.split(match[0]);
+                        return (
+                          <span>
+                            {before}
+                            <a
+                              href={match[0]}
+                              className="font-bold underline text-status-error hover:opacity-80 inline-flex items-center gap-1"
+                            >
+                              {match[0]}
+                              <ExternalLink className="w-3 h-3 inline" />
+                            </a>
+                            {after}
+                          </span>
+                        );
+                      }
+                      return <span>{error}</span>;
+                    })()
+                  ) : (
+                    <span>{error}</span>
+                  )}
+                </div>
               </div>
             )}
+
 
             <button
               type="submit"

@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { crm, TenantSettingsResponse } from '@/lib/api';
+import { enforceDomainRedirect } from '@/lib/branding';
+
 import {
   Star,
   Check,
@@ -111,7 +113,11 @@ export default function ReviewClient() {
       setLoading(true);
       try {
         const data = await crm.getPublicReviewInfo(slugParam);
+        if (typeof window !== 'undefined' && enforceDomainRedirect(window.location.hostname, (data as any)?.custom_domain)) {
+          return;
+        }
         setSettings(data as any);
+
         const presets =
           (data as any).services ||
           (data as any).requirement_presets ||

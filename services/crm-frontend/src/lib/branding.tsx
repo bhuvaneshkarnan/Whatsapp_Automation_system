@@ -6,22 +6,27 @@ import { getPublicBranding, PublicBrandingResponse, registerTenantSlug } from '.
 const DEFAULT_BRANDING: PublicBrandingResponse = {
   is_whitelabel: false,
   brand_name: 'Boldlabs CRM',
-  brand_logo_url: '',
-  brand_favicon_url: '/favicon.ico',
+  brand_logo_url: '/boldlabs-logo.png',
+  brand_favicon_url: '/icon-192.png',
   brand_primary_color: '#059669',
   brand_support_email: 'support@goboldlabs.com',
   brand_support_phone: '+91 99999 99999',
   hide_platform_branding: false,
   custom_domain: null,
+  canonical_domain: 'crm.goboldlabs.com',
+  is_domain_match: true,
   tenant_id: null,
   tenant_slug: null,
   tenant_name: 'Boldlabs',
 };
 
+
 export function isPlatformHost(hostname: string): boolean {
   if (!hostname) return true;
   const h = hostname.toLowerCase().split(':')[0].trim();
   if (
+    h === 'crm.boldlabs.com' ||
+    h === 'boldlabs.com' ||
     h === 'crm.goboldlabs.com' ||
     h === 'goboldlabs.com' ||
     h === 'localhost' ||
@@ -33,6 +38,46 @@ export function isPlatformHost(hostname: string): boolean {
   }
   return false;
 }
+
+export function getCanonicalDomain(customDomain?: string | null): string {
+  if (customDomain && customDomain.trim()) {
+    const cd = customDomain.toLowerCase().trim();
+    if (cd !== 'null' && cd !== 'undefined' && cd !== 'none') {
+      return cd;
+    }
+  }
+  return 'crm.goboldlabs.com';
+}
+
+export function checkDomainMatch(currentHostname: string, customDomain?: string | null): boolean {
+  if (!currentHostname) return true;
+  const cleanHost = currentHostname.toLowerCase().split(':')[0].trim();
+  // Allow local development on localhost/127.0.0.1 without forced redirects
+  if (cleanHost === 'localhost' || cleanHost === '127.0.0.1') return true;
+
+  const canonical = getCanonicalDomain(customDomain);
+  const tenantIsPlatform = canonical === 'crm.goboldlabs.com';
+
+  if (tenantIsPlatform) {
+    return isPlatformHost(cleanHost);
+  }
+
+  // Tenant has an explicit custom domain (e.g. ai.bizpipe.in)
+  return cleanHost === canonical;
+}
+
+export function enforceDomainRedirect(currentHostname: string, customDomain?: string | null): boolean {
+  if (typeof window === 'undefined') return false;
+  if (!checkDomainMatch(currentHostname, customDomain)) {
+    const canonical = getCanonicalDomain(customDomain);
+    const targetUrl = `https://${canonical}${window.location.pathname}${window.location.search}${window.location.hash || ''}`;
+    console.warn(`[Domain Isolation] Host mismatch (${currentHostname} vs canonical ${canonical}). Redirecting to: ${targetUrl}`);
+    window.location.replace(targetUrl);
+    return true;
+  }
+  return false;
+}
+
 
 interface BrandingContextType {
   branding: PublicBrandingResponse;

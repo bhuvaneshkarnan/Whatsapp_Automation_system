@@ -25,7 +25,8 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { publicBooking, PublicBookingInfo } from '@/lib/api';
-import { useBranding } from '@/lib/branding';
+import { useBranding, enforceDomainRedirect } from '@/lib/branding';
+
 
 export default function BookingClient() {
   const params = useParams();
@@ -149,6 +150,9 @@ export default function BookingClient() {
       setError('');
       try {
         const data = await publicBooking.getInfo(slug);
+        if (typeof window !== 'undefined' && enforceDomainRedirect(window.location.hostname, data.custom_domain)) {
+          return;
+        }
         setInfo(data);
         // Default to first health concern if available
         if (data.health_concerns && data.health_concerns.length > 0) {

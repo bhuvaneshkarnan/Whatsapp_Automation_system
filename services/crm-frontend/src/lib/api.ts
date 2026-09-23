@@ -249,7 +249,19 @@ export const auth = {
     }
     return res.json() as Promise<{ access_token: string; token_type: string; tenant_id: string; tenant_slug?: string; role?: string }>;
   },
-  me: () => request<{ id: string; tenant_id: string; tenant_slug?: string; role: string; email?: string; display_name?: string; permissions?: StaffPermissions }>('/api/v1/auth/users/me'),
+  me: () => request<{
+    id: string;
+    tenant_id: string;
+    tenant_slug?: string;
+    role: string;
+    email?: string;
+    display_name?: string;
+    permissions?: StaffPermissions;
+    custom_domain?: string | null;
+    canonical_domain?: string | null;
+  }>('/api/v1/auth/users/me'),
+
+
   createUser: (data: { tenant_id: string; email: string; password: string; display_name?: string }) =>
     request<{ id: string; email: string }>('/api/v1/auth/users', {
       method: 'POST',
@@ -902,7 +914,15 @@ export const crm = {
   },
 
   resolveTenantBySlug: (slug: string) =>
-    request<{ id: string; name: string; slug: string; plan?: string; is_active?: boolean }>(
+    request<{
+      id: string;
+      name: string;
+      slug: string;
+      plan?: string;
+      is_active?: boolean;
+      custom_domain?: string | null;
+      canonical_domain?: string | null;
+    }>(
       `/api/v1/crm/tenants/resolve/${encodeURIComponent(slug)}`
     ).then((res) => {
       if (res && res.id && res.slug) {
@@ -910,6 +930,7 @@ export const crm = {
       }
       return res;
     }),
+
 
   updateSettings: (data: Partial<TenantSettingsResponse>, targetTenantId?: string) => {
     const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
@@ -1054,6 +1075,8 @@ export const crm = {
         review_experience_tags?: string[];
         requirement_presets?: string[];
         services?: string[];
+        custom_domain?: string | null;
+        canonical_domain?: string | null;
       }>(`/api/v1/crm/public/${slug}/review-info`);
     } catch {
       const bInfo = await publicBooking.getInfo(slug);
@@ -1069,10 +1092,13 @@ export const crm = {
         gmb_review_url: '',
         review_experience_tags: [],
         requirement_presets: bInfo.health_concerns || [],
-        services: bInfo.health_concerns || []
+        services: bInfo.health_concerns || [],
+        custom_domain: bInfo.custom_domain,
+        canonical_domain: bInfo.canonical_domain
       };
     }
   },
+
 
   getCustomerReviews: (filters?: { rating?: number; destination?: string; status?: string }) => {
     const params = new URLSearchParams();
@@ -1638,10 +1664,13 @@ export interface PublicBrandingResponse {
   brand_support_phone?: string;
   hide_platform_branding: boolean;
   custom_domain?: string | null;
+  canonical_domain?: string | null;
+  is_domain_match?: boolean;
   tenant_id?: string | null;
   tenant_slug?: string | null;
   tenant_name?: string | null;
 }
+
 
 export const getPublicBranding = async (domain?: string, slug?: string): Promise<PublicBrandingResponse> => {
   const params = new URLSearchParams();
@@ -1657,8 +1686,8 @@ export const getPublicBranding = async (domain?: string, slug?: string): Promise
   return {
     is_whitelabel: false,
     brand_name: 'Boldlabs CRM',
-    brand_logo_url: '',
-    brand_favicon_url: '/favicon.ico',
+    brand_logo_url: '/boldlabs-logo.png',
+    brand_favicon_url: '/icon-192.png',
     brand_primary_color: '#059669',
     brand_support_email: 'support@goboldlabs.com',
     brand_support_phone: '+91 99999 99999',
@@ -1788,7 +1817,10 @@ export interface PublicBookingInfo {
   bot_phone?: string;
   plan?: string;
   operating_hours?: string;
+  custom_domain?: string | null;
+  canonical_domain?: string | null;
 }
+
 
 export interface ClientCreatePayload {
   name: string;
