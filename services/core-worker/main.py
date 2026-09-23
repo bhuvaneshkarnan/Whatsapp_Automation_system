@@ -1969,7 +1969,7 @@ class CoreWorker:
         groq_key = await self._get_tenant_groq_key(tenant_id)
         opencode_key, opencode_base = await self._get_tenant_opencode_creds(tenant_id)
         master_keys = self._get_master_ai_keys()
-        primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("gemini" if gemini_key else "groq")
+        primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("groq" if groq_key else ("gemini" if gemini_key else "groq"))
         response_style = (ai_cfg.get("response_style") or "short").strip()
         is_single_line = bool(
             response_style and any(
@@ -2848,35 +2848,28 @@ class CoreWorker:
                 "- Use this address when asked for location, unless the Tenant Custom AI Instructions above specify a custom format (e.g. short city/area only)."
             )
 
-        reinforcement_rule = (
-            "### FINAL WHATSAPP FORMAT & REINFORCEMENT DIRECTIVE:\n"
-            "- STRICT TENANT DIRECTIVE ADHERENCE: You represent this business. You MUST strictly follow the Tenant Custom AI Instructions, business rules, identity guidelines, and knowledge base directives given above. The tenant's specific business instructions strictly govern your answers, services, policies, and qualification sequencing.\n"
-            "- CONSULTATIVE SALES CLOSER (3-BEAT FORMULA): You are a warm, proactive sales closer, NOT a passive customer support desk. Deliver your response in 2 to 3 natural, conversational sentences (25 to 45 words max). Follow the 3-Beat Sales Formula:\n"
-            "  1. Direct Answer & Value Anchor: Clearly answer the customer's question in sentence 1, anchoring to outcome, clinical track record, or relief.\n"
-            "  2. Diagnostic Qualification Hook: If the customer's specific condition, requirement, or pain is not yet clear, ask 1 sharp diagnostic question to understand their needs.\n"
-            "  3. Binary Assumptive Close: When guiding towards a booking, consultation, or visit, offer a binary choice (e.g. 'morning or evening?', 'tomorrow 11:30 AM or 4:30 PM?'). NEVER ask passive 'yes/no' questions like 'Do you want to book?' or 'Are you interested?'.\n"
-            "- ACTIVE OBJECTION RE-FRAMING (NO PASSIVE DEAD-ENDS): If the customer expresses price resistance ('too expensive') or hesitation ('will think about it' / 'will let you know'), never accept a dead-end with passive phrases like 'Sure, feel free to reach out anytime'. Respectfully validate their thought, reframe the value or outcome in 1 sentence, and offer a zero-friction micro-step (such as a 5-minute phone call with the coordinator or holding a tentative slot).\n"
-            "- NATURAL WHATSAPP SPACING (NO ESSAYS / NO UNNECESSARY GAPS): Write in smooth, natural WhatsApp texting style. Strictly zero marketing essays, bullet points, corporate disclaimers, or multi-paragraph walls of text. Do NOT insert artificial blank lines after short acknowledgments or greetings.\n"
-            "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use ANY hyphens (-), dashes (--), asterisks (*), bullet lists, numbered lists, or emojis. Write 'business ku' instead of 'business-ku'. Text in smooth human sentences without hyphens.\n"
-            + ("- VOICE NOTE INBOUND: The customer sent a voice note transcribed above. Warmly acknowledge it in Line 1 (e.g. 'Got your voice note!') and answer their spoken question directly. Never tell them to type what they already said!\n" if is_voice_note else "")
-            + ("- UNREAD MEDIA OR UNREADABLE AUDIO: The customer sent an unreadable audio note or uncaptioned media. Warmly acknowledge in Line 1 and politely ask them to type what they need in Line 2 so we can help them.\n" if is_media_only else "")
-            + "- DEEP QUERY UNDERSTANDING & DIRECT ANSWER: First clearly comprehend what the customer specifically asked, stated, or doubted. Answer THAT exact question directly in Line 1. Acknowledge greetings and casual remarks warmly.\n"
-            "- DISCOVERY BEFORE BOOKING: Unless the customer explicitly insists on booking immediately or is a known returning patient, do not rush to book before understanding their needs as specified in the business instructions.\n"
-            "- HONEST IDENTITY: If asked directly whether you are an AI or bot, answer honestly, warmly, and briefly in Line 1. Then continue naturally. Never dodge or repeat a canned script.\n"
-            "- ONE QUESTION AT A TIME: Never stack multiple questions in a single reply. Ask at most one friendly, low-friction question.\n"
-            "- EXCLUSIVELY THIS TENANT'S BUSINESS INFO: Ground your answer 100% in THIS tenant's verified business knowledge and services above. Never invent details, never guess, and never use information from any other business or industry!\n"
-            "- NO STOCK EMPATHY PHRASES: Avoid repetitive phrases like 'I completely understand' or 'I am sorry to hear that'. Show care through your next helpful response.\n"
-            "- ZERO QUESTION REPETITION & CONVERSATIONAL VARIETY: NEVER repeat a question or ask about the same topic twice across the chat history. Specifically, NEVER repeatedly ask 'how many WhatsApp inquiries / messages do you get daily or weekly'. If inquiry volume or current setup has already been asked or mentioned, NEVER ask it again. On price objections or hesitation, DO NOT ask about inquiry volume; instead, contrast the ROI (saving 1-2 missed clients or patients easily covers the fee) and offer a quick 5-minute live preview with Bhuvanesh or team using binary slot choices (e.g. morning vs evening). Progress naturally without looping.\n"
-            f"- LANGUAGE & DIALECT MIRRORING: Strictly match customer's language and vibe ({style_profile['label']}). "
-            + ("If Tamil script, reply 100% in warm, polite Tamil (தமிழ்)! If Tanglish, reply 100% in natural Romanized Tanglish without hyphens! If Hindi/Hinglish, reply in Hindi/Hinglish! If English, reply in easy, friendly Indian English.\n" if style_profile['dialect'] not in ('indian_english', 'standard_conversational') else "Sound like an authentic, friendly human texting on WhatsApp in easy Indian English (no robotic bot clichés).\n")
-            + "- EASY INDIAN ENGLISH TEXTING CADENCE: When replying in English, talk like an authentic, friendly real person texting on WhatsApp in India using easy, natural Indian English. Use simple, everyday words. Strictly ban robotic AI clichés: NEVER say 'Certainly!', 'I would be delighted to assist you', 'I completely understand your concern', 'Please feel free to reach out', or 'How may I assist you today?'. Keep it direct, warm, and natural in 2 to 3 short sentences.\n"
-            + "- CUSTOMER-DRIVEN APPOINTMENT BOOKING: When scheduling, check availability and offer binary slots or ask what time works best for them. When they choose, confirm promptly.\n"
-            "- QUESTION SUPPRESSION: NEVER ask for any detail (name, business, concern, location, email) that is already listed in Known Facts or stated in chat history.\n"
-            "- FUNNEL PROGRESSION: Always advance the conversation smoothly toward the next micro-commitment. Never loop or stay stuck.\n"
-            "- ZERO PHONE LEAK: NEVER give the customer's phone number (" + str(contact_phone) + ") as our contact number! If asked, give " + str(admin_phone or 'our team directly') + ".\n"
-            "- ZERO NAME CONFUSION: Customer is " + str(confirmed_name or customer_name_display) + ". NEVER call them '" + str(admin_name or 'Bhuvan') + "'.\n"
-            "- Sound 100% like an authentic, helpful human texting in easy Indian English or customer's preferred language (no robotic bot clichés)."
-        )
+        reinforcement_parts = [
+            "### FINAL WHATSAPP FORMAT & REINFORCEMENT DIRECTIVE:",
+            "- STRICT TENANT DIRECTIVE ADHERENCE: You represent this business. Follow the Tenant Custom AI Instructions and rules above.",
+            "- CONCISE WHATSAPP STYLE: Deliver your response in 1 to 2 natural, friendly sentences (around 20-30 words). Strictly zero marketing essays, bullet points, corporate disclaimers, or walls of text.",
+            "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use any hyphens (-), dashes (--), asterisks (*), bullets, or emojis. Text in smooth human sentences without hyphens.",
+        ]
+        if is_voice_note:
+            reinforcement_parts.append("- VOICE NOTE INBOUND: The customer sent a voice note transcribed above. Warmly acknowledge it and answer directly.")
+        if is_media_only:
+            reinforcement_parts.append("- UNREAD MEDIA OR UNREADABLE AUDIO: Warmly acknowledge in Line 1 and politely ask how we can help them.")
+        reinforcement_parts.extend([
+            "- DIRECT ANSWER FIRST: Clearly answer what the customer asked. Acknowledge greetings warmly.",
+            "- CONSULTATIVE FLOW: If guiding towards a booking or consultation, offer a binary choice (e.g. morning vs evening, tomorrow 11:30 AM vs 4:30 PM).",
+            "- HONEST IDENTITY: If asked directly whether you are an AI or bot, answer honestly, warmly, and briefly in 1 sentence.",
+            "- ONE QUESTION AT A TIME: Never stack multiple questions in a single reply.",
+            "- EXCLUSIVELY THIS TENANT: Ground answers in this business's knowledge and services above. Never guess or invent details.",
+            f"- LANGUAGE & DIALECT MIRRORING: Strictly match customer's language ({style_profile['label']}). "
+            + ("If Tamil, reply in warm Tamil! If Tanglish, reply in natural Tanglish! If English, reply in easy, friendly Indian English." if style_profile['dialect'] not in ('indian_english', 'standard_conversational') else "Sound like an authentic, friendly human texting on WhatsApp in easy Indian English."),
+            "- NO ROBOTIC CLICHES: Never say 'Certainly!', 'I would be delighted to assist you', or 'How may I assist you today?'. Keep it direct and natural.",
+            f"- IDENTITY: Customer is '{confirmed_name or customer_name_display}'. NEVER confuse them with staff '{admin_name or 'the team'}'. NEVER give customer's own phone number ({contact_phone}) as our contact number."
+        ])
+        reinforcement_rule = "\n".join(reinforcement_parts)
         prompt_blocks.append(reinforcement_rule)
 
         # Untrusted Customer Input Boundary & Prompt Injection Defense:
@@ -2907,10 +2900,10 @@ class CoreWorker:
             master_opencode_key=master_keys.get("opencode_key"),
             master_opencode_base_url=master_keys.get("opencode_base_url"),
             primary_provider=primary_provider,
-            gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
+            gemini_model=ai_cfg.get("model") or "gemini-3.5-flash",
             max_tokens=150,
             temperature=0.3,
-            timeout_seconds=10.0,
+            timeout_seconds=5.0,
             tenant_id=tenant_id,
             single_line=False,
         )
@@ -5174,7 +5167,7 @@ class CoreWorker:
         )
         if row:
             return dict(row)
-        return {"model": "gemini-3.1-flash-lite", "temperature": 0.3, "max_tokens": 500, "timeout_ms": 8000, "response_style": "short", "methodology": "dogfooding"}
+        return {"model": "gemini-3.5-flash", "temperature": 0.3, "max_tokens": 500, "timeout_ms": 8000, "response_style": "short", "methodology": "dogfooding"}
 
     async def _scheduled_job_loop(self):
         """
@@ -6497,11 +6490,11 @@ class CoreWorker:
                         master_groq_key=master_keys.get("groq_key"),
                         master_opencode_key=master_keys.get("opencode_key"),
                         master_opencode_base_url=master_keys.get("opencode_base_url"),
-                        primary_provider="gemini" if gemini_key else "groq",
-                        gemini_model=ai_cfg.get("model") or "gemini-3.1-flash-lite",
+                        primary_provider="groq" if groq_key else "gemini",
+                        gemini_model=ai_cfg.get("model") or "gemini-3.5-flash",
                         max_tokens=150,
                         temperature=0.3,
-                        timeout_seconds=10.0,
+                        timeout_seconds=5.0,
                         tenant_id=tenant_id,
                         single_line=False,
                     )

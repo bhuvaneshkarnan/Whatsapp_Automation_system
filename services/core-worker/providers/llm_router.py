@@ -203,7 +203,18 @@ def clean_llm_response(text: str, single_line: bool = False) -> str:
     if action_tags:
         cleaned = cleaned + "\n" + "\n".join(action_tags)
 
-    return cleaned.strip()
+    res = cleaned.strip()
+    if not res or len(res) < 4:
+        return ""
+    words = res.split()
+    if len(words) < 2 and not any(res.lower().startswith(w) for w in ["yes", "no", "ok", "sure", "hi", "hello", "hey", "vanakkam"]):
+        return ""
+    lower_res = res.lower().strip()
+    if lower_res in ["25 to", "to 45", "45 words", "25 to 45", "25 to 45 words", "words max", "line 1", "line 2", "sentence 1", "sentence 2", "sentence 3"]:
+        return ""
+    if len(words) == 2 and words[0].isdigit() and words[1].lower() in ["to", "words", "lines"]:
+        return ""
+    return res
 
 
 def strip_repetitive_greetings(text: str) -> str:
@@ -272,14 +283,14 @@ async def call_gemini(
     messages: list[dict],
     api_key: str,
     system_prompt: str,
-    model: str = "gemini-3.1-flash-lite",
+    model: str = "gemini-3.5-flash",
     max_tokens: int = 2048,
     temperature: float = 0.3,
-    timeout_seconds: float = 8.0,
+    timeout_seconds: float = 4.0,
     tenant_id: str = "",
     single_line: bool = False,
 ) -> str:
-    """Call Google Gemini API with automatic model failover using verified active models."""
+    """Call Google Gemini API with fast failover using verified active models."""
     start = time.monotonic()
     sanitized = sanitize_conversation_history(messages)
     contents = []
@@ -303,8 +314,8 @@ async def call_gemini(
         },
     }
 
-    # Verified active Gemini models on live API (sub-second generation)
-    active_gemini_models = ["gemini-3.1-flash-lite", "gemini-3.5-flash"]
+    # Verified active Gemini models on live API (ordered by availability)
+    active_gemini_models = ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.1-flash-lite"]
     candidate_models = []
     if model and model in active_gemini_models:
         candidate_models.append(model)
@@ -313,12 +324,16 @@ async def call_gemini(
             candidate_models.append(m)
 
     last_err = None
-    req_timeout = min(timeout_seconds, 12.0)
+    req_timeout = min(timeout_seconds, 4.0)
     for m in candidate_models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
         try:
             async with httpx.AsyncClient(timeout=req_timeout) as client:
-                response = await client.post(url, json=payload)
+                response = await client.post(
+                    url,
+                    json=payload,
+                    headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+                )
             
             if response.status_code == 200:
                 data = response.json()
@@ -369,8 +384,8 @@ async def call_groq(
     for m in sanitized:
         formatted_msgs.append({"role": m["role"], "content": m["content"]})
 
-    # Verified active models on Groq: qwen/qwen3.8-27b
-    active_groq_models = ["qwen/qwen3.8-27b"]
+    # Verified active models on Groq: qwen/qwen3.8-27b (fastest 300ms), openai/gpt-oss-120b, openai/gpt-oss-20b
+    active_groq_models = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
     candidate_models = []
     if model and model in active_groq_models:
         candidate_models.append(model)
@@ -381,11 +396,11 @@ async def call_groq(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "User-Agent": "WhatsAppAutomation/1.0 (Linux; x86_64)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
     }
 
     last_err = None
-    req_timeout = min(timeout_seconds, 6.0)
+    req_timeout = min(timeout_seconds, 4.0)
     toks = min(max_tokens, 75) if single_line else min(max_tokens, 350)
     for m in candidate_models:
         payload = {
@@ -783,7 +798,7 @@ async def call_llm_cascade(
                     messages=emergency_messages,
                     api_key=gemini_key,
                     system_prompt=system_prompt,
-                    model="gemini-3.1-flash-lite",
+                    model="gemini-3.5-flash",
                     max_tokens=max_tokens,
                     temperature=temperature,
                     timeout_seconds=3.5,

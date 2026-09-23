@@ -175,7 +175,7 @@ async def get_tenant_settings(
         
         # AI Config & BYOK
         "primary_model_provider": wa_data.get("primary_model_provider", "groq" if groq_key else "gemini"),
-        "ai_model": ai_cfg.get("model", "gemini-3.1-flash-lite"),
+        "ai_model": ai_cfg.get("model", "gemini-3.5-flash"),
         "gemini_api_key": res_gemini_key,
         "groq_api_key": res_groq_key,
         "opencode_api_key": res_opencode_key,
@@ -758,7 +758,7 @@ async def update_tenant_settings(
         # 5. Update AI Config (modular fields & tone instructions) with non-destructive partial updates
         ai_row = await conn.fetchrow("SELECT * FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
         
-        cur_model = (ai_row["model"] if ai_row and ai_row["model"] else "gemini-3.1-flash-lite")
+        cur_model = (ai_row["model"] if ai_row and ai_row["model"] else "gemini-3.5-flash")
         cur_prompt = (ai_row["system_prompt"] if ai_row and ai_row["system_prompt"] else "")
         cur_name = (ai_row["assistant_name"] if ai_row and ai_row["assistant_name"] else "Assistant")
         cur_goal = (ai_row["bot_goal"] if ai_row and ai_row["bot_goal"] else "")
