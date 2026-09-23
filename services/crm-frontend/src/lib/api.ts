@@ -181,6 +181,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     let errorMsg = `API Error (${res.status})`;
+    if (res.status === 401) {
+      // Session expired — clear stale tokens and redirect to login
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('tenant_id');
+        // Always redirect to /login (the app's login page)
+        window.location.href = '/login';
+      }
+      throw new Error('Session expired. Please log in again.');
+    }
     if (res.status === 502) {
       errorMsg = 'Backend service is restarting. Please try again in a moment.';
     } else if (res.status === 503) {

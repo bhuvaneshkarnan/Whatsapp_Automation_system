@@ -1,5 +1,6 @@
 # ==============================================================================
 # WhatsApp CRM Platform - Automated Database Backup & Local PC Sync
+# Zero Server Disk Space: Dump -> Download to PC -> Purge from VPS immediately
 # ==============================================================================
 
 param (
@@ -13,65 +14,72 @@ $VpsIp = "168.138.172.197"
 $VpsUser = "ubuntu"
 $SshKey = Join-Path $HOME ".ssh\oracle_vps.key"
 $LocalBackupDir = "E:\AI Whatsapp automation system\backups"
+$LogFile = Join-Path $LocalBackupDir "backup_sync.log"
+
+function Write-Log {
+    param([string]$Message, [string]$Color = "White")
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $line = "[$timestamp] $Message"
+    Write-Host $line -ForegroundColor $Color
+    try {
+        Add-Content -Path $LogFile -Value $line -ErrorAction SilentlyContinue
+    } catch {}
+}
 
 # Ensure local backup directory exists
 if (-not (Test-Path -Path $LocalBackupDir)) {
     New-Item -ItemType Directory -Path $LocalBackupDir -Force | Out-Null
-    Write-Host "[INIT] Created local backup directory: $LocalBackupDir" -ForegroundColor Cyan
 }
 
-Write-Host "================================================================================" -ForegroundColor Green
-Write-Host "  WHATSAPP CRM - DATABASE BACKUP & LOCAL PC SYNC" -ForegroundColor Green
-Write-Host "================================================================================" -ForegroundColor Green
+Write-Log "================================================================================" "Green"
+Write-Log "  WHATSAPP CRM - DATABASE BACKUP & LOCAL PC SYNC (ZERO SERVER FOOTPRINT)" "Green"
+Write-Log "================================================================================" "Green"
 
-# 1. Trigger fresh backup on VPS if requested
-if ($ForceFreshDump) {
-    Write-Host "[1/3] Triggering fresh database dump on VPS ($VpsIp)..." -ForegroundColor Yellow
-    $triggerCmd = "ssh -i `"$SshKey`" -o StrictHostKeyChecking=no ${VpsUser}@${VpsIp} `"/home/ubuntu/scripts/backup_db.sh`""
-    Invoke-Expression $triggerCmd
-}
-
-# 2. Download the latest backup from the VPS
-Write-Host "`n[2/3] Securely downloading latest backup to your local PC..." -ForegroundColor Yellow
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-
-$targetEncFile = Join-Path $LocalBackupDir "whatsapp_platform_$timestamp.sql.gz.enc"
-$scpEncCmd = "scp -i `"$SshKey`" ${VpsUser}@${VpsIp}:/home/ubuntu/backups/latest.sql.gz.enc `"$targetEncFile`""
+$targetLocalFile = Join-Path $LocalBackupDir "whatsapp_platform_$timestamp.sql.gz"
+$remoteTempFile = "/home/ubuntu/backups/whatsapp_sync_$timestamp.sql.gz"
 
 try {
-    Invoke-Expression $scpEncCmd 2>$null
-} catch {
-    # Fallback handled below
-}
+    # 1. Trigger database dump directly on VPS to temporary file
+    Write-Log "[1/4] Triggering fresh database dump on VPS ($VpsIp)..." "Yellow"
+    $dumpCmd = "ssh -i `"$SshKey`" -o StrictHostKeyChecking=no ${VpsUser}@${VpsIp} `"mkdir -p /home/ubuntu/backups && docker exec whatsapp-app-postgres-1 pg_dump -U platform_user whatsapp_platform | gzip > $remoteTempFile && ls -lh $remoteTempFile`""
+    $dumpOutput = Invoke-Expression $dumpCmd 2>&1
+    Write-Log "VPS Dump output: $dumpOutput" "Gray"
 
-$targetFile = $targetEncFile
-$isEncrypted = $true
-
-if (-not (Test-Path -Path $targetEncFile) -or (Get-Item $targetEncFile).Length -lt 200) {
-    # Fallback to standard .sql.gz if server hasn't created an encrypted dump yet
-    Remove-Item $targetEncFile -ErrorAction SilentlyContinue
-    $targetFile = Join-Path $LocalBackupDir "whatsapp_platform_$timestamp.sql.gz"
-    $scpCmd = "scp -i `"$SshKey`" ${VpsUser}@${VpsIp}:/home/ubuntu/backups/latest.sql.gz `"$targetFile`""
+    # 2. Download backup to local PC via SCP
+    Write-Log "[2/4] Securely downloading backup to local PC..." "Yellow"
+    $scpCmd = "scp -i `"$SshKey`" -o StrictHostKeyChecking=no ${VpsUser}@${VpsIp}:${remoteTempFile} `"$targetLocalFile`""
     Invoke-Expression $scpCmd
-    $isEncrypted = $false
-}
 
-# 3. Verify downloaded backup
-Write-Host "`n[3/3] Verifying downloaded backup file..." -ForegroundColor Yellow
-if (Test-Path -Path $targetFile) {
-    $fileItem = Get-Item $targetFile
-    $sizeKb = [math]::Round($fileItem.Length / 1KB, 2)
-    if ($fileItem.Length -gt 1000) {
-        Write-Host "================================================================================" -ForegroundColor Green
-        Write-Host "  SUCCESS: DATABASE BACKUP STORED ON YOUR LOCAL PC!" -ForegroundColor Green
-        Write-Host "  File Name: $($fileItem.Name)" -ForegroundColor White
-        Write-Host "  Location:  $($fileItem.FullName)" -ForegroundColor White
-        Write-Host "  Size:      $sizeKb KB" -ForegroundColor White
-        Write-Host "  Timestamp: $($fileItem.CreationTime)" -ForegroundColor White
-        Write-Host "================================================================================" -ForegroundColor Green
+    # 3. Verify downloaded file on PC
+    Write-Log "[3/4] Verifying local backup file..." "Yellow"
+    if ((Test-Path -Path $targetLocalFile) -and ((Get-Item $targetLocalFile).Length -gt 1000)) {
+        $fileItem = Get-Item $targetLocalFile
+        $sizeKb = [math]::Round($fileItem.Length / 1KB, 2)
+        Write-Log "SUCCESS: Local backup verified: $($fileItem.Name) ($sizeKb KB)" "Green"
+
+        # 4. Clean up VPS immediately so ZERO server disk space is occupied
+        Write-Log "[4/4] Purging backup from VPS to keep server disk completely clean..." "Cyan"
+        $cleanCmd = "ssh -i `"$SshKey`" -o StrictHostKeyChecking=no ${VpsUser}@${VpsIp} `"rm -f /home/ubuntu/backups/*.sql.gz* && echo VPS_CLEAN`""
+        $cleanRes = Invoke-Expression $cleanCmd 2>&1
+        Write-Log "VPS Cleanup: $cleanRes" "Cyan"
+
+        # Local retention: rotate local backups older than 30 days
+        Get-ChildItem -Path $LocalBackupDir -Filter "whatsapp_platform_*.sql.gz" |
+            Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-30) } |
+            ForEach-Object {
+                Write-Log "Rotating local archive older than 30 days: $($_.Name)" "Gray"
+                Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+            }
+
+        Write-Log "================================================================================" "Green"
+        Write-Log "  BACKUP COMPLETED: Stored on your PC only: $($fileItem.FullName)" "Green"
+        Write-Log "================================================================================" "Green"
     } else {
-        Write-Host "[ERROR] Downloaded file is unexpectedly small ($($fileItem.Length) bytes). Please verify server logs." -ForegroundColor Red
+        Write-Log "ERROR: Backup download failed or file is too small!" "Red"
+        throw "Backup verification failed."
     }
-} else {
-    Write-Host "[ERROR] Failed to download backup file to $targetFile" -ForegroundColor Red
+} catch {
+    Write-Log "FATAL ERROR during backup: $_" "Red"
+    throw $_
 }

@@ -4292,7 +4292,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           const preResolved = await crm.resolveTenantBySlug(targetSlug);
           if (isCancelled) return;
           if (preResolved && preResolved.canonical_domain) {
-            if (enforceDomainRedirect(window.location.hostname, preResolved.custom_domain)) {
+            const currentHostname = window.location.hostname;
+            const { isPlatformHost } = await import('@/lib/branding');
+            // On a custom domain (e.g. ai.bizpipe.in), never redirect away to another domain.
+            // The post-auth check below will clear any stale cross-tenant tokens and show /login
+            // for the correct tenant on this domain instead.
+            if (!isPlatformHost(currentHostname)) {
+              // Skip cross-domain redirect on custom domains — let post-auth handle it
+            } else if (enforceDomainRedirect(currentHostname, preResolved.custom_domain)) {
               return;
             }
           }
@@ -9672,7 +9679,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         {/* Logo & Current View Title */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
-            {settingsForm.logo_url && (
+            {settingsForm.logo_url && !settingsForm.logo_url.toLowerCase().includes('boldlabs') && settingsForm.slug !== 'boldlabs' && (
               <img
                 src={settingsForm.logo_url}
                 alt={settingsForm.name || branding.brand_name || 'Logo'}
@@ -14671,7 +14678,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <th className="p-2.5 text-right pr-4">{currentTaxonomy.actions_label || 'Action'}</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y-2 divide-black dark:divide-slate-700">
+                          <tbody className="divide-y divide-border/60">
                             {loadingCustomers ? (
                               <tr>
                                 <td colSpan={10} className="p-8 text-center text-text-muted">
@@ -14691,7 +14698,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <tr
                                     key={cust.id}
                                     onClick={() => handleSelectCustomer(cust)}
-                                    className={`border-b-2 border-black dark:border-slate-700 cursor-pointer transition-colors duration-150 ${
+                                    className={`border-b border-border/40 cursor-pointer transition-colors duration-150 ${
                                       isSelected ? 'bg-blue-50/50 border-l-4 border-l-accent' : 'hover:bg-surface-subtle/70'
                                     }`}
                                   >

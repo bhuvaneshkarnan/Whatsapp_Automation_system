@@ -26,13 +26,13 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Boldlabs CRM | Enterprise WhatsApp Platform",
-  description: "Boldlabs CRM — Enterprise WhatsApp Automation, AI Booking, and Live Customer Inbox",
+  title: "CRM Portal | Enterprise WhatsApp Platform",
+  description: "Enterprise WhatsApp Automation, AI Booking, and Live Customer Inbox",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Boldlabs CRM",
+    title: "CRM Portal",
   },
   icons: {
     icon: [

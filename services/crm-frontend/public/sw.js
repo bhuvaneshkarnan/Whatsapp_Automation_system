@@ -1,4 +1,4 @@
-// ── Web Push Service Worker for Boldlabs AI WhatsApp CRM v2.1 (Boldlabs Logo Refresh) ──
+// ── Web Push Service Worker for Boldlabs AI WhatsApp CRM v2.2 (UI Cleanups & Border Refresh) ──
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
