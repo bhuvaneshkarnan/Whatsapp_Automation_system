@@ -199,6 +199,11 @@ def telegram_structlog_processor(logger, method_name, event_dict):
         if error_detail and error_detail != event_name:
             full_msg += f": {error_detail}"
 
+        # Suppress transient polling and network hiccups that auto-recover in background loops
+        lower_full = full_msg.lower()
+        if "timeout reading from redis" in lower_full or "connection closed by server" in lower_full:
+            return event_dict
+
         metadata = {
             k: str(v) for k, v in event_dict.items()
             if k not in ("event", "level", "timestamp", "logger") and not str(k).startswith("_")

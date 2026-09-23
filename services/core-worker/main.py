@@ -780,9 +780,17 @@ class CoreWorker:
         self.in_flight_messages: set = set()
 
     async def start(self):
-        # Connect DB and Redis
+        # Connect DB and Redis with automatic keepalive, health check, and retry resilience
         self.db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=8)
-        self.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+        self.redis = aioredis.from_url(
+            REDIS_URL,
+            decode_responses=True,
+            health_check_interval=30,
+            socket_keepalive=True,
+            retry_on_timeout=True,
+            socket_timeout=10.0,
+            socket_connect_timeout=5.0
+        )
 
         try:
             await self.db_pool.execute("ALTER TABLE customers ADD COLUMN IF NOT EXISTS preferred_language TEXT")
@@ -877,6 +885,9 @@ class CoreWorker:
 
             except asyncio.CancelledError:
                 break
+            except (aioredis.TimeoutError, aioredis.ConnectionError, TimeoutError, ConnectionError, OSError) as net_err:
+                logger.warning("status_consume_loop_transient_network_retry", error=str(net_err))
+                await asyncio.sleep(2)
             except Exception as e:
                 if "NOGROUP" in str(e):
                     try:
@@ -932,6 +943,9 @@ class CoreWorker:
 
             except asyncio.CancelledError:
                 break
+            except (aioredis.TimeoutError, aioredis.ConnectionError, TimeoutError, ConnectionError, OSError) as net_err:
+                logger.warning("consume_loop_transient_network_retry", error=str(net_err))
+                await asyncio.sleep(2)
             except Exception as e:
                 if "NOGROUP" in str(e):
                     try:
@@ -5180,6 +5194,8 @@ class CoreWorker:
                 await self._process_incomplete_conversation_followups()
             except asyncio.CancelledError:
                 break
+            except (aioredis.TimeoutError, aioredis.ConnectionError, TimeoutError, ConnectionError, OSError) as net_err:
+                logger.warning("scheduled_job_transient_network_retry", error=str(net_err))
             except Exception as e:
                 logger.error("scheduled_job_error", error=str(e))
 

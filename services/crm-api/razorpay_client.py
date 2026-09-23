@@ -1,4 +1,5 @@
 import os
+import re
 import hmac
 import hashlib
 import json
@@ -7,6 +8,13 @@ import httpx
 import structlog
 
 logger = structlog.get_logger("razorpay-client")
+
+def is_valid_subscription_id(sub_id: Optional[str]) -> bool:
+    """Validates Razorpay subscription ID format: starts with sub_, alphanumeric, <= 18 chars."""
+    if not sub_id or not isinstance(sub_id, str):
+        return False
+    clean = sub_id.strip()
+    return len(clean) <= 18 and bool(re.match(r"^sub_[A-Za-z0-9]+$", clean))
 
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
@@ -112,25 +120,31 @@ async def create_subscription(
 
 async def fetch_subscription(subscription_id: str) -> Dict[str, Any]:
     """Fetch live subscription state from Razorpay."""
+    if not is_valid_subscription_id(subscription_id):
+        logger.warning("invalid_subscription_id_format_skipped", sub_id=subscription_id)
+        return {}
     async with httpx.AsyncClient(timeout=15.0) as client:
         res = await client.get(
             f"{BASE_URL}/subscriptions/{subscription_id}",
             auth=get_auth()
         )
         if res.status_code != 200:
-            logger.error("razorpay_subscription_fetch_failed", sub_id=subscription_id, status=res.status_code, body=res.text)
-            raise Exception(f"Razorpay subscription fetch failed: {res.text}")
+            logger.warning("razorpay_subscription_fetch_failed", sub_id=subscription_id, status=res.status_code, body=res.text)
+            return {}
         return res.json()
 
 async def fetch_invoices_for_subscription(subscription_id: str) -> List[Dict[str, Any]]:
     """Fetch invoices associated with a specific subscription."""
+    if not is_valid_subscription_id(subscription_id):
+        logger.warning("invalid_subscription_id_format_skipped", sub_id=subscription_id)
+        return []
     async with httpx.AsyncClient(timeout=15.0) as client:
         res = await client.get(
             f"{BASE_URL}/invoices?subscription_id={subscription_id}",
             auth=get_auth()
         )
         if res.status_code != 200:
-            logger.error("razorpay_invoices_fetch_failed", sub_id=subscription_id, status=res.status_code, body=res.text)
+            logger.warning("razorpay_invoices_fetch_failed", sub_id=subscription_id, status=res.status_code, body=res.text)
             return []
         data = res.json()
         return data.get("items", [])

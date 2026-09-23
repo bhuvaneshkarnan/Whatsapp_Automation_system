@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Union
@@ -38,7 +39,7 @@ async def get_client_billing_invoices(
         sub_id = (tenant.get("razorpay_subscription_id") or "").strip()
 
         # If tenant has a real Razorpay subscription (sub_...), sync latest invoices from Razorpay
-        if sub_id and sub_id.startswith("sub_"):
+        if sub_id and sub_id.startswith("sub_") and len(sub_id) <= 18 and re.match(r"^sub_[A-Za-z0-9]+$", sub_id):
             try:
                 rzp_invoices = await razorpay_client.fetch_invoices_for_subscription(sub_id)
                 for rzp_inv in rzp_invoices:

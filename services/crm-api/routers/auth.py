@@ -1288,7 +1288,7 @@ async def sync_tenant_billing(tenant_id: str, admin_user: dict = Depends(verify_
                 "next_charge_at": None,
                 "invoices_synced": synced_invoices_count
             }
-        else:
+        elif sub_id.startswith("sub_") and len(sub_id) <= 18 and re.match(r"^sub_[A-Za-z0-9]+$", sub_id):
             sub_data = await razorpay_client.fetch_subscription(sub_id)
             rzp_status = sub_data.get("status", "")
             status_map = {
@@ -1356,6 +1356,15 @@ async def sync_tenant_billing(tenant_id: str, admin_user: dict = Depends(verify_
                 "org_lifecycle_stage": new_stage,
                 "next_charge_at": next_charge.isoformat() if next_charge else None,
                 "invoices_synced": synced_invoices_count
+            }
+        else:
+            return {
+                "status": "skipped",
+                "tenant_id": tenant_id,
+                "reason": f"Subscription ID '{sub_id}' is not an active Razorpay format",
+                "subscription_status": tenant.get("subscription_status") or "not_started",
+                "org_lifecycle_stage": tenant.get("org_lifecycle_stage") or "ready_to_activate",
+                "invoices_synced": 0
             }
 
 
