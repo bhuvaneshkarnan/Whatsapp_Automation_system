@@ -385,7 +385,7 @@ async def call_groq(
     }
 
     last_err = None
-    req_timeout = min(timeout_seconds, 2.5)
+    req_timeout = min(timeout_seconds, 6.0)
     toks = min(max_tokens, 75) if single_line else min(max_tokens, 350)
     for m in candidate_models:
         payload = {
@@ -625,7 +625,7 @@ async def call_llm_cascade(
                     model="qwen/qwen3.8-27b",
                     max_tokens=effective_max_tokens,
                     temperature=temperature,
-                    timeout_seconds=min(timeout_seconds, 4.0),
+                    timeout_seconds=min(timeout_seconds, 6.0),
                     tenant_id=tenant_id,
                     single_line=single_line,
                 )
