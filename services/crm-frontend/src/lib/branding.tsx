@@ -122,24 +122,22 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
           document.documentElement.style.setProperty('--accent', resolved.brand_primary_color);
         }
 
-        // Force browser favicon update to defeat aggressive caching
+        // Safely update browser favicon href without removing nodes from React DOM tree
         const favUrl = resolved.brand_favicon_url || DEFAULT_BRANDING.brand_favicon_url;
         const versionedFav = favUrl.includes('?') ? favUrl : `${favUrl}?v=3`;
 
-        const existingLinks = document.querySelectorAll("link[rel*='icon']");
-        existingLinks.forEach((el) => el.parentNode?.removeChild(el));
-
-        const linkIcon = document.createElement('link');
-        linkIcon.rel = 'icon';
-        linkIcon.type = 'image/png';
-        linkIcon.sizes = '192x192';
-        linkIcon.href = versionedFav;
-        document.head.appendChild(linkIcon);
-
-        const linkShortcut = document.createElement('link');
-        linkShortcut.rel = 'shortcut icon';
-        linkShortcut.href = versionedFav;
-        document.head.appendChild(linkShortcut);
+        const existingIcons = document.querySelectorAll<HTMLLinkElement>("link[rel*='icon']");
+        if (existingIcons.length > 0) {
+          existingIcons.forEach((el) => {
+            el.href = versionedFav;
+          });
+        } else {
+          const linkIcon = document.createElement('link');
+          linkIcon.rel = 'icon';
+          linkIcon.type = 'image/png';
+          linkIcon.href = versionedFav;
+          document.head.appendChild(linkIcon);
+        }
 
         // Register tenant slug & ID in client memory
         if (resolved.tenant_slug && resolved.tenant_id) {
