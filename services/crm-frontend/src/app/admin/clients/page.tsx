@@ -5521,6 +5521,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                 const presets = e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean);
                                 setConfigForm({
                                   ...configForm,
+                                  requirement_presets: presets,
                                   taxonomy: {
                                     ...(configForm.taxonomy || {}),
                                     requirement_presets: presets,

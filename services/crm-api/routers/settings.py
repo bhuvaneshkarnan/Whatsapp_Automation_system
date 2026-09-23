@@ -140,6 +140,23 @@ async def get_tenant_settings(
     res_google_client_secret = gcal_data.get("client_secret", "") if is_privileged else mask_secret(gcal_data.get("client_secret", ""))
     res_google_refresh_token = gcal_data.get("refresh_token", "") if is_privileged else mask_secret(gcal_data.get("refresh_token", ""))
 
+    taxonomy_val = tenant_settings.get("taxonomy") if isinstance(tenant_settings.get("taxonomy"), dict) else {}
+    if not taxonomy_val:
+        taxonomy_val = {
+            "staff_label": "Preferred Doctor / Staff",
+            "client_label": "Patient / Customer",
+            "requirement_label": "Health Concern / Treatment",
+            "event_label": "Appointment",
+            "booking_cta": "Schedule Appointment",
+        }
+    presets_val = (
+        taxonomy_val.get("requirement_presets")
+        or tenant_settings.get("requirement_presets")
+        or []
+    )
+    if isinstance(taxonomy_val, dict):
+        taxonomy_val = {**taxonomy_val, "requirement_presets": presets_val}
+
     return {
         "tenant_id": str(tenant["id"]),
         "name": tenant["name"],
@@ -213,13 +230,7 @@ async def get_tenant_settings(
         
         # Industry & Taxonomy
         "industry": tenant_settings.get("industry", "clinic"),
-        "taxonomy": tenant_settings.get("taxonomy", {
-            "staff_label": "Preferred Doctor / Staff",
-            "client_label": "Patient / Customer",
-            "requirement_label": "Health Concern / Treatment",
-            "event_label": "Appointment",
-            "booking_cta": "Schedule Appointment",
-        }),
+        "taxonomy": taxonomy_val,
         "opening_time": tenant_settings.get("opening_time", "09:00"),
         "closing_time": tenant_settings.get("closing_time", "20:00"),
         "review_experience_tags": tenant_settings.get("review_experience_tags") or [
@@ -232,11 +243,7 @@ async def get_tenant_settings(
             'Comfortable & Relaxing',
             'Easy Booking & Response'
         ],
-        "requirement_presets": (
-            (tenant_settings.get("taxonomy") or {}).get("requirement_presets")
-            if isinstance(tenant_settings.get("taxonomy"), dict)
-            else tenant_settings.get("requirement_presets")
-        ) or [],
+        "requirement_presets": presets_val,
         "gmb_review_url": (tenant_settings.get("gmb_review_url") or tenant_settings.get("google_review_link") or wa_data.get("google_review_link") or wa_data.get("gmb_review_url") or "").strip(),
         "slot_booking_mode": tenant_settings.get("slot_booking_mode", "single"),
         "max_concurrent_bookings": tenant_settings.get("max_concurrent_bookings", 1),
@@ -537,12 +544,24 @@ async def update_tenant_settings(
         if payload.enable_auto_review is not None: cur_settings["enable_auto_review"] = payload.enable_auto_review
         if payload.full_location_text is not None: cur_settings["full_location_text"] = payload.full_location_text.strip()
         if payload.industry is not None: cur_settings["industry"] = payload.industry.strip()
-        if payload.taxonomy is not None: cur_settings["taxonomy"] = payload.taxonomy
+
+        # Synchronize taxonomy and requirement_presets cleanly
+        effective_presets = None
         if payload.requirement_presets is not None:
+            effective_presets = payload.requirement_presets
+        elif payload.taxonomy is not None and isinstance(payload.taxonomy, dict) and "requirement_presets" in payload.taxonomy:
+            effective_presets = payload.taxonomy.get("requirement_presets")
+
+        if payload.taxonomy is not None:
+            cur_settings["taxonomy"] = payload.taxonomy
+            if effective_presets is not None and isinstance(cur_settings["taxonomy"], dict):
+                cur_settings["taxonomy"]["requirement_presets"] = effective_presets
+
+        if effective_presets is not None:
             if not isinstance(cur_settings.get("taxonomy"), dict):
                 cur_settings["taxonomy"] = {}
-            cur_settings["taxonomy"]["requirement_presets"] = payload.requirement_presets
-            cur_settings["requirement_presets"] = payload.requirement_presets
+            cur_settings["taxonomy"]["requirement_presets"] = effective_presets
+            cur_settings["requirement_presets"] = effective_presets
         if payload.review_experience_tags is not None:
             cur_settings["review_experience_tags"] = payload.review_experience_tags
         if payload.opening_time is not None: cur_settings["opening_time"] = payload.opening_time.strip()

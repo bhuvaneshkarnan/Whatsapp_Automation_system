@@ -1945,7 +1945,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   function openPresetEditor() {
     const currentList = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
       ? settingsForm.taxonomy.requirement_presets
-      : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic);
+      : (settingsForm.requirement_presets && settingsForm.requirement_presets.length > 0)
+        ? settingsForm.requirement_presets
+        : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic);
     setPresetEditList([...currentList]);
     setNewPresetInput('');
     setPresetEditModalOpen(true);
@@ -1973,21 +1975,54 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   async function handleSavePresetsModal() {
     setSavingPresets(true);
     try {
+      // If user typed in newPresetInput but didn't click "Add", include it automatically!
+      const pending = newPresetInput.trim();
+      let finalList = [...presetEditList];
+      if (pending && !finalList.some(p => p.toLowerCase() === pending.toLowerCase())) {
+        finalList.push(pending);
+        setPresetEditList(finalList);
+      }
+
       const updatedTaxonomy = {
         ...(settingsForm.taxonomy || currentTaxonomy),
-        requirement_presets: presetEditList,
+        requirement_presets: finalList,
       };
       const updatedForm = {
         ...settingsForm,
         taxonomy: updatedTaxonomy,
+        requirement_presets: finalList,
       };
+
+      // Instant optimistic update so chips and modals update immediately
+      setSettingsForm(prev => ({
+        ...prev,
+        ...updatedForm,
+        requirement_presets: finalList,
+        taxonomy: updatedTaxonomy,
+      }));
+
       const res = await crm.updateSettings(updatedForm);
       if (res && res.taxonomy) {
-        setSettingsForm(res);
+        setSettingsForm({
+          ...res,
+          requirement_presets: finalList,
+          taxonomy: {
+            ...res.taxonomy,
+            requirement_presets: finalList,
+          },
+        });
       } else {
-        setSettingsForm(updatedForm);
+        setSettingsForm(prev => ({
+          ...prev,
+          ...updatedForm,
+          requirement_presets: finalList,
+          taxonomy: updatedTaxonomy,
+        }));
       }
+      setNewPresetInput('');
       setPresetEditModalOpen(false);
+      setActionNotice('Services & presets updated successfully.');
+      setTimeout(() => setActionNotice(null), 3000);
     } catch (err) {
       console.error('Failed to save presets:', err);
       alert('Failed to save presets: ' + (err instanceof Error ? err.message : String(err)));
@@ -6075,7 +6110,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         industry: settingsForm.industry,
         taxonomy: {
           ...(settingsForm.taxonomy || currentTaxonomy),
+          requirement_presets: (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+            ? settingsForm.taxonomy.requirement_presets
+            : (settingsForm.requirement_presets || []),
         },
+        requirement_presets: (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+          ? settingsForm.taxonomy.requirement_presets
+          : (settingsForm.requirement_presets || []),
         ai_prompt: settingsForm.ai_prompt,
         ai_model: settingsForm.ai_model,
         primary_model_provider: settingsForm.primary_model_provider,
@@ -8775,33 +8816,77 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 />
 
                 {/* Prebuilt Quick Chips */}
-                {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                  ? settingsForm.taxonomy.requirement_presets
-                  : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
-                ) && (
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                      ? settingsForm.taxonomy.requirement_presets
-                      : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
-                    ).map((chip) => {
-                      const isSelectedChip = drawerConcern === chip;
-                      return (
+                {(() => {
+                  const chipsList = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                    ? settingsForm.taxonomy.requirement_presets
+                    : (settingsForm.requirement_presets && settingsForm.requirement_presets.length > 0)
+                      ? settingsForm.requirement_presets
+                      : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic);
+
+                  const trimmedConcern = drawerConcern.trim();
+                  const showAddAsPreset = trimmedConcern && !chipsList.some((c: string) => c.toLowerCase() === trimmedConcern.toLowerCase());
+
+                  return (
+                    <div className="space-y-1.5 mt-1.5">
+                      {chipsList && chipsList.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {chipsList.map((chip: string) => {
+                            const isSelectedChip = drawerConcern === chip;
+                            return (
+                              <button
+                                key={chip}
+                                type="button"
+                                onClick={() => setDrawerConcern(chip)}
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-medium border cursor-pointer transition-all ${
+                                  isSelectedChip
+                                    ? 'bg-accent text-white border-accent shadow-2xs'
+                                    : 'bg-surface hover:bg-surface-subtle text-text-secondary border-border hover:border-accent/60 hover:text-accent'
+                                }`}
+                              >
+                                {chip}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {showAddAsPreset && (
                         <button
-                          key={chip}
                           type="button"
-                          onClick={() => setDrawerConcern(chip)}
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-medium border cursor-pointer transition-all ${
-                            isSelectedChip
-                              ? 'bg-accent text-white border-accent shadow-2xs'
-                              : 'bg-surface hover:bg-surface-subtle text-text-secondary border-border hover:border-accent/60 hover:text-accent'
-                          }`}
+                          onClick={async () => {
+                            const nextList = [...chipsList, trimmedConcern];
+                            const updatedTaxonomy = {
+                              ...(settingsForm.taxonomy || currentTaxonomy),
+                              requirement_presets: nextList,
+                            };
+                            const updatedForm = {
+                              ...settingsForm,
+                              taxonomy: updatedTaxonomy,
+                              requirement_presets: nextList,
+                            };
+                            setSettingsForm(prev => ({
+                              ...prev,
+                              ...updatedForm,
+                              requirement_presets: nextList,
+                              taxonomy: updatedTaxonomy,
+                            }));
+                            try {
+                              await crm.updateSettings(updatedForm);
+                              setActionNotice(`Added "${trimmedConcern}" to service presets.`);
+                              setTimeout(() => setActionNotice(null), 3000);
+                            } catch (e) {
+                              console.error('Failed to quick-add preset:', e);
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 text-[10.5px] text-accent hover:underline font-medium cursor-pointer pt-0.5"
                         >
-                          {chip}
+                          <Plus className="w-3 h-3 stroke-[2]" />
+                          <span>Save &quot;{trimmedConcern}&quot; as reusable preset</span>
                         </button>
-                      );
-                    })}
-                  </div>
-                )}
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Location & Age in Clean 2-Column Grid */}
@@ -15494,31 +15579,33 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
                         className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
                       />
-                      {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                        ? settingsForm.taxonomy.requirement_presets
-                        : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
-                      ) && (
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                            ? settingsForm.taxonomy.requirement_presets
-                            : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
-                          ).map((chip) => (
-                            <button key={chip} type="button" onClick={() => setAddCustomerForm(p => ({...p, health_concern: chip}))}
-                              className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${addCustomerForm.health_concern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'}`}>
-                              {chip}
+                      {(() => {
+                        const chips = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                          ? settingsForm.taxonomy.requirement_presets
+                          : (settingsForm.requirement_presets && settingsForm.requirement_presets.length > 0)
+                            ? settingsForm.requirement_presets
+                            : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic);
+                        if (!chips || chips.length === 0) return null;
+                        return (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {chips.map((chip: string) => (
+                              <button key={chip} type="button" onClick={() => setAddCustomerForm(p => ({...p, health_concern: chip}))}
+                                className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${addCustomerForm.health_concern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'}`}>
+                                {chip}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={openPresetEditor}
+                              title="Edit presets (add or remove)"
+                              className="px-1.5 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-text-muted hover:text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
+                            >
+                              <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
+                              <span>Edit</span>
                             </button>
-                          ))}
-                                                  <button
-                            type="button"
-                            onClick={openPresetEditor}
-                            title="Edit presets (add or remove)"
-                            className="px-1.5 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-text-muted hover:text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
-                          >
-                            <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
-                            <span>Edit</span>
-                          </button>
-                        </div>
-                      )}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
@@ -21199,14 +21286,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </label>
                         <input
                           type="text"
-                          value={(settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                            ? settingsForm.taxonomy.requirement_presets.join(', ')
-                            : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || []).join(', ')
-                          }
+                          value={(() => {
+                            const list = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                              ? settingsForm.taxonomy.requirement_presets
+                              : (settingsForm.requirement_presets && settingsForm.requirement_presets.length > 0)
+                                ? settingsForm.requirement_presets
+                                : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || []);
+                            return list.join(', ');
+                          })()}
                           onChange={(e) => {
                             const presets = e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean);
                             setSettingsForm({
                               ...settingsForm,
+                              requirement_presets: presets,
                               taxonomy: {
                                 ...(settingsForm.taxonomy || currentTaxonomy),
                                 requirement_presets: presets,
@@ -21220,14 +21312,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           These clickable chips appear under the requirement box when adding or editing a client/patient to rapidly assign their concern or inquiry. Selecting an Industry above automatically loads standard presets, or you can freely customize them here.
                         </p>
                         <div className="flex flex-wrap items-center gap-1 pt-1">
-                          {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                            ? settingsForm.taxonomy.requirement_presets
-                            : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || [])
-                          ).map((chip: string) => (
-                            <span key={chip} className="px-2 py-0.5 rounded-sm text-[10px] bg-white border border-border text-text-secondary font-medium shadow-2xs">
-                              {chip}
-                            </span>
-                          ))}
+                          {(() => {
+                            const chips = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                              ? settingsForm.taxonomy.requirement_presets
+                              : (settingsForm.requirement_presets && settingsForm.requirement_presets.length > 0)
+                                ? settingsForm.requirement_presets
+                                : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || []);
+                            return chips.map((chip: string) => (
+                              <span key={chip} className="px-2 py-0.5 rounded-sm text-[10px] bg-white border border-border text-text-secondary font-medium shadow-2xs">
+                                {chip}
+                              </span>
+                            ));
+                          })()}
                           <button
                             type="button"
                             onClick={openPresetEditor}
@@ -23512,31 +23608,33 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     placeholder={`Enter ${(currentTaxonomy.requirement_label || 'requirement').toLowerCase()}...`}
                     className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs"
                   />
-                  {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                    ? settingsForm.taxonomy.requirement_presets
-                    : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
-                  ) && (
-                    <div className="flex flex-wrap items-center gap-1 mt-1.5">
-                      {((settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
-                        ? settingsForm.taxonomy.requirement_presets
-                        : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic)
-                      ).map((chip) => (
-                        <button key={chip} type="button" onClick={() => setQuickCrmConcern(chip)}
-                          className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${quickCrmConcern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'}`}>
-                          {chip}
+                  {(() => {
+                    const chips = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                      ? settingsForm.taxonomy.requirement_presets
+                      : (settingsForm.requirement_presets && settingsForm.requirement_presets.length > 0)
+                        ? settingsForm.requirement_presets
+                        : (PREBUILT_REQUIREMENTS_BY_INDUSTRY[settingsForm.industry || 'clinic'] || PREBUILT_REQUIREMENTS_BY_INDUSTRY.clinic);
+                    if (!chips || chips.length === 0) return null;
+                    return (
+                      <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                        {chips.map((chip: string) => (
+                          <button key={chip} type="button" onClick={() => setQuickCrmConcern(chip)}
+                            className={`px-2 py-0.5 rounded-sm text-[10px] border cursor-pointer transition-colors ${quickCrmConcern === chip ? 'bg-accent text-white border-accent' : 'bg-surface text-text-secondary border-border hover:border-accent hover:text-accent'}`}>
+                            {chip}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={openPresetEditor}
+                          title="Edit presets (add or remove)"
+                          className="px-1.5 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-text-muted hover:text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
+                        >
+                          <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
+                          <span>Edit</span>
                         </button>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={openPresetEditor}
-                        title="Edit presets (add or remove)"
-                        className="px-1.5 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-text-muted hover:text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
-                      >
-                        <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
-                        <span>Edit</span>
-                      </button>
-                    </div>
-                  )}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
