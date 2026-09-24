@@ -633,7 +633,9 @@ async def google_business_oauth_callback(
         padded_b64 = state_b64 + "=" * ((4 - len(state_b64) % 4) % 4)
         state_data = json.loads(base64.urlsafe_b64decode(padded_b64.encode("utf-8")).decode("utf-8"))
     except Exception as e:
-        raise HTTPException(400, f"Invalid OAuth state: {str(e)}")
+        if isinstance(e, HTTPException): raise e
+        logger.warning("google_reviews_oauth_state_invalid", error=str(e))
+        raise HTTPException(400, "Invalid or expired OAuth state parameter.")
 
     tenant_id = state_data.get("tenant_id")
     if not tenant_id:

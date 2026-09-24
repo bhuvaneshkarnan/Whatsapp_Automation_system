@@ -16,27 +16,52 @@ const SYSTEM_ROUTES = new Set([
   '',
 ]);
 
-// Dynamic slug-to-ID cache populated at runtime and synced with localStorage
-let dynamicSlugCache: Record<string, string> = {
-  boldlabs: '05f469a7-2089-425c-8fce-1a56002d5272',
-  mindbodyrecovery: 'b97ca3e5-7d43-44cf-8021-6e3659def878',
-  'bizpipe-demo': '386d9a0a-0911-4df5-bfba-4da4470364c2',
-  'smaato-mobile': '3ca563dc-a259-4a90-91e4-da5376c22c11',
-};
+// Dynamic slug-to-ID cache populated at runtime and synced with localStorage.
+// H-4: No UUIDs hardcoded in the bundle — the backend is the source of truth.
+let dynamicSlugCache: Record<string, string> = {};
 
-// Seed dynamic cache from localStorage if available
-if (typeof window !== 'undefined') {
+// --- H-5: TTL-aware localStorage helpers (24-hour expiry) ---
+const _SLUG_MAP_KEY = 'tenant_slug_map';
+const _SLUG_MAP_TTL_KEY = 'tenant_slug_map_ts';
+const _SLUG_MAP_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function _loadSlugMapFromStorage(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
   try {
-    const stored = localStorage.getItem('tenant_slug_map');
+    const ts = localStorage.getItem(_SLUG_MAP_TTL_KEY);
+    if (ts && Date.now() - parseInt(ts, 10) > _SLUG_MAP_TTL_MS) {
+      // Expired — purge stale entries
+      localStorage.removeItem(_SLUG_MAP_KEY);
+      localStorage.removeItem(_SLUG_MAP_TTL_KEY);
+      return {};
+    }
+    const stored = localStorage.getItem(_SLUG_MAP_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      if (typeof parsed === 'object' && parsed !== null) {
-        dynamicSlugCache = { ...dynamicSlugCache, ...parsed };
-      }
+      if (typeof parsed === 'object' && parsed !== null) return parsed;
     }
   } catch {
-    // Ignore storage parse error
+    // Ignore storage parse errors
   }
+  return {};
+}
+
+function _saveSlugMapToStorage(map: Record<string, string>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(_SLUG_MAP_KEY, JSON.stringify(map));
+    // Reset TTL timestamp only if not already set (first write of this session)
+    if (!localStorage.getItem(_SLUG_MAP_TTL_KEY)) {
+      localStorage.setItem(_SLUG_MAP_TTL_KEY, String(Date.now()));
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+// Seed in-memory cache from localStorage (TTL-checked)
+if (typeof window !== 'undefined') {
+  dynamicSlugCache = _loadSlugMapFromStorage();
 }
 
 /**
@@ -50,10 +75,9 @@ export function registerTenantSlug(slug: string, id: string): void {
   dynamicSlugCache[cleanSlug] = cleanId;
   if (typeof window !== 'undefined') {
     try {
-      const stored = localStorage.getItem('tenant_slug_map');
-      const map = stored ? JSON.parse(stored) : {};
+      const map = _loadSlugMapFromStorage();
       map[cleanSlug] = cleanId;
-      localStorage.setItem('tenant_slug_map', JSON.stringify(map));
+      _saveSlugMapToStorage(map);
     } catch {
       // Ignore storage errors
     }
@@ -187,6 +211,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         localStorage.removeItem('auth_token');
         localStorage.removeItem('refresh_token');
         localStorage.removeItem('tenant_id');
+        localStorage.removeItem('tenant_slug');
+        localStorage.removeItem('dynamic_slug_cache');
+        sessionStorage.clear();
         // Always redirect to /login (the app's login page)
         window.location.href = '/login';
       }
@@ -206,15 +233,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       } else if (errorJson.message) {
         errorMsg = errorJson.message;
       } else {
-        errorMsg = JSON.stringify(errorJson);
+        errorMsg = `Error: ${res.statusText || res.status}`;
       }
     } catch {
       const text = await res.text().catch(() => '');
-      if (text && !text.includes('<html>')) errorMsg = text;
+      if (text && !text.includes('<html>') && !text.includes('Traceback')) {
+        errorMsg = text.length > 200 ? text.slice(0, 200) + '...' : text;
+      }
     }
     throw new Error(errorMsg);
   }
-  return res.json() as Promise<T>;
+  const rawText = await res.text();
+  if (!rawText || !rawText.trim()) {
+    return {} as T;
+  }
+  try {
+    return JSON.parse(rawText) as T;
+  } catch {
+    return rawText as unknown as T;
+  }
 }
 
 // ── Auth (/api/v1/auth) ───────────────────────────────────────────────────────
@@ -540,6 +577,8 @@ export interface LiveCalendarSlot {
   end_formatted: string;
   source: string;
   desc: string;
+  id?: string;
+  html_link?: string;
 }
 
 export interface LiveCalendarAvailabilityResponse {
@@ -547,12 +586,13 @@ export interface LiveCalendarAvailabilityResponse {
   calendar_id: string;
   notification_email: string;
   timezone: string;
-  current_time: string;
-  checked_window_days: number;
-  total_occupied_slots: number;
-  crm_slots_count: number;
-  gcal_slots_count: number;
+  current_time?: string;
+  checked_window_days?: number;
+  total_occupied_slots?: number;
+  crm_slots_count?: number;
+  gcal_slots_count?: number;
   occupied_slots: LiveCalendarSlot[];
+  busy_slots?: LiveCalendarSlot[];
 }
 
 export interface GlobalRulesResponse {
@@ -592,7 +632,11 @@ export const crm = {
         `/api/v1/crm/contacts${q ? `?q=${encodeURIComponent(q)}&limit=${limit}` : `?limit=${limit}`}`
       );
       return Array.isArray(rows) ? rows : [];
-    } catch {
+    } catch (err) {
+      console.error('[CRM API] Failed to fetch contacts:', err);
+      if (err instanceof Error && (err.message.includes('401') || err.message.includes('403') || err.message.includes('Session expired'))) {
+        throw err;
+      }
       return [];
     }
   },
@@ -1694,6 +1738,26 @@ export const getPublicBranding = async (domain?: string, slug?: string): Promise
       return await res.json();
     }
   } catch {}
+
+  const d = (domain || (typeof window !== 'undefined' ? window.location.hostname : '')).toLowerCase().split(':')[0].trim();
+  const isPlatform = !d || ['crm.boldlabs.com', 'boldlabs.com', 'crm.goboldlabs.com', 'goboldlabs.com', 'localhost', '127.0.0.1', '168.138.172.197'].includes(d) || d.endsWith('.vercel.app');
+
+  if (!isPlatform) {
+    return {
+      is_whitelabel: true,
+      brand_name: '',
+      brand_logo_url: '',
+      brand_favicon_url: '/icon-192.png?v=3',
+      brand_primary_color: '#079559',
+      brand_support_email: '',
+      brand_support_phone: '',
+      hide_platform_branding: true,
+      custom_domain: d || null,
+      canonical_domain: d || null,
+      is_domain_match: true,
+    };
+  }
+
   return {
     is_whitelabel: false,
     brand_name: 'Boldlabs CRM',
@@ -1889,6 +1953,9 @@ export interface ClientCreatedResponse {
   verify_token: string;
   login_url: string;
   status: string;
+  custom_domain?: string | null;
+  brand_name?: string | null;
+  partner_name?: string | null;
 }
 
 export interface PlatformStats {

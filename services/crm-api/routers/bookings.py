@@ -35,6 +35,11 @@ from services.whatsapp_service import (
 router = APIRouter()
 logger = structlog.get_logger('crm-api-bookings')
 
+# Tenant IDs requiring privacy mode — loaded from env, never hardcoded in business logic.
+_PRIVACY_TENANT_IDS: frozenset = frozenset(
+    t.strip() for t in os.getenv("PRIVACY_TENANT_IDS", "b97ca3e5-7d43-44cf-8021-6e3659def878").split(",") if t.strip()
+)
+
 @router.get("/bookings")
 @router.get("/api/v1/crm/bookings")
 async def list_bookings(
@@ -50,10 +55,11 @@ async def list_bookings(
             SELECT b.id, b.service, b.staff_member, b.start_time, b.end_time, b.status,
                    b.notes, b.price, b.currency, b.created_at,
                    COALESCE(b.source, b.metadata->>'source', 'crm') AS source,
-                   c.name as contact_name, c.phone as contact_phone,
-                   (SELECT cu.health_concern FROM customers cu WHERE cu.tenant_id = b.tenant_id AND (cu.phone = c.phone OR RIGHT(REGEXP_REPLACE(cu.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10)) LIMIT 1) as customer_health_concern
+                   COALESCE(c.name, b.metadata->>'customer_name', b.metadata->>'name', 'Valued Customer') as contact_name,
+                   COALESCE(c.phone, b.metadata->>'customer_phone', b.metadata->>'phone', '') as contact_phone,
+                   (SELECT cu.health_concern FROM customers cu WHERE cu.tenant_id = b.tenant_id AND (cu.phone = c.phone OR RIGHT(REGEXP_REPLACE(cu.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(COALESCE(c.phone, b.metadata->>'customer_phone', ''), '[^0-9]', '', 'g'), 10)) LIMIT 1) as customer_health_concern
             FROM bookings b
-            JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
+            LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
             WHERE b.tenant_id = $1::uuid
         """
         args = [tenant_id]
@@ -398,7 +404,7 @@ async def create_booking(
 
             # Mind Body Recovery alone: strictly protect patient privacy (no doctor, concern, or service)
             is_mbr = (
-                str(tenant_id) == "b97ca3e5-7d43-44cf-8021-6e3659def878"
+                str(tenant_id) in _PRIVACY_TENANT_IDS
                 or (tenant_row and (tenant_row.get("slug") or "").lower() in ("mindbodyrecovery", "mind-body-recovery"))
             )
             if is_mbr:
@@ -698,12 +704,14 @@ async def update_booking_status(
         # Fetch booking with contact, tenant & conversation details
         booking = await conn.fetchrow(
             """SELECT b.id, b.service, b.status, b.start_time, b.conversation_id, b.google_event_id,
-                      c.id as contact_id, c.name, c.phone,
+                      COALESCE(c.id, b.contact_id) as contact_id,
+                      COALESCE(c.name, b.metadata->>'customer_name', 'Customer') as name,
+                      COALESCE(c.phone, b.metadata->>'customer_phone', '') as phone,
                       t.name as tenant_name, t.settings as tenant_settings
                FROM bookings b
-                JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
-                JOIN tenants t ON t.id = b.tenant_id
-                WHERE b.id = $1::uuid AND b.tenant_id = $2::uuid""",
+               LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
+               LEFT JOIN tenants t ON t.id = b.tenant_id
+               WHERE b.id = $1::uuid AND b.tenant_id = $2::uuid""",
             booking_id, tenant_id
         )
         if not booking:
@@ -1150,7 +1158,7 @@ async def update_booking_status(
                 "booking_confirmationn"
             )
             is_mbr = (
-                str(tenant_id) == "b97ca3e5-7d43-44cf-8021-6e3659def878"
+                str(tenant_id) in _PRIVACY_TENANT_IDS
                 or ("mind body recovery" in (tenant_name or "").lower())
             )
             if is_mbr:

@@ -22,7 +22,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/migrations/init.sql:/docker-entrypoint-initdb.d/01-init.sql
-    mem_limit: 128m
+    mem_limit: 256m
 
   redis:
     image: redis:7-alpine
@@ -30,7 +30,7 @@ services:
     command: >
       redis-server
         --maxmemory 28mb
-        --maxmemory-policy allkeys-lru
+        --maxmemory-policy noeviction
         --save ""
     ports:
       - "127.0.0.1:6379:6379"
@@ -47,6 +47,7 @@ services:
     volumes:
       - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./frontend_dist:/usr/share/nginx/html:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     mem_limit: 32m
     depends_on:
       - webhook-ingestion
@@ -82,7 +83,7 @@ services:
     depends_on:
       - redis
       - postgres
-    mem_limit: 256m
+    mem_limit: 512m
 
 volumes:
   postgres_data:

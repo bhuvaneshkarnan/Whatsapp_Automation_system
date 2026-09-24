@@ -176,7 +176,7 @@ async def initiate_tenant_payment(
             )
         except Exception as e:
             logger.error("tenant_payment_link_generation_error", tenant_id=tenant_id, error=str(e))
-            raise HTTPException(status_code=502, detail=f"Failed to generate payment link with Razorpay: {str(e)}")
+            raise HTTPException(status_code=502, detail="Failed to generate payment link. Please try again or contact support.")
 
         sub_id = plink_res.get("id")
         short_url = plink_res.get("short_url")
@@ -252,7 +252,7 @@ async def create_tenant_subscription(
             )
         except Exception as e:
             logger.error("tenant_subscription_creation_error", tenant_id=tenant_id, error=str(e))
-            raise HTTPException(status_code=502, detail=f"Failed to create recurring subscription with Razorpay: {str(e)}")
+            raise HTTPException(status_code=502, detail="Failed to create recurring subscription with Razorpay. Please verify billing settings.")
 
         sub_id = sub_res.get("id")
         short_url = sub_res.get("short_url")
@@ -294,8 +294,8 @@ async def set_tenant_payment_link(
         raise HTTPException(status_code=403, detail="Admin privileges required to update payment link.")
 
     url = payload.payment_url.strip()
-    if not (url.startswith("http://") or url.startswith("https://")):
-        raise HTTPException(status_code=400, detail="Invalid payment URL. Must start with http:// or https://")
+    if not url.startswith("https://"):
+        raise HTTPException(status_code=400, detail="Invalid payment URL. Must start with https:// for security.")
 
     async with database.db_pool.acquire() as conn:
         await conn.execute(

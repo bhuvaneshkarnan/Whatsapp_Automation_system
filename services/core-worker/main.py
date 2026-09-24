@@ -51,6 +51,12 @@ structlog.configure(
 )
 logger = structlog.get_logger(service="core-worker")
 
+# Tenant IDs requiring privacy mode (e.g. HIPAA-like: hide doctor names).
+# Loaded from PRIVACY_TENANT_IDS env var (comma-separated). Never hardcode in business logic.
+_PRIVACY_TENANT_IDS: frozenset = frozenset(
+    t.strip() for t in os.getenv("PRIVACY_TENANT_IDS", "b97ca3e5-7d43-44cf-8021-6e3659def878").split(",") if t.strip()
+)
+
 # ── Metrics ───────────────────────────────────────────────────────────────────
 try:
     messages_processed = Counter("core_messages_processed_total", "Messages processed", ["tenant", "status"])
@@ -290,11 +296,25 @@ def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.dateti
         "%d/%m/%Y %H:%M",
         "%Y/%m/%d %H:%M",
         "%Y/%m/%d %I:%M %p",
+        "%d %B %Y %I:%M %p",
+        "%d %b %Y %I:%M %p",
+        "%d %B %I:%M %p",
+        "%d %b %I:%M %p",
+        "%B %d %I:%M %p",
+        "%b %d %I:%M %p",
     ]
     for fmt in formats:
         try:
             dt = datetime.datetime.strptime(f"{clean_d} {clean_t}", fmt)
-            return dt.replace(tzinfo=tz)
+            dt = dt.replace(tzinfo=tz)
+            # Automatic Year Hallucination Correction:
+            # If the LLM hallucinates a past year (e.g. 2025 when today is 2026), anchor it to current year.
+            if dt.year < now.year:
+                dt = dt.replace(year=now.year)
+            # If the resulting date has already passed in current year by more than 30 days, roll forward to next year
+            if dt < now - datetime.timedelta(days=30):
+                dt = dt.replace(year=now.year + 1)
+            return dt
         except ValueError:
             continue
     return now + datetime.timedelta(hours=2)
@@ -762,7 +782,22 @@ async def dispatch_push_notification(
 
 
 # ── FastAPI app (for /health only — worker runs in background) ─────────────────
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="Core Worker", version="1.0.0")
+
+_cors_origins = [
+    o.strip()
+    for o in os.getenv("ALLOWED_ORIGINS", "https://crm.goboldlabs.com,https://ai.bizpipe.in").split(",")
+    if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 REDIS_URL    = os.getenv("REDIS_URL", "redis://localhost:6379")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://platform_user:devpassword@localhost:5432/whatsapp_platform")
@@ -778,6 +813,16 @@ class CoreWorker:
         self.db_pool: Optional[asyncpg.Pool] = None
         self.redis: Optional[aioredis.Redis] = None
         self.in_flight_messages: set = set()
+
+    @staticmethod
+    async def _fire_and_log(coro, label: str, **ctx):
+        """H-10: Wrap fire-and-forget tasks so unhandled exceptions are logged instead of silently discarded."""
+        try:
+            await coro
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error("background_task_failed", task=label, error=str(e), **ctx)
 
     async def start(self):
         # Connect DB and Redis with automatic keepalive, health check, and retry resilience
@@ -1493,6 +1538,9 @@ class CoreWorker:
                 if doctors:
                     doctor_available = False
                     for doc in doctors:
+                        if isinstance(doc, str):
+                            doctor_available = True
+                            break
                         days_off = [d_off.strip() for d_off in (doc.get("days_off") or [])]
                         if day_name_str in days_off:
                             continue
@@ -1611,9 +1659,10 @@ class CoreWorker:
                 adm_variants = [re.escape(adm_first)]
                 if len(adm_first) > 5 and adm_first.lower().endswith("esh"):
                     adm_variants.append(re.escape(adm_first[:-3]))  # e.g. 'bhuvan' for 'bhuvanesh'
+                adm_variants.sort(key=len, reverse=True)
                 for v in adm_variants:
-                    text = re.sub(rf'([\.\!\?\,]\s+){v}\b', rf'\g<1>{cust_first}', text, flags=re.IGNORECASE)
-                    text = re.sub(rf'\b(hey|hi|hello)\s+{v}\b', rf'\1 {cust_first}', text, flags=re.IGNORECASE)
+                    text = re.sub(rf'([\.\!\?\,]\s+)\b{v}\b', rf'\g<1>{cust_first}', text, flags=re.IGNORECASE)
+                    text = re.sub(rf'\b(hey|hi|hello)\s+\b{v}\b', rf'\1 {cust_first}', text, flags=re.IGNORECASE)
 
         return text.strip()
 
@@ -1945,7 +1994,7 @@ class CoreWorker:
         if "[BUBBLE]" in cleaned:
             parts = [p.strip() for p in cleaned.split("[BUBBLE]") if p.strip()]
             if len(parts) >= 2:
-                return [parts[0], " ".join(parts[1:])]
+                return parts  # Return all parts as separate WhatsApp message bubbles
 
         # Always return as 1 cohesive, single WhatsApp message bubble
         return [cleaned]
@@ -1969,7 +2018,7 @@ class CoreWorker:
         groq_key = await self._get_tenant_groq_key(tenant_id)
         opencode_key, opencode_base = await self._get_tenant_opencode_creds(tenant_id)
         master_keys = self._get_master_ai_keys()
-        primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("groq" if groq_key else ("gemini" if gemini_key else "groq"))
+        primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("fastest" if (groq_key and gemini_key) else ("groq" if groq_key else "gemini"))
         response_style = (ai_cfg.get("response_style") or "short").strip()
         is_single_line = bool(
             response_style and any(
@@ -1985,15 +2034,39 @@ class CoreWorker:
         rows = await self.db_pool.fetch(
             """SELECT direction, body FROM messages
                WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid AND body IS NOT NULL
-               ORDER BY created_at DESC LIMIT 30""",
+               ORDER BY created_at DESC LIMIT 15""",
             conv_id,
             tenant_id,
+        )
+        # Pre-compiled injection phrase pattern (module-level would be ideal, but defined here for locality)
+        _INJECTION_PHRASE_RE = re.compile(
+            r'(ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?|context)|'
+            r'new\s+instructions?|override\s+(instructions?|rules?)|system\s+prompt\s*:|'
+            r'you\s+are\s+now\s+(a\s+)?(?!an?\s+AI|an?\s+assistant)|'
+            r'act\s+as\s+if\s+you|disregard\s+(all\s+)?(previous|prior)|'
+            r'forget\s+(all\s+)?(previous|prior)\s+(instructions?|rules?))',
+            re.IGNORECASE,
         )
         def _sanitize_inbound_text(raw_text: str) -> str:
             if not raw_text:
                 return ""
-            # Strip tags and directives attempting to break out of delimiter fencing
-            cleaned = re.sub(r'</?(?:user_message|system|instruction|prompt|tool|context)[^>]*>', '', str(raw_text), flags=re.IGNORECASE)
+            cleaned = str(raw_text)
+            # Layer 1: Strip injection XML tags AND their content (e.g. <system>...</system>)
+            cleaned = re.sub(
+                r'<(system|instruction|prompt|context|tool)[^>]*>.*?</\1>',
+                '',
+                cleaned,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            # Layer 2: Strip remaining lone opening/closing injection tags
+            cleaned = re.sub(
+                r'</?(?:user_message|system|instruction|prompt|tool|context)[^>]*>',
+                '',
+                cleaned,
+                flags=re.IGNORECASE,
+            )
+            # Layer 3: Redact common prompt-injection command phrases
+            cleaned = _INJECTION_PHRASE_RE.sub('[REDACTED]', cleaned)
             return cleaned.strip()
 
         history = [
@@ -2012,54 +2085,60 @@ class CoreWorker:
         is_ongoing_conversation = len(history) > 1
 
         # Clean humanized conversational WhatsApp texting format directive (Global Mandatory Rules for All Tenants)
-        format_section = (
-            "7. FORMATTING & LENGTH (NATURAL TEXTING, LINE GAPS ONLY WHEN GENUINELY NEEDED):\n"
-            "   - CONTINUOUS NATURAL FLOW (DEFAULT): Reply in a single natural, continuous message without artificial blank lines. For quick acknowledgments, greetings, scheduling questions, and direct answers, write smoothly together (e.g. 'Great! Would you like to schedule a call tomorrow?'). Do NOT isolate short greetings like 'Great!' or 'Sure!' on their own line with a blank line.\n"
-            "   - LINE GAPS ONLY WHEN GENUINELY NEEDED: Use an empty line gap (blank line) ONLY when presenting distinct options (e.g. comparing two service packages) or when a longer explanation genuinely benefits from separation before a closing question. Never insert line gaps between casual sentences.\n"
-            "   - ABSOLUTELY ZERO hyphens (-), dashes (--), asterisks (*), bullet points (•), numbered lists (1. 2. 3.), or emojis. Real humans texting on WhatsApp type in smooth conversational sentences without hyphens.\n\n"
+        greeting_flow_rule = (
+            "- ONGOING CONVERSATION (ABSOLUTELY ZERO REPEATED GREETINGS): This is an ongoing conversation. "
+            "ABSOLUTELY DO NOT start your reply with 'Hi', 'Hello', 'Hey', or 'Hi [Customer Name]'! "
+            "Real people on WhatsApp never greet on every single message. Dive straight into answering their query."
+            if is_ongoing_conversation else
+            "- OPENING GREETING: Warmly greet the customer in your opening message."
         )
 
         humanized_format_block = (
-            "### ABSOLUTE GLOBAL CONVERSATION ENGINE (HOW THE AI BEHAVES & COMMUNICATES):\n"
-            "This prompt defines HOW you behave and communicate on WhatsApp. It is business-agnostic and paired with this client's separate Business Prompt below. "
-            "Nothing about a specific clinic's pricing, doctors, or services belongs here — that always lives strictly in the Business Knowledge Base below.\n\n"
-            "1. IDENTITY & HONESTY (ALWAYS ANSWER DIRECT QUESTIONS FIRST):\n"
-            "   - You are a front-desk team member communicating on WhatsApp. You are having a genuine, flowing conversation, reacting to what the person actually says rather than following a rigid script.\n"
-            "   - Always answer the customer's direct question first before bringing in anything new. If they ask a specific question (cost, location, duration, who does the work), answer that exact question plainly.\n"
-            "   - Never invent features, unlisted prices, unverified guarantees, or services that are not in the business's prompt.\n"
-            "   - If asked directly 'Are you a bot?' or 'Are you an AI?', be completely honest, warm, and brief in Line 1 (e.g. 'I am an AI assistant helping the team on WhatsApp!'). Never pretend to be a doctor or solo human if asked directly. Then continue naturally.\n\n"
-            "2. CONVERSATIONAL FLOW & PACING (ONE QUESTION AT A TIME):\n"
-            "   - ONE QUESTION AT A TIME. Never stack multiple questions in a single reply. Give the other person space to answer.\n"
-            "   - Never re-ask something the person already answered earlier in the chat. If you already know it, use it.\n"
-            "   - No dead-end notes. If someone shares an update ('My dad is 65 and has knee pain'), acknowledge warmly and ask one useful question to move forward.\n\n"
-            "3. DISCOVERY BEFORE BOOKING (GENUINE QUALIFICATION):\n"
-            "   - Have several real exchanges with the person before rushing to book, following the business's custom qualification flow. Do not paste booking invites or slot lists right away unless the customer is a known returning patient or explicitly insists on booking immediately.\n"
-            "   - Exceptions: returning contacts you already have context on, and explicit requests to speak to a real person — that always comes first, no exceptions.\n\n"
-            "4. STATUS VS. BOOKING DISTINCTION:\n"
-            "   - A question about an existing appointment is a status check, not a new booking — answer it plainly.\n"
-            "   - 'Can I come today' or 'is there a slot at 3' are questions/queries, not confirmations, even if a specific time was discussed earlier. Only treat something as booked after an explicit, unambiguous yes to a specific date and time.\n\n"
-            "5. HANDLING HESITATION OR A NO:\n"
-            "   - Step 1: Understand why in one natural, non-pushy line (price, timing, or something else). Do not interrogate.\n"
-            "   - Step 2: If a lighter option genuinely fits what they said (per the business prompt), mention it naturally.\n"
-            "   - Step 3: If they are still clearly not interested, respect that fully — do not push further.\n"
-            "   - Step 4: Always close respectfully: thank them, leave the door open, never sound disappointed or guilt-trip them.\n\n"
-            "6. TONE & STYLE (EASY INDIAN ENGLISH & NATURAL HUMAN TEXTING):\n"
-            "   - Reply like an authentic, friendly real person texting on WhatsApp in India using easy, natural Indian English.\n"
-            "   - Use simple, warm, everyday words (e.g. 'Hi Ramesh! Sure, I can help with that.', 'Could you share what problem you are facing?').\n"
-            "   - ABSOLUTELY ZERO ROBOTIC BOT CLICHÉS: Never use robotic assistant phrases like 'Certainly!', 'I would be delighted to assist you', 'I completely understand your concern', 'Please feel free to reach out', 'How may I assist you today?'. These immediately give away artificial AI.\n"
-            "   - Show empathy mainly through the next useful question or direct helpful answer, not long emotional statements.\n"
-            "   - TAMIL & LANGUAGE CONTINUITY: If the customer writes in Tamil (Tamil script or Tanglish), reply 100% in natural Tamil/Tanglish. If they write in any other Indian language (Hindi, Telugu, etc.), consistently reply in that language and maintain their preferred language across all subsequent messages.\n\n"
-            + format_section +
-            "8. SAFETY & SCOPE:\n"
-            "   - Never give a recommendation or price outside what is explicitly in this business's knowledge base.\n"
-            "   - If something sounds outside this business's actual scope (per the business prompt's rules — e.g. medical vs. therapeutic, no psychiatric/prescription), say so clearly and redirect, even if it costs the booking. This overrides the goal of getting a booking.\n"
-            "   - If asked something outside scope, say honestly that the team can help with that part — never guess or improvise.\n\n"
-            "9. WHERE BUSINESS FACTS & SEQUENCING LIVE:\n"
-            "   - Everything about who is on the team, what is offered, what it costs, how pricing conversations should be qualified and sequenced, and any location specifics lives strictly in the separate Business Prompt below. Treat that content as the supreme source of truth for all business facts and flows.\n\n"
-            "10. TRANSCRIBED VOICE NOTES:\n"
-            "   - When the customer sends a voice note (transcribed as '🎤 [Voice Note]: <text>'), warmly acknowledge it in Line 1 (e.g. 'Got your voice note!') and directly answer their query using this business's details. Never ask them to type what they just spoke.\n\n"
-            "11. HUMAN HANDOFF & ESCALATION:\n"
-            "   - When requested explicitly to speak with a human/staff/doctor, or if an issue is beyond basic business info, reassure them that a team member will follow up shortly, share the direct number if available, and append [ACTION:HUMAN_TAKEOVER]."
+            "### GLOBAL CONVERSATION RULES (MANDATORY FOR ALL REPLIES ACROSS ALL TENANTS):\n"
+            "1. NATURAL, WARM & CONVERSATIONAL WHATSAPP TEXTING:\n"
+            "   - Reply in a warm, polite, and directly helpful conversational tone (around 25 to 45 words total, 2-3 short lines).\n"
+            "   - Always answer the customer's specific inquiry directly, clearly, and friendly in Sentence 1.\n"
+            f"   {greeting_flow_rule}\n"
+            "   - ZERO ROBOTIC CLICHÉS: Never use robotic phrases like 'Certainly!', 'I would be delighted to assist you', 'How may I assist you today?'. Talk like a friendly, caring person representing this business on WhatsApp.\n"
+            "   - ONE QUESTION AT A TIME: Never stack multiple questions in a single reply. Give the other person space to answer.\n"
+            "   - HONEST IDENTITY: If asked directly 'Are you a bot?' or 'Are you an AI?', confirm warmly and briefly (e.g. 'I am an AI assistant helping the team on WhatsApp!') and continue naturally.\n"
+            "   - Keep it easy and fast to read. Avoid long essays, walls of text, or corporate fluff.\n"
+            "2. ZERO HYPHENS, ZERO BULLETS & PURE HUMAN TEXTING FLOW:\n"
+            "   - Strictly FORBIDDEN from using ANY hyphens (-), dashes (--), asterisks (*), bullet points (•), numbered lists (1. 2. 3.), or emojis.\n"
+            "   - In Tanglish or vernacular, do NOT use hyphens for word suffixes (write 'business ku' not 'business-ku', write 'pesalama' not 'pesalam-a').\n"
+            "   - Real humans texting on WhatsApp never write hyphenated listicles. Write in natural, flowing conversational sentences without artificial blank lines.\n"
+            "   - If mentioning multiple items, weave them into a smooth sentence with commas.\n"
+            "3. UNDERSTAND THE CUSTOMER'S MESSAGE FIRST — REPLY TO WHAT THEY ACTUALLY SAID:\n"
+            "   - BEFORE generating a reply, identify EXACTLY what the customer sent: Is it a question? A specific doubt? A casual remark? A price inquiry? A complaint? An objection? A one-word reply?\n"
+            "   - ANSWER THAT SPECIFIC THING directly in Line 1. Do NOT give a generic pitch or overview when they asked something specific.\n"
+            "   - Match your reply depth to the message: a one-word customer reply gets a warm, brief 1-line acknowledgement. A specific question gets a direct factual answer. A doubt gets a clear clarification.\n"
+            "   - STRICTLY FORBIDDEN: replying with a generic 'here's what we do' overview when the customer asked a specific question about price, timing, process, or availability.\n"
+            "   - Ground every fact 100% in this business's verified data below. NEVER guess, invent, or pull info from other businesses.\n"
+            "   - If the customer asks about something not in the knowledge base, say warmly: 'Our team can clarify that for you — let me loop them in.'\n"
+            "   - NO INTERROGATION: Never ask the same question twice. If they made a casual remark ('nalla poguthu', 'ok', 'sure'), acknowledge it warmly in 1 line.\n"
+            "4. COMPLETE SERVICE DETAILS FIRST (DO NOT REVEAL PRICING AT START UNPROMPTED):\n"
+            "   - When customer asks for details or what you do: Share the core value and what the service/treatment does in 1-2 friendly lines so they understand it before booking.\n"
+            "   - Do NOT reveal pricing in initial introductions or overviews unless the customer explicitly asks for cost, price, fees, or charges.\n"
+            "   - When the customer specifically asks for price, quote the exact price factually from business knowledge warmly and directly.\n"
+            "5. PROACTIVE CONSULTATIVE SALES CLOSER (BINARY ASSUMPTIVE CLOSE):\n"
+            "   - When customer asks about services, pricing, availability, or shows interest, follow the 3-Beat Consultative Flow:\n"
+            "     * BEAT 1: Give a direct, value-anchored answer to their query in 1 short sentence.\n"
+            "     * BEAT 2: If their goal or specific symptom is not yet clear, ask ONE diagnostic question to understand their needs.\n"
+            "     * BEAT 3: When suggesting a time or next step, use a BINARY ASSUMPTIVE CLOSE: offer two specific choices (e.g. 'Tomorrow 11 AM or 4 PM — which works for you?' or 'Morning or evening — what suits you best?').\n"
+            "   - NEVER say passive open-ended phrases like 'Would you like to book?', 'Do you want to schedule?', or 'Let me know if you want to proceed'.\n"
+            "   - For simple casual remarks or one-word messages ('ok', 'sure', 'thank you'), follow Rule 3: acknowledge warmly in 1 line without forcing an aggressive sales pitch.\n"
+            "6. AUTOMATIC LANGUAGE & DIALECT MIRRORING (MANDATORY):\n"
+            "   - Organically detect and reply in the customer's exact language and dialect (Tamil script in Tamil script, Tanglish in Tanglish, Hinglish in Hinglish, English in English).\n"
+            "   - If the customer has EVER texted in Tamil script (தமிழ்), reply 100% in polite and friendly Tamil script (தமிழ்).\n"
+            "   - If the customer texts in Tanglish (e.g. 'nalla poguthu', 'cost evlo', 'eppadi irukku'), your ENTIRE reply MUST be in natural Romanized Tanglish! NEVER reply in English to Tanglish!\n"
+            "7. STRICT TENANT BUSINESS KNOWLEDGE GROUNDING & SPECIAL ACTIONS:\n"
+            "   - Deliver the specific fact the customer requested in natural, polite lines, adhering strictly to these Global Conversation Rules.\n"
+            "   - TRANSCRIBED VOICE NOTES: When customer sends a voice note ('🎤 [Voice Note]: <text>'), warmly acknowledge it in Line 1 (e.g. 'Got your voice note!') and directly answer their query.\n"
+            "   - HUMAN HANDOFF & ESCALATION: When requested explicitly to speak with a human/staff/doctor, reassure them that a team member will follow up shortly, share the direct number if available, and append [ACTION:HUMAN_TAKEOVER].\n"
+            "8. NEVER REPEAT 'WOULD YOU LIKE TO BOOK' OR PASSIVE CLOSINGS (ZERO TOLERANCE):\n"
+            "   - Absolutely FORBIDDEN: 'Would you like to book?', 'Do you want to schedule a demo?', 'Let me know if you'd like to proceed', 'Feel free to let me know'.\n"
+            "   - Every reply must end with EITHER a diagnostic question OR a Binary Assumptive Close with two specific options.\n"
+            "   - Example Binary Closes: 'Tomorrow 11 AM or 4 PM — what works?', 'This week or next week — which suits you?', 'Morning or evening slot — what's better for you?'."
         )
 
         # 2. Retrieve customer profile & bookings memory with strict tenant scoping
@@ -2199,7 +2278,6 @@ class CoreWorker:
 
         # Determine if customer is an existing returning contact or a first-time inquiry
         is_returning_customer = bool(
-            len(history) > 1 or
             booking_rows or
             customer_notes_text or
             (cust_row and (confirmed_name or customer_health_concern or customer_doctor or customer_age is not None or customer_location))
@@ -2214,7 +2292,7 @@ class CoreWorker:
         tenant_slug = (tenant_row["slug"] if tenant_row and tenant_row.get("slug") else "")
         tenant_st_row = tenant_row.get("settings") if tenant_row else None
         is_mbr = (
-            str(tenant_id) == "b97ca3e5-7d43-44cf-8021-6e3659def878"
+            str(tenant_id) in _PRIVACY_TENANT_IDS
             or ((tenant_slug or "").lower() in ("mindbodyrecovery", "mind-body-recovery"))
             or ("mind body recovery" in (tenant_name or "").lower())
         )
@@ -2252,9 +2330,9 @@ class CoreWorker:
                     or tenant_st_row.get("phone")
                     or ""
                 ).strip()
-            admin_name = (tenant_st_row.get("admin_name") or "").strip()
+            admin_name = (tenant_st_row.get("admin_name") or tenant_st_row.get("founder_name") or "").strip()
         if not admin_name:
-            admin_name = "Bhuvanesh" if tenant_slug == "boldlabs" else (tenant_name or "our team")
+            admin_name = (tenant_name or "our team").strip()
 
         now = datetime.datetime.now(tenant_tz)
         time_context = (
@@ -2312,7 +2390,7 @@ class CoreWorker:
                 "     'Would you like to reschedule this appointment to a different time, or are you looking to book an additional separate appointment?'\n"
                 "2. RESCHEDULING:\n"
                 "   - If they reply asking to reschedule, move it, or change the time/day, propose 2-3 verified empty slots from the verified empty slots list above.\n"
-                "   - Once they confirm the new date/time, append [ACTION:RESCHEDULE_BOOKING: {\"service\": \"...\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"...\", \"email\": \"...\", \"notes\": \"Rescheduled\"}] tag at the end.\n"
+                f"   - Once they confirm the new date/time, append [ACTION:RESCHEDULE_BOOKING: {{\"service\": \"...\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"...\", \"email\": \"...\", \"notes\": \"Rescheduled\"}}] tag at the end.\n"
                 "3. ADDITIONAL APPOINTMENT:\n"
                 "   - ONLY if the customer EXPLICITLY confirms they want an ADDITIONAL, SECOND, or SEPARATE appointment (e.g. 'I want an additional appointment', 'Book another session for someone else', 'Keep that and book one more'):\n"
                 "   - Then and only then guide them through booking an additional session and append [ACTION:CREATE_BOOKING: ...] tag once confirmed.\n"
@@ -2362,7 +2440,7 @@ class CoreWorker:
             opening_time_str=opening_time_raw,
             closing_time_str=closing_time_raw,
             slot_duration_mins=slot_duration_mins,
-            days_ahead=5,
+            days_ahead=2,
             buffer_mins=buffer_mins,
             lunch_break_start=lunch_break_start,
             lunch_break_end=lunch_break_end,
@@ -2395,10 +2473,12 @@ class CoreWorker:
                 if busy_lines else "OCCUPIED / BUSY SLOTS: None. The calendar is completely clear.\n\n"
             )
             + "### STRICT DIRECTIVES FOR APPOINTMENT SCHEDULING & TIME SELECTION:\n"
-            "- CUSTOMER-DRIVEN APPOINTMENT TIME SELECTION (DO NOT FORCE CANNED SUGGESTIONS): When a customer expresses interest in booking an appointment, call, consultation, or visit, let the customer tell their preferred day and time! Ask warmly: 'What date and time works best for you?' or 'When would you like to schedule your appointment?'. Do NOT force arbitrary suggestions on them unless they explicitly ask for available slots.\n"
+            + "- PROACTIVE & CUSTOMER-ALIGNED APPOINTMENT TIME SELECTION:\n"
+            "  * If customer has not stated a time: Offer two real open slots from verified empty slots above using a binary close (e.g. 'We have openings tomorrow at 11:00 AM or 3:30 PM — which works better for you?').\n"
+            "  * If customer already stated a preferred day or time: Respect and verify their preferred time immediately without overriding it!\n"
             "- WHEN CUSTOMER STATES THEIR PREFERRED TIME: When the customer mentions their preferred day or time (e.g., 'Tomorrow at 2 PM', 'Can I come today at 4:30?', 'Monday 11:00 AM'):\n"
             f"  1. Verify the time falls within operating hours ({op_hours_display}) and is available in the verified calendar above.\n"
-            "  2. If the slot is available (or concurrent bookings are allowed): Immediately confirm that exact requested time, provide a clear and reassuring confirmation message, and output the booking action tag: [ACTION:CREATE_BOOKING: {\"service\": \"...\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"...\"}].\n"
+            f"  2. If the slot is available (or concurrent bookings are allowed): Immediately confirm that exact requested time, provide a clear and reassuring confirmation message, and output the booking action tag: [ACTION:CREATE_BOOKING: {{\"service\": \"...\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"...\"}}].\n"
             "  3. If the requested slot is busy / occupied: Politely let them know that exact slot is already taken, and ask what other time suits them, or mention 1 or 2 nearby available openings.\n"
             "- WHEN CUSTOMER EXPLICITLY ASKS FOR OPTIONS (e.g., 'What slots are available?', 'Can I come today?'): Check the verified empty slots list above for that day, confirm operating hours, and share 2 to 3 available open times from the list.\n"
             "- ZERO FALSE 'FULLY BOOKED' CLAIMS: NEVER state, claim, or imply that today or any day is 'fully booked' if it has open slots in the verified empty list above.\n"
@@ -2417,13 +2497,35 @@ class CoreWorker:
         )
 
         if is_returning_customer:
+            returning_greeting_directive = (
+                "- ONGOING CONVERSATION: DO NOT greet or say 'Hi [Name]' again on follow-up messages. Dive straight into your reply.\n"
+                if is_ongoing_conversation else
+                "- When they first message or greet ('Hi', 'Hello', 'Hey'), acknowledge them warmly and personally by name if known (e.g. 'Hi [Name]!').\n"
+            )
+
+            # ── PRIVACY GUARD: Doctor name must never be proactively revealed ──
+            # Only show doctor name if the customer explicitly asked about it.
+            # For MBR (Mind Body Recovery), NEVER reveal doctor name — strict privacy policy.
+            _asked_about_doctor = any(w in (message_text or "").lower() for w in [
+                "doctor", "dr.", "dr ", "physician", "who is my", "my doctor",
+                "assigned doctor", "preferred doctor", "who's my doctor", "which doctor"
+            ])
+            _show_doctor_in_context = bool(customer_doctor) and _asked_about_doctor and not is_mbr
+
+            if is_mbr:
+                _doctor_line = "- Assigned / Preferred Doctor: [REDACTED - strict privacy policy, never reveal]\n"
+            elif _show_doctor_in_context:
+                _doctor_line = f"- Assigned / Preferred Doctor: {customer_doctor}\n"
+            else:
+                _doctor_line = "- Assigned / Preferred Doctor: [Do NOT mention proactively - only confirm if customer explicitly asks]\n"
+
             memory_block = (
                 "### CUSTOMER PROFILE & CONVERSATION MEMORY (RETURNING CUSTOMER ON FILE):\n"
                 f"- Returning Customer: YES (Known customer with active profile or history)\n"
                 f"- Customer Name: {confirmed_name if confirmed_name else customer_name_display}\n"
                 f"- Customer's Own Inbound Phone: {contact_phone} (CUSTOMER PHONE - NEVER GIVE OUT AS BUSINESS NUMBER)\n"
                 f"- Health Concern / Reason for Visit: {customer_health_concern or 'Not specified yet'}\n"
-                f"- Assigned / Preferred Doctor: {customer_doctor or 'Not assigned yet'}\n"
+                f"{_doctor_line}"
                 f"- Patient / Lead Status: {customer_status or 'Active'}\n"
                 f"- Customer Age on File: {customer_age if customer_age is not None else 'Not provided yet'}\n"
                 f"- Customer Location / City on File: {customer_location if customer_location else 'Not provided yet'}\n"
@@ -2433,9 +2535,10 @@ class CoreWorker:
                 f"- Clinical & Staff Notes: {customer_notes_text or notes or 'None'}\n\n"
                 "### RETURNING CUSTOMER RECOGNITION PROTOCOL:\n"
                 "- THIS IS AN EXISTING / RETURNING CUSTOMER. DO NOT treat them as a stranger or re-introduce the business from scratch.\n"
-                "- When they greet ('Hi', 'Hello', 'Hey') or message, acknowledge them warmly and personally by name if known (e.g. 'Hi [Name]!').\n"
+                f"{returning_greeting_directive}"
                 "- Do NOT ask generic first-time intro questions like 'How can I assist you with [Business Name]?'.\n"
-                "- Remember and seamlessly reference their known health concern, doctor, past appointments, or prior conversation context.\n"
+                "- Remember and seamlessly reference their known health concern, past appointments, or prior conversation context.\n"
+                "- NEVER proactively volunteer the customer's doctor name — only acknowledge it if the customer themselves brings it up.\n"
                 "- PERSISTENT MEMORY DIRECTIVE: You have persistent memory across this entire customer relationship and chat history. "
                 "NEVER re-ask questions they already answered. Continue fluidly using all prior context."
             )
@@ -2523,23 +2626,25 @@ class CoreWorker:
             or any(p in inbound_clean for p in ["yes i called", "i called", "called you", "called earlier", "saw your message", "got your message", "missed call"])
         )
 
-        is_human_request = any(w in inbound_clean for w in [
+        admin_lower = (admin_name or "").lower().strip()
+        human_triggers = [
             "human agent", "talk to human", "speak to human", "talk to agent", "talk to staff",
             "speak to real person", "real person", "customer care", "connect to agent", "human support",
             "speak with someone", "talk with someone", "can i speak", "can i talk to",
-            "talk to bhuvanesh", "speak to bhuvanesh", "talk to doctor", "speak to doctor", "speak to owner"
-        ])
+            "talk to founder", "speak to founder", "talk to doctor", "speak to doctor", "speak to owner"
+        ]
+        if admin_lower and admin_lower not in ("our team", "assistant"):
+            human_triggers.extend([f"talk to {admin_lower}", f"speak to {admin_lower}"])
+        is_human_request = any(w in inbound_clean for w in human_triggers)
 
-        is_voice_note = "🎤 [voice note]:" in inbound_clean or inbound_clean.startswith("🎤 [voice note]:")
+        is_voice_note = bool(re.search(r'🎤\s*\[voice note(?:\s*-\s*[^\]]+)?\]:', (message_text or ""), flags=re.IGNORECASE))
         voice_note_content = ""
         if is_voice_note:
-            parts = message_text.split("🎤 [Voice Note]:", 1)
-            if len(parts) > 1:
-                voice_note_content = parts[1].strip()
+            vn_parts = re.split(r'🎤\s*\[voice note(?:\s*-\s*[^\]]+)?\]:\s*', message_text or "", maxsplit=1, flags=re.IGNORECASE)
+            if len(vn_parts) > 1:
+                voice_note_content = vn_parts[1].strip()
             else:
-                parts_lower = message_text.lower().split("🎤 [voice note]:", 1)
-                if len(parts_lower) > 1:
-                    voice_note_content = message_text[len(parts_lower[0]) + len("🎤 [voice note]:"):].strip()
+                voice_note_content = message_text.strip()
 
         is_media_only = (not is_voice_note) and any(inbound_clean == p or inbound_clean.startswith(p) for p in [
             "📷 [photo]", "🎥 [video]", "📄 [document]", "🎤 [voice note received]", "🎤 [voice note -", "🎵 [audio]"
@@ -2718,21 +2823,16 @@ class CoreWorker:
         # Action Tag Protocols (Executed by backend tools when appointments or details are confirmed)
         action_tag_directives = (
             "### ACTION TAG PROTOCOLS (Executed by system when appointments or contact details are confirmed):\n"
-            "- BOOKING CONFIRMATION: Once the customer has provided or confirmed their Date, Time, Name, and Email for an appointment, append this action tag on a new line at the very end of your reply:\n"
-            "  [ACTION:CREATE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"<Notes>\"}]\n"
-            "- RESCHEDULE CONFIRMATION: When the customer asks to reschedule their booking to a specific new Date & Time, append this action tag on a new line at the very end of your reply:\n"
-            "  [ACTION:RESCHEDULE_BOOKING: {\"service\": \"<Service Name>\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}]\n"
-            "- CANCELLATION: When the customer explicitly asks to cancel their booking, append this action tag on a new line at the very end of your reply:\n"
-            "  [ACTION:CANCEL_BOOKING]\n"
-            "- HUMAN TAKEOVER / ESCALATION: When the customer explicitly asks to speak with a human, doctor, staff, or owner, or when an issue requires human assistance, append this action tag on a new line at the very end of your reply:\n"
-            "  [ACTION:HUMAN_TAKEOVER]\n"
-            "- CUSTOMER DETAIL & INTENT EXTRACTION (LEAD SCORING PROTOCOL):\n"
-            "  If the customer mentions or confirms their name, health concern / problem, preferred doctor, age, location / city, or indicates buying interest, append this action tag on a new line at the very end of your reply:\n"
-            "  [ACTION:CUSTOMER_INFO: {\"name\": \"<Customer Name or null>\", \"health_concern\": \"<Concern or null>\", \"preferred_doctor\": \"<Doctor or null>\", \"age\": <age as integer or null>, \"location\": \"<City or location or null>\", \"lead_probability\": \"hot\" | \"warm\" | \"cold\"}]\n"
-            "  * LEAD SCORING RULES (STRICT CRITERIA):\n"
-            "    - 'hot' (HIGH BUYING INTENT - Triggers Staff Alert): Set 'hot' ONLY when the customer takes decisive action to book or buy: (1) Asks for a specific appointment slot, date, or time ('Can I book tomorrow at 4 PM?', 'Is Saturday available?'), (2) Asks how to pay or asks for UPI/QR/payment link, (3) Requests a direct phone call/callback ('Please call me', 'Can doctor call me?'), (4) Confirms booking details, or (5) Reports severe acute pain/urgent same-day emergency. NEVER assign 'hot' merely for asking prices or fees!\n"
-            "    - 'warm' (EXPLORATORY / WINDOW SHOPPING - No Staff Alert): Set 'warm' when the customer asks about pricing, fees, treatment costs, packages, doctor qualifications, clinic address/timings, general health concerns, or asks general questions. They are comparison shopping and not ready to buy yet.\n"
-            "    - 'cold' (DISENGAGED / LOST): Set 'cold' when the customer gives passive one-word replies ('ok', 'hi') without engaging, or explicitly declines ('not interested', 'too expensive, bye', 'stop')."
+            f"- BOOKING CONFIRMATION: Once customer confirms Date, Time, Name, and Email, append at end:\n"
+            f"  [ACTION:CREATE_BOOKING: {{\"service\": \"<Service Name>\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"<Notes>\"}}]\n"
+            f"- RESCHEDULE CONFIRMATION: When customer reschedules to a new Date & Time, append at end:\n"
+            f"  [ACTION:RESCHEDULE_BOOKING: {{\"service\": \"<Service Name>\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}}]\n"
+            "- CANCELLATION: When explicitly asking to cancel, append: [ACTION:CANCEL_BOOKING]\n"
+            "- HUMAN TAKEOVER / ESCALATION: When asking to speak with human/doctor/owner, append: [ACTION:HUMAN_TAKEOVER]\n"
+            "- CUSTOMER DETAIL & INTENT EXTRACTION:\n"
+            "  When customer shares contact info, health concern, doctor, age, or location, append:\n"
+            "  [ACTION:CUSTOMER_INFO: {\"name\": \"<Name or null>\", \"health_concern\": \"<Concern or null>\", \"preferred_doctor\": \"<Doctor or null>\", \"age\": <age or null>, \"location\": \"<City or null>\", \"lead_probability\": \"hot\" | \"warm\" | \"cold\"}]\n"
+            "  Scoring: 'hot' (booking/payment/call requested), 'warm' (asking pricing/services/questions), 'cold' (disengaged/declining)."
         )
 
         full_location = (creds.get("full_location_text") or "").strip() if creds else ""
@@ -2786,18 +2886,13 @@ class CoreWorker:
             time_context,
             tenant_isolation_boundary,
             f"You are {assistant_name or 'the assistant'}, representing {tenant_name or 'this business'} directly on WhatsApp chat.",
+            # ── SECTION 0 (TOP PRIORITY): GLOBAL FORMATTING & TEXTING RULES ──
+            # These are placed FIRST so the LLM anchors on them before all other context.
             humanized_format_block,
             style_mirroring_block,
-            funnel_stage_block,
-            memory_suppression_block,
-            memory_block,
-            contact_integrity_block,
-            busy_slots_block,
         ]
-        if upcoming_booking_block:
-            prompt_blocks.append(upcoming_booking_block)
 
-        # ── TENANT CUSTOM AI INSTRUCTIONS & KNOWLEDGE BASE (PRIMARY BUSINESS DIRECTIVE) ──
+        # ── SECTION 1: TENANT BUSINESS KNOWLEDGE BASE & OFFERINGS (TOP PRIORITY) ──
         if custom_instructions.strip():
             prompt_blocks.append(
                 "### TENANT CUSTOM AI INSTRUCTIONS & BUSINESS KNOWLEDGE BASE (PRIMARY BUSINESS DIRECTIVE):\n"
@@ -2807,13 +2902,6 @@ class CoreWorker:
                 "- Deliver your answer in clean WhatsApp format (1 to 3 short lines, no hyphens, no bullets, no emojis) while honoring every tenant instruction above."
             )
 
-        if strict_rules.strip():
-            prompt_blocks.append(
-                "### TENANT STRICT BUSINESS RULES & POLICIES (MANDATORY):\n"
-                f"{strict_rules.strip()}\n"
-                "- Never violate or contradict any rule listed above."
-            )
-
         if services_text.strip():
             prompt_blocks.append(
                 "### VERIFIED SERVICES & PRICING CATALOG:\n"
@@ -2821,8 +2909,21 @@ class CoreWorker:
                 "- Always quote pricing and service details according to the verified pricing logic and tiers defined in this business's instructions above. Never invent unlisted services or prices."
             )
 
+        if strict_rules.strip():
+            prompt_blocks.append(
+                "### TENANT STRICT BUSINESS RULES & POLICIES (MANDATORY):\n"
+                f"{strict_rules.strip()}\n"
+                "- Never violate or contradict any rule listed above."
+            )
+
         if bot_goal.strip():
             prompt_blocks.append(f"### GOALS & OBJECTIVES:\n{bot_goal.strip()}")
+
+        if full_location:
+            prompt_blocks.append(
+                f"### BUSINESS ADDRESS ON FILE:\n{full_location}\n"
+                "- Use this address when asked for location, unless the Tenant Custom AI Instructions above specify a custom format (e.g. short city/area only)."
+            )
 
         if objection_handling.strip():
             prompt_blocks.append(f"### OBJECTION HANDLING STRATEGY:\n{objection_handling.strip()}")
@@ -2836,39 +2937,41 @@ class CoreWorker:
             )
             prompt_blocks.append(universal_objection_framework)
 
+        # ── SECTION 2: CUSTOMER CONTEXT & CONVERSATION MEMORY ──
+        prompt_blocks.extend([
+            memory_block,
+            memory_suppression_block,
+            funnel_stage_block,
+            contact_integrity_block,
+        ])
+
+        # ── SECTION 3: CALENDAR & SCHEDULING ──
+        prompt_blocks.append(busy_slots_block)
+        if upcoming_booking_block:
+            prompt_blocks.append(upcoming_booking_block)
+
+        # ── SECTION 4: CONVERSATION STYLE ──
+
         if response_style.strip():
             prompt_blocks.append(f"### CONVERSATION STYLE & TONE:\n{response_style.strip()}")
 
         if methodology.strip():
             prompt_blocks.append(f"### CONVERSATION METHODOLOGY:\n{methodology.strip()}")
 
-        if full_location:
-            prompt_blocks.append(
-                f"### BUSINESS ADDRESS ON FILE:\n{full_location}\n"
-                "- Use this address when asked for location, unless the Tenant Custom AI Instructions above specify a custom format (e.g. short city/area only)."
-            )
-
         reinforcement_parts = [
             "### FINAL WHATSAPP FORMAT & REINFORCEMENT DIRECTIVE:",
-            "- STRICT TENANT DIRECTIVE ADHERENCE: You represent this business. Follow the Tenant Custom AI Instructions and rules above.",
-            "- CONCISE WHATSAPP STYLE: Deliver your response in 1 to 2 natural, friendly sentences (around 20-30 words). Strictly zero marketing essays, bullet points, corporate disclaimers, or walls of text.",
-            "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use any hyphens (-), dashes (--), asterisks (*), bullets, or emojis. Text in smooth human sentences without hyphens.",
+            "- THINK BEFORE REPLYING: Read the customer's message carefully. Classify it — is it a question, a casual remark, a price query, a complaint, or a one-word reply? Then reply SPECIFICALLY to that, not a generic overview.",
+            "- CONCISE BREVITY (2 TO 3 SHORT SENTENCES, 20-45 WORDS MAX): Keep replies punchy, natural, and helpful. No essays or walls of text. For casual one-word replies, a simple 1-line acknowledgment is plenty.",
+            "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use hyphens (-), dashes (--), asterisks (*), bullets, or emojis.",
+            "- ONE QUESTION AT A TIME: Answer the customer's question directly first. Then optionally ask ONE follow-up. Never stack questions.",
+            "- NO REPEATED GREETINGS: Do NOT say 'Hi', 'Hello', or 'Hi [Name]' again on follow-up messages. Dive straight into your reply." if is_ongoing_conversation else "- GREETING: Greet warmly in sentence 1.",
+            f"- LANGUAGE & IDENTITY: Strictly match customer's language ({style_profile['label']}). Ground answers exclusively in this tenant's details above.",
+            "- BINARY ASSUMPTIVE CLOSE: When proposing a time or consultation, NEVER ask passive questions like 'Would you like to book?' or 'Do you want to schedule?'. Offer two specific binary options (e.g. 'Tomorrow 11 AM or 4 PM — which works for you?'). If the customer already stated their preferred time, confirm that directly.",
         ]
         if is_voice_note:
-            reinforcement_parts.append("- VOICE NOTE INBOUND: The customer sent a voice note transcribed above. Warmly acknowledge it and answer directly.")
+            reinforcement_parts.append("- VOICE NOTE INBOUND: Acknowledge the voice note warmly and answer directly.")
         if is_media_only:
-            reinforcement_parts.append("- UNREAD MEDIA OR UNREADABLE AUDIO: Warmly acknowledge in Line 1 and politely ask how we can help them.")
-        reinforcement_parts.extend([
-            "- DIRECT ANSWER FIRST: Clearly answer what the customer asked. Acknowledge greetings warmly.",
-            "- CONSULTATIVE FLOW: If guiding towards a booking or consultation, offer a binary choice (e.g. morning vs evening, tomorrow 11:30 AM vs 4:30 PM).",
-            "- HONEST IDENTITY: If asked directly whether you are an AI or bot, answer honestly, warmly, and briefly in 1 sentence.",
-            "- ONE QUESTION AT A TIME: Never stack multiple questions in a single reply.",
-            "- EXCLUSIVELY THIS TENANT: Ground answers in this business's knowledge and services above. Never guess or invent details.",
-            f"- LANGUAGE & DIALECT MIRRORING: Strictly match customer's language ({style_profile['label']}). "
-            + ("If Tamil, reply in warm Tamil! If Tanglish, reply in natural Tanglish! If English, reply in easy, friendly Indian English." if style_profile['dialect'] not in ('indian_english', 'standard_conversational') else "Sound like an authentic, friendly human texting on WhatsApp in easy Indian English."),
-            "- NO ROBOTIC CLICHES: Never say 'Certainly!', 'I would be delighted to assist you', or 'How may I assist you today?'. Keep it direct and natural.",
-            f"- IDENTITY: Customer is '{confirmed_name or customer_name_display}'. NEVER confuse them with staff '{admin_name or 'the team'}'. NEVER give customer's own phone number ({contact_phone}) as our contact number."
-        ])
+            reinforcement_parts.append("- UNREAD MEDIA: Warmly acknowledge and politely ask how we can help.")
         reinforcement_rule = "\n".join(reinforcement_parts)
         prompt_blocks.append(reinforcement_rule)
 
@@ -2900,25 +3003,40 @@ class CoreWorker:
             master_opencode_key=master_keys.get("opencode_key"),
             master_opencode_base_url=master_keys.get("opencode_base_url"),
             primary_provider=primary_provider,
-            gemini_model=ai_cfg.get("model") or "gemini-3.5-flash",
-            max_tokens=150,
+            gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
+            max_tokens=2048,
             temperature=0.3,
-            timeout_seconds=5.0,
+            timeout_seconds=12.0,
             tenant_id=tenant_id,
             single_line=False,
         )
         _llm_processing_ms = int((time.monotonic() - _llm_start) * 1000)
 
+        logger.info(
+            "llm_call_complete",
+            tenant_id=tenant_id,
+            provider_used=provider_used,
+            prompt_chars=len(active_system_prompt),
+            history_turns=len(history),
+            response_chars=len(response_text or ""),
+            latency_ms=_llm_processing_ms,
+            responded=(bool(response_text)),
+        )
+
         booking_action = None
         cancel_action = False
         reschedule_action = None
-        ai_used_fallback = (provider_used != primary_provider and provider_used != "gemini") or str(provider_used).startswith("master_")
+        ai_used_fallback = str(provider_used).startswith("master_") or provider_used == "fallback"
 
-        # Inbound Customer Cancellation Intent Safety Net
+        # Inbound Customer Cancellation Intent — signal to AI context ONLY.
+        # Never set cancel_action=True here; that is exclusively done when the LLM emits [ACTION:CANCEL_BOOKING].
         inbound_lower = (message_text or "").lower().strip()
-        inbound_cancel_intent = any(w in inbound_lower for w in ["cancell it", "cancel it", "yes cancel", "yes cancell", "cancel booking", "cancell booking", "cancel appointment", "cancell appointment", "cancel my", "cancell my"]) or (inbound_lower in ["cancel", "cancell", "yes cancel", "yes cancell", "cancell it", "cancel it"])
+        inbound_cancel_intent = any(w in inbound_lower for w in [
+            "cancell it", "cancel it", "yes cancel", "yes cancell",
+            "cancel booking", "cancell booking",
+            "cancel appointment", "cancell appointment",
+        ]) or (inbound_lower in ["cancel", "cancell", "yes cancel", "yes cancell", "cancell it", "cancel it"])
         if inbound_cancel_intent:
-            cancel_action = True
             logger.info("inbound_cancellation_intent_detected", customer_msg=message_text)
 
         # Inbound Appointment Inquiry Detection (Lookup Only - NEVER rebook or reschedule)
@@ -2951,9 +3069,8 @@ class CoreWorker:
                 )
             )
 
+
         if response_text:
-            response_text = clean_llm_response(response_text, single_line=False)
-            
             # 1. Intercept [ACTION:HUMAN_TAKEOVER]
             if "[ACTION:HUMAN_TAKEOVER]" in response_text:
                 await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid", conv_id)
@@ -2974,13 +3091,28 @@ class CoreWorker:
                 response_text = response_text.replace("[ACTION:CANCEL_BOOKING]", "").strip()
 
             # 3. Intercept [ACTION:RESCHEDULE_BOOKING: ...]
-            m_resched = re.search(r'\[ACTION:RESCHEDULE_BOOKING:\s*(\{.*?\})\]', response_text, re.DOTALL)
-            if m_resched:
-                try:
-                    reschedule_action = json.loads(m_resched.group(1))
-                except Exception as e:
-                    logger.warning("reschedule_action_json_parse_failed", error=str(e))
-                response_text = re.sub(r'\[ACTION:RESCHEDULE_BOOKING:\s*\{.*?\}\]', '', response_text, flags=re.DOTALL).strip()
+            # Use balanced-brace extractor instead of greedy .*? to handle } inside JSON string values
+            _resched_prefix = "[ACTION:RESCHEDULE_BOOKING:"
+            _resched_idx = response_text.find(_resched_prefix)
+            if _resched_idx != -1:
+                _brace_start = response_text.find("{", _resched_idx)
+                if _brace_start != -1:
+                    _depth, _pos, _brace_end = 0, _brace_start, -1
+                    for _ci, _ch in enumerate(response_text[_brace_start:]):
+                        if _ch == "{": _depth += 1
+                        elif _ch == "}":
+                            _depth -= 1
+                            if _depth == 0: _brace_end = _brace_start + _ci; break
+                    if _brace_end != -1:
+                        _json_str = response_text[_brace_start:_brace_end + 1]
+                        try:
+                            reschedule_action = json.loads(_json_str)
+                        except Exception as _e:
+                            logger.warning("reschedule_action_json_parse_failed", error=str(_e), raw=_json_str[:200])
+                        # Strip the full [ACTION:...] tag from response
+                        _tag_end = response_text.find("]", _brace_end)
+                        if _tag_end != -1:
+                            response_text = (response_text[:_resched_idx] + response_text[_tag_end + 1:]).strip()
 
             # Intercept [ACTION:CUSTOMER_INFO: ...] tag
             m_cust = re.search(r'\[ACTION:CUSTOMER_INFO:\s*(\{.*?\})\]', response_text, re.DOTALL)
@@ -3048,7 +3180,7 @@ class CoreWorker:
                     first_staff = (first_b.get('staff_member') or '').strip()
                     staff_txt = f" with {first_staff}" if first_staff else ""
                     cust_disp = confirmed_name or wa_name or ""
-                    greeting = f"Hi {cust_disp}! " if cust_disp else ""
+                    greeting = (f"Hi {cust_disp}! " if cust_disp else "") if not is_ongoing_conversation else ""
 
                     response_text = (
                         f"{greeting}You already have an appointment scheduled for {first_svc} on {first_dt} at {first_tm}{staff_txt}. "
@@ -3088,7 +3220,7 @@ class CoreWorker:
                             b_tm = st_loc.strftime("%I:%M %p")
                             response_text = f"Your {svc} appointment is scheduled for {b_dt} at {b_tm}! Let me know if you need to reschedule or have any questions."
                         else:
-                            response_text = "You don't have an active appointment scheduled right now. Would you like to book one?"
+                            response_text = "You don't have an active appointment scheduled right now. Would you prefer a session this week or next week?"
                     except Exception as ex:
                         logger.warning("failed_to_lookup_booking_for_sanitization", error=str(ex))
 
@@ -3111,7 +3243,7 @@ class CoreWorker:
             # Load tenant rules from DB only if completely empty and no booking action
             rule_rows = await self.db_pool.fetch(
                 "SELECT name, priority, trigger_type, trigger_value, response_text FROM reply_rules "
-                "WHERE tenant_id = $1 AND is_active = true ORDER BY priority DESC",
+                "WHERE tenant_id = $1::uuid AND is_active = true ORDER BY priority DESC",
                 tenant_id,
             )
             tenant_rules = [db_row_to_rule(dict(r)) for r in rule_rows]
@@ -3230,40 +3362,55 @@ class CoreWorker:
         # Execute Actions: Cancellation, Reschedule, or New Booking
         if cancel_action:
             asyncio.create_task(
-                self._execute_ai_cancellation(
+                self._fire_and_log(
+                    self._execute_ai_cancellation(
+                        tenant_id=tenant_id,
+                        conv_id=conv_id,
+                        contact_phone=contact_phone,
+                        customer_name=customer_name,
+                        creds=creds,
+                    ),
+                    "execute_ai_cancellation",
                     tenant_id=tenant_id,
                     conv_id=conv_id,
-                    contact_phone=contact_phone,
-                    customer_name=customer_name,
-                    creds=creds,
                 )
             )
         elif reschedule_action:
             asyncio.create_task(
-                self._execute_ai_reschedule(
+                self._fire_and_log(
+                    self._execute_ai_reschedule(
+                        tenant_id=tenant_id,
+                        conv_id=conv_id,
+                        contact_phone=contact_phone,
+                        customer_name=customer_name,
+                        booking_data=reschedule_action,
+                        creds=creds,
+                    ),
+                    "execute_ai_reschedule",
                     tenant_id=tenant_id,
                     conv_id=conv_id,
-                    contact_phone=contact_phone,
-                    customer_name=customer_name,
-                    booking_data=reschedule_action,
-                    creds=creds,
                 )
             )
         elif booking_action:
             asyncio.create_task(
-                self._execute_ai_booking(
+                self._fire_and_log(
+                    self._execute_ai_booking(
+                        tenant_id=tenant_id,
+                        conv_id=conv_id,
+                        contact_phone=contact_phone,
+                        customer_name=customer_name,
+                        booking_data=booking_action,
+                        creds=creds,
+                    ),
+                    "execute_ai_booking",
                     tenant_id=tenant_id,
                     conv_id=conv_id,
-                    contact_phone=contact_phone,
-                    customer_name=customer_name,
-                    booking_data=booking_action,
-                    creds=creds,
                 )
             )
 
         # Automatically update CRM lead probability, concern extraction, and follow-up pipeline
-        try:
-            asyncio.create_task(
+        asyncio.create_task(
+            self._fire_and_log(
                 self._analyze_and_update_lead(
                     tenant_id=tenant_id,
                     phone=contact_phone,
@@ -3271,10 +3418,12 @@ class CoreWorker:
                     message_text=message_text,
                     history=history,
                     booking_action=booking_action,
-                )
+                ),
+                "analyze_and_update_lead",
+                tenant_id=tenant_id,
+                conv_id=conv_id,
             )
-        except Exception as e_lead:
-            logger.warning("lead_analysis_dispatch_failed", error=str(e_lead))
+        )
 
 
     async def _update_customer_extracted_info(
@@ -3484,6 +3633,18 @@ class CoreWorker:
         creds: Optional[dict],
     ):
         """Creates booking in DB, dispatches Meta WhatsApp Templates, and syncs with Google Calendar."""
+        # Redis idempotency lock — prevent concurrent executions for the same conversation
+        _lock_key = f"booking_lock:{tenant_id}:{conv_id}"
+        _lock_acquired = False
+        try:
+            _lock_acquired = await self.redis.set(_lock_key, "1", nx=True, ex=60)
+        except Exception as _lock_err:
+            logger.warning("booking_lock_redis_error", error=str(_lock_err), conv_id=conv_id)
+            _lock_acquired = True  # Degrade gracefully: proceed if Redis is down
+        if not _lock_acquired:
+            logger.info("booking_lock_already_held_skipping", conv_id=conv_id, tenant_id=tenant_id)
+            return
+
         try:
             import datetime
             import zoneinfo
@@ -3496,7 +3657,7 @@ class CoreWorker:
             tenant_name = (t_row["name"] if t_row and t_row.get("name") else "")
             tenant_slug = (t_row["slug"] if t_row and t_row.get("slug") else "")
             is_mbr = (
-                str(tenant_id) == "b97ca3e5-7d43-44cf-8021-6e3659def878"
+                str(tenant_id) in _PRIVACY_TENANT_IDS
                 or ((tenant_slug or "").lower() in ("mindbodyrecovery", "mind-body-recovery"))
                 or ("mind body recovery" in (tenant_name or "").lower())
             )
@@ -3526,7 +3687,31 @@ class CoreWorker:
             # Parse start and end time using flexible 12-hr / 24-hr parser
             st_dt = parse_flexible_datetime(date_str, time_str, tz)
 
-            et_dt = st_dt + datetime.timedelta(minutes=30)
+            # Determine appointment duration (in minutes): from booking action, tenant settings, or fallback 30m
+            duration_mins = 30
+            try:
+                if booking_data.get("duration_minutes"):
+                    duration_mins = int(booking_data["duration_minutes"])
+                elif booking_data.get("duration"):
+                    raw_dur = str(booking_data["duration"]).lower()
+                    if "hour" in raw_dur:
+                        h_match = re.search(r'(\d+(?:\.\d+)?)', raw_dur)
+                        if h_match:
+                            duration_mins = int(float(h_match.group(1)) * 60)
+                    else:
+                        d_match = re.search(r'(\d+)', raw_dur)
+                        if d_match:
+                            duration_mins = int(d_match.group(1))
+                elif tenant_st_row and isinstance(tenant_st_row, dict):
+                    if tenant_st_row.get("default_appointment_duration"):
+                        duration_mins = int(tenant_st_row["default_appointment_duration"])
+                    elif tenant_st_row.get("appointment_duration_minutes"):
+                        duration_mins = int(tenant_st_row["appointment_duration_minutes"])
+            except Exception:
+                duration_mins = 30
+
+            duration_mins = max(10, min(duration_mins, 240))
+            et_dt = st_dt + datetime.timedelta(minutes=duration_mins)
 
             # Get contact_id
             contact_id = await self.db_pool.fetchval(
@@ -3675,12 +3860,18 @@ class CoreWorker:
                 )
                 logger.info("ai_booking_updated_existing", booking_id=booking_id, service=service_name, start_time=str(st_dt))
             else:
-                # Insert booking record in DB
+                # Insert booking record in DB with full metadata for resilient CRM queries
                 booking_id = str(uuid.uuid4())
+                booking_meta = json.dumps({
+                    "customer_name": name,
+                    "customer_phone": contact_phone,
+                    "customer_email": customer_email,
+                    "source": "whatsapp_ai"
+                })
                 await self.db_pool.execute(
-                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency)
-                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR')""",
-                    booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, notes
+                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, metadata)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR', $9::jsonb)""",
+                    booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, notes, booking_meta
                 )
                 logger.info("ai_booking_created", booking_id=booking_id, service=service_name, start_time=str(st_dt))
 
@@ -3702,7 +3893,7 @@ class CoreWorker:
             except Exception as b_err:
                 logger.warning("booking_push_failed", error=str(b_err))
 
-            # 1. Send Meta WhatsApp Template (booking_confirmationn)
+            # 1. Send Meta WhatsApp Template (booking_confirmationn) and record in messages table
             if creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
                 template_name = (
                     creds.get("template_booking_confirmation") or
@@ -3737,6 +3928,7 @@ class CoreWorker:
                                 ]
                             }
                         ]
+                    confirmation_body = f"📅 *Appointment Confirmed!*\n\n• *Name:* {name}\n• *Date & Time:* {formatted_date} at {formatted_time}"
                 else:
                     components = [
                         {
@@ -3749,8 +3941,11 @@ class CoreWorker:
                             ]
                         }
                     ]
+                    confirmation_body = f"📅 *Appointment Confirmed!*\n\n• *Name:* {name}\n• *Service:* {service_name}\n• *Date & Time:* {formatted_date} at {formatted_time}"
+
+                tmpl_wa_id = None
                 try:
-                    await send_template(
+                    tmpl_wa_id = await send_template(
                         phone_number_id=creds["phone_number_id"],
                         access_token=creds["access_token"],
                         to=contact_phone,
@@ -3758,9 +3953,33 @@ class CoreWorker:
                         language_code="en",
                         components=components,
                     )
-                    logger.info("meta_booking_template_sent", template=template_name, to=contact_phone)
+                    logger.info("meta_booking_template_sent", template=template_name, to=contact_phone, wa_id=tmpl_wa_id)
+                    # Record outbound confirmation in messages table so it appears in CRM conversation thread
+                    conf_msg_id = str(uuid.uuid4())
+                    await self.db_pool.execute(
+                        """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                           VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, 'sent', $5, false)""",
+                        conf_msg_id, conv_id, tenant_id, confirmation_body, tmpl_wa_id
+                    )
+                    await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
                 except Exception as e:
-                    logger.warning("meta_template_send_failed", error=str(e), template=template_name)
+                    logger.warning("meta_template_send_failed_trying_text", error=str(e), template=template_name)
+                    try:
+                        txt_wa_id = await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=contact_phone,
+                            body=confirmation_body,
+                        )
+                        conf_msg_id = str(uuid.uuid4())
+                        await self.db_pool.execute(
+                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
+                            conf_msg_id, conv_id, tenant_id, confirmation_body, txt_wa_id
+                        )
+                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+                    except Exception as txt_err:
+                        logger.error("confirmation_text_fallback_send_failed", error=str(txt_err))
 
                 # 1b. Automatically send Business Address & Live Location if configured
                 full_location = (creds.get("full_location_text") or "").strip()
@@ -3965,6 +4184,12 @@ class CoreWorker:
 
         except Exception as e:
             logger.error("execute_ai_booking_failed", error=str(e), tenant_id=tenant_id)
+        finally:
+            # Always release the lock so future booking attempts for this conv can proceed
+            try:
+                await self.redis.delete(_lock_key)
+            except Exception:
+                pass
 
 
     async def _analyze_and_update_lead(
@@ -4243,6 +4468,18 @@ class CoreWorker:
         creds: Optional[dict],
     ):
         """Cancels booking in DB, removes from Google Calendar, and dispatches Meta cancellation templates to Customer and Admin."""
+        # H-9: Redis idempotency lock — prevent concurrent executions for the same conversation
+        _lock_key = f"cancel_lock:{tenant_id}:{conv_id}"
+        _lock_acquired = False
+        try:
+            _lock_acquired = await self.redis.set(_lock_key, "1", nx=True, ex=30)
+        except Exception as _lock_err:
+            logger.warning("cancel_lock_redis_error", error=str(_lock_err), conv_id=conv_id)
+            _lock_acquired = True  # Degrade gracefully: proceed if Redis is down
+        if not _lock_acquired:
+            logger.info("cancel_lock_already_held_skipping", conv_id=conv_id, tenant_id=tenant_id)
+            return
+
         try:
             import datetime
             import zoneinfo
@@ -4490,6 +4727,12 @@ class CoreWorker:
 
         except Exception as e:
             logger.error("execute_ai_cancellation_failed", error=str(e), tenant_id=tenant_id)
+        finally:
+            # H-9: Always release the lock so future cancel attempts for this conv can proceed
+            try:
+                await self.redis.delete(_lock_key)
+            except Exception:
+                pass
 
     async def _execute_admin_human_alert(
         self,
@@ -4579,6 +4822,18 @@ class CoreWorker:
         creds: Optional[dict],
     ):
         """Reschedules existing booking in DB, updates Google Calendar, and dispatches Meta reschedule templates."""
+        # Redis idempotency lock — prevent concurrent executions for the same conversation
+        _lock_key = f"reschedule_lock:{tenant_id}:{conv_id}"
+        _lock_acquired = False
+        try:
+            _lock_acquired = await self.redis.set(_lock_key, "1", nx=True, ex=60)
+        except Exception as _lock_err:
+            logger.warning("reschedule_lock_redis_error", error=str(_lock_err), conv_id=conv_id)
+            _lock_acquired = True  # Degrade gracefully: proceed if Redis is down
+        if not _lock_acquired:
+            logger.info("reschedule_lock_already_held_skipping", conv_id=conv_id, tenant_id=tenant_id)
+            return
+
         try:
             import datetime
             import zoneinfo
@@ -4624,7 +4879,31 @@ class CoreWorker:
             # Parse start and end time using flexible 12-hr / 24-hr parser
             st_dt = parse_flexible_datetime(date_str, time_str, tz)
 
-            et_dt = st_dt + datetime.timedelta(minutes=30)
+            # Determine appointment duration (in minutes): from booking action, tenant settings, or fallback 30m
+            duration_mins = 30
+            try:
+                if booking_data.get("duration_minutes"):
+                    duration_mins = int(booking_data["duration_minutes"])
+                elif booking_data.get("duration"):
+                    raw_dur = str(booking_data["duration"]).lower()
+                    if "hour" in raw_dur:
+                        h_match = re.search(r'(\d+(?:\.\d+)?)', raw_dur)
+                        if h_match:
+                            duration_mins = int(float(h_match.group(1)) * 60)
+                    else:
+                        d_match = re.search(r'(\d+)', raw_dur)
+                        if d_match:
+                            duration_mins = int(d_match.group(1))
+                elif tenant_st_row and isinstance(tenant_st_row, dict):
+                    if tenant_st_row.get("default_appointment_duration"):
+                        duration_mins = int(tenant_st_row["default_appointment_duration"])
+                    elif tenant_st_row.get("appointment_duration_minutes"):
+                        duration_mins = int(tenant_st_row["appointment_duration_minutes"])
+            except Exception:
+                duration_mins = 30
+
+            duration_mins = max(10, min(duration_mins, 240))
+            et_dt = st_dt + datetime.timedelta(minutes=duration_mins)
             formatted_date = st_dt.strftime("%d-%m-%Y")
             formatted_time = st_dt.strftime("%I:%M %p")
 
@@ -4639,10 +4918,15 @@ class CoreWorker:
                 logger.info("ai_booking_rescheduled", booking_id=booking_id, new_start=str(st_dt))
             else:
                 booking_id = str(uuid.uuid4())
+                booking_meta = json.dumps({
+                    "customer_name": name,
+                    "customer_phone": contact_phone,
+                    "source": "whatsapp_ai_reschedule"
+                })
                 await self.db_pool.execute(
-                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency)
-                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR')""",
-                    booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, notes
+                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, metadata)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR', $9::jsonb)""",
+                    booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, notes, booking_meta
                 )
                 logger.info("ai_booking_rescheduled_new_row", booking_id=booking_id, start_time=str(st_dt))
 
@@ -4800,8 +5084,10 @@ class CoreWorker:
                         ]
                     }
                 ]
+                resched_body = f"📅 *Booking Rescheduled!*\n\n• *Name:* {name}\n• *Service:* {service_name}\n• *New Date & Time:* {formatted_date} at {formatted_time}"
+                tmpl_wa_id = None
                 try:
-                    await send_template(
+                    tmpl_wa_id = await send_template(
                         phone_number_id=creds["phone_number_id"],
                         access_token=creds["access_token"],
                         to=contact_phone,
@@ -4809,9 +5095,32 @@ class CoreWorker:
                         language_code="en",
                         components=components,
                     )
-                    logger.info("reschedule_template_sent_to_customer", template=template_name, to=contact_phone)
+                    logger.info("reschedule_template_sent_to_customer", template=template_name, to=contact_phone, wa_id=tmpl_wa_id)
+                    conf_msg_id = str(uuid.uuid4())
+                    await self.db_pool.execute(
+                        """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                           VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, 'sent', $5, false)""",
+                        conf_msg_id, conv_id, tenant_id, resched_body, tmpl_wa_id
+                    )
+                    await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
                 except Exception as e:
-                    logger.warning("reschedule_template_send_failed_text_suppressed", error=str(e), template=template_name)
+                    logger.warning("reschedule_template_send_failed_trying_text", error=str(e), template=template_name)
+                    try:
+                        txt_wa_id = await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=contact_phone,
+                            body=resched_body,
+                        )
+                        conf_msg_id = str(uuid.uuid4())
+                        await self.db_pool.execute(
+                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
+                            conf_msg_id, conv_id, tenant_id, resched_body, txt_wa_id
+                        )
+                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+                    except Exception as txt_err:
+                        logger.error("reschedule_text_fallback_failed", error=str(txt_err))
 
                 # Send Admin Reschedule Alert
                 admin_phone = (creds.get("admin_whatsapp_number") or "").strip()
@@ -4869,6 +5178,12 @@ class CoreWorker:
                             logger.warning("admin_reschedule_fallback_template_failed_text_suppressed", error=str(e_fb))
         except Exception as e:
             logger.error("execute_ai_reschedule_failed", error=str(e), tenant_id=tenant_id)
+        finally:
+            # Always release the lock so future reschedule attempts for this conv can proceed
+            try:
+                await self.redis.delete(_lock_key)
+            except Exception:
+                pass
 
     # ── DB helpers ─────────────────────────────────────────────────────────────
 
@@ -5167,7 +5482,7 @@ class CoreWorker:
         )
         if row:
             return dict(row)
-        return {"model": "gemini-3.5-flash", "temperature": 0.3, "max_tokens": 500, "timeout_ms": 8000, "response_style": "short", "methodology": "dogfooding"}
+        return {"model": "gemini-3.5-flash-lite", "temperature": 0.3, "max_tokens": 2048, "timeout_ms": 8000, "response_style": "short", "methodology": "dogfooding"}
 
     async def _scheduled_job_loop(self):
         """
@@ -6019,7 +6334,7 @@ class CoreWorker:
 
         # Strictly protect patient privacy for Mind Body Recovery alone
         t_id = str(job.get("tenant_id") or "")
-        is_mbr = (t_id == "b97ca3e5-7d43-44cf-8021-6e3659def878")
+        is_mbr = (t_id in _PRIVACY_TENANT_IDS)
 
         if job["job_type"] == "reminder":
             if is_mbr:
@@ -6491,10 +6806,10 @@ class CoreWorker:
                         master_opencode_key=master_keys.get("opencode_key"),
                         master_opencode_base_url=master_keys.get("opencode_base_url"),
                         primary_provider="groq" if groq_key else "gemini",
-                        gemini_model=ai_cfg.get("model") or "gemini-3.5-flash",
-                        max_tokens=150,
+                        gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
+                        max_tokens=2048,
                         temperature=0.3,
-                        timeout_seconds=5.0,
+                        timeout_seconds=12.0,
                         tenant_id=tenant_id,
                         single_line=False,
                     )
@@ -6625,6 +6940,25 @@ worker = CoreWorker()
 @app.on_event("startup")
 async def startup():
     await worker.start()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    try:
+        from providers.llm_router import close_llm_clients
+        await close_llm_clients()
+    except Exception:
+        pass
+    if worker.db_pool:
+        try:
+            await worker.db_pool.close()
+        except Exception:
+            pass
+    if worker.redis_client:
+        try:
+            await worker.redis_client.aclose()
+        except Exception:
+            pass
 
 
 @app.get("/health")

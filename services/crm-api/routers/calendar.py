@@ -134,7 +134,7 @@ async def google_oauth_callback(
         raise
     except Exception as e:
         logger.error("google_oauth_callback_state_decode_error", error=str(e), state=state)
-        raise HTTPException(status_code=400, detail=f"Corrupt or invalid OAuth state parameter: {str(e)}")
+        raise HTTPException(status_code=400, detail="Corrupt or invalid OAuth state parameter.")
 
     if not state_data.get("nonce"):
         raise HTTPException(status_code=400, detail="OAuth state missing nonce.")
@@ -172,7 +172,7 @@ async def google_oauth_callback(
     async with database.db_pool.acquire() as conn:
         tenant_slug = await conn.fetchval("SELECT slug FROM tenants WHERE id = $1::uuid", tenant_id)
         if not is_admin and not is_shareable and tenant_slug:
-            base_redir = f"{utils.APP_BASE_URL}/{tenant_slug}"
+            base_redir = f"{ret_origin}/{tenant_slug}"
 
         g_row = await conn.fetchrow(
             "SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar'",
@@ -266,7 +266,7 @@ async def google_oauth_callback(
             )
 
     if is_shareable:
-        return RedirectResponse("https://crm.goboldlabs.com/calendar-connected?success=true")
+        return RedirectResponse(f"{ret_origin}/calendar-connected?success=true")
     return RedirectResponse(f"{base_redir}?gcal_success=true{t_param}")
 
 
@@ -413,7 +413,7 @@ async def get_live_calendar_availability(
             """SELECT service, start_time, end_time
                FROM bookings
                WHERE tenant_id = $1::uuid
-                 AND status = 'confirmed'
+                 AND status IN ('confirmed', 'pending', 'rescheduled')
                  AND start_time >= $2
                  AND start_time <= $3
                ORDER BY start_time ASC LIMIT 50""",
@@ -649,6 +649,7 @@ async def get_live_calendar_availability(
             "doctors": doctors_cal,
             "total_occupied_slots": len(busy_slots),
             "occupied_slots": busy_slots,
+            "busy_slots": busy_slots,
             "total_empty_slots": len(empty_slots),
             "empty_slots": empty_slots,
             "operating_hours": op_hours_str,

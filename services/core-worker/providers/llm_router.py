@@ -15,6 +15,36 @@ from typing import Optional, Tuple
 
 logger = structlog.get_logger()
 
+# ── Persistent HTTP Clients (connection-pooled, reused across all LLM calls) ──
+# This avoids ~50-200ms TCP/TLS handshake overhead on every request.
+_GEMINI_CLIENT = httpx.AsyncClient(
+    timeout=14.0,
+    limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+    headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
+)
+_GROQ_CLIENT = httpx.AsyncClient(
+    timeout=10.0,
+    limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+    headers={
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    },
+)
+_OPENCODE_CLIENT = httpx.AsyncClient(
+    timeout=10.0,
+    limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+)
+
+
+async def close_llm_clients():
+    """Gracefully close persistent HTTP clients on shutdown."""
+    for client in (_GEMINI_CLIENT, _GROQ_CLIENT, _OPENCODE_CLIENT):
+        try:
+            if not client.is_closed:
+                await client.aclose()
+        except Exception:
+            pass
+
 
 class LLMError(Exception):
     pass
@@ -176,17 +206,17 @@ def clean_llm_response(text: str, single_line: bool = False) -> str:
         if len(raw_sentences) > 3:
             # If the last sentence is a closing question, keep first 2 sentences + the question
             if raw_sentences[-1].endswith('?'):
-                sentences_kept = set([raw_sentences[0], raw_sentences[1], raw_sentences[-1]])
+                selected_sentences = [raw_sentences[0], raw_sentences[1], raw_sentences[-1]]
             else:
-                sentences_kept = set(raw_sentences[:3])
+                selected_sentences = raw_sentences[:3]
             
             rebuilt = []
             for l in lines:
                 l_sents = _split_into_sentences(l)
-                kept = [s for s in l_sents if s in sentences_kept]
+                kept = [s for s in l_sents if s in selected_sentences]
                 if kept:
                     rebuilt.append(" ".join(kept))
-            lines = rebuilt
+            lines = rebuilt if rebuilt else [" ".join(selected_sentences)]
 
         # If lines == 2, only keep double newline if both lines are substantial
         if len(lines) == 2:
@@ -220,21 +250,22 @@ def clean_llm_response(text: str, single_line: bool = False) -> str:
 def strip_repetitive_greetings(text: str) -> str:
     """
     In ongoing conversations (turn 2+), strip repetitive, robotic greetings like
-    'Hi again!', 'Hello again!', 'Hey again!', or 'Hi [Name]! Thanks for sharing...'
+    'Hi again!', 'Hello again!', 'Hi Bhuvanesh Karnan!', 'Hello [Name]!'
     so the assistant dives straight into conversation like a real person.
+    Guards against truncating into tiny 1- or 2-word fragments (e.g. 'How').
     """
     if not text:
         return ""
+    original = text.strip()
     # Strip "Hi again!", "Hello again!", "Hey again!"
-    t = re.sub(r'^(hi\s+again|hello\s+again|hey\s+again)[!,\.]*\s*', '', text, flags=re.IGNORECASE)
-    # Strip "Hi Bhuvanesh! Thanks for sharing..." or "Hi! Thanks for sharing..."
-    t = re.sub(
-        r'^(hi|hello|hey)(\s+[a-zA-Z]+)?[!,\.]*\s*(thanks|thank you|got it|makes sense|sorry|sure|absolutely|i understand|do you|are you|can you|how|what|when|where|why|that|we|i\b)',
-        r'\3',
-        t,
-        flags=re.IGNORECASE
-    )
+    t = re.sub(r'^(?:hi\s+again|hello\s+again|hey\s+again)[!,\.]*\s*', '', original, flags=re.IGNORECASE)
+    # Strip any leading greeting with optional multi-word name:
+    # Matches: "Hi Bhuvanesh Karnan!", "Hello John!", "Hey!", "Welcome back to Boldlabs!"
+    t = re.sub(r'^(?:hi|hello|hey|welcome back)(?:\s+[^!,\.\n]+)?[!,\.]+\s*', '', t, flags=re.IGNORECASE)
     t = t.strip()
+    # Never return truncated 1- or 2-word fragments like "How"
+    if len(t.split()) < 3:
+        return original
     if t and len(t) > 0:
         t = t[0].upper() + t[1:]
     return t
@@ -262,19 +293,21 @@ def sanitize_conversation_history(messages: list[dict]) -> list[dict]:
             cleaned.append({"role": role, "content": content})
 
     if not cleaned:
-        return [{"role": "user", "content": "Hello"}]
+        return [{"role": "user", "content": "Please continue."}]
 
     # Keep only the last 12 messages for ultra-fast, lightweight context
     if len(cleaned) > 12:
         cleaned = cleaned[-12:]
 
-    # Ensure starts with user
+    # Ensure starts with user turn (drop orphan assistant response from window slice)
     if cleaned[0]["role"] != "user":
-        cleaned = [{"role": "user", "content": "Hello"}] + cleaned
+        cleaned = cleaned[1:]
+        if not cleaned:
+            return [{"role": "user", "content": "Please continue."}]
 
-    # Ensure ends with user
+    # Ensure ends with user turn (natural continuation instruction instead of fake customer greeting)
     if cleaned[-1]["role"] != "user":
-        cleaned.append({"role": "user", "content": "Hello"})
+        cleaned.append({"role": "user", "content": "Please continue."})
 
     return cleaned
 
@@ -283,7 +316,7 @@ async def call_gemini(
     messages: list[dict],
     api_key: str,
     system_prompt: str,
-    model: str = "gemini-3.5-flash",
+    model: str = "gemini-3.5-flash-lite",
     max_tokens: int = 2048,
     temperature: float = 0.3,
     timeout_seconds: float = 4.0,
@@ -301,7 +334,9 @@ async def call_gemini(
             "parts": [{"text": msg["content"]}],
         })
 
-    gemini_tokens = min(max_tokens, 75) if single_line else max(min(max_tokens, 500), 80)
+    # For Gemini 2.5 / 3.x, thought tokens count against maxOutputTokens!
+    # Minimum 2048 tokens is required so thought tokens (400-900) never starve candidate text.
+    gemini_tokens = max(max_tokens, 2048)
     payload = {
         "system_instruction": {
             "parts": [{"text": system_prompt}]
@@ -314,27 +349,34 @@ async def call_gemini(
         },
     }
 
-    # Verified active Gemini models on live API (ordered by availability)
-    active_gemini_models = ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.1-flash-lite"]
+    # Verified active Gemini models (tested 200 OK)
+    active_gemini_models = [
+        "gemini-3.5-flash-lite",
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3.6-flash",
+        "gemini-3-flash-preview",
+    ]
     candidate_models = []
-    if model and model in active_gemini_models:
+    if model:
         candidate_models.append(model)
     for m in active_gemini_models:
         if m not in candidate_models:
             candidate_models.append(m)
 
     last_err = None
-    req_timeout = min(timeout_seconds, 4.0)
+    req_timeout = max(timeout_seconds, 12.0)
     for m in candidate_models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
         try:
-            async with httpx.AsyncClient(timeout=req_timeout) as client:
-                response = await client.post(
-                    url,
-                    json=payload,
-                    headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
-                )
-            
+            # Use persistent pooled client — avoids TCP/TLS handshake overhead per call
+            response = await _GEMINI_CLIENT.post(
+                url,
+                json=payload,
+                timeout=req_timeout,
+            )
+
             if response.status_code == 200:
                 data = response.json()
                 content = data["candidates"][0].get("content", {})
@@ -366,10 +408,10 @@ async def call_groq(
     messages: list[dict],
     api_key: str,
     system_prompt: str,
-    model: str = "qwen/qwen3.8-27b",
+    model: str = "llama-3.1-8b-instant",
     max_tokens: int = 350,
     temperature: float = 0.3,
-    timeout_seconds: float = 3.0,
+    timeout_seconds: float = 6.0,
     tenant_id: str = "",
     single_line: bool = False,
 ) -> str:
@@ -384,10 +426,10 @@ async def call_groq(
     for m in sanitized:
         formatted_msgs.append({"role": m["role"], "content": m["content"]})
 
-    # Verified active models on Groq: qwen/qwen3.8-27b (fastest 300ms), openai/gpt-oss-120b, openai/gpt-oss-20b
-    active_groq_models = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+    # Active Groq models: llama-3.1-8b-instant first, followed by active fallbacks
+    active_groq_models = ["llama-3.1-8b-instant", "qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
     candidate_models = []
-    if model and model in active_groq_models:
+    if model:
         candidate_models.append(model)
     for m in active_groq_models:
         if m not in candidate_models:
@@ -400,7 +442,7 @@ async def call_groq(
     }
 
     last_err = None
-    req_timeout = min(timeout_seconds, 4.0)
+    req_timeout = min(timeout_seconds, 10.0)
     toks = min(max_tokens, 75) if single_line else min(max_tokens, 350)
     for m in candidate_models:
         payload = {
@@ -411,12 +453,13 @@ async def call_groq(
         }
 
         try:
-            async with httpx.AsyncClient(timeout=req_timeout) as client:
-                response = await client.post(
-                    url,
-                    headers=headers,
-                    json=payload,
-                )
+            # Use persistent pooled client — avoids TCP/TLS handshake overhead per call
+            response = await _GROQ_CLIENT.post(
+                url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                json=payload,
+                timeout=req_timeout,
+            )
             if response.status_code == 200:
                 data = response.json()
                 text = data["choices"][0]["message"]["content"]
@@ -486,12 +529,13 @@ async def call_opencode(
         }
 
         try:
-            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-                response = await client.post(
-                    url,
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    json=payload,
-                )
+            # Use persistent pooled client — avoids TCP/TLS handshake overhead per call
+            response = await _OPENCODE_CLIENT.post(
+                url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                json=payload,
+                timeout=timeout_seconds,
+            )
             if response.status_code == 200:
                 data = response.json()
                 text = data["choices"][0]["message"]["content"]
@@ -526,7 +570,7 @@ async def call_llm_cascade(
     master_opencode_key: Optional[str] = None,
     master_opencode_base_url: str = "https://opencode.ai/zen/v1",
     primary_provider: str = "gemini",
-    gemini_model: str = "gemini-3.1-flash-lite",
+    gemini_model: str = "gemini-3.5-flash-lite",
     max_tokens: int = 2048,
     temperature: float = 0.3,
     timeout_seconds: float = 4.0,
@@ -542,7 +586,8 @@ async def call_llm_cascade(
     3. Self-Healing Return: Evaluated per-message, so the exact moment the tenant's
        rate-limit window resets or quota refreshes, the next message immediately uses Tier 1 again.
     """
-    effective_max_tokens = min(max_tokens, 75) if single_line else min(max_tokens, 500)
+    effective_max_tokens = min(max_tokens, 75) if single_line else min(max_tokens, 300)
+    effective_gemini_tokens = max(max_tokens, 2048)
 
     # ── Option A: Concurrent Racer (Only if explicitly requested as 'fastest' or 'racer') ──
     if primary_provider in ("fastest", "racer") and groq_key and gemini_key:
@@ -551,7 +596,7 @@ async def call_llm_cascade(
                 messages=messages,
                 api_key=groq_key,
                 system_prompt=system_prompt,
-                model="qwen/qwen3.8-27b",
+                model="llama-3.1-8b-instant",
                 max_tokens=effective_max_tokens,
                 temperature=temperature,
                 timeout_seconds=8.0,
@@ -564,10 +609,10 @@ async def call_llm_cascade(
                 messages=messages,
                 api_key=gemini_key,
                 system_prompt=system_prompt,
-                model=gemini_model or "gemini-3.1-flash-lite",
-                max_tokens=effective_max_tokens,
+                model=gemini_model or "gemini-3.5-flash-lite",
+                max_tokens=effective_gemini_tokens,
                 temperature=temperature,
-                timeout_seconds=8.0,
+                timeout_seconds=12.0,
                 tenant_id=tenant_id,
                 single_line=single_line,
             ), "gemini"
@@ -595,6 +640,8 @@ async def call_llm_cascade(
                 text, prov = await remaining_task
                 if text and len(text.strip()) > 0:
                     return text, prov
+            except asyncio.CancelledError:
+                logger.warning("racer_remaining_task_cancelled", tenant_id=tenant_id)
             except Exception as e:
                 logger.warning("racer_remaining_task_failed", tenant_id=tenant_id, error=str(e))
 
@@ -629,10 +676,10 @@ async def call_llm_cascade(
                     messages=messages,
                     api_key=key,
                     system_prompt=system_prompt,
-                    model=gemini_model or "gemini-3.1-flash-lite",
-                    max_tokens=effective_max_tokens,
+                    model=gemini_model or "gemini-3.5-flash-lite",
+                    max_tokens=effective_gemini_tokens,
                     temperature=temperature,
-                    timeout_seconds=min(timeout_seconds, 10.0),
+                    timeout_seconds=max(timeout_seconds, 12.0),
                     tenant_id=tenant_id,
                     single_line=single_line,
                 )
@@ -645,7 +692,7 @@ async def call_llm_cascade(
                     messages=messages,
                     api_key=key,
                     system_prompt=system_prompt,
-                    model="qwen/qwen3.8-27b",
+                    model="llama-3.1-8b-instant",
                     max_tokens=effective_max_tokens,
                     temperature=temperature,
                     timeout_seconds=min(timeout_seconds, 6.0),
@@ -686,8 +733,8 @@ async def call_llm_cascade(
     # Master keys act as a parachute to guarantee 100% uptime for customers.
     # Note: On the very next message, Tier 1 is attempted again so it returns to tenant keys automatically.
     master_providers = [
-        ("gemini", master_gemini_key, gemini_key, "gemini-3.1-flash-lite", None),
-        ("groq", master_groq_key, groq_key, "qwen/qwen3.8-27b", None),
+        ("gemini", master_gemini_key, gemini_key, "gemini-3.5-flash-lite", None),
+        ("groq", master_groq_key, groq_key, "llama-3.1-8b-instant", None),
         ("opencode", master_opencode_key, opencode_key, "nemotron-3.5-lightning-free", master_opencode_base_url),
     ]
 
@@ -713,9 +760,9 @@ async def call_llm_cascade(
                         api_key=m_key,
                         system_prompt=system_prompt,
                         model=m_model,
-                        max_tokens=effective_max_tokens,
+                        max_tokens=effective_gemini_tokens,
                         temperature=temperature,
-                        timeout_seconds=min(timeout_seconds, 10.0),
+                        timeout_seconds=max(timeout_seconds, 12.0),
                         tenant_id=tenant_id,
                         single_line=single_line,
                     )
@@ -798,7 +845,7 @@ async def call_llm_cascade(
                     messages=emergency_messages,
                     api_key=gemini_key,
                     system_prompt=system_prompt,
-                    model="gemini-3.5-flash",
+                    model="gemini-3.5-flash-lite",
                     max_tokens=max_tokens,
                     temperature=temperature,
                     timeout_seconds=3.5,

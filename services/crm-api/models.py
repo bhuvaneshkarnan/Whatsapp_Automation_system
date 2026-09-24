@@ -276,6 +276,12 @@ class TenantCreate(BaseModel):
     google_refresh_token: Optional[str] = ""
     google_calendar_id: Optional[str] = "primary"
     notification_email: Optional[str] = ""
+    sales_channel: Optional[str] = "direct"
+    partner_name: Optional[str] = ""
+    custom_domain: Optional[str] = ""
+    brand_name: Optional[str] = ""
+    partner_share_pct: Optional[float] = 0.0
+    owner_share_pct: Optional[float] = 100.0
 
 
 class TenantUpdate(BaseModel):

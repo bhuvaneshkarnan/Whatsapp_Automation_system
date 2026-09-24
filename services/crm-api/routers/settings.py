@@ -8,7 +8,8 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Union
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query
+import urllib.parse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 import database
 from models import TenantSettingsUpdate
@@ -28,7 +29,10 @@ async def get_tenant_settings(
     """Retrieve full settings for the currently logged-in tenant / client."""
     caller_role = caller.get("role") if isinstance(caller, dict) else "admin"
     if isinstance(target_tenant_id, str) and target_tenant_id.strip() and caller_role == "super_admin":
-        tenant_id = target_tenant_id.strip()
+        try:
+            tenant_id = str(uuid.UUID(target_tenant_id.strip()))
+        except ValueError:
+            raise HTTPException(400, "Invalid target_tenant_id. Must be a valid UUID.")
     async with database.db_pool.acquire() as conn:
         tenant = await conn.fetchrow(
             """
@@ -175,7 +179,7 @@ async def get_tenant_settings(
         
         # AI Config & BYOK
         "primary_model_provider": wa_data.get("primary_model_provider", "groq" if groq_key else "gemini"),
-        "ai_model": ai_cfg.get("model", "gemini-3.5-flash"),
+        "ai_model": ai_cfg.get("model", "gemini-3.5-flash-lite"),
         "gemini_api_key": res_gemini_key,
         "groq_api_key": res_groq_key,
         "opencode_api_key": res_opencode_key,
@@ -256,7 +260,7 @@ async def get_tenant_settings(
         "org_lifecycle_stage": tenant.get("org_lifecycle_stage") or "setup",
         "subscription_status": tenant.get("subscription_status") or "active",
         "razorpay_customer_id": tenant.get("razorpay_customer_id") or "",
-        "razorpay_subscription_id": tenant.get("razorpay_subscription_id") or (f"sub_{tenant.get('slug')}" if tenant.get("slug") else ""),
+        "razorpay_subscription_id": tenant.get("razorpay_subscription_id") or None,
         "razorpay_short_url": (
             "" if "boldlabs-crm" in (tenant.get("razorpay_short_url") or tenant_settings.get("razorpay_short_url") or tenant_settings.get("payment_link") or "")
             else (tenant.get("razorpay_short_url") or tenant_settings.get("razorpay_short_url") or tenant_settings.get("payment_link") or "")
@@ -361,10 +365,14 @@ async def get_ai_usage_stats(
 @router.get("/public/branding")
 @router.get("/api/public/branding")
 @router.get("/api/v1/crm/public/branding")
-async def get_public_branding(domain: Optional[str] = Query(None), slug: Optional[str] = Query(None)):
+async def get_public_branding(
+    request: Request,
+    domain: Optional[str] = Query(None),
+    slug: Optional[str] = Query(None)
+):
     """
     Public metadata endpoint for dynamic white-label theme injection and brand identity.
-    Resolves branding by custom domain or tenant slug.
+    Resolves branding by custom domain, HTTP headers (X-Forwarded-Host, Host, Referer), or tenant slug.
     Falls back to default Boldlabs platform identity if domain is default or unmatched.
     """
     default_branding = {
@@ -382,6 +390,7 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
         "tenant_id": None,
         "tenant_slug": None,
         "tenant_name": "Boldlabs",
+        "partner_name": None,
     }
 
     clean_domain = ""
@@ -390,7 +399,45 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
         clean_domain = re.sub(r"^https?://", "", clean_domain)
         clean_domain = clean_domain.split(":")[0].split("/")[0].strip()
 
+    # If domain was not supplied in query, inspect request headers (X-Forwarded-Host, Origin, Referer, Host)
+    if not clean_domain and request:
+        raw_h = (request.headers.get("x-forwarded-host") or "").strip()
+        if not raw_h:
+            raw_h = (request.headers.get("host") or "").strip()
+        if not raw_h or raw_h.split(":")[0] in ("168.138.172.197", "backend-monolith", "localhost"):
+            ref = (request.headers.get("referer") or request.headers.get("origin") or "").strip()
+            if ref:
+                try:
+                    parsed_ref = urllib.parse.urlparse(ref)
+                    if parsed_ref.netloc:
+                        raw_h = parsed_ref.netloc
+                except Exception:
+                    pass
+        if raw_h:
+            clean_domain = raw_h.strip().lower()
+            clean_domain = re.sub(r"^https?://", "", clean_domain)
+            clean_domain = clean_domain.split(":")[0].split("/")[0].strip()
+
     clean_slug = slug.strip().lower() if slug else ""
+
+    # If slug was not provided, attempt to infer slug from referer query string (e.g. ?redirect=/smaato-mobile or /smaato-mobile)
+    if not clean_slug and request:
+        ref = (request.headers.get("referer") or "").strip()
+        if ref:
+            try:
+                parsed_ref = urllib.parse.urlparse(ref)
+                qs = urllib.parse.parse_qs(parsed_ref.query)
+                redir_val = qs.get("redirect", [None])[0]
+                if redir_val:
+                    seg = redir_val.replace("\\", "/").split("/")[1] if len(redir_val.replace("\\", "/").split("/")) > 1 else ""
+                    if seg and seg.lower() not in ("dashboard", "login", "bhuvanesh", "admin", "api", "webhooks"):
+                        clean_slug = seg.strip().lower()
+                if not clean_slug and parsed_ref.path:
+                    parts = [p for p in parsed_ref.path.split("/") if p]
+                    if parts and parts[0].lower() not in ("dashboard", "login", "bhuvanesh", "admin", "api", "webhooks"):
+                        clean_slug = parts[0].strip().lower()
+            except Exception:
+                pass
 
     # Known platform defaults that use standard Boldlabs branding
     if (not clean_domain or clean_domain in ("crm.boldlabs.com", "boldlabs.com", "crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197")) and not clean_slug:
@@ -426,8 +473,8 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
                 t_partner = (t_settings.get("partner_name") or "").strip()
                 if t_partner:
                     partner = await conn.fetchrow(
-                        "SELECT * FROM partner_agency_templates WHERE LOWER(partner_name) = $1 LIMIT 1",
-                        t_partner.lower()
+                        "SELECT * FROM partner_agency_templates WHERE LOWER(TRIM(partner_name)) = LOWER(TRIM($1)) LIMIT 1",
+                        t_partner
                     )
 
         # Only if no tenant was resolved by slug, resolve partner and tenant by clean_domain
@@ -444,27 +491,26 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
                 clean_domain,
                 alt_domain
             )
-            tenant = await conn.fetchrow(
-                """
-                SELECT t.id, t.name, t.slug, t.settings,
-                       COALESCE(
-                           NULLIF(TRIM(t.settings->>'custom_domain'), ''),
-                           NULLIF(TRIM(pat.custom_domain), '')
-                       ) as custom_domain
-                FROM tenants t
-                LEFT JOIN partner_agency_templates pat 
-                       ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
-                WHERE LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $1
-                   OR LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $2
-                   OR (pat.custom_domain IS NOT NULL AND (
-                       LOWER(TRIM(pat.custom_domain)) = $1 OR LOWER(TRIM(pat.custom_domain)) = $2
-                   ))
-                ORDER BY t.created_at ASC
-                LIMIT 1
-                """,
-                clean_domain,
-                alt_domain
-            )
+            # Only resolve a dedicated client tenant if NOT a multi-tenant partner domain
+            if not partner:
+                tenant = await conn.fetchrow(
+                    """
+                    SELECT t.id, t.name, t.slug, t.settings,
+                           COALESCE(
+                               NULLIF(TRIM(t.settings->>'custom_domain'), ''),
+                               NULLIF(TRIM(pat.custom_domain), '')
+                           ) as custom_domain
+                    FROM tenants t
+                    LEFT JOIN partner_agency_templates pat 
+                           ON LOWER(TRIM(pat.partner_name)) = LOWER(TRIM(t.settings->>'partner_name'))
+                    WHERE LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $1
+                       OR LOWER(TRIM(COALESCE(t.settings->>'custom_domain', ''))) = $2
+                    ORDER BY t.created_at ASC
+                    LIMIT 1
+                    """,
+                    clean_domain,
+                    alt_domain
+                )
 
     if not tenant and not partner:
         return default_branding
@@ -478,7 +524,7 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
 
     p_dict = dict(partner) if partner else {}
     if tenant:
-        tenant_custom_domain = (tenant.get("custom_domain") or s.get("custom_domain") or "").strip().lower() or None
+        tenant_custom_domain = (tenant.get("custom_domain") or s.get("custom_domain") or (p_dict.get("custom_domain") if partner else "") or "").strip().lower() or None
     else:
         tenant_custom_domain = (p_dict.get("custom_domain") or "").strip().lower() or None
     tenant_canonical = tenant_custom_domain or "crm.goboldlabs.com"
@@ -490,14 +536,32 @@ async def get_public_branding(domain: Optional[str] = Query(None), slug: Optiona
         is_domain_match = (clean_domain == tenant_canonical) or (clean_domain in ("localhost", "127.0.0.1"))
 
     c_dom = tenant_custom_domain or ""
-    b_name = (s.get("brand_name") or p_dict.get("brand_name") or (tenant["name"] if tenant else "") or p_dict.get("partner_name") or "Boldlabs CRM").strip()
-    b_logo = (s.get("brand_logo_url") or s.get("logo_url") or p_dict.get("brand_logo_url") or "").strip()
-    b_fav = (s.get("brand_favicon_url") or p_dict.get("brand_favicon_url") or "/favicon.ico").strip()
-    b_color = (s.get("brand_primary_color") or p_dict.get("brand_primary_color") or "#059669").strip()
-    b_email = (s.get("brand_support_email") or p_dict.get("brand_support_email") or "").strip()
-    b_phone = (s.get("brand_support_phone") or p_dict.get("brand_support_phone") or "").strip()
 
-    hide_platform = bool(s.get("hide_platform_branding", p_dict.get("hide_platform_branding", True if (c_dom or partner) else False)))
+    p_logo = (p_dict.get("brand_logo_url") or "").strip()
+    t_logo = (s.get("brand_logo_url") or s.get("logo_url") or "").strip()
+    b_logo = t_logo if (t_logo and not t_logo.startswith("/boldlabs")) else (p_logo or t_logo or "")
+
+    p_fav = (p_dict.get("brand_favicon_url") or "").strip()
+    t_fav = (s.get("brand_favicon_url") or "").strip()
+    b_fav = t_fav if (t_fav and t_fav != "/favicon.ico") else (p_fav or t_fav or "/favicon.ico")
+
+    p_name_val = (p_dict.get("brand_name") or p_dict.get("partner_name") or "").strip()
+    t_name_val = (s.get("brand_name") or (tenant["name"] if tenant else "")).strip()
+    b_name = t_name_val if (t_name_val and "boldlabs" not in t_name_val.lower()) else (p_name_val or t_name_val or "Boldlabs CRM")
+
+    p_email = (p_dict.get("brand_support_email") or "").strip()
+    t_email = (s.get("brand_support_email") or "").strip()
+    b_email = t_email if (t_email and "bhuvaneshkarnan" not in t_email.lower()) else (p_email or t_email or "")
+
+    p_phone = (p_dict.get("brand_support_phone") or "").strip()
+    t_phone = (s.get("brand_support_phone") or "").strip()
+    b_phone = t_phone if t_phone else (p_phone or "")
+
+    p_color = (p_dict.get("brand_primary_color") or "").strip()
+    t_color = (s.get("brand_primary_color") or "").strip()
+    b_color = t_color if t_color else (p_color or "#059669")
+
+    hide_platform = True if (c_dom or partner) else bool(s.get("hide_platform_branding", False))
     is_wl = bool(c_dom or partner)
 
     return {
@@ -541,7 +605,10 @@ async def update_tenant_settings(
         elif payload and payload.tenant_id and isinstance(payload.tenant_id, str) and payload.tenant_id.strip():
             eff_target = payload.tenant_id.strip()
         if eff_target:
-            tenant_id = eff_target
+            try:
+                tenant_id = str(uuid.UUID(eff_target))
+            except ValueError:
+                raise HTTPException(400, "Invalid target tenant ID. Must be a valid UUID.")
     async with database.db_pool.acquire() as conn:
         # 1. Update tenant table settings & branding
         if payload.name:
@@ -758,7 +825,7 @@ async def update_tenant_settings(
         # 5. Update AI Config (modular fields & tone instructions) with non-destructive partial updates
         ai_row = await conn.fetchrow("SELECT * FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
         
-        cur_model = (ai_row["model"] if ai_row and ai_row["model"] else "gemini-3.5-flash")
+        cur_model = (ai_row["model"] if ai_row and ai_row["model"] else "gemini-3.5-flash-lite")
         cur_prompt = (ai_row["system_prompt"] if ai_row and ai_row["system_prompt"] else "")
         cur_name = (ai_row["assistant_name"] if ai_row and ai_row["assistant_name"] else "Assistant")
         cur_goal = (ai_row["bot_goal"] if ai_row and ai_row["bot_goal"] else "")
@@ -816,16 +883,23 @@ class OptimizePromptRequest(BaseModel):
 async def optimize_ai_prompt(
     payload: OptimizePromptRequest,
     tenant_id: str = Depends(get_tenant_id),
+    target_tenant_id: Optional[str] = Query(None),
     caller: dict = Depends(get_caller_context),
 ):
     """
     Admin-only: Convert a raw business brain-dump into structured ai_config fields.
-    Uses Gemini Flash to intelligently extract and structure the content.
-    Returns the 7 prompt fields ready to paste/save.
+    Uses Gemini to intelligently extract, structure, and categorize the content with ZERO information loss.
+    Returns the 7 prompt fields ready to preview and apply.
     """
     caller_role = caller.get("role") if isinstance(caller, dict) else "agent"
     if caller_role not in ("admin", "super_admin", "owner"):
         raise HTTPException(status_code=403, detail="Admin access required.")
+
+    if isinstance(target_tenant_id, str) and target_tenant_id.strip() and caller_role == "super_admin":
+        try:
+            tenant_id = str(uuid.UUID(target_tenant_id.strip()))
+        except ValueError:
+            raise HTTPException(400, "Invalid target_tenant_id. Must be a valid UUID.")
 
     raw_dump = (payload.raw_dump or "").strip()
     if len(raw_dump) < 30:
@@ -849,68 +923,63 @@ async def optimize_ai_prompt(
     if not gem_key:
         raise HTTPException(status_code=503, detail="No Gemini API key configured. Please add a Gemini API key in AI Settings.")
 
-    # Meta-prompt: what NOT to include (auto-injected by the system)
-    meta_prompt = """You are an expert AI sales agent configuration specialist for a high-converting WhatsApp CRM platform.
+    # Meta-prompt: Structured organizer with zero information loss
+    meta_prompt = """You are an expert Master Business Knowledge Base Architect for a WhatsApp CRM automation platform.
+A business owner has provided comprehensive raw business information below. Your task is to PERFECTLY STRUCTURE, CATEGORIZE, and ORGANIZE this information into 7 configuration fields for their WhatsApp AI assistant.
 
-A business owner has provided raw business information below. Your job is to extract and structure this into exactly 7 configuration fields for their WhatsApp AI Consultative Sales Closer.
+ABSOLUTE MANDATORY DIRECTIVE — ZERO INFORMATION LOSS & COMPLETE PRESERVATION:
+- DO NOT summarize away, truncate, compress, or strip out any details, services, prices, or policies.
+- Retain 100% of all facts: every service, every price tier, package discounts, consultation fees, doctor credentials, clinic locations, operating hours, treatment details, policies, FAQs, and qualification questions.
+- Organize the content cleanly with clear Markdown headers, bullet points, and neat formatting.
+- Your role is to ORGANIZE and STRUCTURE the content into professional, readable sections, NOT to shorten or cut information.
+- If the user provides extensive lists of services, procedures, or prices, list ALL of them without omission.
 
-CRITICAL ROLE DEFINITIONS:
-- The AI is a PROACTIVE CONSULTATIVE SALES CLOSER, NOT a passive customer support desk.
-- All replies must be in easy, natural Indian English (simple words, warm, conversational, 2-3 short sentences, 25-45 words max, no robotic filler, no corporate jargon, no marketing essays).
-- Follow the 3-Beat Consultative Sales Formula: (1) Direct Answer & Value Anchor in sentence 1, (2) Diagnostic Qualification Hook to understand customer requirement/pain, (3) Binary Assumptive Close (e.g. 'morning or evening?', 'tomorrow 11:30 AM or 4:30 PM?') instead of passive 'do you want to book?'.
+IMPORTANT — The following are ALREADY auto-injected globally by the system and do NOT need to be duplicated:
+- Live calendar availability / real-time appointment slot calculation (handled live)
+- Booking confirmation / reschedule / cancellation action tags (handled by system tools)
+- Customer conversation history & phone numbers (tracked automatically)
+- Format rules (no emojis, 1-2 lines, no bullets in chat messages) — enforced at generation time
+- Universal anti-hallucination and security directives
 
-IMPORTANT — The following are ALREADY auto-injected by the system and must NEVER be included in your output:
-- Current date/time and timezone
-- Live calendar availability / appointment slots
-- Booking confirmation / reschedule / cancellation action tags
-- Customer's name, phone, existing bookings
-- Conversation history
-- Format rules (no emojis, 1-2 lines, no bullets, no hyphens) — these are global
-- Anti-hallucination directives & security/injection defense rules
-- Universal objection handling fallback (auto-applied if field is empty)
-- Language/dialect mirroring logic
-
-OUTPUT FORMAT — Return ONLY a valid JSON object with these exact 7 keys. No markdown, no explanation:
+OUTPUT FORMAT — Return ONLY a valid JSON object with these exact 7 keys. No surrounding markdown fences or explanation:
 {
-  "assistant_name": "String. The AI sales receptionist's first name (e.g. Aadhi, Priya, Alex, Rakshaya). Pick a name that fits the business tone if not explicitly stated.",
-  "ai_prompt": "String. The PRIMARY business knowledge base and consultative sales playbook. Structure with: (1) Business Context & Value Proposition: who they are, unique results/track record, location. (2) Consultative 3-Beat Sales Flow: Beat 1 (Direct Answer & Value Anchor), Beat 2 (Diagnostic Qualification Hook to understand customer need/pain), Beat 3 (Binary Assumptive Close: provide binary slot choices). (3) Lead Qualification criteria and boundaries.",
-  "services_text": "String. Formatted services + pricing catalog. Each service on its own line. Format: Service Name — Description (Duration) — ₹Price. If currency not specified, use ₹.",
-  "bot_goal": "String. 2-3 sentences defining the AI as a proactive consultative sales closer. Must state: Qualify leads through consultative discovery, answer pricing/service questions with value anchoring, and guide them to schedule appointments, consults, or demo calls using binary closing choices.",
-  "strict_rules": "String. Hard business rules and absolute restrictions the AI must never violate (e.g. never quote unconfirmed prices, only book during clinic hours, no medical prescriptions over chat). One rule per line.",
-  "objection_handling": "String. Specific playbooks for price resistance ('too expensive'), delay ('will think about it' / 'will let you know'), or skepticism. Reframe value/ROI in 1 sentence and offer a zero-friction micro-step (such as a 5-minute call or holding a tentative slot with binary choices). NEVER repeatedly ask about inquiry volume in objection handling.",
-  "response_style": "String. Must enforce Easy Indian English: 'Warm, friendly, and natural. Sounds like an authentic human texting on WhatsApp in Easy Indian English. 2 to 3 short sentences (25 to 45 words max), no corporate jargon, no robotic filler, no marketing essays.'"
+  "assistant_name": "String. Assistant first name (e.g. Kavitha Clinic Assistant, Priya, Aadhi, Alex). Pick an appropriate warm name if not specified.",
+  "ai_prompt": "String. The COMPLETE, COMPREHENSIVE BUSINESS KNOWLEDGE BASE. Neatly structure ALL factual details provided in the dump using Markdown sections:\\n### Business Overview & Identity\\n(Full background, clinic/business identity, specialization, years in business, philosophy, unique selling points)\\n### Doctors, Specialists & Team Credentials\\n(Full credentials, degrees, specialties, and years of experience for every practitioner/doctor mentioned)\\n### Comprehensive Treatments & Clinical Procedures\\n(Detailed breakdown of all treatments, medical technologies/equipment used, procedure durations, steps, aftercare or preparation instructions mentioned)\\n### Clinic Timings, Locations & Contact Details\\n(Complete operating hours, days open, addresses, landmarks, contact numbers, email addresses)\\n### Clinic Policies & Patient Guidelines\\n(Booking terms, cancellation/rescheduling policies, advance tokens, accepted payment modes, refund terms)\\n### Patient Consultation Process & Discovery Flow\\n(Step-by-step patient journey, exact discovery questions to ask regarding symptoms, duration, prior treatments, or preferences)\\n### Frequently Asked Questions (FAQs) & Common Inquiries\\n(Every FAQ or common question mentioned in the dump, with its full answer preserved)\\n### Medical Disclaimers & Safety Boundaries\\n(Hard boundaries such as no prescriptions over WhatsApp chat, physical examination required, patch test requirements, emergency disclaimers)\\nRetain ALL details from the dump with zero omissions!",
+  "services_text": "String. The EXHAUSTIVE AND COMPLETE SERVICES & PRICING CATALOG. List EVERY SINGLE service, procedure, package, consultation fee, and pricing variation mentioned in the dump. Group by category with headers if multiple types exist. Format:\\n### Category Name\\n• Service Name — Full Description (Duration if stated) — Exact Price / Package Details / Starting Price\\nDo NOT omit or combine any services or prices. Everything must be listed.",
+  "bot_goal": "String. 2-3 clear sentences defining what this business wants the AI to achieve (e.g. qualify patient concerns, provide accurate pricing/treatment info, and secure confirmed consultation bookings with the doctor).",
+  "strict_rules": "String. Hard business rules and absolute restrictions the AI must never violate. Include all medical boundaries, quoting rules, patch test requirements, and operational rules from the dump. One rule per line, formatted with bullet points.",
+  "objection_handling": "String. Specific playbooks for handling patient objections, price resistance, fear of pain, or delays mentioned in the dump. Include the exact counter-arguments, value propositions, and zero-friction reassurance steps.",
+  "response_style": "String. Must enforce Easy Indian English: 'Warm, friendly, and empathetic. Sounds like an authentic, caring clinic coordinator texting on WhatsApp in Easy Indian English. 2 to 3 short sentences (25 to 45 words max), no corporate jargon, no robotic filler, no marketing essays.'"
 }
 
 RULES:
-- Extract information only from the business dump below. Do not invent facts.
-- If a field has no relevant info in the dump, return an empty string "" for it (except response_style and bot_goal, which must always establish the Consultative Sales Closer in Easy Indian English).
-- ai_prompt should be thorough — include persona, consultative discovery flow, what to ask and when, any qualification criteria.
-- services_text should be clean and scannable — one service per line.
-- Do NOT include operating hours, timezone, or location in ai_prompt (those are separate settings).
-- Do NOT add generic tips like 'always be polite' — the global engine handles that.
+- Extract and organize information from the business dump below. Do not invent facts not mentioned.
+- If a field has no relevant info in the dump, return an empty string "" for it (except response_style, which must always be set).
 - Output ONLY the JSON. No preamble, no explanation, no markdown fences.
 
 --- BUSINESS INFORMATION DUMP ---
 """ + raw_dump
 
-    # Call Gemini Flash
+    # Call Gemini (try fast flash-lite first, then flash)
     result_text = ""
-    for model in ["gemini-flash-lite-latest", "gemini-flash-latest"]:
+    for model in ["gemini-3.5-flash-lite", "gemini-3.5-flash"]:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gem_key}"
         try:
-            async with httpx.AsyncClient(timeout=25.0) as client:
+            async with httpx.AsyncClient(timeout=45.0) as client:
                 res = await client.post(
                     url,
                     headers={"Content-Type": "application/json"},
                     json={
                         "contents": [{"parts": [{"text": meta_prompt}]}],
-                        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 2048}
+                        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192}
                     }
                 )
                 if res.status_code == 200:
                     raw = res.json()["candidates"][0]["content"]["parts"][0]["text"]
                     result_text = raw.strip()
                     break
+                else:
+                    logger.warning("optimize_prompt_gemini_http_err", model=model, status_code=res.status_code, body=res.text[:200])
         except Exception as _err:
             logger.warning("optimize_prompt_gemini_error", model=model, error=str(_err))
             continue
@@ -919,13 +988,22 @@ RULES:
         raise HTTPException(status_code=502, detail="AI generation failed. Please try again.")
 
     # Parse and validate the JSON response
+    structured = {}
     try:
         # Strip markdown fences if model wrapped it anyway
         cleaned = re.sub(r'^```(?:json)?\s*', '', result_text, flags=re.MULTILINE)
         cleaned = re.sub(r'\s*```$', '', cleaned, flags=re.MULTILINE).strip()
         structured = json.loads(cleaned)
     except Exception:
-        raise HTTPException(status_code=502, detail="AI returned malformed response. Please try again.")
+        try:
+            m = re.search(r'(\{.*\})', result_text, re.DOTALL)
+            if m:
+                structured = json.loads(m.group(1))
+            else:
+                raise
+        except Exception:
+            logger.error("optimize_prompt_parse_failed", raw_len=len(result_text), raw_preview=result_text[:300])
+            raise HTTPException(status_code=502, detail="AI returned malformed response. Please try again.")
 
     # Validate expected keys exist
     expected_keys = {"assistant_name", "ai_prompt", "services_text", "bot_goal", "strict_rules", "objection_handling", "response_style"}
@@ -1168,7 +1246,8 @@ async def update_whatsapp_credentials(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(400, f"Failed to verify credentials with Meta: {str(e)}")
+        logger.warning("meta_credentials_verification_failed", tenant_id=tenant_id, error=str(e))
+        raise HTTPException(400, "Failed to verify credentials with Meta. Please check your Phone Number ID and Access Token.")
 
     # Update database
     async with database.db_pool.acquire() as conn:

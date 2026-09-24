@@ -185,6 +185,7 @@ async def mark_wa_message_as_read(phone_number_id: str, access_token: str, wa_me
 @router.get("/conversations/{conv_id}/messages")
 async def get_messages(
     conv_id: str,
+    background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_tenant_id),
     limit: int = Query(50, le=100),
     offset: int = 0
@@ -196,23 +197,16 @@ async def get_messages(
             conv_id, tenant_id
         )
 
-        # Unconditionally mark inbound messages as read in database
-        await conn.execute(
+        # Mark inbound messages as read in database and collect wa_message_ids for Meta read receipts
+        read_records = await conn.fetch(
             """UPDATE messages SET status = 'read'
                WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid
-                 AND direction = 'inbound' AND status != 'read'""",
+                 AND direction = 'inbound' AND status != 'read'
+               RETURNING wa_message_id""",
             conv_id, tenant_id
         )
-
-        # Check for unread inbound messages with wa_message_id to dispatch Meta Cloud API read receipts
-        unread_rows = await conn.fetch(
-            """SELECT wa_message_id FROM messages
-               WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid
-                 AND direction = 'inbound' AND wa_message_id IS NOT NULL
-                 AND status != 'read'""",
-            conv_id, tenant_id
-        )
-        if unread_rows:
+        unread_wa_ids = [r["wa_message_id"] for r in read_records if r["wa_message_id"]]
+        if unread_wa_ids:
             cred_row = await conn.fetchrow(
                 """SELECT credential_data FROM tenant_credentials
                    WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true""",
@@ -227,12 +221,10 @@ async def get_messages(
                 phone_id = creds.get("phone_number_id")
                 token = creds.get("access_token")
                 if phone_id and token and not str(token).startswith("EAAB_test"):
-                    for m in unread_rows:
-                        wa_mid = m["wa_message_id"]
-                        if wa_mid:
-                            asyncio.create_task(
-                                mark_wa_message_as_read(phone_id, token, wa_mid)
-                            )
+                    for wa_mid in unread_wa_ids:
+                        background_tasks.add_task(
+                            mark_wa_message_as_read, phone_id, token, wa_mid
+                        )
 
         rows = await conn.fetch(
             """SELECT id, direction, content_type, body, media_url, template_name, template_params, status, wa_message_id, created_at
@@ -595,18 +587,8 @@ async def get_media_proxy(
                     d = json.loads(cred_row["credential_data"]) if isinstance(cred_row["credential_data"], str) else dict(cred_row["credential_data"])
                     access_token = d.get("access_token")
 
-        if not access_token:
-            cred_rows = await conn.fetch(
-                "SELECT credential_data FROM tenant_credentials WHERE provider = 'whatsapp' AND is_active = true"
-            )
-            for cr in cred_rows:
-                d = json.loads(cr["credential_data"]) if isinstance(cr["credential_data"], str) else dict(cr["credential_data"])
-                if d.get("access_token") and not str(d["access_token"]).startswith("EAAB_test"):
-                    access_token = d["access_token"]
-                    break
-
     if not access_token:
-        raise HTTPException(404, "No active WhatsApp credentials found to fetch media.")
+        raise HTTPException(404, "Media not found or credentials unavailable.")
 
     # 3. Query Meta Graph API to get direct download URL
     async with httpx.AsyncClient(timeout=20.0) as client:

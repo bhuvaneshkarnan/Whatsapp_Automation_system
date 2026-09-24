@@ -71,7 +71,7 @@ async def call_gemini(
         ],
     }
 
-    model = gemini_model if gemini_model else "gemini-1.5-flash"
+    model = gemini_model if gemini_model else "gemini-3.5-flash-lite"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
 
     try:

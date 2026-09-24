@@ -29,7 +29,7 @@ interface PaymentRequiredDetails {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { branding, isCustomDomain } = useBranding();
+  const { branding, isCustomDomain, isLoading: isBrandingLoading } = useBranding();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -174,6 +174,14 @@ export default function LoginPage() {
     }
   }
 
+  if (isBrandingLoading && isCustomDomain) {
+    return (
+      <div className="min-h-screen bg-canvas text-text-primary flex flex-col justify-center items-center px-4 font-sans">
+        <Loader2 className="w-8 h-8 animate-spin text-accent" />
+      </div>
+    );
+  }
+
   if (paymentRequired) {
     const isPaused = paymentRequired.status === 'paused' || paymentRequired.status === 'cancelled';
     return (
@@ -241,7 +249,7 @@ export default function LoginPage() {
 
           {/* Footer */}
           <p className="text-center text-xs text-text-muted mt-6">
-            Need assistance? Contact support at {branding.brand_support_email || 'bhuvaneshkarnan@gmail.com'}
+            Need assistance? Contact support at {branding.brand_support_email || (isCustomDomain ? 'our support team' : 'bhuvaneshkarnan@gmail.com')}
           </p>
         </div>
       </div>
@@ -256,12 +264,22 @@ export default function LoginPage() {
           {branding.brand_logo_url ? (
             <img
               src={branding.brand_logo_url}
-              alt={branding.brand_name || 'Boldlabs'}
+              alt={branding.brand_name || (isCustomDomain ? 'Partner Portal' : 'Boldlabs')}
               className="h-14 sm:h-16 max-w-[240px] object-contain drop-shadow-sm"
               onError={(e) => {
                 (e.target as HTMLElement).style.display = 'none';
               }}
             />
+          ) : branding.brand_name ? (
+            <div className="flex items-center gap-2.5">
+              <div
+                className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-accent text-white shadow-sm font-bold text-lg"
+                style={branding.brand_primary_color ? { backgroundColor: branding.brand_primary_color } : undefined}
+              >
+                {branding.brand_name.charAt(0).toUpperCase()}
+              </div>
+              <span className="font-bold text-lg text-text-primary">{branding.brand_name}</span>
+            </div>
           ) : (
             <div
               className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-accent text-white shadow-sm"
@@ -390,15 +408,22 @@ export default function LoginPage() {
               <ArrowRight className="w-3 h-3 stroke-[1.5]" />
             </a>
           )}
-          <p className="text-center text-xs text-text-muted">
-            Need support?{' '}
-            <a href={`mailto:${branding.brand_support_email || 'bhuvaneshkarnan@gmail.com'}`} className="text-accent hover:underline">
-              {branding.brand_support_email || 'bhuvaneshkarnan@gmail.com'}
-            </a>
-          </p>
-          <p className="text-center text-xs text-text-muted">
-            &copy; {new Date().getFullYear()} {branding.brand_name || 'Boldlabs CRM'}. All rights reserved.
-          </p>
+          {(branding.brand_support_email || !isCustomDomain) && (
+            <p className="text-center text-xs text-text-muted">
+              Need support?{' '}
+              <a
+                href={`mailto:${branding.brand_support_email || 'bhuvaneshkarnan@gmail.com'}`}
+                className="text-accent hover:underline"
+              >
+                {branding.brand_support_email || 'bhuvaneshkarnan@gmail.com'}
+              </a>
+            </p>
+          )}
+          {(branding.brand_name || !isCustomDomain) && (
+            <p className="text-center text-xs text-text-muted">
+              &copy; {new Date().getFullYear()} {branding.brand_name || 'Boldlabs CRM'}. All rights reserved.
+            </p>
+          )}
         </div>
       </div>
     </div>

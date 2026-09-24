@@ -41,14 +41,14 @@ async def list_contacts(
             rows = await conn.fetch(
                 """SELECT id, phone, name, wa_profile_name, COALESCE(opt_in, true) AS opt_in, opt_in_at, created_at
                    FROM contacts
-                   WHERE tenant_id = $1 AND (name ILIKE $2 OR phone ILIKE $2)
+                   WHERE tenant_id = $1::uuid AND (name ILIKE $2 OR phone ILIKE $2)
                    ORDER BY created_at DESC LIMIT $3 OFFSET $4""",
                 tenant_id, f"%{q}%", limit, offset
             )
         else:
             rows = await conn.fetch(
                 """SELECT id, phone, name, wa_profile_name, COALESCE(opt_in, true) AS opt_in, opt_in_at, created_at
-                   FROM contacts WHERE tenant_id = $1
+                   FROM contacts WHERE tenant_id = $1::uuid
                    ORDER BY created_at DESC LIMIT $2 OFFSET $3""",
                 tenant_id, limit, offset
             )
@@ -158,7 +158,7 @@ async def get_customer_global_stats(
                         JOIN contacts ct ON b.contact_id = ct.id
                         WHERE b.tenant_id = customers.tenant_id
                           AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
-                          AND b.status IN ('completed', 'attended', 'confirmed')
+                          AND b.status IN ('completed', 'attended')
                     )
                 )""")
                 args.append("%Converted%")
@@ -193,7 +193,7 @@ async def get_customer_global_stats(
                             JOIN contacts ct ON b.contact_id = ct.id
                             WHERE b.tenant_id = customers.tenant_id
                               AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
-                              AND b.status IN ('completed', 'attended', 'confirmed')
+                              AND b.status IN ('completed', 'attended')
                         )
                         AND COALESCE(converted, false) = false
                         AND COALESCE(status, '') NOT IN ('converted', 'lost', 'follow-up', 'contacted')
@@ -224,7 +224,7 @@ async def get_customer_global_stats(
                             JOIN contacts ct ON b.contact_id = ct.id
                             WHERE b.tenant_id = customers.tenant_id
                               AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
-                              AND b.status IN ('completed', 'attended', 'confirmed')
+                              AND b.status IN ('completed', 'attended')
                         )
                     )""")
                 elif status_lower == "follow-up":
@@ -283,7 +283,7 @@ async def get_customer_global_stats(
 
         if lead_probability and lead_probability != "all":
             lp_lower = lead_probability.strip().lower()
-            conditions.append(f"(LOWER(lead_probability) = LOWER(${idx}) AND COALESCE(status, '') NOT IN ('converted', 'lost') AND COALESCE(converted, false) = false AND COALESCE(call_status, '') NOT ILIKE '%convert%' AND COALESCE(call_status, '') NOT ILIKE '%confirm%')")
+            conditions.append(f"LOWER(lead_probability) = LOWER(${idx})")
             args.append(lp_lower)
             idx += 1
 
@@ -303,7 +303,7 @@ async def get_customer_global_stats(
                     JOIN contacts ct ON b.contact_id = ct.id
                     WHERE b.tenant_id = customers.tenant_id
                       AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
-                      AND b.status = 'completed'
+                      AND b.status IN ('completed', 'attended')
                 )""")
             elif client_type == "new_lead":
                 conditions.append("""NOT EXISTS (
@@ -311,7 +311,7 @@ async def get_customer_global_stats(
                     JOIN contacts ct ON b.contact_id = ct.id
                     WHERE b.tenant_id = customers.tenant_id
                       AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
-                      AND b.status = 'completed'
+                      AND b.status IN ('completed', 'attended')
                 )""")
             elif client_type == "lapsed":
                 conditions.append("""EXISTS (
@@ -319,19 +319,45 @@ async def get_customer_global_stats(
                     JOIN contacts ct ON b.contact_id = ct.id
                     WHERE b.tenant_id = customers.tenant_id
                       AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
-                      AND b.status = 'completed'
+                      AND b.status IN ('completed', 'attended')
                       AND b.start_time < (now() - interval '30 days')
                 )""")
 
         if health_concern and health_concern != "all":
-            conditions.append(f"health_concern = ${idx}")
-            args.append(health_concern)
+            h_clean = health_concern.strip()
+            conditions.append(f"""(
+                health_concern ILIKE ${idx}
+                OR EXISTS (
+                    SELECT 1 FROM unnest(COALESCE(primary_concerns, ARRAY[]::text[])) pc
+                    WHERE pc ILIKE ${idx}
+                )
+            )""")
+            args.append(f"%{h_clean}%")
             idx += 1
 
         if q and q.strip():
-            conditions.append(f"(name ILIKE ${idx} OR phone ILIKE ${idx} OR health_concern ILIKE ${idx})")
-            args.append(f"%{q.strip()}%")
-            idx += 1
+            q_clean = q.strip()
+            digits_only = re.sub(r'[^0-9]', '', q_clean)
+            search_parts = [
+                f"name ILIKE ${idx}",
+                f"COALESCE(internal_name, '') ILIKE ${idx}",
+                f"preferred_doctor ILIKE ${idx}",
+                f"health_concern ILIKE ${idx}",
+                f"location ILIKE ${idx}",
+                f"call_status ILIKE ${idx}",
+                f"next_action ILIKE ${idx}",
+                f"EXISTS (SELECT 1 FROM customer_notes cn WHERE cn.customer_id = customers.id AND cn.tenant_id = customers.tenant_id AND cn.note_text ILIKE ${idx})"
+            ]
+            if len(digits_only) >= 3:
+                search_parts.append(f"REGEXP_REPLACE(phone, '[^0-9]', '', 'g') ILIKE ${idx + 1}")
+                search_parts.append(f"metadata->'merged_phones' ? ${idx + 1}")
+                args.extend([f"%{q_clean}%", f"%{digits_only}%"])
+                idx += 2
+            else:
+                search_parts.append(f"phone ILIKE ${idx}")
+                args.append(f"%{q_clean}%")
+                idx += 1
+            conditions.append(f"({' OR '.join(search_parts)})")
 
         caller_concerns = caller.get("assigned_health_concerns", [])
         if caller_concerns and caller.get("role") not in ("admin", "super_admin", "owner"):
@@ -390,10 +416,19 @@ async def list_customers(
     health_concern: Optional[str] = None,
     next_action: Optional[str] = None,
     q: Optional[str] = None,
-    limit: int = Query(1000, le=5000),
+    limit: int = Query(100, le=1000),
     offset: int = 0
 ):
     """List customer follow-up records with segment filters, chat activity, and notes counts."""
+    try:
+        limit = int(getattr(limit, 'default', limit)) if not isinstance(limit, int) else limit
+    except Exception:
+        limit = 100
+    try:
+        offset = int(getattr(offset, 'default', offset)) if not isinstance(offset, int) else offset
+    except Exception:
+        offset = 0
+
     async with database.db_pool.acquire() as conn:
         # Ensure all WhatsApp contacts/conversations have a customer record
         try:
@@ -574,7 +609,7 @@ async def list_customers(
 
         if lead_probability and lead_probability != "all":
             lp_lower = lead_probability.strip().lower()
-            conditions.append(f"(LOWER(c.lead_probability) = LOWER(${idx}) AND COALESCE(c.status, '') NOT IN ('converted', 'lost') AND COALESCE(c.converted, false) = false AND COALESCE(c.call_status, '') NOT ILIKE '%convert%' AND COALESCE(c.call_status, '') NOT ILIKE '%confirm%')")
+            conditions.append(f"LOWER(c.lead_probability) = LOWER(${idx})")
             params.append(lp_lower)
             idx += 1
 
@@ -620,8 +655,15 @@ async def list_customers(
             conditions.append(f"({' OR '.join(search_parts)})")
 
         if health_concern and health_concern != "all":
-            conditions.append(f"c.health_concern = ${idx}")
-            params.append(health_concern)
+            h_clean = health_concern.strip()
+            conditions.append(f"""(
+                c.health_concern ILIKE ${idx}
+                OR EXISTS (
+                    SELECT 1 FROM unnest(COALESCE(c.primary_concerns, ARRAY[]::text[])) pc
+                    WHERE pc ILIKE ${idx}
+                )
+            )""")
+            params.append(f"%{h_clean}%")
             idx += 1
 
         # Health concern isolation: non-admin staff with assigned_health_concerns only see matching patients
@@ -1433,6 +1475,8 @@ async def update_customer(
         "name": row["name"],
         "internal_name": row["internal_name"] or None,
         "metadata": row.get("metadata") or {},
+        "age": row["age"],
+        "location": row["location"] or None,
         "phone": row["phone"],
         "preferred_doctor": row["preferred_doctor"],
         "status": row["status"],
@@ -2262,7 +2306,7 @@ async def summarize_customer_chat(
                 )
                 async with httpx.AsyncClient(timeout=8.0) as client:
                     resp = await client.post(
-                        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gkey}",
+                        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={gkey}",
                         json={"contents": [{"parts": [{"text": prompt}]}]}
                     )
                     if resp.status_code == 200:
@@ -2836,10 +2880,10 @@ async def toggle_task_completion(
     task_id: str,
     tenant_id: str = Depends(get_tenant_id)
 ):
-    """Toggle task completion status."""
+    """Toggle task completion status and sync status to Google Tasks API."""
     async with database.db_pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT completed, customer_id FROM tasks WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            "SELECT completed, customer_id, google_task_id FROM tasks WHERE id = $1::uuid AND tenant_id = $2::uuid",
             task_id, tenant_id
         )
         if not row:
@@ -2850,6 +2894,34 @@ async def toggle_task_completion(
             "UPDATE tasks SET completed = $1, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
             new_status, task_id, tenant_id
         )
+
+        gt_id = row.get("google_task_id")
+        if gt_id and not gt_id.startswith("gtask_") and not gt_id.startswith("local_"):
+            g_row = await conn.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+                tenant_id
+            )
+            if g_row and g_row["credential_data"]:
+                try:
+                    d = g_row["credential_data"]
+                    if isinstance(d, str): d = json.loads(d)
+                    r_token = d.get("refresh_token")
+                    c_id = (d.get("client_id") or "").strip() or os.getenv("GOOGLE_CLIENT_ID", "").strip()
+                    c_secret = (d.get("client_secret") or "").strip() or os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+                    if r_token and c_id and c_secret:
+                        from google.oauth2.credentials import Credentials
+                        from googleapiclient.discovery import build
+                        creds = Credentials(
+                            token=None, refresh_token=r_token, token_uri="https://oauth2.googleapis.com/token",
+                            client_id=c_id, client_secret=c_secret
+                        )
+                        t_svc = await asyncio.to_thread(build, "tasks", "v1", credentials=creds)
+                        patch_body = {"status": "completed"} if new_status else {"status": "needsAction", "completed": None}
+                        patch_req = t_svc.tasks().patch(tasklist="@default", task=gt_id, body=patch_body)
+                        await asyncio.to_thread(lambda: patch_req.execute())
+                except Exception as e_gt:
+                    logger.warning("toggle_task_google_patch_error", task_id=task_id, error=str(e_gt))
+
     return {"status": "ok", "id": task_id, "completed": new_status}
 
 
@@ -3052,8 +3124,8 @@ async def delete_customer(
     tenant_id: str = Depends(get_tenant_id),
     caller: dict = Depends(get_caller_context)
 ):
-    """Permanently delete a customer record and all related notes and tasks."""
-    if caller.get("role") not in ("admin", "owner", "super_admin"):
+    caller_role = caller.get("role", "admin") if isinstance(caller, dict) else "admin"
+    if caller_role not in ("admin", "owner", "super_admin"):
         raise HTTPException(status_code=403, detail="Admin privileges required to delete a customer.")
     async with database.db_pool.acquire() as conn:
         async with conn.transaction():

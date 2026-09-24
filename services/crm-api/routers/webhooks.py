@@ -18,9 +18,31 @@ from tasks_service import dispatch_push_notification
 from dependencies import JWT_SECRET
 import utils
 from utils import safe_json_loads, get_tenant_base_url
+from collections import defaultdict, deque
 
 router = APIRouter()
 logger = structlog.get_logger('crm-api-webhooks')
+
+# ── In-process rate limiter for missed-call webhook ──────────────────────────
+# Allows up to _MISSED_CALL_RATE_LIMIT requests per _MISSED_CALL_RATE_WINDOW seconds
+# per (tenant_slug, caller_ip) pair. Uses a deque-based sliding window — no Redis needed.
+_MISSED_CALL_RATE_LIMIT = int(os.getenv("MISSED_CALL_RATE_LIMIT", "10"))
+_MISSED_CALL_RATE_WINDOW = int(os.getenv("MISSED_CALL_RATE_WINDOW_SECS", "60"))
+_missed_call_rate_buckets: dict = defaultdict(deque)
+
+def _check_missed_call_rate_limit(tenant_slug: str, caller_ip: str) -> bool:
+    """Returns True if the request is allowed, False if rate limit exceeded."""
+    key = f"{tenant_slug}:{caller_ip}"
+    now = time.time()
+    bucket = _missed_call_rate_buckets[key]
+    # Evict timestamps outside the window
+    while bucket and bucket[0] < now - _MISSED_CALL_RATE_WINDOW:
+        bucket.popleft()
+    if len(bucket) >= _MISSED_CALL_RATE_LIMIT:
+        return False
+    bucket.append(now)
+    return True
+
 
 @router.post("/webhooks/razorpay")
 async def handle_razorpay_webhook(
@@ -35,14 +57,15 @@ async def handle_razorpay_webhook(
     
     # Verify HMAC-SHA256 signature
     is_valid = razorpay_client.verify_webhook_signature(raw_body, signature)
-    if not is_valid and os.getenv("ENV") != "test":
+    if not is_valid:
         logger.warning("razorpay_webhook_invalid_signature", signature=signature)
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
     try:
         event_data = json.loads(raw_body.decode("utf-8"))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON payload: {str(e)}")
+        logger.warning("webhook_json_decode_failed", error=str(e))
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
     event_type = event_data.get("event")
     logger.info("razorpay_webhook_received", webhook_event=event_type)
@@ -174,7 +197,8 @@ async def handle_razorpay_webhook(
                 brand_header_text = t_brand_title or "Boldlabs AI WhatsApp Automation Platform"
 
                 g_cred_row = await conn.fetchrow(
-                    "SELECT credential_data FROM tenant_credentials WHERE provider = 'google_calendar' AND is_active = true LIMIT 1"
+                    "SELECT credential_data FROM tenant_credentials WHERE provider = 'google_calendar' AND tenant_id = $1::uuid AND is_active = true LIMIT 1",
+                    tenant_id
                 )
                 if g_cred_row and g_cred_row["credential_data"] and target_email and "@" in target_email:
                     gd = safe_json_loads(g_cred_row["credential_data"])
@@ -495,17 +519,23 @@ async def handle_missed_call_webhook(
             except Exception:
                 t_settings = {}
 
-        # 2. Strict Security Token Verification
-        expected_token = hashlib.sha256(f"{tenant_id}:{JWT_SECRET}:missed-call".encode()).hexdigest()[:16]
-        allowed_tokens = {expected_token}
+        # 2. Strict Security Token Verification (128-bit token with 16-char legacy backward compatibility)
+        expected_token_32 = hashlib.sha256(f"{tenant_id}:{JWT_SECRET}:missed-call".encode()).hexdigest()[:32]
+        expected_token_16 = expected_token_32[:16]
+        allowed_tokens = {expected_token_32, expected_token_16}
         if t_settings.get("missed_call_token"):
             allowed_tokens.add(str(t_settings["missed_call_token"]).strip())
         if t_settings.get("webhook_token"):
             allowed_tokens.add(str(t_settings["webhook_token"]).strip())
-        allowed_tokens.add(f"{tenant_slug}_missed_call")
 
-        if tok_param and tok_param not in allowed_tokens:
-            raise HTTPException(status_code=403, detail="Invalid tenant security token.")
+        if not tok_param or tok_param not in allowed_tokens:
+            raise HTTPException(status_code=403, detail="Invalid or missing tenant security token.")
+
+        # Rate limit: max _MISSED_CALL_RATE_LIMIT calls per _MISSED_CALL_RATE_WINDOW seconds per tenant+IP
+        caller_ip = request.client.host if request.client else "unknown"
+        if not _check_missed_call_rate_limit(tenant_slug, caller_ip):
+            logger.warning("missed_call_rate_limit_exceeded", tenant_slug=tenant_slug, caller_ip=caller_ip)
+            raise HTTPException(status_code=429, detail="Too many requests. Please wait before trying again.")
 
         # 3. Extract and normalize phone number
         clean_digits = ""

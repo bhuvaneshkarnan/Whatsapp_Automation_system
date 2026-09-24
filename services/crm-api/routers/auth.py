@@ -41,6 +41,11 @@ from routers.settings import update_tenant_settings
 router = APIRouter()
 logger = structlog.get_logger('crm-api-auth')
 
+# Tenant IDs requiring privacy mode — loaded from env, never hardcoded in business logic.
+_PRIVACY_TENANT_IDS: frozenset = frozenset(
+    t.strip() for t in os.getenv("PRIVACY_TENANT_IDS", "b97ca3e5-7d43-44cf-8021-6e3659def878").split(",") if t.strip()
+)
+
 GLOBAL_DEFAULT_STRICT_RULES = """1. CONSULTATIVE SALES CLOSER (NOT PASSIVE SUPPORT): Act like a proactive, high-converting WhatsApp sales closer, not a passive customer support desk. Follow the 3-Beat Sales Formula: (1) Answer the customer's query directly and anchor value or relief in sentence 1. (2) If their specific need or pain is unclear, ask 1 diagnostic qualification question. (3) When guiding to a booking, consult, or visit, always provide binary closing choices (e.g. 'morning or evening?', 'tomorrow 11:30 AM or 4:30 PM?') instead of passive 'do you want to book?'.
 2. ACTIVE OBJECTION RE-FRAMING: When a customer expresses price resistance ('too expensive') or delay ('will check and let you know'), never accept a dead-end. Reframe the value in 1 sentence and offer a zero-friction micro-step (such as a 5-minute call with the coordinator or a tentative slot hold).
 3. EASY INDIAN ENGLISH & NATURAL HUMAN TONE: Reply like an authentic, friendly real person texting on WhatsApp in India using easy Indian English. Avoid stiff corporate jargon, robotic filler ('Certainly!', 'I would be delighted to assist you', 'Please feel free to reach out'), and formal customer service essays.
@@ -119,25 +124,6 @@ async def sync_admin_global_rules(
 async def list_partner_templates(admin_user: dict = Depends(verify_super_admin)):
     """Retrieve all configured partner agency white-label templates."""
     async with database.db_pool.acquire() as conn:
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS partner_agency_templates (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                partner_name TEXT NOT NULL UNIQUE,
-                partner_share_pct NUMERIC DEFAULT 50,
-                owner_share_pct NUMERIC DEFAULT 50,
-                custom_domain TEXT,
-                brand_name TEXT,
-                brand_logo_url TEXT,
-                brand_favicon_url TEXT,
-                brand_primary_color TEXT DEFAULT '#7C3AED',
-                brand_support_email TEXT,
-                brand_support_phone TEXT,
-                hide_platform_branding BOOLEAN DEFAULT true,
-                is_default BOOLEAN DEFAULT true,
-                created_at TIMESTAMPTZ DEFAULT now(),
-                updated_at TIMESTAMPTZ DEFAULT now()
-            )
-        """)
         rows = await conn.fetch(
             "SELECT * FROM partner_agency_templates ORDER BY is_default DESC, updated_at DESC"
         )
@@ -175,26 +161,6 @@ async def save_partner_template(payload: PartnerTemplatePayload, admin_user: dic
     b_name = (payload.brand_name or p_name).strip()
     
     async with database.db_pool.acquire() as conn:
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS partner_agency_templates (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                partner_name TEXT NOT NULL UNIQUE,
-                partner_share_pct NUMERIC DEFAULT 50,
-                owner_share_pct NUMERIC DEFAULT 50,
-                custom_domain TEXT,
-                brand_name TEXT,
-                brand_logo_url TEXT,
-                brand_favicon_url TEXT,
-                brand_primary_color TEXT DEFAULT '#7C3AED',
-                brand_support_email TEXT,
-                brand_support_phone TEXT,
-                hide_platform_branding BOOLEAN DEFAULT true,
-                is_default BOOLEAN DEFAULT true,
-                created_at TIMESTAMPTZ DEFAULT now(),
-                updated_at TIMESTAMPTZ DEFAULT now()
-            )
-        """)
-        
         # If is_default is true, unmark previous default
         if payload.is_default:
             await conn.execute("UPDATE partner_agency_templates SET is_default = false WHERE partner_name != $1", p_name)
@@ -268,7 +234,11 @@ async def delete_partner_template(partner_name: str, admin_user: dict = Depends(
 
 @router.get("/admin/tenants")
 @router.get("/api/v1/crm/admin/tenants")
-async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
+async def list_admin_tenants(
+    admin_user: dict = Depends(verify_super_admin),
+    limit: int = Query(100, ge=1, le=500, description="Max tenants per page"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+):
     """List all client tenants with metadata, stats, billing, and primary admin email."""
     async with database.db_pool.acquire() as conn:
         rows = await conn.fetch(
@@ -289,7 +259,9 @@ async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
                 (SELECT created_at FROM customers WHERE tenant_id = t.id AND (call_status ILIKE '%missed%' OR id IN (SELECT customer_id FROM customer_notes WHERE note_text ILIKE '%missed%')) ORDER BY created_at DESC LIMIT 1) as last_missed_at
             FROM tenants t
             ORDER BY t.created_at DESC
-            """
+            LIMIT $1 OFFSET $2
+            """,
+            limit, offset
         )
     result = []
     for r in rows:
@@ -302,7 +274,7 @@ async def list_admin_tenants(admin_user: dict = Depends(verify_super_admin)):
         razorpay_sub_id = r["razorpay_subscription_id"] or cfg.get("razorpay_subscription_id", "")
         next_renewal = r["next_charge_at"].strftime("%d %b %Y") if r["next_charge_at"] else cfg.get("next_renewal_date", f"Day {billing_day} of every month")
         admin_phone = cfg.get("admin_whatsapp_number", "")
-        sha_token = hashlib.sha256(f"{str(r['id'])}:{JWT_SECRET}:missed-call".encode()).hexdigest()[:16]
+        sha_token = hashlib.sha256(f"{str(r['id'])}:{JWT_SECRET}:missed-call".encode()).hexdigest()[:32]
         m_token = cfg.get("missed_call_token") or sha_token
         m_tpl = cfg.get("template_missed_call") or "missed_call_followup"
         result.append({
@@ -361,7 +333,12 @@ async def list_admin_missed_calls(
                 """
                 SELECT c.id, c.tenant_id, t.name as tenant_name, t.slug as tenant_slug,
                        c.name, c.phone, c.status, c.call_status, c.created_at,
-                       (SELECT body FROM messages m WHERE m.tenant_id = c.tenant_id AND m.direction = 'outbound' ORDER BY m.created_at DESC LIMIT 1) as last_outbound_msg
+                       (SELECT m.body FROM messages m 
+                        JOIN conversations cv ON cv.id = m.conversation_id AND cv.tenant_id = c.tenant_id 
+                        JOIN contacts ct ON ct.id = cv.contact_id AND ct.tenant_id = c.tenant_id 
+                        WHERE m.tenant_id = c.tenant_id AND m.direction = 'outbound' 
+                          AND (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10)) 
+                        ORDER BY m.created_at DESC LIMIT 1) as last_outbound_msg
                 FROM customers c
                 JOIN tenants t ON t.id = c.tenant_id
                 WHERE c.tenant_id = $1::uuid AND (c.call_status ILIKE '%missed%' OR c.id IN (SELECT customer_id FROM customer_notes WHERE note_text ILIKE '%missed%'))
@@ -375,7 +352,12 @@ async def list_admin_missed_calls(
                 """
                 SELECT c.id, c.tenant_id, t.name as tenant_name, t.slug as tenant_slug,
                        c.name, c.phone, c.status, c.call_status, c.created_at,
-                       (SELECT body FROM messages m WHERE m.tenant_id = c.tenant_id AND m.direction = 'outbound' ORDER BY m.created_at DESC LIMIT 1) as last_outbound_msg
+                       (SELECT m.body FROM messages m 
+                        JOIN conversations cv ON cv.id = m.conversation_id AND cv.tenant_id = c.tenant_id 
+                        JOIN contacts ct ON ct.id = cv.contact_id AND ct.tenant_id = c.tenant_id 
+                        WHERE m.tenant_id = c.tenant_id AND m.direction = 'outbound' 
+                          AND (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10)) 
+                        ORDER BY m.created_at DESC LIMIT 1) as last_outbound_msg
                 FROM customers c
                 JOIN tenants t ON t.id = c.tenant_id
                 WHERE c.call_status ILIKE '%missed%' OR c.id IN (SELECT customer_id FROM customer_notes WHERE note_text ILIKE '%missed%')
@@ -415,12 +397,12 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
         # Check slug collision
         existing = await conn.fetchval("SELECT id FROM tenants WHERE slug = $1", slug)
         if existing:
-            raise HTTPException(400, f"Organization identifier (slug) '{slug}' is already in use")
+            raise HTTPException(400, "Organization identifier (slug) is already in use")
 
         # Check email collision
         existing_email = await conn.fetchval("SELECT id FROM users WHERE email = $1", payload.admin_email.strip())
         if existing_email:
-            raise HTTPException(400, f"Admin email '{payload.admin_email}' is already registered")
+            raise HTTPException(400, "Admin email is already registered")
 
         tenant_id = str(uuid.uuid4())
         user_id = str(uuid.uuid4())
@@ -502,6 +484,32 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
         b_day = payload.billing_cycle_day or 1
         ind = (payload.industry or "clinic").strip().lower()
         admin_display_name = (payload.admin_name or "").strip() or payload.name.strip()
+
+        # Resolve Partner Template & Branding (if partnered)
+        matching_partner = None
+        if payload.partner_name and payload.partner_name.strip():
+            matching_partner = await conn.fetchrow(
+                "SELECT * FROM partner_agency_templates WHERE LOWER(TRIM(partner_name)) = LOWER(TRIM($1)) LIMIT 1",
+                payload.partner_name.strip()
+            )
+        if not matching_partner and payload.custom_domain and payload.custom_domain.strip():
+            matching_partner = await conn.fetchrow(
+                "SELECT * FROM partner_agency_templates WHERE LOWER(TRIM(custom_domain)) = LOWER(TRIM($1)) LIMIT 1",
+                payload.custom_domain.strip()
+            )
+        if not matching_partner and (payload.sales_channel or "").lower() == "partner":
+            matching_partner = await conn.fetchrow(
+                "SELECT * FROM partner_agency_templates WHERE is_default = true LIMIT 1"
+            )
+
+        p_dict = dict(matching_partner) if matching_partner else {}
+        is_partner_channel = bool((payload.sales_channel or "").lower() == "partner" or payload.partner_name or p_dict)
+        final_partner_name = (payload.partner_name or p_dict.get("partner_name") or "").strip()
+        final_custom_domain = (payload.custom_domain or p_dict.get("custom_domain") or "").strip().lower()
+        final_brand_name = (payload.brand_name or p_dict.get("brand_name") or payload.name.strip()).strip()
+        final_partner_share = float(payload.partner_share_pct if payload.partner_share_pct is not None and payload.partner_share_pct > 0 else (p_dict.get("partner_share_pct") or 50.0))
+        final_owner_share = float(payload.owner_share_pct if payload.owner_share_pct is not None and payload.owner_share_pct > 0 else (p_dict.get("owner_share_pct") or (100.0 - final_partner_share)))
+
         t_settings = {
             "admin_name": admin_display_name,
             "industry": ind,
@@ -514,6 +522,18 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
             "currency_symbol": "₹",
             "allow_text_fallback": False,
             "disable_template_text_fallback": True,
+            "sales_channel": "partner" if is_partner_channel else "direct",
+            "partner_name": final_partner_name if is_partner_channel else "",
+            "partner_share_pct": final_partner_share if is_partner_channel else 0.0,
+            "owner_share_pct": final_owner_share if is_partner_channel else 100.0,
+            "custom_domain": final_custom_domain or None,
+            "brand_name": final_brand_name or payload.name.strip(),
+            "brand_logo_url": (p_dict.get("brand_logo_url") or "").strip(),
+            "brand_favicon_url": (p_dict.get("brand_favicon_url") or "/favicon.ico").strip(),
+            "brand_primary_color": (p_dict.get("brand_primary_color") or "#059669").strip(),
+            "brand_support_email": (p_dict.get("brand_support_email") or "").strip(),
+            "brand_support_phone": (p_dict.get("brand_support_phone") or "").strip(),
+            "hide_platform_branding": bool(p_dict.get("hide_platform_branding", True if (final_custom_domain or is_partner_channel) else False)),
             "template_booking_confirmation": payload.template_booking_confirmation.strip() if payload.template_booking_confirmation else "booking_confirmationn",
             "template_booking_reschedule_confirmation": payload.template_reschedule_confirmation.strip() if payload.template_reschedule_confirmation else "booking_reschedule_confirmation",
             "template_cancellation_confirmation": payload.template_cancellation_confirmation.strip() if payload.template_cancellation_confirmation else "cancellation_confirmation",
@@ -586,8 +606,8 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
                 # 4. AI Config (Modular + Compiled + Global Strict Rules)
                 await conn.execute(
                     """INSERT INTO ai_config (tenant_id, model, system_prompt, assistant_name, bot_goal, services_text, strict_rules, response_style, methodology, temperature, max_tokens) 
-                       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, 'short', 'dogfooding', 0.3, 500)""",
-                    tenant_id, payload.ai_model or "gemini-1.5-flash", compiled_prompt, assistant_name, bot_goal, services_text, GLOBAL_DEFAULT_STRICT_RULES
+                       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, 'short', 'dogfooding', 0.3, 2048)""",
+                    tenant_id, payload.ai_model or "gemini-3.5-flash-lite", compiled_prompt, assistant_name, bot_goal, services_text, GLOBAL_DEFAULT_STRICT_RULES
                 )
 
                 # 5. Customer Model API Keys (Gemini, Groq, OpenCode)
@@ -629,8 +649,8 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
                         str(uuid.uuid4()), tenant_id, json.dumps(g_cred_dict)
                     )
         except Exception as e:
-            logger.error(f"Error provisioning client tenant: {e}")
-            raise HTTPException(400, f"Failed to provision client organization: {str(e)}")
+            logger.error("provision_client_org_failed", error=str(e))
+            raise HTTPException(400, "Failed to provision client organization. Please check your configuration and try again.")
 
     # Auto-provision Meta templates for new tenant if WhatsApp credentials provided
     if payload.meta_waba_id and payload.meta_access_token:
@@ -640,14 +660,18 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
         except Exception as st_err:
             logger.warning("tenant_onboarding_meta_template_sync_warn", tenant_id=tenant_id, error=str(st_err))
 
+    effective_domain = final_custom_domain or "crm.goboldlabs.com"
     return {
         "id": tenant_id,
         "name": payload.name.strip(),
         "slug": slug,
         "admin_email": payload.admin_email.strip(),
-        "webhook_url": f"{utils.APP_BASE_URL}/webhooks/whatsapp/{slug}",
+        "webhook_url": f"https://crm.goboldlabs.com/webhooks/whatsapp/{slug}",
         "verify_token": payload.verify_token.strip() or (slug + "_verify_token"),
-        "login_url": f"{utils.APP_BASE_URL}/login",
+        "login_url": f"https://{effective_domain}/login?redirect=/{slug}",
+        "custom_domain": final_custom_domain or None,
+        "brand_name": final_brand_name,
+        "partner_name": final_partner_name or None,
         "status": "active"
     }
 
@@ -685,6 +709,15 @@ async def get_admin_tenant_details(tenant_id: str, admin_user: dict = Depends(ve
         has_groq_key = bool(groq_creds and groq_creds["credential_data"])
         has_opencode_key = bool(opencode_creds and opencode_creds["credential_data"])
 
+        c_dom = (t_settings.get("custom_domain") or "").strip().lower()
+        p_name = (t_settings.get("partner_name") or "").strip()
+        if not c_dom and p_name:
+            p_row = await conn.fetchrow("SELECT custom_domain FROM partner_agency_templates WHERE LOWER(TRIM(partner_name)) = LOWER(TRIM($1)) LIMIT 1", p_name)
+            if p_row and p_row["custom_domain"]:
+                c_dom = p_row["custom_domain"].strip().lower()
+        eff_dom = c_dom or "crm.goboldlabs.com"
+        login_url = f"https://{eff_dom}/login?redirect=/{tenant['slug']}"
+
     return {
         "id": str(tenant["id"]),
         "name": tenant["name"],
@@ -694,7 +727,10 @@ async def get_admin_tenant_details(tenant_id: str, admin_user: dict = Depends(ve
         "created_at": tenant["created_at"].isoformat() if tenant["created_at"] else "",
         "admin_name": admin_display,
         "admin_email": tenant_admin_user["email"] if tenant_admin_user else "",
-        "webhook_url": f"http://168.138.172.197/webhooks/whatsapp/{tenant['slug']}",
+        "webhook_url": f"https://crm.goboldlabs.com/webhooks/whatsapp/{tenant['slug']}",
+        "login_url": login_url,
+        "custom_domain": c_dom or None,
+        "partner_name": p_name or None,
         "credentials": {
             "phone_number_id": cred_data.get("phone_number_id", ""),
             "verify_token": cred_data.get("verify_token", ""),
@@ -714,7 +750,7 @@ async def get_admin_tenant_details(tenant_id: str, admin_user: dict = Depends(ve
             "template_admin_reschedule_notice": cred_data.get("template_admin_reschedule_notice", "admin_reschedule_notice"),
         },
         "ai_config": {
-            "model": ai_cfg["model"] if ai_cfg else "gemini-1.5-flash",
+            "model": ai_cfg["model"] if ai_cfg else "gemini-3.5-flash-lite",
             "assistant_name": ai_cfg.get("assistant_name", "") if (ai_cfg and "assistant_name" in ai_cfg) else "Assistant",
             "bot_goal": ai_cfg.get("bot_goal", "") if (ai_cfg and "bot_goal" in ai_cfg) else "",
             "services_text": ai_cfg.get("services_text", "") if (ai_cfg and "services_text" in ai_cfg) else "",
@@ -1400,44 +1436,48 @@ async def get_tenant_invoices(tenant_id: str, admin_user: dict = Depends(verify_
 
 
 @router.post("/admin/purge-test-data")
-async def purge_test_data(tenant_id: Optional[str] = None, admin_user: dict = Depends(verify_super_admin)):
+async def purge_test_data(tenant_id: str, admin_user: dict = Depends(verify_super_admin)):
     """
-    Purge test records (bookings, customers, contacts, test messages) across all or specific tenants.
-    Ensures zero dummy or test data remains in the database.
+    Purge test records (bookings, customers, contacts, test messages) for a specific tenant.
+    tenant_id is REQUIRED — cross-tenant mass delete is not permitted.
     """
-    async with database.db_pool.acquire() as conn:
-        t_filter = "AND tenant_id = $1::uuid" if tenant_id else ""
-        params = [tenant_id] if tenant_id else []
+    if not tenant_id or not tenant_id.strip():
+        raise HTTPException(status_code=400, detail="tenant_id is required for purge_test_data")
+    try:
+        clean_tenant_id = str(uuid.UUID(tenant_id.strip()))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="tenant_id must be a valid UUID")
 
+    async with database.db_pool.acquire() as conn:
         # 1. Purge test bookings
         b_res = await conn.execute(
-            f"DELETE FROM bookings WHERE (notes ILIKE '%test%' OR service ILIKE '%test%') {t_filter}",
-            *params
+            "DELETE FROM bookings WHERE tenant_id = $1::uuid AND (notes ILIKE '%test%' OR service ILIKE '%test%')",
+            clean_tenant_id
         )
         b_count = int(b_res.split()[-1]) if b_res else 0
 
         # 2. Purge test customers
         c_res = await conn.execute(
-            f"DELETE FROM customers WHERE (name ILIKE '%test%' OR health_concern ILIKE '%test%') {t_filter}",
-            *params
+            "DELETE FROM customers WHERE tenant_id = $1::uuid AND (name ILIKE '%test%' OR health_concern ILIKE '%test%')",
+            clean_tenant_id
         )
         c_count = int(c_res.split()[-1]) if c_res else 0
 
         # 3. Purge test contacts
         ct_res = await conn.execute(
-            f"DELETE FROM contacts WHERE (name ILIKE '%test%' OR notes ILIKE '%test%') {t_filter}",
-            *params
+            "DELETE FROM contacts WHERE tenant_id = $1::uuid AND (name ILIKE '%test%' OR notes ILIKE '%test%')",
+            clean_tenant_id
         )
         ct_count = int(ct_res.split()[-1]) if ct_res else 0
 
         # 4. Purge test messages
         m_res = await conn.execute(
-            f"DELETE FROM messages WHERE (body ILIKE '%[TEST]%' OR body ILIKE '%test_message%' OR body ILIKE 'Test message from%' OR body ILIKE '%automated test%') {t_filter}",
-            *params
+            "DELETE FROM messages WHERE tenant_id = $1::uuid AND (body ILIKE '%[TEST]%' OR body ILIKE '%test_message%' OR body ILIKE 'Test message from%' OR body ILIKE '%automated test%')",
+            clean_tenant_id
         )
         m_count = int(m_res.split()[-1]) if m_res else 0
 
-        logger.info("admin_purged_test_data", bookings=b_count, customers=c_count, contacts=ct_count, messages=m_count, tenant_id=tenant_id)
+        logger.info("admin_purged_test_data", bookings=b_count, customers=c_count, contacts=ct_count, messages=m_count, tenant_id=clean_tenant_id)
         return {
             "success": True,
             "purged": {
@@ -1460,10 +1500,29 @@ async def send_admin_due_date_alert(payload: AdminDueAlertRequest, background_ta
         raise HTTPException(400, "Valid 10+ digit super admin WhatsApp number required")
 
     async with database.db_pool.acquire() as conn:
-        # Find any active tenant with Meta WhatsApp credentials to dispatch the message
-        sender_cred = await conn.fetchrow(
-            "SELECT tenant_id, credential_data FROM tenant_credentials WHERE provider = 'whatsapp' AND is_active = true LIMIT 1"
-        )
+        # Prioritize platform/agency tenant credentials (e.g. boldlabs or caller's tenant)
+        # to ensure administrative alerts do not send from a random client's WhatsApp account
+        admin_tid = admin_user.get("tenant_id") if isinstance(admin_user, dict) else None
+        sender_cred = None
+        if admin_tid:
+            sender_cred = await conn.fetchrow(
+                "SELECT tenant_id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+                admin_tid
+            )
+        if not sender_cred:
+            sender_cred = await conn.fetchrow(
+                """SELECT tc.tenant_id, tc.credential_data
+                   FROM tenant_credentials tc
+                   JOIN tenants t ON t.id = tc.tenant_id
+                   WHERE tc.provider = 'whatsapp' AND tc.is_active = true
+                     AND (t.slug IN ('boldlabs', 'admin', 'platform', 'goboldlabs') OR t.name ILIKE '%boldlabs%')
+                   LIMIT 1"""
+            )
+        if not sender_cred:
+            logger.warning("admin_due_alert_fallback_to_any_whatsapp_sender")
+            sender_cred = await conn.fetchrow(
+                "SELECT tenant_id, credential_data FROM tenant_credentials WHERE provider = 'whatsapp' AND is_active = true LIMIT 1"
+            )
         sender_tenant_id = str(sender_cred["tenant_id"]) if sender_cred else str(uuid.uuid4())
 
         if payload.tenant_id:
@@ -1597,7 +1656,7 @@ async def send_admin_due_date_alert(payload: AdminDueAlertRequest, background_ta
 
 @router.get("/notifications/vapid-public-key")
 @router.get("/api/v1/crm/notifications/vapid-public-key")
-async def get_vapid_public_key():
+async def get_vapid_public_key(tenant_id: str = Depends(get_tenant_id)):
     """Returns VAPID public key for frontend Service Worker Web Push registration."""
     return {"vapid_public_key": VAPID_PUBLIC_KEY}
 
@@ -2194,7 +2253,7 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
                 "booking_confirmationn"
             )
             is_mbr = (
-                str(tenant_id) == "b97ca3e5-7d43-44cf-8021-6e3659def878"
+                str(tenant_id) in _PRIVACY_TENANT_IDS
                 or ((tenant.get("slug") or "").lower() in ("mindbodyrecovery", "mind-body-recovery"))
                 or ("mind body recovery" in (tenant.get("name") or "").lower())
             )
@@ -2418,7 +2477,19 @@ async def update_tenant_staff(tenant_id: str, user_id: str, payload: StaffUpdate
 
         if updates:
             updates.append("updated_at = now()")
-            sql = f"UPDATE users SET {', '.join(updates)} WHERE id = $1::uuid AND tenant_id = $2::uuid"
+            # Build safe SQL using an allow-list — column names are all hardcoded
+            # string literals above, never derived from user input. The f-string
+            # here only interpolates those safe fragments (positional $N placeholders
+            # or SQL keywords), never raw user-supplied strings.
+            _ALLOWED_COLUMN_FRAGMENTS = frozenset({
+                "display_name", "role", "permissions", "is_active",
+                "password_hash", "updated_at",
+            })
+            for fragment in updates:
+                col = fragment.split(" ")[0]
+                if col not in _ALLOWED_COLUMN_FRAGMENTS:
+                    raise HTTPException(400, "Invalid update field")
+            sql = "UPDATE users SET " + ", ".join(updates) + " WHERE id = $1::uuid AND tenant_id = $2::uuid"
             await conn.execute(sql, *vals)
 
         return {"status": "updated", "id": user_id}

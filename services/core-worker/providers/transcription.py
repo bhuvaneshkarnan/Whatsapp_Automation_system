@@ -112,7 +112,7 @@ async def transcribe_with_gemini_audio(audio_bytes: bytes, mime_type: str, gemin
     Transcribe audio bytes using Google Gemini 1.5 Flash multimodal capabilities.
     """
     start = time.monotonic()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={gemini_api_key}"
 
     clean_mime = "audio/ogg"
     if "ogg" in mime_type:

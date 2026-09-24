@@ -21,6 +21,37 @@ const DEFAULT_BRANDING: PublicBrandingResponse = {
 };
 
 
+const NEUTRAL_CUSTOM_BRANDING: PublicBrandingResponse = {
+  is_whitelabel: true,
+  brand_name: '',
+  brand_logo_url: '',
+  brand_favicon_url: '/icon-192.png?v=3',
+  brand_primary_color: '#079559',
+  brand_support_email: '',
+  brand_support_phone: '',
+  hide_platform_branding: true,
+  custom_domain: null,
+  canonical_domain: null,
+  is_domain_match: true,
+  tenant_id: null,
+  tenant_slug: null,
+  tenant_name: '',
+};
+
+function getInitialBranding(): PublicBrandingResponse {
+  if (typeof window !== 'undefined') {
+    const h = window.location.hostname;
+    if (!isPlatformHost(h)) {
+      return {
+        ...NEUTRAL_CUSTOM_BRANDING,
+        custom_domain: h,
+        canonical_domain: h,
+      };
+    }
+  }
+  return DEFAULT_BRANDING;
+}
+
 export function isPlatformHost(hostname: string): boolean {
   if (!hostname) return true;
   const h = hostname.toLowerCase().split(':')[0].trim();
@@ -92,9 +123,12 @@ const BrandingContext = createContext<BrandingContextType>({
 });
 
 export function BrandingProvider({ children }: { children: React.ReactNode }) {
-  const [branding, setBranding] = useState<PublicBrandingResponse>(DEFAULT_BRANDING);
+  const [branding, setBranding] = useState<PublicBrandingResponse>(getInitialBranding);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isCustomDomain, setIsCustomDomain] = useState<boolean>(false);
+  const [isCustomDomain, setIsCustomDomain] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return !isPlatformHost(window.location.hostname);
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -105,8 +139,39 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
 
     async function resolveBranding() {
       try {
-        const data = await getPublicBranding(hostname);
-        const resolved = data ? { ...DEFAULT_BRANDING, ...data } : DEFAULT_BRANDING;
+        const searchParams = new URLSearchParams(window.location.search);
+        let slugCandidate: string | undefined = searchParams.get('slug') || undefined;
+
+        if (!slugCandidate) {
+          const redirectParam = searchParams.get('redirect');
+          if (redirectParam) {
+            const cleanRedirect = redirectParam.replace(/\\/g, '/').trim();
+            const firstSeg = cleanRedirect.split('/').filter(Boolean)[0];
+            if (firstSeg && !['dashboard', 'login', 'bhuvanesh', 'admin', 'api'].includes(firstSeg.toLowerCase())) {
+              slugCandidate = firstSeg.toLowerCase();
+            }
+          }
+        }
+
+        if (!slugCandidate) {
+          const pathSeg = window.location.pathname.split('/').filter(Boolean)[0];
+          if (pathSeg && !['dashboard', 'login', 'bhuvanesh', 'admin', 'api'].includes(pathSeg.toLowerCase())) {
+            slugCandidate = pathSeg.toLowerCase();
+          }
+        }
+
+        if (!slugCandidate) {
+          const stored = localStorage.getItem('tenant_slug');
+          if (stored && !['dashboard', 'login', 'bhuvanesh', 'admin', 'api'].includes(stored.toLowerCase())) {
+            slugCandidate = stored.toLowerCase();
+          }
+        }
+
+        const data = await getPublicBranding(hostname, slugCandidate);
+        const baseDefault = isCustom
+          ? { ...NEUTRAL_CUSTOM_BRANDING, custom_domain: hostname, canonical_domain: hostname }
+          : DEFAULT_BRANDING;
+        const resolved = data ? { ...baseDefault, ...data } : baseDefault;
         setBranding(resolved);
 
         // Dynamically set Document Title
@@ -123,20 +188,21 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
         }
 
         // Safely update browser favicon href without removing nodes from React DOM tree
-        const favUrl = resolved.brand_favicon_url || DEFAULT_BRANDING.brand_favicon_url;
-        const versionedFav = favUrl.includes('?') ? favUrl : `${favUrl}?v=3`;
-
-        const existingIcons = document.querySelectorAll<HTMLLinkElement>("link[rel*='icon']");
-        if (existingIcons.length > 0) {
-          existingIcons.forEach((el) => {
-            el.href = versionedFav;
-          });
-        } else {
-          const linkIcon = document.createElement('link');
-          linkIcon.rel = 'icon';
-          linkIcon.type = 'image/png';
-          linkIcon.href = versionedFav;
-          document.head.appendChild(linkIcon);
+        const favUrl = resolved.brand_favicon_url || (isCustom ? '' : DEFAULT_BRANDING.brand_favicon_url);
+        if (favUrl) {
+          const versionedFav = favUrl.includes('?') ? favUrl : `${favUrl}?v=3`;
+          const existingIcons = document.querySelectorAll<HTMLLinkElement>("link[rel*='icon']");
+          if (existingIcons.length > 0) {
+            existingIcons.forEach((el) => {
+              el.href = versionedFav;
+            });
+          } else {
+            const linkIcon = document.createElement('link');
+            linkIcon.rel = 'icon';
+            linkIcon.type = 'image/png';
+            linkIcon.href = versionedFav;
+            document.head.appendChild(linkIcon);
+          }
         }
 
         // Register tenant slug & ID in client memory
@@ -145,6 +211,14 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (err) {
         console.warn('Failed to resolve dynamic white-label branding:', err);
+        if (isCustom) {
+          setBranding((prev) => ({
+            ...NEUTRAL_CUSTOM_BRANDING,
+            ...prev,
+            custom_domain: hostname,
+            canonical_domain: hostname,
+          }));
+        }
       } finally {
         setIsLoading(false);
       }

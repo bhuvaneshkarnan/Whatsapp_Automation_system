@@ -3,11 +3,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "http://168.138.172.197/api/:path*"
+      "destination": "https://crm.goboldlabs.com/api/:path*"
     },
     {
       "source": "/webhooks/:path*",
-      "destination": "http://168.138.172.197/webhooks/:path*"
+      "destination": "https://crm.goboldlabs.com/webhooks/:path*"
     },
     {
       "source": "/:slug/review",

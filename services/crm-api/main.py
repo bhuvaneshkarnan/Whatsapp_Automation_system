@@ -48,13 +48,17 @@ async def lifespan(app: FastAPI):
     # Initialize global error traps (structlog, asyncio, middleware)
     init_global_error_traps(app)
 
-    # Production startup validation checks
+    # Startup configuration validation — warn in dev, hard fail in production
     env = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "development").lower()
-    if env == "production":
-        if not os.getenv("VAPID_PRIVATE_KEY"):
-            raise RuntimeError("Missing required environment variable VAPID_PRIVATE_KEY in production.")
-        if hasattr(razorpay_client, "validate_razorpay_config"):
-            razorpay_client.validate_razorpay_config()
+    _is_production = env == "production"
+    if not os.getenv("VAPID_PRIVATE_KEY"):
+        msg = "Missing required environment variable VAPID_PRIVATE_KEY."
+        if _is_production:
+            raise RuntimeError(msg)
+        else:
+            logger.warning("startup_config_missing", variable="VAPID_PRIVATE_KEY", note="Will be required in production")
+    if hasattr(razorpay_client, "validate_razorpay_config"):
+        razorpay_client.validate_razorpay_config()
 
     due_worker_task = asyncio.create_task(due_tasks_worker_loop())
     yield

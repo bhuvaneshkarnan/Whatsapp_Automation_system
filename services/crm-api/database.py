@@ -141,6 +141,23 @@ async def run_migrations(pool: asyncpg.Pool):
                     created_at TIMESTAMPTZ DEFAULT now()
                 );
 
+                CREATE TABLE IF NOT EXISTS partner_agency_templates (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    partner_name TEXT NOT NULL UNIQUE,
+                    partner_share_pct NUMERIC DEFAULT 50,
+                    owner_share_pct NUMERIC DEFAULT 50,
+                    custom_domain TEXT,
+                    brand_name TEXT,
+                    brand_logo_url TEXT,
+                    brand_favicon_url TEXT,
+                    brand_primary_color TEXT DEFAULT '#7C3AED',
+                    brand_support_email TEXT,
+                    brand_support_phone TEXT,
+                    hide_platform_branding BOOLEAN DEFAULT true,
+                    is_default BOOLEAN DEFAULT true,
+                    created_at TIMESTAMPTZ DEFAULT now(),
+                    updated_at TIMESTAMPTZ DEFAULT now()
+                );
                 
 CREATE TABLE IF NOT EXISTS customer_reviews (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

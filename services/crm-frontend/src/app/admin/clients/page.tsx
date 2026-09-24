@@ -1313,10 +1313,28 @@ Any missed call will now automatically get followed up on WhatsApp!`;
         }).catch((domainErr) => console.warn('Failed to set initial branding:', domainErr));
       }
 
+      const createdDomain = (
+        formData.custom_domain ||
+        (isPartner && partnerTemplates.find((t) => t.partner_name.toLowerCase() === finalPartnerName.toLowerCase())?.custom_domain) ||
+        res.custom_domain ||
+        ''
+      ).trim().toLowerCase();
+
+      const createdBrandName = (
+        formData.brand_name ||
+        (isPartner && partnerTemplates.find((t) => t.partner_name.toLowerCase() === finalPartnerName.toLowerCase())?.brand_name) ||
+        res.brand_name ||
+        res.name
+      );
+
       setCreatedClient({
         ...res,
         password: clientPayload.admin_password,
         admin_whatsapp_number: clientPayload.admin_whatsapp_number,
+        custom_domain: createdDomain,
+        partner_name: finalPartnerName || res.partner_name,
+        brand_name: createdBrandName,
+        login_url: res.login_url || (createdDomain ? `https://${createdDomain}/login?redirect=/${res.slug}` : `https://crm.goboldlabs.com/login?redirect=/${res.slug}`),
       });
       setActionSuccessNotice(`Organization "${res.name}" provisioned successfully!`);
       setTimeout(() => setActionSuccessNotice(null), 4000);
@@ -5063,16 +5081,16 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setOptimizerDump('');
+                                  setOptimizerDump(configForm.ai_prompt || '');
                                   setOptimizerPreview(null);
                                   setOptimizerError('');
                                   setShowOptimizerModal(true);
                                 }}
                                 className="flex items-center gap-1 px-2 py-0.5 rounded-sm bg-accent/10 hover:bg-accent/20 border border-accent/30 text-accent text-[11px] font-semibold transition-colors cursor-pointer"
-                                title="Dump raw business info and let AI structure it into all prompt fields"
+                                title="Organize complete knowledge base, services, pricing, and rules without losing any details"
                               >
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.364.293A1 1 0 0014 17H10a1 1 0 01-.707-.293l-.364-.293z" /></svg>
-                                Smart Fill
+                                Smart Fill &amp; Organize
                               </button>
                             </div>
                           </div>
@@ -5097,8 +5115,8 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                     <svg className="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.364.293A1 1 0 0014 17H10a1 1 0 01-.707-.293l-.364-.293z" /></svg>
                                   </div>
                                   <div>
-                                    <h3 className="text-sm font-semibold text-text-primary">AI Prompt Optimizer</h3>
-                                    <p className="text-[11px] text-text-muted">Dump raw business info. AI structures it into all 7 prompt fields.</p>
+                                    <h3 className="text-sm font-semibold text-text-primary">Knowledge Base &amp; AI Optimizer</h3>
+                                    <p className="text-[11px] text-text-muted">Organize complete business info, pricing, services &amp; rules with zero information loss.</p>
                                   </div>
                                 </div>
                                 <button
@@ -5112,13 +5130,16 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
                               {/* Body */}
                               <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                                <div className="p-3 bg-surface-subtle border border-border rounded-sm">
-                                  <p className="text-[11px] font-semibold text-text-primary mb-1">Auto-injected by system — do NOT include:</p>
+                                <div className="p-3 bg-surface-subtle border border-border rounded-sm space-y-1.5">
+                                  <div className="flex items-center gap-1.5 text-accent font-semibold text-[11px]">
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    Zero Information Loss Mode: Complete Retention &amp; Structure
+                                  </div>
                                   <p className="text-[11px] text-text-muted leading-relaxed">
-                                    Date/time, calendar slots, booking tags, customer names/phone, format rules (no emojis, 1-2 lines), anti-hallucination, language mirroring — all handled globally.
+                                    Paste everything about your business: all services, exact pricing tiers, doctor credentials, clinic timings, procedures, and FAQs. The AI organizes everything into clean, structured sections without shrinking or discarding any details.
                                   </p>
-                                  <p className="text-[11px] font-semibold text-accent mt-1.5">
-                                    Just dump: clinic name, services + prices, doctor info, rules, tone, discovery flow.
+                                  <p className="text-[10px] text-text-muted/70">
+                                    <span className="font-semibold text-text-primary">Auto-injected globally:</span> Live calendar slots, booking tags, customer tracking, and core WhatsApp closing logic are handled automatically.
                                   </p>
                                 </div>
 
@@ -5128,7 +5149,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                     <textarea
                                       rows={14}
                                       autoFocus
-                                      placeholder={"Example:\n\nWe are Dr. Priya's Dermatology Clinic in Coimbatore. Dr. Priya Shankar has 12 years exp in skin & hair.\n\nServices:\n- Acne treatment: Rs 800/session\n- Hair PRP: Rs 2500/session (3-session pack Rs 6500)\n- Laser hair removal: Rs 1200-3500 depending on area\n\nHours: Mon-Sat 10am-7pm.\n\nRules: Only book after asking skin concern. No home visits. Don't quote laser prices upfront.\n\nGoal: Get first consultation booking (free for new patients this month)."}
+                                      placeholder={"Example:\n\nClinic: Dr. Priya's Skin & Hair Clinic, Coimbatore.\nFounder: Dr. Priya Shankar, MBBS, MD (12 yrs exp).\nTimings: Mon-Sat 10am-7pm.\nAddress: 42 West Club Road, RS Puram, Coimbatore.\n\nConsultations:\n- First consultation: Rs 600\n- Follow-up: Rs 300\n\nServices & Packages:\n- Acne treatment: Rs 800/session\n- Hair PRP: Rs 2,500/session (3-session pack Rs 6,500)\n- Laser hair removal: Upper lip Rs 800, Underarms Rs 1,500, Full body Rs 9,000\n\nRules: Free patch test mandatory 24h before laser. No prescriptions over WhatsApp. Rs 500 token for procedures above Rs 3,000.\n\nObjections: For cheap PRP comparisons, explain our FDA-certified double-spin kits yielding 5x higher platelet count."}
                                       value={optimizerDump}
                                       onChange={(e) => setOptimizerDump(e.target.value)}
                                       className="w-full px-3.5 py-2.5 bg-canvas border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans leading-relaxed resize-y transition-colors duration-150"
@@ -5143,7 +5164,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                         setOptimizerLoading(true);
                                         setOptimizerError('');
                                         try {
-                                          const res = await admin.optimizePrompt(optimizerDump);
+                                          const res = await admin.optimizePrompt(optimizerDump, editingConfigTenant?.id);
                                           if (res?.success && res?.optimized) {
                                             setOptimizerPreview(res.optimized);
                                           } else {
@@ -5160,12 +5181,12 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                       {optimizerLoading ? (
                                         <>
                                           <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                                          Optimizing with Gemini...
+                                          Structuring with AI...
                                         </>
                                       ) : (
                                         <>
                                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.364.293A1 1 0 0014 17H10a1 1 0 01-.707-.293l-.364-.293z" /></svg>
-                                          Optimize &amp; Structure with AI
+                                          Organize &amp; Structure with AI
                                         </>
                                       )}
                                     </button>
@@ -5198,7 +5219,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                       return (
                                         <div key={key} className="p-3 bg-surface-subtle border border-border rounded-sm space-y-1.5">
                                           <p className="text-[11px] font-semibold text-text-primary">{label}</p>
-                                          <pre className="text-[11px] text-text-body font-sans whitespace-pre-wrap leading-relaxed max-h-28 overflow-y-auto">{val}</pre>
+                                          <pre className="text-[11px] text-text-body font-sans whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">{val}</pre>
                                         </div>
                                       );
                                     })}
@@ -8236,123 +8257,139 @@ Any missed call will now automatically get followed up on WhatsApp!`;
               </button>
             </div>
 
-            {/* Credentials Card */}
-            <div className="p-4 bg-surface-subtle border border-border rounded-lg space-y-2.5">
-              <div className="flex items-center justify-between text-xs pb-2 border-b border-border/60">
-                <span className="font-semibold text-text-secondary">Login Portal URL:</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="font-mono text-accent font-semibold">https://crm.goboldlabs.com/login</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText('https://crm.goboldlabs.com/login');
-                      setCopiedField('portal_url');
-                      setTimeout(() => setCopiedField(null), 2000);
-                    }}
-                    className="p-1 text-text-muted hover:text-text-primary cursor-pointer"
-                    title="Copy URL"
-                  >
-                    {copiedField === 'portal_url' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                  </button>
-                </div>
-              </div>
+            {/* Credentials Card & 1-Click WhatsApp Welcome Dispatch */}
+            {(() => {
+              const effectiveDomain = (
+                createdClient.custom_domain ||
+                (createdClient.partner_name && partnerTemplates.find((t) => t.partner_name.toLowerCase() === createdClient.partner_name?.toLowerCase())?.custom_domain) ||
+                (typeof window !== 'undefined' && !['crm.goboldlabs.com', 'crm.boldlabs.com', 'localhost', '127.0.0.1'].includes(window.location.hostname) ? window.location.hostname : 'crm.goboldlabs.com')
+              );
+              const portalUrl = createdClient.login_url || `https://${effectiveDomain}/login?redirect=/${createdClient.slug}`;
+              const effectiveBrand = (
+                createdClient.brand_name ||
+                (createdClient.partner_name && partnerTemplates.find((t) => t.partner_name.toLowerCase() === createdClient.partner_name?.toLowerCase())?.brand_name) ||
+                'AI WhatsApp Automation CRM'
+              );
+              const welcomeMsg = `*Welcome to ${effectiveBrand}!*\n\nYour organization workspace (*${createdClient.name}*) is live and ready.\n\n*Login Portal:* ${portalUrl}\n*Username:* ${createdClient.admin_email}\n*Password:* ${createdClient.password || 'BoldAuto2026!'}\n\n*Quick 3-step setup once logged in:*\n1. Click *"1-Click WhatsApp Connect"* to link your WhatsApp Business number\n2. Connect Google Calendar for automated appointment bookings\n3. Send a test ping to verify your AI persona!\n\nNeed assistance? Reply directly to this message.`;
+              const cleanPhone = (createdClient.admin_whatsapp_number || '').replace(/\D/g, '');
+              const waUrl = cleanPhone
+                ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(welcomeMsg)}`
+                : `https://wa.me/?text=${encodeURIComponent(welcomeMsg)}`;
 
-              <div className="flex items-center justify-between text-xs pb-2 border-b border-border/60">
-                <span className="font-semibold text-text-secondary">Username / Email:</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="font-mono font-bold text-text-primary">{createdClient.admin_email}</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(createdClient.admin_email);
-                      setCopiedField('email');
-                      setTimeout(() => setCopiedField(null), 2000);
-                    }}
-                    className="p-1 text-text-muted hover:text-text-primary cursor-pointer"
-                    title="Copy Email"
-                  >
-                    {copiedField === 'email' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-text-secondary">Initial Password:</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="font-mono font-bold text-text-primary bg-white px-2 py-0.5 rounded border border-border">
-                    {createdClient.password || 'BoldAuto2026!'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(createdClient.password || 'BoldAuto2026!');
-                      setCopiedField('password');
-                      setTimeout(() => setCopiedField(null), 2000);
-                    }}
-                    className="p-1 text-text-muted hover:text-text-primary cursor-pointer"
-                    title="Copy Password"
-                  >
-                    {copiedField === 'password' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* 1-Click WhatsApp Welcome Dispatch */}
-            <div className="space-y-2">
-              <label className="block text-xs font-bold text-text-primary">
-                1-Click Welcome & Onboarding Guide for Client
-              </label>
-              {(() => {
-                const welcomeMsg = `*Welcome to your AI WhatsApp Automation CRM!*\n\nYour organization workspace (*${createdClient.name}*) is live and ready.\n\n*Login Portal:* https://crm.goboldlabs.com/login\n*Username:* ${createdClient.admin_email}\n*Password:* ${createdClient.password || 'BoldAuto2026!'}\n\n*Quick 3-step setup once logged in:*\n1. Click *"1-Click WhatsApp Connect"* to link your WhatsApp Business number\n2. Connect Google Calendar for automated appointment bookings\n3. Send a test ping to verify your AI persona!\n\nNeed assistance? Reply directly to this message.`;
-                const cleanPhone = (createdClient.admin_whatsapp_number || '').replace(/\D/g, '');
-                const waUrl = cleanPhone
-                  ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(welcomeMsg)}`
-                  : `https://wa.me/?text=${encodeURIComponent(welcomeMsg)}`;
-
-                return (
-                  <div className="space-y-3">
-                    <div className="p-3 bg-emerald-50/50 border border-emerald-200/80 rounded-lg text-xs font-mono text-emerald-950 whitespace-pre-wrap max-h-36 overflow-y-auto">
-                      {welcomeMsg}
+              return (
+                <div className="space-y-4">
+                  {/* Credentials Card */}
+                  <div className="p-4 bg-surface-subtle border border-border rounded-lg space-y-2.5">
+                    <div className="flex items-center justify-between text-xs pb-2 border-b border-border/60">
+                      <span className="font-semibold text-text-secondary">Login Portal URL:</span>
+                      <div className="flex items-center gap-1.5">
+                        <a href={portalUrl} target="_blank" rel="noreferrer" className="font-mono text-accent font-semibold hover:underline">
+                          {portalUrl}
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(portalUrl);
+                            setCopiedField('portal_url');
+                            setTimeout(() => setCopiedField(null), 2000);
+                          }}
+                          className="p-1 text-text-muted hover:text-text-primary cursor-pointer"
+                          title="Copy URL"
+                        >
+                          {copiedField === 'portal_url' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <a
-                        href={waUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
-                      >
-                        <MessageSquare className="w-4 h-4 fill-current" />
-                        <span>Share on WhatsApp</span>
-                      </a>
+                    <div className="flex items-center justify-between text-xs pb-2 border-b border-border/60">
+                      <span className="font-semibold text-text-secondary">Username / Email:</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono font-bold text-text-primary">{createdClient.admin_email}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(createdClient.admin_email);
+                            setCopiedField('email');
+                            setTimeout(() => setCopiedField(null), 2000);
+                          }}
+                          className="p-1 text-text-muted hover:text-text-primary cursor-pointer"
+                          title="Copy Email"
+                        >
+                          {copiedField === 'email' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
+                    </div>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(welcomeMsg);
-                          setWelcomeMsgCopied(true);
-                          setTimeout(() => setWelcomeMsgCopied(false), 2500);
-                        }}
-                        className="py-2.5 px-4 bg-surface hover:bg-surface-subtle text-text-primary border border-border text-xs font-semibold rounded-md flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                      >
-                        {welcomeMsgCopied ? (
-                          <>
-                            <Check className="w-4 h-4 text-emerald-600" />
-                            <span className="text-emerald-700 font-bold">Copied to Clipboard!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-4 h-4 text-text-muted" />
-                            <span>Copy Message</span>
-                          </>
-                        )}
-                      </button>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-text-secondary">Initial Password:</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono font-bold text-text-primary bg-white px-2 py-0.5 rounded border border-border">
+                          {createdClient.password || 'BoldAuto2026!'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(createdClient.password || 'BoldAuto2026!');
+                            setCopiedField('password');
+                            setTimeout(() => setCopiedField(null), 2000);
+                          }}
+                          className="p-1 text-text-muted hover:text-text-primary cursor-pointer"
+                          title="Copy Password"
+                        >
+                          {copiedField === 'password' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                );
-              })()}
-            </div>
+
+                  {/* 1-Click WhatsApp Welcome Dispatch */}
+                  <div className="space-y-2">
+                    <label className="block text-xs font-bold text-text-primary">
+                      1-Click Welcome & Onboarding Guide for Client
+                    </label>
+                    <div className="space-y-3">
+                      <div className="p-3 bg-emerald-50/50 border border-emerald-200/80 rounded-lg text-xs font-mono text-emerald-950 whitespace-pre-wrap max-h-36 overflow-y-auto">
+                        {welcomeMsg}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <a
+                          href={waUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+                        >
+                          <MessageSquare className="w-4 h-4 fill-current" />
+                          <span>Share on WhatsApp</span>
+                        </a>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(welcomeMsg);
+                            setWelcomeMsgCopied(true);
+                            setTimeout(() => setWelcomeMsgCopied(false), 2500);
+                          }}
+                          className="py-2.5 px-4 bg-surface hover:bg-surface-subtle text-text-primary border border-border text-xs font-semibold rounded-md flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                        >
+                          {welcomeMsgCopied ? (
+                            <>
+                              <Check className="w-4 h-4 text-emerald-600" />
+                              <span className="text-emerald-700 font-bold">Copied to Clipboard!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-4 h-4 text-text-muted" />
+                              <span>Copy Message</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Bottom Actions */}
             <div className="pt-2 border-t border-border flex items-center justify-end">

@@ -2851,7 +2851,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // Calendar View State (day | week | month)
   const [calendarViewMode, setCalendarViewMode] = useState<'day' | 'week' | 'month'>('month');
-  const [calendarLayerFilter, setCalendarLayerFilter] = useState<'all' | 'bookings' | 'followups' | 'tasks'>('all');
+  const [calendarLayerFilter, setCalendarLayerFilter] = useState<'all' | 'bookings' | 'followups' | 'tasks' | 'gcal'>('all');
   const [liveGcalEvents, setLiveGcalEvents] = useState<LiveCalendarSlot[]>([]);
   const [liveGcalLoading, setLiveGcalLoading] = useState(false);
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -4880,6 +4880,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               lead_probability: followupProbabilityFilter,
               preferred_doctor: followupDoctorFilter,
               next_action: followupActionFilter,
+              client_type: customerClientTypeFilter !== 'all' ? customerClientTypeFilter : undefined,
               q: followupSearch,
               limit: 1000,
             });
@@ -4890,6 +4891,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   (followupDoctorFilter && followupDoctorFilter !== 'all') ||
                   (followupProbabilityFilter && followupProbabilityFilter !== 'all') ||
                   (followupActionFilter && followupActionFilter !== 'all') ||
+                  (customerClientTypeFilter && customerClientTypeFilter !== 'all') ||
                   Boolean(followupSearch.trim());
                 if (fresh.length === 0 && prev.length > 0 && !hasActiveFilter) {
                   return prev;
@@ -5061,8 +5063,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         if (Array.isArray(cData) && cData.length > 0) setCustomers(cData);
         if (statsData) setCustomerStats(statsData);
       if (Array.isArray(tData)) setTasks(tData);
-      if (gData && Array.isArray(gData.busy_slots)) {
-        const googleOnly = gData.busy_slots.filter((s: LiveCalendarSlot) => s.source === 'Google Calendar');
+      const rawSlots = gData?.busy_slots || gData?.occupied_slots;
+      if (rawSlots && Array.isArray(rawSlots)) {
+        const googleOnly = rawSlots.filter((s: LiveCalendarSlot) => s.source === 'Google Calendar');
         setLiveGcalEvents(googleOnly);
       }
     } catch (err) {
@@ -5170,6 +5173,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           preferred_doctor: depDoctor || followupDoctorFilter,
           health_concern: depConcern,
           next_action: followupActionFilter,
+          client_type: customerClientTypeFilter !== 'all' ? customerClientTypeFilter : undefined,
           q: followupSearch,
           limit: 1000,
         }),
@@ -5179,6 +5183,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             preferred_doctor: depDoctor || followupDoctorFilter,
             health_concern: depConcern,
             next_action: followupActionFilter,
+            client_type: customerClientTypeFilter !== 'all' ? customerClientTypeFilter : undefined,
             q: followupSearch,
           }).catch(() => null)
       ]);
@@ -7622,15 +7627,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     const isPast = b.start_time ? new Date(b.start_time).getTime() < Date.now() : false;
 
     if (bookingFilter === 'upcoming') {
-      // Upcoming: Active bookings (confirmed, pending, or rescheduled)
-      return (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled') && (!isPast || b.status === 'rescheduled');
+      // Upcoming: strictly future active bookings (confirmed, pending, or rescheduled)
+      return !isPast && (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled');
+    }
+    if (bookingFilter === 'rescheduled') {
+      return b.status === 'rescheduled';
     }
     if (bookingFilter === 'completed') {
-      // Completed: explicitly completed/attended OR bookings whose scheduled time has passed and are not cancelled/no-show/rescheduled
+      // Completed: explicitly completed/attended OR bookings whose scheduled time has passed and are not cancelled/no-show
       return (
         b.status === 'completed' ||
         b.status === 'attended' ||
-        (isPast && b.status !== 'cancelled' && b.status !== 'no_show' && b.status !== 'rescheduled')
+        (isPast && b.status !== 'cancelled' && b.status !== 'no_show')
       );
     }
     if (bookingFilter === 'no_show') {
@@ -7638,6 +7646,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
     if (bookingFilter === 'cancelled') {
       return b.status === 'cancelled';
+    }
+    if (bookingFilter === 'all') {
+      return true;
     }
     return b.status === bookingFilter;
   });
@@ -11277,22 +11288,26 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <div className="flex overflow-x-auto no-scrollbar gap-0.5 bg-surface-subtle p-0.5 rounded-md border border-border shrink-0 max-w-full">
                       {[
                         { id: 'upcoming', label: 'Upcoming' },
+                        { id: 'rescheduled', label: 'Rescheduled' },
                         { id: 'completed', label: 'Completed' },
                         { id: 'no_show', label: 'No-Show' },
                         { id: 'cancelled', label: 'Cancelled' },
+                        { id: 'all', label: 'All' },
                       ].map((st) => {
                         const count = (bookings || []).filter((b) => {
                           const isPast = b.start_time ? new Date(b.start_time).getTime() < Date.now() : false;
-                          if (st.id === 'upcoming') return (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled') && (!isPast || b.status === 'rescheduled');
+                          if (st.id === 'upcoming') return !isPast && (b.status === 'confirmed' || b.status === 'pending' || b.status === 'rescheduled');
+                          if (st.id === 'rescheduled') return b.status === 'rescheduled';
                           if (st.id === 'completed') {
                             return (
                               b.status === 'completed' ||
                               b.status === 'attended' ||
-                              (isPast && b.status !== 'cancelled' && b.status !== 'no_show' && b.status !== 'rescheduled')
+                              (isPast && b.status !== 'cancelled' && b.status !== 'no_show')
                             );
                           }
                           if (st.id === 'no_show') return b.status === 'no_show';
                           if (st.id === 'cancelled') return b.status === 'cancelled';
+                          if (st.id === 'all') return true;
                           return false;
                         }).length;
 
@@ -11682,6 +11697,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {[
                       { key: 'all', label: 'All Schedule', icon: LayoutGrid, count: (bookings?.length || 0) + (customers?.filter(c => c.followup_date).length || 0) + (isMindBodyRecovery ? (tasks?.filter(t => !t.completed).length || 0) : 0) + (liveGcalEvents?.length || 0) },
                       { key: 'bookings', label: currentTaxonomy.event_label || 'Appointments', icon: Calendar, count: bookings?.length || 0 },
+                      ...(liveGcalEvents && liveGcalEvents.length > 0 ? [{ key: 'gcal', label: 'Google Cal', icon: Calendar, count: liveGcalEvents.length }] : []),
                       { key: 'followups', label: 'Follow-ups', icon: Phone, count: customers?.filter(c => c.followup_date).length || 0 },
                       ...(isMindBodyRecovery ? [{ key: 'tasks', label: 'Tasks', icon: CheckSquare, count: tasks?.filter(t => !t.completed).length || 0 }] : []),
                     ].map((tab) => {
@@ -11762,7 +11778,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         const showBookings = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings';
                         const showFollowups = calendarLayerFilter === 'all' || calendarLayerFilter === 'followups';
                         const showTasks = isMindBodyRecovery && (calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks');
-                        const showGcal = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings';
+                        const showGcal = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings' || calendarLayerFilter === 'gcal';
 
                         const allCellItems: Array<
                           | { type: 'booking'; data: Booking }
@@ -11960,6 +11976,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       {currentWeekDays.map((day, dIdx) => {
                         const showFollowups = calendarLayerFilter === 'all' || calendarLayerFilter === 'followups';
                         const showTasks = calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks';
+                        const showGcal = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings' || calendarLayerFilter === 'gcal';
 
                         const dayAllDayFollowups = (customers || []).filter((c) => {
                           if (!c || !c.followup_date || !isSameDay(c.followup_date, day)) return false;
@@ -11973,10 +11990,40 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           return tInfo.isAllDay || tInfo.hour < 6;
                         });
 
-                        const hasAllDay = (showFollowups && dayAllDayFollowups.length > 0) || (showTasks && dayAllDayTasks.length > 0);
+                        const dayAllDayGcal = (liveGcalEvents || []).filter((g) => {
+                          if (!g || !g.start) return false;
+                          try {
+                            const gDate = new Date(g.start.replace('Z', '+00:00'));
+                            if (!isSameDay(gDate, day)) return false;
+                            const h = gDate.getHours();
+                            return h < 6 || !g.start.includes('T');
+                          } catch {
+                            return false;
+                          }
+                        });
+
+                        const hasAllDay = (showFollowups && dayAllDayFollowups.length > 0) ||
+                                          (showTasks && dayAllDayTasks.length > 0) ||
+                                          (showGcal && dayAllDayGcal.length > 0);
 
                         return (
                           <div key={`allday-${dIdx}`} className="p-1 space-y-1 min-h-[38px]">
+                            {showGcal && dayAllDayGcal.map((g) => (
+                              <a
+                                key={`adgcal-${g.id || g.start}-${g.desc}`}
+                                href={g.html_link || '#'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="px-1.5 py-0.5 rounded-xs bg-indigo-50 border border-indigo-200 text-indigo-900 text-[10px] flex items-center justify-between gap-1 cursor-pointer hover:bg-indigo-100 transition-colors block"
+                                title={`Google Calendar Event: ${g.desc} (${g.start_formatted || ''})`}
+                              >
+                                <span className="truncate font-medium flex items-center gap-1">
+                                  <Calendar className="w-2.5 h-2.5 text-indigo-600 shrink-0 stroke-[1.8]" />
+                                  <span className="truncate">{g.desc || 'Google Event'}</span>
+                                </span>
+                              </a>
+                            ))}
                             {showFollowups && dayAllDayFollowups.map((cust) => (
                               <div
                                 key={`adf-${cust.id}`}
@@ -12056,6 +12103,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               return isSameDay(bDate, day) && bDate.getHours() === hour;
                             });
 
+                            const slotGcalEvents = (liveGcalEvents || []).filter((g) => {
+                              if (!g || !g.start) return false;
+                              try {
+                                const gDate = new Date(g.start.replace('Z', '+00:00'));
+                                return isSameDay(gDate, day) && gDate.getHours() === hour;
+                              } catch {
+                                return false;
+                              }
+                            });
+
                             const slotFollowups = (customers || []).filter((c) => {
                               if (!c || !c.followup_date) return false;
                               if (!isSameDay(c.followup_date, day)) return false;
@@ -12073,8 +12130,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             const showBookings = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings';
                             const showFollowups = calendarLayerFilter === 'all' || calendarLayerFilter === 'followups';
                             const showTasks = calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks';
+                            const showGcal = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings' || calendarLayerFilter === 'gcal';
 
                             const hasAny = (showBookings && slotBookings.length > 0) ||
+                                           (showGcal && slotGcalEvents.length > 0) ||
                                            (showFollowups && slotFollowups.length > 0) ||
                                            (showTasks && slotTasks.length > 0);
 
@@ -12140,6 +12199,28 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           )}
                                         </div>
                                       </div>
+                                    ))}
+
+                                    {showGcal && slotGcalEvents.map((g) => (
+                                      <a
+                                        key={`wgcal-${g.id || g.start}-${g.desc}`}
+                                        href={g.html_link || '#'}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="p-1 rounded-sm border border-indigo-200 bg-indigo-50 text-indigo-900 block hover:bg-indigo-100 transition-colors text-[10px] cursor-pointer"
+                                        title={`Google Calendar Event: ${g.desc} (${g.start_formatted || ''})`}
+                                      >
+                                        <div className="flex items-center justify-between gap-1 font-medium">
+                                          <span className="truncate inline-flex items-center gap-1">
+                                            <Calendar className="w-2.5 h-2.5 text-indigo-600 shrink-0 stroke-[2]" />
+                                            <span className="truncate">{g.desc || 'Google Event'}</span>
+                                          </span>
+                                          <span className="font-mono text-indigo-700 text-[9px] shrink-0">
+                                            {g.start ? formatTime12(g.start) : ''}
+                                          </span>
+                                        </div>
+                                      </a>
                                     ))}
 
                                     {showFollowups && slotFollowups.map((cust) => {
@@ -12297,6 +12378,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     {(() => {
                       const showFollowups = calendarLayerFilter === 'all' || calendarLayerFilter === 'followups';
                       const showTasks = calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks';
+                      const showGcal = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings' || calendarLayerFilter === 'gcal';
 
                       const allDayFollowups = (customers || []).filter((c) => {
                         if (!c || !c.followup_date || !isSameDay(c.followup_date, currentDate)) return false;
@@ -12310,7 +12392,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         return tInfo.isAllDay || tInfo.hour < 6;
                       });
 
-                      if ((!showFollowups || allDayFollowups.length === 0) && (!showTasks || allDayTasks.length === 0)) {
+                      const allDayGcal = (liveGcalEvents || []).filter((g) => {
+                        if (!g || !g.start) return false;
+                        try {
+                          const gDate = new Date(g.start.replace('Z', '+00:00'));
+                          if (!isSameDay(gDate, currentDate)) return false;
+                          const h = gDate.getHours();
+                          return h < 6 || !g.start.includes('T');
+                        } catch {
+                          return false;
+                        }
+                      });
+
+                      if ((!showFollowups || allDayFollowups.length === 0) && (!showTasks || allDayTasks.length === 0) && (!showGcal || allDayGcal.length === 0)) {
                         return null;
                       }
 
@@ -12322,11 +12416,32 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               <span>All-Day & Anytime Items for Today</span>
                             </span>
                             <span className="text-[10px] font-mono text-text-muted">
-                              {(showFollowups ? allDayFollowups.length : 0) + (showTasks ? allDayTasks.length : 0)} items
+                              {(showFollowups ? allDayFollowups.length : 0) + (showTasks ? allDayTasks.length : 0) + (showGcal ? allDayGcal.length : 0)} items
                             </span>
                           </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {showGcal && allDayGcal.map((g) => (
+                              <a
+                                key={`dadgcal-${g.id || g.start}-${g.desc}`}
+                                href={g.html_link || '#'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-2.5 rounded-sm border bg-indigo-50/70 border-indigo-200 text-indigo-950 flex items-center justify-between gap-2 cursor-pointer hover:bg-indigo-100/70 transition-colors block"
+                                title={`Google Calendar Event: ${g.desc} (${g.start_formatted || ''})`}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-semibold truncate flex items-center gap-1.5">
+                                    <Calendar className="w-3 h-3 text-indigo-600 shrink-0 stroke-[1.8]" />
+                                    <span>{g.desc || 'Google Calendar Event'}</span>
+                                  </p>
+                                  <p className="text-[11px] text-indigo-700 truncate">{g.start_formatted || 'All Day Event'}</p>
+                                </div>
+                                <span className="text-[9px] font-semibold uppercase tracking-wider text-indigo-600 bg-white/80 px-1.5 py-0.5 rounded border border-indigo-200 shrink-0">
+                                  Google
+                                </span>
+                              </a>
+                            ))}
                             {showFollowups && allDayFollowups.map((cust) => (
                               <div
                                 key={`dadf-${cust.id}`}
@@ -12403,6 +12518,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           return isSameDay(b.start_time, currentDate) && new Date(b.start_time).getHours() === hour;
                         });
 
+                        const hourGcalEvents = (liveGcalEvents || []).filter((g) => {
+                          if (!g || !g.start) return false;
+                          try {
+                            const gDate = new Date(g.start.replace('Z', '+00:00'));
+                            return isSameDay(gDate, currentDate) && gDate.getHours() === hour;
+                          } catch {
+                            return false;
+                          }
+                        });
+
                         const hourFollowups = (customers || []).filter((c) => {
                           if (!c || !c.followup_date) return false;
                           if (!isSameDay(c.followup_date, currentDate)) return false;
@@ -12420,8 +12545,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         const showBookings = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings';
                         const showFollowups = calendarLayerFilter === 'all' || calendarLayerFilter === 'followups';
                         const showTasks = calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks';
+                        const showGcal = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings' || calendarLayerFilter === 'gcal';
 
                         const totalHourItems = (showBookings ? hourBookings.length : 0) +
+                                               (showGcal ? hourGcalEvents.length : 0) +
                                                (showFollowups ? hourFollowups.length : 0) +
                                                (showTasks ? hourTasks.length : 0);
 
@@ -12500,6 +12627,34 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         )}
                                       </div>
                                     </div>
+                                  ))}
+
+                                  {/* Google Calendar Live Events */}
+                                  {showGcal && hourGcalEvents.map((g) => (
+                                    <a
+                                      key={`hgcal-${g.id || g.start}-${g.desc}`}
+                                      href={g.html_link || '#'}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="p-3 bg-indigo-50/80 hover:bg-indigo-50 border border-indigo-200 rounded-md flex items-center justify-between cursor-pointer transition-colors duration-150 block"
+                                      title={`Google Calendar Event: ${g.desc} (${g.start_formatted || ''})`}
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <Calendar className="w-4 h-4 text-indigo-600 shrink-0 stroke-[2]" />
+                                        <div>
+                                          <p className="text-xs font-semibold text-indigo-950">{g.desc || 'Google Calendar Event'}</p>
+                                          <p className="text-[11px] text-indigo-700">{g.start_formatted || 'Google Calendar Sync'}</p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-semibold bg-indigo-100 text-indigo-900 px-2 py-0.5 rounded-sm border border-indigo-300 font-mono">
+                                          {g.start ? formatTime12(g.start) : ''}
+                                        </span>
+                                        <span className="text-[9px] font-semibold uppercase tracking-wider text-indigo-600 bg-white/80 px-1.5 py-0.5 rounded border border-indigo-200">
+                                          Google
+                                        </span>
+                                      </div>
+                                    </a>
                                   ))}
 
                                   {/* Follow-ups */}
@@ -13937,6 +14092,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             <option key={act} value={act}>{act}</option>
                           ))}
                         </select>
+
+                        {/* Client Type Filter */}
+                        <select
+                          value={customerClientTypeFilter}
+                          onChange={(e) => setCustomerClientTypeFilter(e.target.value)}
+                          className={`px-2 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[105px] h-[26px] cursor-pointer ${
+                            customerClientTypeFilter !== 'all' ? 'border-text-primary font-semibold bg-surface-subtle' : ''
+                          }`}
+                          title="Filter by Client Type"
+                        >
+                          <option value="all">All Clients</option>
+                          <option value="new_lead">New Leads</option>
+                          <option value="repeat">Repeat Clients</option>
+                          <option value="lapsed">Lapsed (&gt;30d)</option>
+                        </select>
                       </div>
 
                       {/* Divider (Desktop) */}
@@ -13973,7 +14143,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </div>
 
                       {/* Quick Reset All Filters Button */}
-                      {(followupStatusFilter !== 'all' || followupProbabilityFilter !== 'all' || followupDoctorFilter !== 'all' || followupActionFilter !== 'all' || followupSearchInput.trim()) && (
+                      {(followupStatusFilter !== 'all' || followupProbabilityFilter !== 'all' || followupDoctorFilter !== 'all' || followupActionFilter !== 'all' || customerClientTypeFilter !== 'all' || followupSearchInput.trim()) && (
                         <button
                           type="button"
                           onClick={() => {
@@ -13981,6 +14151,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             setFollowupProbabilityFilter('all');
                             setFollowupDoctorFilter('all');
                             setFollowupActionFilter('all');
+                            setCustomerClientTypeFilter('all');
                             setFollowupSearchInput('');
                             setFollowupSearch('');
                           }}
@@ -14598,7 +14769,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
 
                         <select
-                          value={followupStatusFilter}
+                          value={['all', 'new', 'contacted', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? followupStatusFilter.toLowerCase() : 'all'}
                           onChange={(e) => setFollowupStatusFilter(e.target.value)}
                           className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
                         >
@@ -14632,7 +14803,38 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             ))}
                           </select>
 
-                          <select
+                        {/* Staff / Doctor Selector in Sub-view B */}
+                        <select
+                          value={followupDoctorFilter}
+                          onChange={(e) => setFollowupDoctorFilter(e.target.value)}
+                          className="px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[130px]"
+                        >
+                          <option value="all">All {presetRolePlural}</option>
+                          <option value="unassigned">Unassigned</option>
+                          {categorizedStaffOptions.predefinedDoctors.length > 0 && (
+                            <optgroup label={`${presetRoleSingular} Presets`}>
+                              {categorizedStaffOptions.predefinedDoctors.map((s) => (
+                                <option key={s.value} value={s.value}>{s.value}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+
+                        {/* Client Type Filter in Sub-view B */}
+                        <select
+                          value={customerClientTypeFilter}
+                          onChange={(e) => setCustomerClientTypeFilter(e.target.value)}
+                          className={`px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent ${
+                            customerClientTypeFilter !== 'all' ? 'border-text-primary font-semibold' : ''
+                          }`}
+                        >
+                          <option value="all">All Clients</option>
+                          <option value="new_lead">New Leads</option>
+                          <option value="repeat">Repeat Clients</option>
+                          <option value="lapsed">Lapsed (&gt;30d)</option>
+                        </select>
+
+                        <select
                           value={followupActionFilter}
                           onChange={(e) => setFollowupActionFilter(e.target.value)}
                           className={`px-2.5 py-1 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent ${
@@ -14644,6 +14846,27 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             <option key={act} value={act}>{act}</option>
                           ))}
                         </select>
+
+                        {/* Reset button in Sub-view B */}
+                        {(followupStatusFilter !== 'all' || followupProbabilityFilter !== 'all' || followupDoctorFilter !== 'all' || followupActionFilter !== 'all' || customerClientTypeFilter !== 'all' || followupSearchInput.trim()) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFollowupStatusFilter('all');
+                              setFollowupProbabilityFilter('all');
+                              setFollowupDoctorFilter('all');
+                              setFollowupActionFilter('all');
+                              setCustomerClientTypeFilter('all');
+                              setFollowupSearchInput('');
+                              setFollowupSearch('');
+                            }}
+                            className="text-xs text-accent hover:underline flex items-center gap-0.5 px-1 py-0.5 rounded hover:bg-surface-subtle font-medium cursor-pointer"
+                            title="Reset all filters"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Reset</span>
+                          </button>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2">

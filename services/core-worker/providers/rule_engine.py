@@ -27,7 +27,7 @@ DEFAULT_RULES: list[Rule] = [
     Rule("help_inquiry",  105, "keyword", r"\b(how can you help|help me|what do you do|what does it do|how does it work|features)\b",
          "I can help you with information about our services, scheduling appointments, and answering your questions. What would you like to know?"),
 
-    Rule("greeting",      100, "keyword", r"\b(hello|hi|hey|hii+|bii+|hola|namaste|good morning|good afternoon|good evening)\b",
+    Rule("greeting",      100, "keyword", r"^\s*(hello|hi|hey|hii+|bii+|hola|namaste|good morning|good afternoon|good evening)(\s+(there|team|everyone|all|friend))?[\s!.,~-]*$",
          "Hello! Welcome, how can I assist you today?"),
 
     Rule("bye",           90,  "keyword", r"\b(bye|goodbye|see you|thanks|thank you|dhanyavaad)\b",
@@ -85,6 +85,20 @@ def apply_rule_engine(
         if rule.trigger_value and rule.trigger_type in ("keyword", "regex"):
             try:
                 if re.search(rule.trigger_value, text_lower, re.IGNORECASE):
+                    # SAFETY CHECK FOR GREETINGS:
+                    # Greeting rule must ONLY trigger on pure greetings (e.g. "hi", "hello!", "hey there").
+                    # If the message contains inquiry keywords, questions, or > 3 words, skip the greeting rule!
+                    if rule.name == "greeting":
+                        inquiry_indicators = [
+                            "?", "info", "information", "detail", "more", "help", "price", "cost", "fee", "rate",
+                            "how", "what", "where", "when", "why", "who", "which", "can i", "could you", "appointment",
+                            "book", "doctor", "consult", "treatment", "therapy", "package", "service", "available",
+                            "address", "location", "timing", "hours", "open", "tell me", "i want", "need"
+                        ]
+                        words = text_lower.split()
+                        if len(words) > 3 or any(ind in text_lower for ind in inquiry_indicators):
+                            continue
+
                     logger.info("rule_matched", rule=rule.name, tenant_id=tenant_id)
                     return rule.response_text.replace("{assistant_name}", assistant_name).replace("{business_name}", business_name)
             except re.error:
@@ -93,9 +107,12 @@ def apply_rule_engine(
 
         if rule.trigger_type == "fallback":
             logger.info("rule_fallback_triggered", tenant_id=tenant_id)
-            if len(text_lower.split()) > 3 and not any(text_lower.startswith(g) for g in ["hi", "hello", "hey", "good morning", "good evening"]):
-                b_name = business_name.strip() if business_name else "our team"
-                return f"Thank you for sharing this with {b_name}. We have noted your details and will guide you with the best consultation and appointment options shortly! 🙏"
+            b_name = business_name.strip() if business_name else "our team"
+            has_substance = len(text_lower.split()) > 3 or any(
+                k in text_lower for k in ["info", "what", "how", "where", "when", "cost", "price", "doctor", "treatment", "book", "help", "?"]
+            )
+            if has_substance:
+                return f"Thank you for reaching out to {b_name}! We have noted your inquiry and our team will guide you with complete details and consultation options shortly. 🙏"
             resp = rule.response_text or "Thank you for reaching out! How can we assist you today?"
             return resp.replace("{assistant_name}", assistant_name).replace("{business_name}", business_name)
 

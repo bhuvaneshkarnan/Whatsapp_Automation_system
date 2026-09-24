@@ -1710,10 +1710,12 @@ async def execute_meta_template_sync(tenant_id: str, pool) -> dict:
                 for t in res.json().get("data", []):
                     meta_templates_map[t.get("name")] = t
             else:
-                raise HTTPException(502, f"Meta API error fetching templates: {res.text}")
+                logger.warning("meta_template_fetch_failed", status=res.status_code, error=res.text)
+                raise HTTPException(502, "Meta API returned an error while fetching message templates.")
         except Exception as e:
             if isinstance(e, HTTPException): raise e
-            raise HTTPException(502, f"Failed to connect to Meta Graph API: {str(e)}")
+            logger.error("meta_graph_connect_failed", error=str(e))
+            raise HTTPException(502, "Failed to connect to Meta Graph API. Please verify credentials.")
 
         already_present = []
         updated = []
