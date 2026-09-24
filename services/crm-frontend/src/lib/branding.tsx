@@ -41,15 +41,18 @@ const NEUTRAL_CUSTOM_BRANDING: PublicBrandingResponse = {
 function getInitialBranding(): PublicBrandingResponse {
   if (typeof window !== 'undefined') {
     const h = window.location.hostname;
-    if (!isPlatformHost(h)) {
-      return {
-        ...NEUTRAL_CUSTOM_BRANDING,
-        custom_domain: h,
-        canonical_domain: h,
-      };
+    if (isPlatformHost(h)) {
+      return DEFAULT_BRANDING;
     }
+    return {
+      ...NEUTRAL_CUSTOM_BRANDING,
+      custom_domain: h,
+      canonical_domain: h,
+    };
   }
-  return DEFAULT_BRANDING;
+  // During SSR / static export build: NEVER prerender platform defaults!
+  // Return neutral branding so static HTML never bakes in Boldlabs or bhuvaneshkarnan email.
+  return NEUTRAL_CUSTOM_BRANDING;
 }
 
 export function isPlatformHost(hostname: string): boolean {
@@ -114,23 +117,27 @@ interface BrandingContextType {
   branding: PublicBrandingResponse;
   isLoading: boolean;
   isCustomDomain: boolean;
+  isMounted: boolean;
 }
 
 const BrandingContext = createContext<BrandingContextType>({
-  branding: DEFAULT_BRANDING,
+  branding: NEUTRAL_CUSTOM_BRANDING,
   isLoading: true,
   isCustomDomain: false,
+  isMounted: false,
 });
 
 export function BrandingProvider({ children }: { children: React.ReactNode }) {
   const [branding, setBranding] = useState<PublicBrandingResponse>(getInitialBranding);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isMounted, setIsMounted] = useState<boolean>(false);
   const [isCustomDomain, setIsCustomDomain] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return !isPlatformHost(window.location.hostname);
   });
 
   useEffect(() => {
+    setIsMounted(true);
     if (typeof window === 'undefined') return;
 
     const hostname = window.location.hostname;
@@ -228,7 +235,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <BrandingContext.Provider value={{ branding, isLoading, isCustomDomain }}>
+    <BrandingContext.Provider value={{ branding, isLoading, isCustomDomain, isMounted }}>
       {children}
     </BrandingContext.Provider>
   );

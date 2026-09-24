@@ -1,0 +1,31 @@
+# Ignore backend and database services
+services/crm-api
+services/core-worker
+services/auth-service
+services/booking-service
+services/calendar-sync
+services/webhook-ingestion
+services/message-processor
+services/notification-service
+shared
+db
+infrastructure
+frontend_dist
+
+# Ignore archives, scripts, backups, and artifacts
+*.py
+*.tar.gz
+*.zip
+*.sql
+*.ps1
+*.log
+.venv
+__pycache__
+*.pyc
+
+# Ignore dependencies and build output
+node_modules
+services/crm-frontend/node_modules
+services/crm-frontend/.next
+out
+.git

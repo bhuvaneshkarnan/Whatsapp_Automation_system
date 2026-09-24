@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/api';
-import { isPlatformHost } from '@/lib/branding';
+import { isPlatformHost, checkDomainMatch } from '@/lib/branding';
 
 export default function Home() {
   const router = useRouter();
@@ -34,23 +34,28 @@ export default function Home() {
       .then((me) => {
         const slug = me.tenant_slug || localStorage.getItem('tenant_slug');
 
-        // On a custom domain (e.g. ai.bizpipe.in), verify the stored token belongs
-        // to the tenant that owns this domain. If it belongs to a different tenant
-        // (e.g. boldlabs), clear the stale token and show login for this domain.
+        // On a custom domain (e.g. ai.bizpipe.in), verify the logged-in user belongs to this domain
         if (isCustomDomain && slug && slug !== 'bhuvanesh') {
-          // Import the branding function to resolve what tenant owns this domain
+          if (!checkDomainMatch(currentHostname, me.custom_domain)) {
+            // Token belongs to a different domain/tenant — clear stale token and redirect to login
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('tenant_id');
+            localStorage.removeItem('tenant_slug');
+            router.replace('/login');
+            return;
+          }
+
+          // Import branding to check if pinned to specific tenant slug
           import('@/lib/api').then(({ getPublicBranding }) => {
             getPublicBranding(currentHostname).then((branding) => {
               const domainTenantSlug = branding?.tenant_slug;
               if (domainTenantSlug && domainTenantSlug !== slug) {
-                // Token belongs to a different tenant — clear and show login for this domain
                 localStorage.removeItem('auth_token');
                 localStorage.removeItem('tenant_id');
                 localStorage.removeItem('tenant_slug');
                 router.replace('/login');
                 return;
               }
-              // Token matches this domain's tenant — proceed normally
               localStorage.setItem('tenant_slug', slug);
               if (me.tenant_id) localStorage.setItem('tenant_id', me.tenant_id);
               router.replace(`/${slug}`);

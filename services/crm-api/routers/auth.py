@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from typing import Optional, Dict, Any, List, Union
 import structlog
 import httpx
+import urllib.parse
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException, Request
 import database
 from dependencies import get_tenant_id, get_caller_context, verify_super_admin, JWT_SECRET
@@ -383,7 +384,11 @@ async def list_admin_missed_calls(
 
 
 @router.post("/admin/tenants")
-async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(verify_super_admin)):
+async def create_admin_tenant(
+    payload: TenantCreate,
+    request: Request = None,
+    admin_user: dict = Depends(verify_super_admin)
+):
     """
     Onboard a brand new client:
     1. Create tenant record with billing settings
@@ -497,6 +502,22 @@ async def create_admin_tenant(payload: TenantCreate, admin_user: dict = Depends(
                 "SELECT * FROM partner_agency_templates WHERE LOWER(TRIM(custom_domain)) = LOWER(TRIM($1)) LIMIT 1",
                 payload.custom_domain.strip()
             )
+        if not matching_partner and request:
+            req_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(":")[0].strip().lower()
+            if not req_host or req_host in ("168.138.172.197", "backend-monolith", "localhost"):
+                ref = (request.headers.get("referer") or request.headers.get("origin") or "").strip()
+                if ref:
+                    try:
+                        parsed_ref = urllib.parse.urlparse(ref)
+                        if parsed_ref.netloc:
+                            req_host = parsed_ref.netloc.split(":")[0].strip().lower()
+                    except Exception:
+                        pass
+            if req_host and req_host not in ("crm.boldlabs.com", "boldlabs.com", "crm.goboldlabs.com", "goboldlabs.com", "localhost", "127.0.0.1", "168.138.172.197"):
+                matching_partner = await conn.fetchrow(
+                    "SELECT * FROM partner_agency_templates WHERE LOWER(TRIM(custom_domain)) = $1 LIMIT 1",
+                    req_host
+                )
         if not matching_partner and (payload.sales_channel or "").lower() == "partner":
             matching_partner = await conn.fetchrow(
                 "SELECT * FROM partner_agency_templates WHERE is_default = true LIMIT 1"

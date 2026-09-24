@@ -29,7 +29,7 @@ interface PaymentRequiredDetails {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { branding, isCustomDomain, isLoading: isBrandingLoading } = useBranding();
+  const { branding, isCustomDomain, isLoading: isBrandingLoading, isMounted } = useBranding();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -174,13 +174,6 @@ export default function LoginPage() {
     }
   }
 
-  if (isBrandingLoading && isCustomDomain) {
-    return (
-      <div className="min-h-screen bg-canvas text-text-primary flex flex-col justify-center items-center px-4 font-sans">
-        <Loader2 className="w-8 h-8 animate-spin text-accent" />
-      </div>
-    );
-  }
 
   if (paymentRequired) {
     const isPaused = paymentRequired.status === 'paused' || paymentRequired.status === 'cancelled';
@@ -196,7 +189,7 @@ export default function LoginPage() {
               Subscription Payment Required
             </h1>
             <p className="text-xs text-text-muted mt-1">
-              {paymentRequired.org_name ? `Organization: ${paymentRequired.org_name}` : (branding.brand_name || 'Boldlabs CRM')}
+              {paymentRequired.org_name ? `Organization: ${paymentRequired.org_name}` : (branding.brand_name || 'CRM Portal')}
             </p>
           </div>
 
@@ -260,8 +253,8 @@ export default function LoginPage() {
     <div className="min-h-screen bg-canvas text-text-primary flex flex-col justify-center items-center px-4 font-sans">
       <div className="w-full max-w-sm">
         {/* Brand */}
-        <div className="flex justify-center items-center mb-6">
-          {branding.brand_logo_url ? (
+        <div className="flex justify-center items-center mb-6 min-h-[56px]">
+          {isMounted && branding.brand_logo_url ? (
             <img
               src={branding.brand_logo_url}
               alt={branding.brand_name || (isCustomDomain ? 'Partner Portal' : 'Boldlabs')}
@@ -270,7 +263,7 @@ export default function LoginPage() {
                 (e.target as HTMLElement).style.display = 'none';
               }}
             />
-          ) : branding.brand_name ? (
+          ) : isMounted && branding.brand_name ? (
             <div className="flex items-center gap-2.5">
               <div
                 className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-accent text-white shadow-sm font-bold text-lg"
@@ -283,7 +276,7 @@ export default function LoginPage() {
           ) : (
             <div
               className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-accent text-white shadow-sm"
-              style={branding.brand_primary_color ? { backgroundColor: branding.brand_primary_color } : undefined}
+              style={isMounted && branding.brand_primary_color ? { backgroundColor: branding.brand_primary_color } : undefined}
             >
               <MessageSquare className="w-6 h-6 stroke-[1.5]" />
             </div>
@@ -399,7 +392,7 @@ export default function LoginPage() {
 
         {/* Footer */}
         <div className="text-center mt-5 space-y-2">
-          {!branding.hide_platform_branding && !isCustomDomain && (
+          {isMounted && !branding.hide_platform_branding && !isCustomDomain && (
             <a
               href="/bhuvanesh"
               className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-accent transition-colors"
@@ -408,7 +401,7 @@ export default function LoginPage() {
               <ArrowRight className="w-3 h-3 stroke-[1.5]" />
             </a>
           )}
-          {(branding.brand_support_email || !isCustomDomain) && (
+          {isMounted && (branding.brand_support_email || !isCustomDomain) && (
             <p className="text-center text-xs text-text-muted">
               Need support?{' '}
               <a
@@ -419,11 +412,9 @@ export default function LoginPage() {
               </a>
             </p>
           )}
-          {(branding.brand_name || !isCustomDomain) && (
-            <p className="text-center text-xs text-text-muted">
-              &copy; {new Date().getFullYear()} {branding.brand_name || 'Boldlabs CRM'}. All rights reserved.
-            </p>
-          )}
+          <p className="text-center text-xs text-text-muted">
+            &copy; {new Date().getFullYear()} {isMounted ? (branding.brand_name || (!isCustomDomain ? 'Boldlabs CRM' : 'CRM Portal')) : 'CRM Portal'}. All rights reserved.
+          </p>
         </div>
       </div>
     </div>

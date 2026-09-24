@@ -1249,10 +1249,27 @@ Any missed call will now automatically get followed up on WhatsApp!`;
       }
       let finalPassword = formData.admin_password.trim();
       if (!finalPassword) {
-        finalPassword = 'BoldAuto2026!';
+        finalPassword = isPartner ? 'Partner2026!' : 'Secure2026!';
       }
 
       const preset = ONBOARDING_INDUSTRY_PRESETS.find((p) => p.id === selectedIndustryPreset) || ONBOARDING_INDUSTRY_PRESETS[0];
+
+      const matchingTpl = isPartner
+        ? (partnerTemplates.find((t) => t.partner_name.toLowerCase() === finalPartnerName.toLowerCase()) || partnerTemplates.find((t) => t.is_default) || null)
+        : null;
+
+      const createdDomain = (
+        formData.custom_domain ||
+        matchingTpl?.custom_domain ||
+        ''
+      ).trim().toLowerCase();
+
+      const createdBrandName = (
+        formData.brand_name ||
+        matchingTpl?.brand_name ||
+        formData.name ||
+        ''
+      ).trim();
 
       const clientPayload = {
         ...formData,
@@ -1268,6 +1285,8 @@ Any missed call will now automatically get followed up on WhatsApp!`;
         partner_name: finalPartnerName,
         partner_share_pct: isPartner ? Number(formData.partner_share_pct) : 0,
         owner_share_pct: isPartner ? Number(formData.owner_share_pct) : 100,
+        custom_domain: createdDomain || undefined,
+        brand_name: createdBrandName || undefined,
       };
 
       const res = await admin.createTenant(clientPayload);
@@ -1285,14 +1304,10 @@ Any missed call will now automatically get followed up on WhatsApp!`;
       });
 
       // If partnered, automatically apply white-label branding from the matching partner agency template
-      if (isPartner && finalPartnerName) {
-        const matchingTpl = partnerTemplates.find(
-          (t) => t.partner_name.toLowerCase() === finalPartnerName.toLowerCase()
-        ) || partnerTemplates.find((t) => t.is_default) || null;
-
+      if (isPartner && (finalPartnerName || matchingTpl)) {
         const brandingUpdates: Record<string, any> = {
-          custom_domain: (formData.custom_domain || matchingTpl?.custom_domain || '').trim().toLowerCase(),
-          brand_name: (formData.brand_name || matchingTpl?.brand_name || formData.name || '').trim(),
+          custom_domain: createdDomain,
+          brand_name: createdBrandName,
         };
         if (matchingTpl?.brand_logo_url) brandingUpdates.brand_logo_url = matchingTpl.brand_logo_url;
         if (matchingTpl?.brand_favicon_url) brandingUpdates.brand_favicon_url = matchingTpl.brand_favicon_url;
@@ -1313,28 +1328,30 @@ Any missed call will now automatically get followed up on WhatsApp!`;
         }).catch((domainErr) => console.warn('Failed to set initial branding:', domainErr));
       }
 
-      const createdDomain = (
-        formData.custom_domain ||
-        (isPartner && partnerTemplates.find((t) => t.partner_name.toLowerCase() === finalPartnerName.toLowerCase())?.custom_domain) ||
+      const finalEffectiveDomain = (
+        createdDomain ||
         res.custom_domain ||
         ''
       ).trim().toLowerCase();
 
-      const createdBrandName = (
-        formData.brand_name ||
-        (isPartner && partnerTemplates.find((t) => t.partner_name.toLowerCase() === finalPartnerName.toLowerCase())?.brand_name) ||
+      const finalEffectiveBrand = (
+        createdBrandName ||
         res.brand_name ||
         res.name
       );
+
+      const effectiveLoginUrl = finalEffectiveDomain
+        ? `https://${finalEffectiveDomain}/login?redirect=/${res.slug}`
+        : (res.login_url || `https://crm.goboldlabs.com/login?redirect=/${res.slug}`);
 
       setCreatedClient({
         ...res,
         password: clientPayload.admin_password,
         admin_whatsapp_number: clientPayload.admin_whatsapp_number,
-        custom_domain: createdDomain,
+        custom_domain: finalEffectiveDomain,
         partner_name: finalPartnerName || res.partner_name,
-        brand_name: createdBrandName,
-        login_url: res.login_url || (createdDomain ? `https://${createdDomain}/login?redirect=/${res.slug}` : `https://crm.goboldlabs.com/login?redirect=/${res.slug}`),
+        brand_name: finalEffectiveBrand,
+        login_url: effectiveLoginUrl,
       });
       setActionSuccessNotice(`Organization "${res.name}" provisioned successfully!`);
       setTimeout(() => setActionSuccessNotice(null), 4000);
@@ -1733,7 +1750,13 @@ Any missed call will now automatically get followed up on WhatsApp!`;
   const totalNetRetainedMRR = directMRR + yourPartnerNetMRR;
 
   function handleOpenCreateModal(overrideChannel?: 'direct' | 'partner') {
-    const channel = overrideChannel || (activeOrgTab === 'partnered' ? 'partner' : 'direct');
+    const currentHost = typeof window !== 'undefined' ? window.location.hostname.toLowerCase().split(':')[0].trim() : '';
+    const isCustomHost = Boolean(currentHost && !['crm.goboldlabs.com', 'boldlabs.com', 'crm.boldlabs.com', 'localhost', '127.0.0.1', '168.138.172.197'].includes(currentHost) && !currentHost.endsWith('.vercel.app'));
+    const domainPartnerTpl = isCustomHost
+      ? partnerTemplates.find((t) => (t.custom_domain || '').toLowerCase().trim() === currentHost)
+      : null;
+
+    const channel = overrideChannel || (domainPartnerTpl ? 'partner' : (activeOrgTab === 'partnered' ? 'partner' : 'direct'));
     let defaultPartner = '';
     let defaultSplitPartner = 50;
     let defaultSplitOwner = 50;
@@ -1741,7 +1764,9 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     let defaultBrandName = '';
 
     if (channel === 'partner') {
-      if (selectedPartnerFilter && selectedPartnerFilter !== 'all') {
+      if (domainPartnerTpl) {
+        defaultPartner = domainPartnerTpl.partner_name;
+      } else if (selectedPartnerFilter && selectedPartnerFilter !== 'all') {
         defaultPartner = selectedPartnerFilter;
       } else if (defaultPartnerTemplate) {
         defaultPartner = defaultPartnerTemplate.partner_name;
@@ -1751,6 +1776,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
       // Lookup matching template
       const matchingTpl =
+        domainPartnerTpl ||
         partnerTemplates.find((t) => t.partner_name.toLowerCase() === defaultPartner.toLowerCase()) ||
         defaultPartnerTemplate;
 
@@ -3619,9 +3645,9 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                           onClick={() => {
                                             setActionMenuTenantId(null);
                                             const matchingTpl = partnerTemplates.find(
-                                              (tpl) => tpl.partner_name?.toLowerCase() === t.partner_name?.toLowerCase()
-                                            );
-                                            const effectiveDomain = (t as any).custom_domain || matchingTpl?.custom_domain || 'crm.goboldlabs.com';
+                                              (tpl) => (tpl.partner_name || '').toLowerCase() === (t.partner_name || '').toLowerCase()
+                                            ) || (t.sales_channel === 'partner' ? (partnerTemplates.find((tpl) => tpl.is_default) || partnerTemplates[0]) : null);
+                                            const effectiveDomain = (t as any).custom_domain || matchingTpl?.custom_domain || (typeof window !== 'undefined' && !['crm.goboldlabs.com', 'boldlabs.com', 'localhost', '127.0.0.1'].includes(window.location.hostname) ? window.location.hostname : 'crm.goboldlabs.com');
                                             setResetTenantDomain(effectiveDomain);
                                             setResetTenantId(t.id);
                                             setResetTenantName(t.name);
@@ -3888,9 +3914,9 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                             <button
                               onClick={() => {
                                 const matchingTpl = partnerTemplates.find(
-                                  (tpl) => tpl.partner_name?.toLowerCase() === t.partner_name?.toLowerCase()
-                                );
-                                const effectiveDomain = (t as any).custom_domain || matchingTpl?.custom_domain || 'crm.goboldlabs.com';
+                                  (tpl) => (tpl.partner_name || '').toLowerCase() === (t.partner_name || '').toLowerCase()
+                                ) || (t.sales_channel === 'partner' ? (partnerTemplates.find((tpl) => tpl.is_default) || partnerTemplates[0]) : null);
+                                const effectiveDomain = (t as any).custom_domain || matchingTpl?.custom_domain || (typeof window !== 'undefined' && !['crm.goboldlabs.com', 'boldlabs.com', 'localhost', '127.0.0.1'].includes(window.location.hostname) ? window.location.hostname : 'crm.goboldlabs.com');
                                 setResetTenantDomain(effectiveDomain);
                                 setResetTenantId(t.id);
                                 setResetTenantName(t.name);
@@ -8264,13 +8290,15 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                 (createdClient.partner_name && partnerTemplates.find((t) => t.partner_name.toLowerCase() === createdClient.partner_name?.toLowerCase())?.custom_domain) ||
                 (typeof window !== 'undefined' && !['crm.goboldlabs.com', 'crm.boldlabs.com', 'localhost', '127.0.0.1'].includes(window.location.hostname) ? window.location.hostname : 'crm.goboldlabs.com')
               );
-              const portalUrl = createdClient.login_url || `https://${effectiveDomain}/login?redirect=/${createdClient.slug}`;
+              const portalUrl = (effectiveDomain && effectiveDomain !== 'crm.goboldlabs.com')
+                ? `https://${effectiveDomain}/login?redirect=/${createdClient.slug}`
+                : (createdClient.login_url || `https://${effectiveDomain}/login?redirect=/${createdClient.slug}`);
               const effectiveBrand = (
                 createdClient.brand_name ||
                 (createdClient.partner_name && partnerTemplates.find((t) => t.partner_name.toLowerCase() === createdClient.partner_name?.toLowerCase())?.brand_name) ||
                 'AI WhatsApp Automation CRM'
               );
-              const welcomeMsg = `*Welcome to ${effectiveBrand}!*\n\nYour organization workspace (*${createdClient.name}*) is live and ready.\n\n*Login Portal:* ${portalUrl}\n*Username:* ${createdClient.admin_email}\n*Password:* ${createdClient.password || 'BoldAuto2026!'}\n\n*Quick 3-step setup once logged in:*\n1. Click *"1-Click WhatsApp Connect"* to link your WhatsApp Business number\n2. Connect Google Calendar for automated appointment bookings\n3. Send a test ping to verify your AI persona!\n\nNeed assistance? Reply directly to this message.`;
+              const welcomeMsg = `*Welcome to ${effectiveBrand}!*\n\nYour organization workspace (*${createdClient.name}*) is live and ready.\n\n*Login Portal:* ${portalUrl}\n*Username:* ${createdClient.admin_email}\n*Password:* ${createdClient.password || 'Secure2026!'}\n\n*Quick 3-step setup once logged in:*\n1. Click *"1-Click WhatsApp Connect"* to link your WhatsApp Business number\n2. Connect Google Calendar for automated appointment bookings\n3. Send a test ping to verify your AI persona!\n\nNeed assistance? Reply directly to this message.`;
               const cleanPhone = (createdClient.admin_whatsapp_number || '').replace(/\D/g, '');
               const waUrl = cleanPhone
                 ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(welcomeMsg)}`
@@ -8324,12 +8352,12 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       <span className="font-semibold text-text-secondary">Initial Password:</span>
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono font-bold text-text-primary bg-white px-2 py-0.5 rounded border border-border">
-                          {createdClient.password || 'BoldAuto2026!'}
+                          {createdClient.password || 'Secure2026!'}
                         </span>
                         <button
                           type="button"
                           onClick={() => {
-                            navigator.clipboard.writeText(createdClient.password || 'BoldAuto2026!');
+                            navigator.clipboard.writeText(createdClient.password || 'Secure2026!');
                             setCopiedField('password');
                             setTimeout(() => setCopiedField(null), 2000);
                           }}
