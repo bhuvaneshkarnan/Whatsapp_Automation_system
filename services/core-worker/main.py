@@ -2138,12 +2138,6 @@ class CoreWorker:
             "   - VOICE NOTES: When customer sends a voice note, warmly acknowledge it and directly answer their query.\n"
             "   - HUMAN ESCALATION: When requested to speak with a human/doctor/staff, reassure them a team member will follow up shortly and append [ACTION:HUMAN_TAKEOVER]."
         )
-age and dialect (Tamil script in Tamil, Tanglish in Tanglish, Hinglish in Hinglish, English in English).\n"
-            "7. KNOWLEDGE GROUNDING & SPECIAL ACTIONS:\n"
-            "   - Ground every single fact 100% in this business's verified data below. Never invent or guess.\n"
-            "   - VOICE NOTES: When customer sends a voice note, warmly acknowledge it (e.g. 'Got your voice note!') and directly answer their query.\n"
-            "   - HUMAN ESCALATION: When requested to speak with a human/doctor/staff, reassure them a team member will follow up shortly and append [ACTION:HUMAN_TAKEOVER]."
-        )
 
         # 2. Retrieve customer profile & bookings memory with strict tenant scoping
         contact_row = await self.db_pool.fetchrow(
