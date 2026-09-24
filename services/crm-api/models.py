@@ -432,6 +432,21 @@ class PublicBookingRequest(BaseModel):
     source: Optional[str] = "website_form"
 
 
+class PublicCancelRequest(BaseModel):
+    booking_id: str
+    phone: str
+    reason: Optional[str] = None
+
+
+class PublicRescheduleRequest(BaseModel):
+    booking_id: str
+    phone: str
+    booking_date: str  # YYYY-MM-DD
+    booking_time: str  # HH:MM or 10:00 AM
+    service: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class StaffCreateRequest(BaseModel):
     email: str
     password: str

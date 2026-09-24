@@ -7,12 +7,17 @@ vps_host = 'ubuntu@168.138.172.197'
 remote_dir = '/home/ubuntu/whatsapp-app'
 archive_name = 'patch_deploy.tar.gz'
 
+def filter_pycache(tarinfo):
+    if '__pycache__' in tarinfo.name or tarinfo.name.endswith('.pyc') or tarinfo.name.endswith('.pyo'):
+        return None
+    return tarinfo
+
 print('[1/4] Creating patch tar archive...')
 with tarfile.open(archive_name, 'w:gz') as tar:
     # Services core-worker, crm-api, auth-service, frontend_dist, and nginx.conf
-    tar.add('services/core-worker', arcname='services/core-worker')
-    tar.add('services/crm-api', arcname='services/crm-api')
-    tar.add('services/auth-service', arcname='services/auth-service')
+    tar.add('services/core-worker', arcname='services/core-worker', filter=filter_pycache)
+    tar.add('services/crm-api', arcname='services/crm-api', filter=filter_pycache)
+    tar.add('services/auth-service', arcname='services/auth-service', filter=filter_pycache)
     tar.add('infrastructure/nginx/nginx.conf', arcname='infrastructure/nginx/nginx.conf')
     tar.add('frontend_dist', arcname='frontend_dist')
 
@@ -33,7 +38,7 @@ print('[3/4] Extracting archive and restarting backend-monolith on VPS...')
 remote_bash = f'''
 set -e
 cd {remote_dir}
-tar -xzf {archive_name}
+tar --no-same-owner -xzf {archive_name}
 rm -f {archive_name}
 docker restart whatsapp-app-backend-monolith-1
 docker exec whatsapp-app-nginx-1 nginx -s reload || true

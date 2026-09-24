@@ -3153,9 +3153,10 @@ class CoreWorker:
                 )
                 response_text = response_text.replace("[ACTION:HUMAN_TAKEOVER]", "").strip()
 
-            # 2. Intercept [ACTION:CANCEL_BOOKING] or AI confirmation phrases
+            # 2. Intercept [ACTION:CANCEL_BOOKING], [ACTION:CANCEL], etc. or AI confirmation phrases
+            action_cancel_found = bool(re.search(r'\[ACTION:CANCEL(?:_BOOKING|_APPOINTMENT)?(?::\s*\{.*?\})?\]', response_text, re.I))
             cancellation_detected = (
-                "[ACTION:CANCEL_BOOKING]" in response_text
+                action_cancel_found
                 or bool(re.search(r'\b(?:has\s+been|is|have\s+been|was)\s+cancell?ed\b', response_text, re.I))
                 or bool(re.search(r'\bcancell?ed\s+(?:your|the|that|this)\b', response_text, re.I))
                 or bool(re.search(r'\b(?:have|i\'ve|we\'ve)\s+cancell?ed\b', response_text, re.I))
@@ -3169,15 +3170,20 @@ class CoreWorker:
                     "session has been cancelled", "session is cancelled", "cancelled your session"
                 ])
             )
+            # Guard against negative / question phrasing: e.g. "is not cancelled", "cannot be cancelled"
+            if re.search(r'\b(?:not|never|neither|cannot|can\'t)\s+cancell?ed\b', response_text, re.I):
+                cancellation_detected = False
+
             if cancellation_detected:
                 cancel_action = True
-                response_text = response_text.replace("[ACTION:CANCEL_BOOKING]", "").strip()
+            # Always strip any cancellation tags from response_text sent to user
+            response_text = re.sub(r'\[ACTION:CANCEL(?:_BOOKING|_APPOINTMENT)?(?::\s*\{.*?\})?\]', '', response_text, flags=re.I).strip()
 
-            # 3. Intercept [ACTION:RESCHEDULE_BOOKING: ...]
-            # Use balanced-brace extractor instead of greedy .*? to handle } inside JSON string values
-            _resched_prefix = "[ACTION:RESCHEDULE_BOOKING:"
-            _resched_idx = response_text.find(_resched_prefix)
-            if _resched_idx != -1:
+            # 3. Intercept [ACTION:RESCHEDULE_BOOKING: ...] or [ACTION:RESCHEDULE: ...] or [ACTION:RESCHEDULE_APPOINTMENT: ...]
+            # Use balanced-brace extractor to handle nested JSON structures
+            _resched_match = re.search(r'\[ACTION:RESCHEDULE(?:_BOOKING|_APPOINTMENT)?:\s*', response_text, re.I)
+            if _resched_match:
+                _resched_idx = _resched_match.start()
                 _brace_start = response_text.find("{", _resched_idx)
                 if _brace_start != -1:
                     _depth, _pos, _brace_end = 0, _brace_start, -1
@@ -3226,15 +3232,15 @@ class CoreWorker:
                     logger.warning("customer_info_parse_failed", error=str(ex))
                 response_text = re.sub(r'\[ACTION:CUSTOMER_INFO:\s*\{.*?\}\]', '', response_text, flags=re.DOTALL).strip()
 
-            # 3. Intercept [ACTION:CREATE_BOOKING: ...] tag
-            m = re.search(r'\[ACTION:CREATE_BOOKING:\s*(\{.*?\})\]', response_text, re.DOTALL)
-            if m:
+            # 4. Intercept [ACTION:CREATE_BOOKING: ...] or [ACTION:BOOK_APPOINTMENT: ...] tags
+            m_booking = re.search(r'\[ACTION:(?:CREATE_BOOKING|BOOK_APPOINTMENT|BOOKING|CREATE_APPOINTMENT):\s*(\{.*?\})\]', response_text, re.DOTALL | re.I)
+            if m_booking:
                 try:
-                    booking_action = json.loads(m.group(1))
+                    booking_action = json.loads(m_booking.group(1))
                 except Exception as e:
                     logger.warning("booking_action_json_parse_failed", error=str(e))
                 # Strip action tag from message sent to WhatsApp customer
-                response_text = re.sub(r'\[ACTION:CREATE_BOOKING:\s*\{.*?\}\]', '', response_text, flags=re.DOTALL).strip()
+                response_text = re.sub(r'\[ACTION:(?:CREATE_BOOKING|BOOK_APPOINTMENT|BOOKING|CREATE_APPOINTMENT):\s*\{.*?\}\]', '', response_text, flags=re.DOTALL | re.I).strip()
 
             # 3b. Duplicate Booking Prevention Safety Net:
             # If customer already has an active upcoming booking and did NOT explicitly request an additional session:
@@ -4594,8 +4600,19 @@ class CoreWorker:
             contact_id = await self.db_pool.fetchval(
                 "SELECT contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id
             )
-            if not contact_id:
-                return
+            if not contact_id and contact_phone:
+                contact_id = await self.db_pool.fetchval(
+                    """SELECT id FROM contacts 
+                       WHERE tenant_id = $1::uuid 
+                         AND (phone = $2 OR RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10))
+                       ORDER BY created_at ASC LIMIT 1""",
+                    tenant_id, contact_phone
+                )
+                if contact_id:
+                    try:
+                        await self.db_pool.execute("UPDATE conversations SET contact_id = $1::uuid WHERE id = $2::uuid AND tenant_id = $3::uuid", contact_id, conv_id, tenant_id)
+                    except Exception:
+                        pass
 
             # Find active booking (confirmed, rescheduled, pending, or reminded)
             booking = await self.db_pool.fetchrow(
@@ -4603,13 +4620,18 @@ class CoreWorker:
                    FROM bookings b
                    LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
                    WHERE b.tenant_id = $1::uuid 
-                     AND (b.contact_id = $2::uuid OR b.conversation_id = $3::uuid OR c.phone = $4 OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($4, '[^0-9]', '', 'g'), 10))
+                     AND (
+                       (b.contact_id IS NOT NULL AND b.contact_id = $2::uuid)
+                       OR b.conversation_id = $3::uuid 
+                       OR c.phone = $4 
+                       OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($4, '[^0-9]', '', 'g'), 10)
+                     )
                      AND b.status IN ('confirmed', 'rescheduled', 'pending', 'reminded')
                    ORDER BY b.start_time DESC LIMIT 1""",
                 tenant_id, contact_id, conv_id, contact_phone
             )
             if not booking:
-                logger.info("no_active_booking_to_cancel", contact_id=contact_id)
+                logger.info("no_active_booking_to_cancel", contact_id=contact_id, conv_id=conv_id, phone=contact_phone)
                 return
 
             booking_id = str(booking["id"])
@@ -4629,6 +4651,44 @@ class CoreWorker:
                 booking_id, tenant_id
             )
             logger.info("ai_booking_cancelled", booking_id=booking_id)
+
+            # Update customer status to cancelled if no other active bookings remain
+            try:
+                rem_active = await self.db_pool.fetchval(
+                    """SELECT COUNT(*) FROM bookings b
+                       LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
+                       WHERE b.tenant_id = $1::uuid 
+                         AND (
+                           (b.contact_id IS NOT NULL AND b.contact_id = $2::uuid)
+                           OR c.phone = $3 
+                           OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($3, '[^0-9]', '', 'g'), 10)
+                         )
+                         AND b.status IN ('confirmed', 'rescheduled', 'pending')
+                         AND b.id != $4::uuid""",
+                    tenant_id, contact_id, contact_phone, booking_id
+                ) or 0
+
+                clean_cust_phone = re.sub(r'[^0-9]', '', contact_phone or "")
+                if rem_active == 0 and clean_cust_phone:
+                    await self.db_pool.execute(
+                        """UPDATE customers
+                           SET status = 'cancelled', converted = false, updated_at = now()
+                           WHERE tenant_id = $1::uuid
+                             AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($2, 10))""",
+                        tenant_id, clean_cust_phone
+                    )
+                    cust_id_row = await self.db_pool.fetchval(
+                        """SELECT id FROM customers WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($2, 10)) LIMIT 1""",
+                        tenant_id, clean_cust_phone
+                    )
+                    if cust_id_row:
+                        await self.db_pool.execute(
+                            """INSERT INTO customer_notes (id, tenant_id, customer_id, author, note_text, color, created_at)
+                               VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'AI Assistant', $3, 'rose', now())""",
+                            tenant_id, cust_id_row, f"❌ Cancelled booking: {service_name} on {formatted_date} at {formatted_time} via WhatsApp chat."
+                        )
+            except Exception as ex_c:
+                logger.warning("cancellation_customer_status_update_failed", error=str(ex_c))
 
             # Dispatch Web Push Notification for Cancellation
             try:
@@ -4968,8 +5028,19 @@ class CoreWorker:
             contact_id = await self.db_pool.fetchval(
                 "SELECT contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id
             )
-            if not contact_id:
-                return
+            if not contact_id and contact_phone:
+                contact_id = await self.db_pool.fetchval(
+                    """SELECT id FROM contacts 
+                       WHERE tenant_id = $1::uuid 
+                         AND (phone = $2 OR RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10))
+                       ORDER BY created_at ASC LIMIT 1""",
+                    tenant_id, contact_phone
+                )
+                if contact_id:
+                    try:
+                        await self.db_pool.execute("UPDATE conversations SET contact_id = $1::uuid WHERE id = $2::uuid AND tenant_id = $3::uuid", contact_id, conv_id, tenant_id)
+                    except Exception:
+                        pass
 
             # Find existing confirmed or rescheduled booking
             old_booking = await self.db_pool.fetchrow(
@@ -6160,41 +6231,50 @@ class CoreWorker:
                 sent_via_template = False
                 sent_wa_id = None
 
-                # 1. Reminder job: Send approved appointment_ramainder template
+                # 1. Reminder job: Send approved appointment reminder template
                 if job_type == "reminder" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-                    # Safeguard: The approved 'appointment_ramainder' template explicitly says "is coming up today at {time}".
-                    # Refuse to send it if the appointment is on a different day or more than 6 hours away!
+                    is_same_day = True
                     if isinstance(start, datetime.datetime):
                         now_tz = datetime.datetime.now(tz)
-                        if st_tz.date() != now_tz.date() or (st_tz - now_tz).total_seconds() > 6 * 3600:
-                            logger.warning(
-                                "scheduled_reminder_skipped_not_today",
-                                booking_id=booking_id,
-                                appointment_time=str(st_tz),
-                                now=str(now_tz),
-                                reason="appointment_ramainder template says 'today', cannot send for future dates"
-                            )
-                            await self.db_pool.execute(
-                                "UPDATE scheduled_jobs SET status = 'cancelled', sent_at = now() WHERE id = $1 AND tenant_id = $2::uuid",
-                                job["id"], job["tenant_id"]
-                            )
-                            continue
+                        is_same_day = (st_tz.date() == now_tz.date() and (st_tz - now_tz).total_seconds() <= 6 * 3600)
 
-                    template_name = (
-                        creds.get("template_appointment_reminder") or
-                        t_st.get("template_appointment_reminder") or
-                        "appointment_ramainder"
-                    )
-                    components = [
-                        {
-                            "type": "body",
-                            "parameters": [
-                                {"type": "text", "text": name},
-                                {"type": "text", "text": service},
-                                {"type": "text", "text": time_str},
-                            ]
-                        }
-                    ]
+                    if is_same_day:
+                        # Same-day / 2-hour reminder: 'appointment_ramainder' specifies "is coming up today at {time}"
+                        template_name = (
+                            creds.get("template_appointment_reminder") or
+                            t_st.get("template_appointment_reminder") or
+                            "appointment_ramainder"
+                        )
+                        components = [
+                            {
+                                "type": "body",
+                                "parameters": [
+                                    {"type": "text", "text": name},
+                                    {"type": "text", "text": service},
+                                    {"type": "text", "text": time_str},
+                                ]
+                            }
+                        ]
+                    else:
+                        # 24-hour / Advance reminder: Use approved utility_general_update with date & time
+                        template_name = (
+                            creds.get("template_advance_reminder") or
+                            creds.get("template_utility_general_update") or
+                            t_st.get("template_advance_reminder") or
+                            "utility_general_update"
+                        )
+                        t_name_disp = t_st.get("name") or "our team"
+                        components = [
+                            {
+                                "type": "body",
+                                "parameters": [
+                                    {"type": "text", "text": name},
+                                    {"type": "text", "text": t_name_disp},
+                                    {"type": "text", "text": f"upcoming {service} appointment tomorrow on {date_str} at {time_str}"},
+                                ]
+                            }
+                        ]
+
                     try:
                         sent_wa_id = await send_template(
                             phone_number_id=creds["phone_number_id"],

@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any, Union
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Body
 import database
 from models import BookingCreatePayload, BookingStatusPayload, BookingPricePayload
 from dependencies import get_tenant_id, get_caller_context
@@ -799,6 +799,39 @@ async def update_booking_status(
                 "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND status = 'pending'",
                 booking_id, tenant_id
             )
+            # Update customer status to cancelled if no other active bookings remain
+            try:
+                b_phone = booking.get("phone")
+                if b_phone:
+                    rem_active = await conn.fetchval(
+                        """SELECT COUNT(*) FROM bookings b
+                           LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
+                           WHERE b.tenant_id = $1::uuid 
+                             AND (c.phone = $2 OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10))
+                             AND b.status IN ('confirmed', 'rescheduled', 'pending')
+                             AND b.id != $3::uuid""",
+                        tenant_id, b_phone, booking_id
+                    ) or 0
+                    if rem_active == 0:
+                        await conn.execute(
+                            """UPDATE customers 
+                               SET status = 'cancelled', converted = false, updated_at = now()
+                               WHERE tenant_id = $1::uuid 
+                                 AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10))""",
+                            tenant_id, b_phone
+                        )
+                        cust_id_row = await conn.fetchval(
+                            """SELECT id FROM customers WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10)) LIMIT 1""",
+                            tenant_id, b_phone
+                        )
+                        if cust_id_row:
+                            await conn.execute(
+                                """INSERT INTO customer_notes (id, tenant_id, customer_id, author, note_text, color, created_at)
+                                   VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'CRM User', $3, 'rose', now())""",
+                                tenant_id, cust_id_row, f"❌ Booking for {service_name} was marked cancelled via CRM."
+                            )
+            except Exception as c_err:
+                logger.warning("crm_booking_cancellation_customer_update_failed", error=str(c_err))
             if booking.get("google_event_id"):
                 try:
                     gcal_row = await conn.fetchrow(
@@ -1276,6 +1309,45 @@ async def update_booking_status(
         "delay_seconds": delay_seconds,
         "template_configured": dispatch_template,
     }
+
+
+@router.patch("/bookings/{booking_id}/cancel")
+@router.patch("/api/v1/crm/bookings/{booking_id}/cancel")
+@router.post("/bookings/{booking_id}/cancel")
+@router.post("/api/v1/crm/bookings/{booking_id}/cancel")
+async def cancel_booking_endpoint(
+    booking_id: str,
+    background_tasks: BackgroundTasks,
+    payload: Optional[Dict[str, Any]] = Body(None),
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Explicit endpoint to cancel a booking."""
+    return await update_booking_status(
+        booking_id=booking_id,
+        payload=BookingStatusPayload(status="cancelled"),
+        background_tasks=background_tasks,
+        tenant_id=tenant_id
+    )
+
+
+@router.patch("/bookings/{booking_id}/reschedule")
+@router.patch("/api/v1/crm/bookings/{booking_id}/reschedule")
+@router.post("/bookings/{booking_id}/reschedule")
+@router.post("/api/v1/crm/bookings/{booking_id}/reschedule")
+async def reschedule_booking_endpoint(
+    booking_id: str,
+    payload: BookingStatusPayload,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Explicit endpoint to reschedule a booking."""
+    payload.status = "rescheduled"
+    return await update_booking_status(
+        booking_id=booking_id,
+        payload=payload,
+        background_tasks=background_tasks,
+        tenant_id=tenant_id
+    )
 
 
 @router.delete("/bookings/{booking_id}")

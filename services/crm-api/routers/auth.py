@@ -27,6 +27,8 @@ from models import (
     PushSubscribePayload,
     PushUnsubscribePayload,
     PublicBookingRequest,
+    PublicCancelRequest,
+    PublicRescheduleRequest,
     StaffCreateRequest,
     StaffUpdateRequest,
 )
@@ -2389,6 +2391,338 @@ async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
             "patient_name": clean_name,
             "patient_phone": clean_phone,
             "message": "Your appointment has been successfully booked! A confirmation message was sent to your WhatsApp."
+        }
+
+
+@router.post("/public/{slug}/cancel")
+@router.post("/api/v1/crm/public/{slug}/cancel")
+async def cancel_public_web_booking(slug: str, payload: PublicCancelRequest):
+    """
+    Public web booking cancellation handler.
+    Cancels booking in DB, updates customer status, removes from GCal, and sends WhatsApp confirmation.
+    """
+    if not payload.booking_id or not payload.phone:
+        raise HTTPException(400, "booking_id and phone are required")
+
+    clean_phone = "".join(filter(str.isdigit, payload.phone.strip()))
+    if len(clean_phone) < 10:
+        raise HTTPException(400, "Invalid phone number provided")
+
+    async with database.db_pool.acquire() as conn:
+        tenant = await conn.fetchrow("SELECT id, name, slug, settings FROM tenants WHERE slug = $1", slug.strip().lower())
+        if not tenant:
+            raise HTTPException(404, "Organization not found")
+        tenant_id = str(tenant["id"])
+
+        tenant_settings = safe_json_loads(tenant["settings"], {})
+        tz_name = tenant_settings.get("timezone", "Asia/Kolkata").strip() if tenant_settings.get("timezone") else "Asia/Kolkata"
+        try:
+            tenant_tz = ZoneInfo(tz_name)
+        except Exception:
+            tenant_tz = ZoneInfo("Asia/Kolkata")
+
+        booking = await conn.fetchrow(
+            """SELECT b.id, b.service, b.start_time, b.google_event_id, b.status,
+                      COALESCE(c.name, b.metadata->>'customer_name', 'Customer') as customer_name,
+                      COALESCE(c.phone, b.metadata->>'customer_phone', '') as customer_phone
+               FROM bookings b
+               LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
+               WHERE b.id = $1::uuid AND b.tenant_id = $2::uuid
+                 AND (
+                   c.phone = $3
+                   OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT($3, 10)
+                   OR RIGHT(REGEXP_REPLACE(COALESCE(b.metadata->>'customer_phone', ''), '[^0-9]', '', 'g'), 10) = RIGHT($3, 10)
+                 )""",
+            payload.booking_id.strip(), tenant_id, clean_phone
+        )
+        if not booking:
+            raise HTTPException(404, "Booking not found or phone number does not match booking record.")
+
+        if booking["status"] == "cancelled":
+            return {"status": "already_cancelled", "message": "This booking is already cancelled."}
+
+        booking_id = str(booking["id"])
+        service_name = booking["service"] or "Appointment"
+        st = booking["start_time"]
+        st_local = st.astimezone(tenant_tz) if hasattr(st, "astimezone") else st
+        date_str = st_local.strftime("%d-%m-%Y")
+        time_str = st_local.strftime("%I:%M %p")
+        cust_name = booking["customer_name"] or "Valued Customer"
+
+        # 1. Update status in DB
+        await conn.execute("UPDATE bookings SET status = 'cancelled', updated_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", booking_id, tenant_id)
+        await conn.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND status = 'pending'", booking_id, tenant_id)
+
+        # 2. Update customer directory status if no other active bookings remain
+        rem_active = await conn.fetchval(
+            """SELECT COUNT(*) FROM bookings b
+               LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
+               WHERE b.tenant_id = $1::uuid 
+                 AND (c.phone = $2 OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT($2, 10))
+                 AND b.status IN ('confirmed', 'rescheduled', 'pending')
+                 AND b.id != $3::uuid""",
+            tenant_id, clean_phone, booking_id
+        ) or 0
+        if rem_active == 0:
+            await conn.execute(
+                """UPDATE customers 
+                   SET status = 'cancelled', converted = false, updated_at = now()
+                   WHERE tenant_id = $1::uuid 
+                     AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($2, 10))""",
+                tenant_id, clean_phone
+            )
+            cust_id_row = await conn.fetchval(
+                """SELECT id FROM customers WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($2, 10)) LIMIT 1""",
+                tenant_id, clean_phone
+            )
+            if cust_id_row:
+                await conn.execute(
+                    """INSERT INTO customer_notes (id, tenant_id, customer_id, author, note_text, color, created_at)
+                       VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'Web Portal', $3, 'rose', now())""",
+                    tenant_id, cust_id_row, f"❌ Cancelled booking: {service_name} on {date_str} at {time_str} via web portal."
+                )
+
+        # 3. Cancel Google Calendar event
+        if booking.get("google_event_id"):
+            try:
+                gcal_row = await conn.fetchrow(
+                    "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'google_calendar' AND is_active = true",
+                    tenant_id
+                )
+                if gcal_row and gcal_row["credential_data"]:
+                    g_data = safe_json_loads(gcal_row["credential_data"], {})
+                    if g_data.get("refresh_token") and g_data.get("client_id"):
+                        from google.oauth2.credentials import Credentials
+                        from googleapiclient.discovery import build
+                        g_creds = Credentials(
+                            token=g_data.get("access_token"),
+                            refresh_token=g_data.get("refresh_token"),
+                            token_uri="https://oauth2.googleapis.com/token",
+                            client_id=g_data.get("client_id"),
+                            client_secret=g_data.get("client_secret"),
+                        )
+                        g_service = await asyncio.to_thread(build, "calendar", "v3", credentials=g_creds)
+                        cal_id = g_data.get("calendar_id") or "primary"
+                        del_cal_req = g_service.events().delete(calendarId=cal_id, eventId=booking["google_event_id"], sendUpdates="all")
+                        await asyncio.to_thread(lambda: del_cal_req.execute())
+            except Exception as e_gcal:
+                logger.warning("public_cancel_gcal_failed", error=str(e_gcal))
+
+        # 4. WhatsApp confirmation to customer (cancellation_confirmation template)
+        wa_phone = f"+91{clean_phone[-10:]}" if len(clean_phone) == 10 else f"+{clean_phone}"
+        wa_cred_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+            tenant_id
+        )
+        wa_creds = safe_json_loads(wa_cred_row["credential_data"], {}) if wa_cred_row and wa_cred_row["credential_data"] else {}
+
+        customer_tpl = (
+            tenant_settings.get("template_cancellation_confirmation") or
+            wa_creds.get("template_cancellation_confirmation") or
+            "cancellation_confirmation"
+        )
+        customer_params = [cust_name, service_name, date_str, time_str]
+        try:
+            await dispatch_whatsapp_message(tenant_id, wa_phone, template_name=customer_tpl, template_params=customer_params)
+        except Exception as e_wa:
+            logger.warning("public_cancel_wa_failed", error=str(e_wa))
+
+        # 5. WhatsApp notification to admin (admin_cancellation_notice or admin_notification)
+        admin_phone = (wa_creds.get("admin_whatsapp_number") or tenant_settings.get("admin_whatsapp_number") or "").strip()
+        if admin_phone:
+            admin_tpl = (
+                tenant_settings.get("template_admin_cancellation_notice") or
+                wa_creds.get("template_admin_cancellation_notice") or
+                "admin_cancellation_notice"
+            )
+            clean_admin = re.sub(r'[^0-9]', '', admin_phone)
+            admin_params = [cust_name, clean_phone, service_name, date_str, time_str]
+            try:
+                res_adm = await dispatch_whatsapp_message(tenant_id, clean_admin, template_name=admin_tpl, template_params=admin_params)
+                if not res_adm:
+                    fb_admin_tpl = tenant_settings.get("template_admin_notification") or wa_creds.get("template_admin_notification") or "admin_notification"
+                    await dispatch_whatsapp_message(tenant_id, clean_admin, template_name=fb_admin_tpl, template_params=admin_params)
+            except Exception as e_adm:
+                logger.warning("public_cancel_admin_wa_failed", error=str(e_adm))
+
+        # 6. Push notification
+        try:
+            await dispatch_push_notification(
+                pool=database.db_pool,
+                tenant_id=tenant_id,
+                title="Booking Cancelled",
+                body=f"{cust_name} cancelled {service_name} on {date_str} at {time_str}",
+                notif_type="booking_cancelled",
+                url=f"/{slug}#bookings"
+            )
+        except Exception:
+            pass
+
+        return {
+            "status": "cancelled",
+            "booking_id": booking_id,
+            "message": "Your booking has been cancelled successfully."
+        }
+
+
+@router.post("/public/{slug}/reschedule")
+@router.post("/api/v1/crm/public/{slug}/reschedule")
+async def reschedule_public_web_booking(slug: str, payload: PublicRescheduleRequest):
+    """
+    Public web booking reschedule handler.
+    Updates booking time, re-times scheduled jobs, updates GCal, and sends WhatsApp confirmation.
+    """
+    if not payload.booking_id or not payload.phone or not payload.booking_date or not payload.booking_time:
+        raise HTTPException(400, "booking_id, phone, booking_date, and booking_time are required")
+
+    clean_phone = "".join(filter(str.isdigit, payload.phone.strip()))
+    if len(clean_phone) < 10:
+        raise HTTPException(400, "Invalid phone number provided")
+
+    async with database.db_pool.acquire() as conn:
+        tenant = await conn.fetchrow("SELECT id, name, slug, settings FROM tenants WHERE slug = $1", slug.strip().lower())
+        if not tenant:
+            raise HTTPException(404, "Organization not found")
+        tenant_id = str(tenant["id"])
+
+        tenant_settings = safe_json_loads(tenant["settings"], {})
+        tz_name = tenant_settings.get("timezone", "Asia/Kolkata").strip() if tenant_settings.get("timezone") else "Asia/Kolkata"
+        try:
+            tenant_tz = ZoneInfo(tz_name)
+        except Exception:
+            tenant_tz = ZoneInfo("Asia/Kolkata")
+
+        booking = await conn.fetchrow(
+            """SELECT b.id, b.service, b.staff_member, b.start_time, b.google_event_id, b.status,
+                      COALESCE(c.name, b.metadata->>'customer_name', 'Customer') as customer_name,
+                      COALESCE(c.phone, b.metadata->>'customer_phone', '') as customer_phone
+               FROM bookings b
+               LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
+               WHERE b.id = $1::uuid AND b.tenant_id = $2::uuid
+                 AND (
+                   c.phone = $3
+                   OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT($3, 10)
+                   OR RIGHT(REGEXP_REPLACE(COALESCE(b.metadata->>'customer_phone', ''), '[^0-9]', '', 'g'), 10) = RIGHT($3, 10)
+                 )""",
+            payload.booking_id.strip(), tenant_id, clean_phone
+        )
+        if not booking:
+            raise HTTPException(404, "Booking not found or phone number does not match booking record.")
+
+        # Parse new datetime
+        dt_str = f"{payload.booking_date} {payload.booking_time}"
+        st_dt = None
+        for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d %I:%M %p", "%Y-%m-%d %I:%M%p"]:
+            try:
+                st_dt = datetime.strptime(dt_str.strip(), fmt)
+                break
+            except Exception:
+                pass
+        if not st_dt:
+            raise HTTPException(400, "Invalid booking_date or booking_time format")
+        if st_dt.tzinfo is None:
+            st_dt = st_dt.replace(tzinfo=tenant_tz)
+        et_dt = st_dt + timedelta(minutes=30)
+
+        # Check timeslot conflict
+        booking_id = str(booking["id"])
+        conflict = await conn.fetchrow(
+            """SELECT id, service FROM bookings
+               WHERE tenant_id = $1::uuid AND status = 'confirmed' AND id != $2::uuid
+                 AND start_time < $4 AND end_time > $3""",
+            tenant_id, booking_id, st_dt, et_dt
+        )
+        if conflict:
+            raise HTTPException(409, f"Timeslot conflict: That slot is already booked for '{conflict['service']}'. Please choose another slot.")
+
+        service_name = payload.service or booking["service"] or "Appointment"
+        cust_name = booking["customer_name"] or "Valued Customer"
+        formatted_date = st_dt.strftime("%d-%m-%Y")
+        formatted_time = st_dt.strftime("%I:%M %p")
+
+        # 1. Update booking
+        await conn.execute(
+            """UPDATE bookings 
+               SET start_time = $1, end_time = $2, status = 'rescheduled', service = $3, updated_at = now()
+               WHERE id = $4::uuid AND tenant_id = $5::uuid""",
+            st_dt, et_dt, service_name, booking_id, tenant_id
+        )
+
+        # 2. Re-time scheduled jobs
+        now_dt = datetime.now(st_dt.tzinfo)
+        new_remind_2h = st_dt - timedelta(hours=2)
+        if new_remind_2h > now_dt:
+            await conn.execute(
+                """UPDATE scheduled_jobs
+                   SET scheduled_at = $1, status = 'pending'
+                   WHERE booking_id = $2::uuid AND tenant_id = $3::uuid AND job_type = 'reminder'""",
+                new_remind_2h, booking_id, tenant_id
+            )
+        new_adm_remind = st_dt - timedelta(minutes=30)
+        if new_adm_remind > now_dt:
+            await conn.execute(
+                """UPDATE scheduled_jobs
+                   SET scheduled_at = $1, status = 'pending'
+                   WHERE booking_id = $2::uuid AND tenant_id = $3::uuid AND job_type = 'admin_reminder'""",
+                new_adm_remind, booking_id, tenant_id
+            )
+
+        # 3. WhatsApp notification to customer (booking_reschedule_confirmation template)
+        wa_phone = f"+91{clean_phone[-10:]}" if len(clean_phone) == 10 else f"+{clean_phone}"
+        wa_cred_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+            tenant_id
+        )
+        wa_creds = safe_json_loads(wa_cred_row["credential_data"], {}) if wa_cred_row and wa_cred_row["credential_data"] else {}
+
+        customer_tpl = (
+            tenant_settings.get("template_reschedule_confirmation") or
+            wa_creds.get("template_reschedule_confirmation") or
+            "booking_reschedule_confirmation"
+        )
+        customer_params = [cust_name, service_name, formatted_date, formatted_time]
+        try:
+            await dispatch_whatsapp_message(tenant_id, wa_phone, template_name=customer_tpl, template_params=customer_params)
+        except Exception as e_wa:
+            logger.warning("public_reschedule_wa_failed", error=str(e_wa))
+
+        # 4. WhatsApp notification to admin (admin_reschedule_notice or admin_notification)
+        admin_phone = (wa_creds.get("admin_whatsapp_number") or tenant_settings.get("admin_whatsapp_number") or "").strip()
+        if admin_phone:
+            admin_tpl = (
+                tenant_settings.get("template_admin_reschedule_notice") or
+                wa_creds.get("template_admin_reschedule_notice") or
+                "admin_reschedule_notice"
+            )
+            clean_admin = re.sub(r'[^0-9]', '', admin_phone)
+            admin_params = [cust_name, clean_phone, service_name, formatted_date, formatted_time]
+            try:
+                res_adm = await dispatch_whatsapp_message(tenant_id, clean_admin, template_name=admin_tpl, template_params=admin_params)
+                if not res_adm:
+                    fb_admin_tpl = tenant_settings.get("template_admin_notification") or wa_creds.get("template_admin_notification") or "admin_notification"
+                    await dispatch_whatsapp_message(tenant_id, clean_admin, template_name=fb_admin_tpl, template_params=admin_params)
+            except Exception as e_adm:
+                logger.warning("public_reschedule_admin_wa_failed", error=str(e_adm))
+
+        # 5. Push notification
+        try:
+            await dispatch_push_notification(
+                pool=database.db_pool,
+                tenant_id=tenant_id,
+                title="Booking Rescheduled",
+                body=f"{cust_name} rescheduled {service_name} to {formatted_date} at {formatted_time}",
+                notif_type="booking_rescheduled",
+                url=f"/{slug}#bookings"
+            )
+        except Exception:
+            pass
+
+        return {
+            "status": "rescheduled",
+            "booking_id": booking_id,
+            "new_date": formatted_date,
+            "new_time": formatted_time,
+            "message": "Your appointment has been successfully rescheduled! A confirmation message was sent to your WhatsApp."
         }
 
 
