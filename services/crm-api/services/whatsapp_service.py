@@ -491,6 +491,13 @@ async def dispatch_admin_cancellation_whatsapp(
             logger.info("crm_admin_cancellation_template_response", status=res.status_code, template=tpl_name, body=res.text)
             if res.status_code in (200, 201):
                 admin_sent = True
+            elif "132000" in res.text or "132001" in res.text or "does not exist in" in res.text:
+                fallback_template = creds.get("template_admin_notification") or t_st.get("template_admin_notification") or "admin_notification"
+                admin_payload_tpl["template"]["name"] = fallback_template
+                res_fb = await client.post(url, headers=headers, json=admin_payload_tpl)
+                logger.info("crm_admin_cancellation_fallback_template_response", status=res_fb.status_code, template=fallback_template, body=res_fb.text)
+                if res_fb.status_code in (200, 201):
+                    admin_sent = True
 
             if not admin_sent:
                 logger.warning("crm_admin_cancellation_template_failed_text_fallback_suppressed", to=clean_admin_phone)

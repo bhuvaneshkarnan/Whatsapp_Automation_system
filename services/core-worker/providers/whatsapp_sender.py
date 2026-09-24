@@ -95,14 +95,24 @@ async def send_template(
         return await _send(phone_number_id, access_token, payload, timeout)
     except WhatsAppSendError as e:
         err_str = str(e)
-        # If admin_reschedule_notice failed because pending/not approved in Meta, fallback to admin_notification
-        if ("132001" in err_str or "does not exist" in err_str) and active_template != "admin_notification" and "reschedule" in active_template:
-            logger.info("reschedule_template_pending_meta_fallback_to_admin_notification", to=clean_to)
+        # If admin_reschedule_notice or admin_cancellation_notice failed because pending/not approved in Meta, fallback to admin_notification
+        if ("132001" in err_str or "does not exist" in err_str) and active_template != "admin_notification" and ("reschedule" in active_template or "cancel" in active_template):
+            logger.info("reschedule_or_cancel_template_pending_meta_fallback_to_admin_notification", to=clean_to, original_template=active_template)
             payload["template"]["name"] = "admin_notification"
             try:
                 return await _send(phone_number_id, access_token, payload, timeout)
             except Exception:
                 pass
+
+        # Language retry: if en failed with template does not exist, try en_US (or vice versa)
+        if ("132001" in err_str or "does not exist" in err_str or "132000" in err_str) and language_code in ("en", "en_US"):
+            alt_lang = "en_US" if language_code == "en" else "en"
+            logger.info("retrying_template_with_alt_language", template=active_template, alt_lang=alt_lang)
+            payload["template"]["language"] = {"code": alt_lang}
+            try:
+                return await _send(phone_number_id, access_token, payload, timeout)
+            except Exception:
+                payload["template"]["language"] = {"code": language_code}
 
         if "132000" in err_str and "expected number of params" in err_str:
             m = re.search(r'expected number of params \((\d+)\)', err_str)

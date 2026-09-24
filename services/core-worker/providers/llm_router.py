@@ -349,15 +349,16 @@ async def call_gemini(
         },
     }
 
-    # Verified active Gemini models - gemma-4-26b-a4b-it is verified active and responsive
+    # Verified active Gemini models
     active_gemini_models = [
-        "gemma-4-26b-a4b-it",
         "gemini-3.5-flash-lite",
+        "gemini-3.5-flash",
         "gemini-flash-latest",
         "gemini-3.7-flash",
+        "gemma-4-26b-a4b-it",
     ]
     candidate_models = []
-    if model and not any(bad in model.lower() for bad in ["2.5-flash", "2.5-pro", "2.0-flash", "1.5-flash", "3.5-flash-lite", "flash-latest"]):
+    if model and not any(bad in model.lower() for bad in ["2.5-flash", "2.5-pro", "2.0-flash", "1.5-flash", "flash-latest"]):
         candidate_models.append(model)
     for m in active_gemini_models:
         if m not in candidate_models:
@@ -405,17 +406,21 @@ async def call_gemini(
     raise LLMError(last_err or "Gemini API call failed")
 
 
-def budget_prompt_for_groq(system_prompt: str, max_chars: int = 4800) -> str:
+def budget_prompt_for_groq(system_prompt: str, max_chars: int = 24000) -> str:
     """
-    Intelligently budget system prompt for Groq on-demand LPU inference:
-    Guarantees that ALL critical sections are present without starvation:
-    1. Identity & Context (<= 600 chars)
-    2. Customer Profile & Phone Numbers (<= 500 chars)
-    3. Live Calendar Verified Slots (<= 700 chars)
-    4. Action Tag Protocols (<= 700 chars)
-    5. Concise WhatsApp Texting Rules (<= 450 chars)
-    6. Verified Services, Pricing & Core Business Knowledge (<= 1800 chars)
-    Total prompt length: <= max_chars (~1,100 tokens), preventing Groq 413 and TPM 429 trips.
+    Intelligently budget system prompt for Groq LPU inference:
+    Groq models (qwen/qwen3.8-27b, openai/gpt-oss-120b, llama-3.3-70b) support 32k-128k token context windows.
+    Guarantees that ALL critical business context is preserved:
+    1. Identity, Time & Context (<= 1,000 chars)
+    2. Global Platform & Conversation Rules (<= 2,500 chars)
+    3. Tenant Strict Rules & Policies (<= 2,000 chars)
+    4. Verified Services & Pricing Catalog (<= 3,500 chars)
+    5. Tenant Custom Instructions & Knowledge Base (<= 14,000 chars)
+    6. Website & Business Address (<= 800 chars)
+    7. Goals, Objection Handling & Strategy (<= 1,500 chars)
+    8. Customer Profile & Phone Numbers (<= 800 chars)
+    9. Live Calendar Verified Slots (<= 1,200 chars)
+    10. Action Tag Protocols (<= 1,000 chars)
     """
     if not system_prompt or len(system_prompt) <= max_chars:
         return system_prompt or ""
@@ -424,11 +429,15 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 4800) -> str:
     raw_sections = re.split(r'\n(?=###\s+)', system_prompt)
 
     identity_parts = []
+    global_rules = []
+    tenant_strict_rules = ""
     pricing_text = ""
     kb_text = ""
     calendar_text = ""
     customer_text = ""
     action_text = ""
+    location_and_web = []
+    other_sections = []
 
     for sec in raw_sections:
         sec_strip = sec.strip()
@@ -441,53 +450,74 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 4800) -> str:
                     cal_clean = cal_clean.split("OCCUPIED / BUSY SLOTS")[0].strip()
                 if "### STRICT DIRECTIVES" in cal_clean:
                     cal_clean = cal_clean.split("### STRICT DIRECTIVES")[0].strip()
-                calendar_text = cal_clean[:700].rsplit("\n", 1)[0] if len(cal_clean) > 700 else cal_clean
+                calendar_text = cal_clean[:1200].rsplit("\n", 1)[0] if len(cal_clean) > 1200 else cal_clean
 
         elif "ACTION TAG PROTOCOLS" in sec_upper:
             if not action_text:
-                action_text = sec_strip[:700].rsplit("\n", 1)[0] if len(sec_strip) > 700 else sec_strip
+                action_text = sec_strip[:1000].rsplit("\n", 1)[0] if len(sec_strip) > 1000 else sec_strip
 
-        elif "CUSTOMER PROFILE" in sec_upper or "STRICT IDENTITY, NAMES" in sec_upper:
+        elif "CUSTOMER PROFILE" in sec_upper or "STRICT IDENTITY, NAMES" in sec_upper or "TALKING TO: CUSTOMER" in sec_upper:
             if not customer_text:
-                customer_text = sec_strip[:500].rsplit("\n", 1)[0] if len(sec_strip) > 500 else sec_strip
+                customer_text = sec_strip[:800].rsplit("\n", 1)[0] if len(sec_strip) > 800 else sec_strip
 
         elif "VERIFIED SERVICES" in sec_upper:
             if not pricing_text:
-                pricing_text = sec_strip[:800].rsplit("\n", 1)[0] if len(sec_strip) > 800 else sec_strip
+                pricing_text = sec_strip[:3500].rsplit("\n", 1)[0] if len(sec_strip) > 3500 else sec_strip
 
         elif "TENANT CUSTOM AI INSTRUCTIONS" in sec_upper:
             if not kb_text:
-                clean_kb = sec_strip.split("### 13. DIALOGUE EXAMPLES")[0].strip() if "### 13. DIALOGUE EXAMPLES" in sec_strip else sec_strip
-                kb_text = clean_kb[:1600].rsplit("\n", 1)[0] if len(clean_kb) > 1600 else clean_kb
+                kb_text = sec_strip[:14000].rsplit("\n", 1)[0] if len(sec_strip) > 14000 else sec_strip
+
+        elif "GLOBAL PLATFORM DEFAULT RULES" in sec_upper or "GLOBAL CONVERSATION RULES" in sec_upper:
+            global_rules.append(sec_strip[:2500])
+
+        elif "TENANT STRICT BUSINESS RULES" in sec_upper:
+            if not tenant_strict_rules:
+                tenant_strict_rules = sec_strip[:2000].rsplit("\n", 1)[0] if len(sec_strip) > 2000 else sec_strip
+
+        elif "BUSINESS ADDRESS" in sec_upper or "OFFICIAL BUSINESS WEBSITE" in sec_upper:
+            location_and_web.append(sec_strip[:800])
+
+        elif "GOALS & OBJECTIVES" in sec_upper or "OBJECTION HANDLING" in sec_upper or "UNIVERSAL OBJECTION" in sec_upper:
+            other_sections.append(sec_strip[:1000])
 
         elif "You are " in sec_strip and "representing " in sec_strip:
-            identity_parts.append(sec_strip[:300])
+            identity_parts.append(sec_strip[:500])
         elif "Today is " in sec_strip and "current time is" in sec_strip:
-            identity_parts.append(sec_strip[:400])
+            identity_parts.append(sec_strip[:600])
 
     if not identity_parts:
-        top_lines = [l for l in system_prompt[:1000].split("\n") if "You are " in l or "Today is " in l or "Organization" in l]
+        top_lines = [l for l in system_prompt[:1200].split("\n") if "You are " in l or "Today is " in l or "Organization" in l]
         if top_lines:
-            identity_parts.append("\n".join(top_lines[:3]))
+            identity_parts.append("\n".join(top_lines[:4]))
 
     concise_rules = (
         "### MANDATORY WHATSAPP CONVERSATION RULES:\n"
-        "- Brevity: 2 to 3 short sentences max (20 to 45 words max). Friendly, natural, helpful WhatsApp texting.\n"
+        "- Friendly, helpful, authentic WhatsApp conversational texting.\n"
         "- ZERO hyphens (-), dashes (--), bullets (•), asterisks (*), or emojis.\n"
-        "- Always answer customer's specific question directly in Sentence 1 using verified facts above.\n"
+        "- When asked about services, treatments, prices, doctor details, or website, ALWAYS answer directly and completely using the verified knowledge base and pricing above (2 to 4 natural sentences, up to 75 words).\n"
+        "- For casual greetings or quick checks, reply in 1 to 2 short lines.\n"
         "- Binary Assumptive Close: Offer two specific choices when suggesting a time (e.g. 'Tomorrow 11 AM or 4 PM — which works?'). Never say 'Would you like to book?'.\n"
-        "- Match customer's language organically (English, Tanglish, or Tamil script)."
+        "- Match customer's language organically (English, Tanglish, Tamil, Hindi)."
     )
 
     parts = []
     if identity_parts:
         parts.append("\n".join(identity_parts))
-    if customer_text:
-        parts.append(customer_text)
-    if pricing_text:
-        parts.append(pricing_text)
+    if global_rules:
+        parts.extend(global_rules)
+    if tenant_strict_rules:
+        parts.append(tenant_strict_rules)
     if kb_text:
         parts.append(kb_text)
+    if pricing_text:
+        parts.append(pricing_text)
+    if location_and_web:
+        parts.extend(location_and_web)
+    if other_sections:
+        parts.extend(other_sections)
+    if customer_text:
+        parts.append(customer_text)
     if calendar_text:
         parts.append(calendar_text)
     parts.append(concise_rules)
@@ -518,7 +548,7 @@ async def call_groq(
     url = "https://api.groq.com/openai/v1/chat/completions"
 
     # Intelligent prompt budgeting guarantees safe TPM usage and avoids HTTP 413
-    groq_system_prompt = budget_prompt_for_groq(system_prompt, max_chars=4800)
+    groq_system_prompt = budget_prompt_for_groq(system_prompt, max_chars=24000)
 
     sanitized = sanitize_conversation_history(messages)
     formatted_msgs = [{"role": "system", "content": groq_system_prompt}]

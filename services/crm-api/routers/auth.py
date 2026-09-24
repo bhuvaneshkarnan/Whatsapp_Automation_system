@@ -2003,6 +2003,7 @@ async def get_public_booking_info(slug: str):
 
 
 @router.post("/public/{slug}/book")
+@router.post("/api/v1/crm/public/{slug}/book")
 async def create_public_web_booking(slug: str, payload: PublicBookingRequest):
     """
     Public web booking handler from /{slug}/book page.

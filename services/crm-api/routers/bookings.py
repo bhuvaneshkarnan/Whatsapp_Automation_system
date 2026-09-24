@@ -127,6 +127,7 @@ async def list_bookings(
 
 
 @router.post("/bookings")
+@router.post("/api/v1/crm/bookings")
 async def create_booking(
     payload: BookingCreatePayload,
     tenant_id: str = Depends(get_tenant_id)
@@ -687,6 +688,7 @@ async def update_booking_price(
 
 
 @router.patch("/bookings/{booking_id}/status")
+@router.patch("/api/v1/crm/bookings/{booking_id}/status")
 async def update_booking_status(
     booking_id: str,
     payload: BookingStatusPayload,

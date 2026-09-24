@@ -2104,7 +2104,9 @@ class CoreWorker:
         humanized_format_block = (
             "### GLOBAL CONVERSATION RULES (MANDATORY FOR ALL REPLIES ACROSS ALL TENANTS):\n"
             "1. NATURAL, WARM & CONVERSATIONAL WHATSAPP TEXTING:\n"
-            "   - Reply in a warm, polite, directly helpful conversational tone (around 25 to 45 words total, 2 to 3 short lines).\n"
+            "   - Reply in a warm, polite, directly helpful conversational tone.\n"
+            "   - For quick checks or casual greetings, reply in 1 to 2 short lines (20 to 35 words).\n"
+            "   - For informative inquiries (asking what services/treatments you offer, pricing, how it works, address/location, doctors, background, website), give a complete, helpful answer directly from the knowledge base in 2 to 4 natural sentences (around 40 to 80 words). Never cut off critical facts or deflect with an empty generic question when asked a direct question.\n"
             "   - Always answer the customer's specific inquiry directly, clearly, and warmly in Sentence 1.\n"
             f"   {greeting_flow_rule}\n"
             "   - ZERO ROBOTIC CLICHÉS: Never use robotic phrases like 'Certainly!', 'I would be delighted to assist you', 'How may I assist you today?'. Talk like a friendly person representing this business on WhatsApp.\n"
@@ -2114,11 +2116,12 @@ class CoreWorker:
             "   - Strictly FORBIDDEN from using ANY hyphens (-), dashes (--), asterisks (*), bullet points (•), numbered lists (1. 2. 3.), or emojis.\n"
             "   - Real humans texting on WhatsApp never write hyphenated listicles. Write in natural conversational sentences.\n"
             "3. COMPLETE SERVICE DETAILS FIRST & FACTUAL PRICING:\n"
-            "   - When customer asks what you do or for details, share the core value and benefits in 1-2 friendly lines.\n"
+            "   - When customer asks what you do, what treatments or services you offer, how it works, website, or background, give a direct, informative answer using THIS business's verified knowledge base and pricing catalog below.\n"
             "   - When customer specifically asks for price or cost, quote the exact verified pricing from knowledge base warmly and directly.\n"
+            "   - Never say 'I don't have this in my records' or give a generic response when the facts exist in the knowledge base below.\n"
             "4. CONSULTATIVE SALES CLOSER & BINARY ASSUMPTIVE CLOSE:\n"
             "   - When customer asks about services, pricing, or shows interest, follow the 3-Beat Consultative Flow:\n"
-            "     * BEAT 1: Give a direct, value-anchored answer to their query in 1 short sentence.\n"
+            "     * BEAT 1: Give a direct, value-anchored answer to their query in 1-2 sentences using the verified details below.\n"
             "     * BEAT 2: Ask ONE diagnostic question to understand their condition or needs.\n"
             "     * BEAT 3: Offer a BINARY ASSUMPTIVE CLOSE with two specific choices (e.g. 'Tomorrow 11 AM or 4 PM — which works for you?').\n"
             "   - Absolutely FORBIDDEN: Passive open-ended phrases like 'Would you like to book?', 'Do you want to schedule?', or 'Let me know if you want to proceed'.\n"
@@ -2659,6 +2662,34 @@ class CoreWorker:
             "is this ai", "is this automated", "who is this", "am i speaking to a real person", "are you real person"
         ])
 
+        # Check if previous assistant message asked for cancellation confirmation
+        last_assistant_msg = ""
+        for msg in reversed(history or []):
+            if msg.get("role") in ("assistant", "model"):
+                last_assistant_msg = (msg.get("content") or "").lower()
+                break
+
+        is_cancel_confirmation = bool(
+            any(q in last_assistant_msg for q in ["confirm if you want to cancel", "want to cancel", "confirm cancellation", "cancel your", "cancelling your", "canceling your"])
+            and any(w in inbound_clean for w in ["yes", "yeah", "yep", "sure", "ok", "okay", "cancel", "proceed", "please do", "confirm", "correct", "y", "ya"])
+        )
+
+        is_cancellation_intent = is_cancel_confirmation or any(p in inbound_clean for p in [
+            "cancel", "cancell", "canceling", "cancelling", "cancel it", "cancell it",
+            "cancel booking", "cancell booking", "cancel appointment", "cancell appointment",
+            "cancel my booking", "cancel my appointment", "cancel demo", "cancel the demo",
+            "want to cancel", "want to cancell", "please cancel", "pls cancel",
+            "dont want appointment", "don't want appointment", "drop my appointment",
+            "cant make it", "can't make it", "wont make it", "won't make it",
+            "cancel that", "cancell that", "cancel my slot", "cancel slot"
+        ])
+
+        is_reschedule_intent = any(p in inbound_clean for p in [
+            "reschedule", "re-schedule", "change time", "change date", "change appointment",
+            "postpone", "prepone", "move appointment", "move my appointment", "shift my appointment",
+            "move to", "reschedule to", "change to", "reschedule my"
+        ])
+
         if is_missed_call_query:
             funnel_stage = "MISSED_CALL_APOLOGY"
             stage_directive = (
@@ -2706,6 +2737,29 @@ class CoreWorker:
                 f"The customer is asking for our direct contact / phone number. "
                 + (f"Directly provide our official contact number: '{admin_phone}'. Mention they can reach or call {admin_name or 'our team'} directly at {admin_phone}. " if admin_phone else f"State that {admin_name or 'our team'} will call them directly on WhatsApp at their scheduled time, or ask if they want a call right away. ") +
                 f"CRITICAL: The customer's phone number is {contact_phone}. NEVER GIVE {contact_phone} TO THE CUSTOMER AS OUR NUMBER!"
+            )
+        elif is_cancellation_intent and has_upcoming:
+            funnel_stage = "BOOKING_CANCELLATION"
+            b_first = upcoming_active_bookings[0]
+            b_svc = b_first.get('service') or 'appointment'
+            b_time_str = b_first['start_time_local'].strftime('%A, %d %b %Y at %I:%M %p')
+            stage_directive = (
+                f"The customer wants to cancel their active booking for {b_svc} on {b_time_str}. "
+                f"1. Acknowledge and politely confirm that their appointment has been cancelled. "
+                f"2. Mention that they are welcome to reschedule or message anytime if they need our services. "
+                f"3. MANDATORY PROTOCOL: You MUST append '[ACTION:CANCEL_BOOKING]' at the very end of your response on a new line. "
+                f"Never omit [ACTION:CANCEL_BOOKING] when confirming a cancellation!"
+            )
+        elif is_reschedule_intent and has_upcoming:
+            funnel_stage = "BOOKING_RESCHEDULE"
+            b_first = upcoming_active_bookings[0]
+            b_svc = b_first.get('service') or 'appointment'
+            b_time_str = b_first['start_time_local'].strftime('%A, %d %b %Y at %I:%M %p')
+            stage_directive = (
+                f"The customer wants to reschedule their active booking for {b_svc} (currently on {b_time_str}). "
+                f"1. Acknowledge and suggest convenient alternative dates and times from available slots. "
+                f"2. Once customer confirms their preferred new date & time, confirm it and MANDATORY append at the end: "
+                f"[ACTION:RESCHEDULE_BOOKING: {{\"service\": \"{b_svc}\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\", \"email\": \"{customer_email or ''}\", \"notes\": \"Rescheduled\"}}]"
             )
         elif has_upcoming:
             funnel_stage = "ACTIVE_APPOINTMENT"
@@ -2881,8 +2935,9 @@ class CoreWorker:
             time_context,
             tenant_isolation_boundary,
             f"You are {assistant_name or 'the assistant'}, representing {tenant_name or 'this business'} directly on WhatsApp chat.",
-            # ── SECTION 0 (TOP PRIORITY): GLOBAL FORMATTING & TEXTING RULES ──
-            # These are placed FIRST so the LLM anchors on them before all other context.
+            # ── SECTION 0 (TOP PRIORITY): GLOBAL RULES, FORMATTING & CLOSING FRAMEWORK ──
+            # Anchors global settings and strict behavioral rules before all other context.
+            f"### GLOBAL PLATFORM DEFAULT RULES & CLOSING FRAMEWORK (STRICT MANDATORY COMPLIANCE):\n{GLOBAL_DEFAULT_STRICT_RULES}",
             humanized_format_block,
             style_mirroring_block,
         ]
@@ -2918,6 +2973,24 @@ class CoreWorker:
             prompt_blocks.append(
                 f"### BUSINESS ADDRESS ON FILE:\n{full_location}\n"
                 "- Use this address when asked for location, unless the Tenant Custom AI Instructions above specify a custom format (e.g. short city/area only)."
+            )
+
+        tenant_website = ""
+        if tenant_st_row:
+            tenant_website = (
+                tenant_st_row.get("website")
+                or (f"https://{tenant_st_row.get('custom_domain')}" if tenant_st_row.get("custom_domain") else "")
+            )
+        if not tenant_website:
+            if tenant_slug and tenant_slug not in ("boldlabs", ""):
+                tenant_website = f"https://{tenant_slug}.goboldlabs.com"
+            else:
+                tenant_website = "https://crm.goboldlabs.com"
+
+        if tenant_website:
+            prompt_blocks.append(
+                f"### OFFICIAL BUSINESS WEBSITE & PORTAL LINK:\n{tenant_website}\n"
+                f"- If the customer asks for our website link, portal, or where to view information online, share: '{tenant_website}'."
             )
 
         if objection_handling.strip():
@@ -2956,7 +3029,7 @@ class CoreWorker:
         reinforcement_parts = [
             "### FINAL WHATSAPP FORMAT & REINFORCEMENT DIRECTIVE:",
             "- THINK BEFORE REPLYING: Read the customer's message carefully. Classify it — is it a question, a casual remark, a price query, a complaint, or a one-word reply? Then reply SPECIFICALLY to that, not a generic overview.",
-            "- CONCISE BREVITY (2 TO 3 SHORT SENTENCES, 20-45 WORDS MAX): Keep replies punchy, natural, and helpful. No essays or walls of text. For casual one-word replies, a simple 1-line acknowledgment is plenty.",
+            "- CONCISE BREVITY & COMPLETE ANSWERS: For casual remarks or quick checks, reply in 1 to 2 short lines. For questions about services, treatments, prices, website, or policies, give a complete, helpful answer in 2 to 4 natural sentences (40 to 80 words max) using the knowledge base facts above.",
             "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use hyphens (-), dashes (--), asterisks (*), bullets, or emojis.",
             "- ONE QUESTION AT A TIME: Answer the customer's question directly first. Then optionally ask ONE follow-up. Never stack questions.",
             "- NO REPEATED GREETINGS: Do NOT say 'Hi', 'Hello', or 'Hi [Name]' again on follow-up messages. Dive straight into your reply." if is_ongoing_conversation else "- GREETING: Greet warmly in sentence 1.",
@@ -3023,16 +3096,16 @@ class CoreWorker:
         reschedule_action = None
         ai_used_fallback = str(provider_used).startswith("master_") or provider_used == "fallback"
 
-        # Inbound Customer Cancellation Intent — signal to AI context ONLY.
-        # Never set cancel_action=True here; that is exclusively done when the LLM emits [ACTION:CANCEL_BOOKING].
+        # Inbound Customer Cancellation Intent
         inbound_lower = (message_text or "").lower().strip()
-        inbound_cancel_intent = any(w in inbound_lower for w in [
+        inbound_cancel_intent = is_cancellation_intent or any(w in inbound_lower for w in [
             "cancell it", "cancel it", "yes cancel", "yes cancell",
             "cancel booking", "cancell booking",
             "cancel appointment", "cancell appointment",
+            "cancel that", "cancell that", "cancel my slot", "cancel slot"
         ]) or (inbound_lower in ["cancel", "cancell", "yes cancel", "yes cancell", "cancell it", "cancel it"])
         if inbound_cancel_intent:
-            logger.info("inbound_cancellation_intent_detected", customer_msg=message_text)
+            logger.info("inbound_cancellation_intent_detected", customer_msg=message_text, is_confirmation=is_cancel_confirmation)
 
         # Inbound Appointment Inquiry Detection (Lookup Only - NEVER rebook or reschedule)
         inbound_appointment_inquiry = any(p in inbound_lower for p in [
@@ -3081,7 +3154,22 @@ class CoreWorker:
                 response_text = response_text.replace("[ACTION:HUMAN_TAKEOVER]", "").strip()
 
             # 2. Intercept [ACTION:CANCEL_BOOKING] or AI confirmation phrases
-            if "[ACTION:CANCEL_BOOKING]" in response_text or any(phrase in response_text.lower() for phrase in ["cancelled your booking", "have cancelled your", "booking has been cancelled", "appointment is cancelled", "appointment has been cancelled", "cancelled your appointment"]):
+            cancellation_detected = (
+                "[ACTION:CANCEL_BOOKING]" in response_text
+                or bool(re.search(r'\b(?:has\s+been|is|have\s+been|was)\s+cancell?ed\b', response_text, re.I))
+                or bool(re.search(r'\bcancell?ed\s+(?:your|the|that|this)\b', response_text, re.I))
+                or bool(re.search(r'\b(?:have|i\'ve|we\'ve)\s+cancell?ed\b', response_text, re.I))
+                or bool(re.search(r'\bcancell?ation\s+(?:is\s+confirmed|has\s+been\s+confirmed|successful)\b', response_text, re.I))
+                or bool(re.search(r'\bsuccessfully\s+cancell?ed\b', response_text, re.I))
+                or (is_cancellation_intent and has_upcoming and is_cancel_confirmation)
+                or any(phrase in response_text.lower() for phrase in [
+                    "cancelled your booking", "have cancelled your", "booking has been cancelled",
+                    "appointment is cancelled", "appointment has been cancelled", "cancelled your appointment",
+                    "demo has been cancelled", "demo is cancelled", "cancelled your demo",
+                    "session has been cancelled", "session is cancelled", "cancelled your session"
+                ])
+            )
+            if cancellation_detected:
                 cancel_action = True
                 response_text = response_text.replace("[ACTION:CANCEL_BOOKING]", "").strip()
 
@@ -4509,14 +4597,14 @@ class CoreWorker:
             if not contact_id:
                 return
 
-            # Find active booking (confirmed or rescheduled)
+            # Find active booking (confirmed, rescheduled, pending, or reminded)
             booking = await self.db_pool.fetchrow(
                 """SELECT b.id, b.service, b.start_time, b.google_event_id
                    FROM bookings b
                    LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
                    WHERE b.tenant_id = $1::uuid 
                      AND (b.contact_id = $2::uuid OR b.conversation_id = $3::uuid OR c.phone = $4 OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($4, '[^0-9]', '', 'g'), 10))
-                     AND b.status IN ('confirmed', 'rescheduled')
+                     AND b.status IN ('confirmed', 'rescheduled', 'pending', 'reminded')
                    ORDER BY b.start_time DESC LIMIT 1""",
                 tenant_id, contact_id, conv_id, contact_phone
             )
@@ -4607,7 +4695,7 @@ class CoreWorker:
                     }
                 ]
                 try:
-                    await send_template(
+                    tmpl_wa_id = await send_template(
                         phone_number_id=creds["phone_number_id"],
                         access_token=creds["access_token"],
                         to=contact_phone,
@@ -4616,6 +4704,13 @@ class CoreWorker:
                         components=components,
                     )
                     logger.info("cancellation_template_sent_to_customer", template=template_name, to=contact_phone)
+                    conf_msg_id = str(uuid.uuid4())
+                    await self.db_pool.execute(
+                        """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                           VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, 'sent', $5, false)""",
+                        conf_msg_id, conv_id, tenant_id, f"Appointment Cancelled: {service_name} on {formatted_date} at {formatted_time}", tmpl_wa_id
+                    )
+                    await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                 except Exception as e:
                     logger.warning("cancellation_template_send_failed", error=str(e))
 
@@ -4666,7 +4761,20 @@ class CoreWorker:
                         )
                         logger.info("admin_cancellation_template_sent", template=admin_cancel_template, to=clean_admin_phone)
                     except Exception as e:
-                        logger.warning("admin_cancellation_template_failed_text_suppressed", error=str(e), template=admin_cancel_template)
+                        logger.warning("admin_cancellation_template_failed_trying_fallback", error=str(e), template=admin_cancel_template)
+                        fallback_template = creds.get("template_admin_notification") or (tenant_st_row.get("template_admin_notification") if tenant_st_row else None) or "admin_notification"
+                        try:
+                            await send_template(
+                                phone_number_id=creds["phone_number_id"],
+                                access_token=creds["access_token"],
+                                to=clean_admin_phone,
+                                template_name=fallback_template,
+                                language_code="en",
+                                components=admin_cancel_components,
+                            )
+                            logger.info("admin_cancellation_fallback_template_sent", template=fallback_template, to=clean_admin_phone)
+                        except Exception as e_fb:
+                            logger.warning("admin_cancellation_fallback_failed_text_suppressed", error=str(e_fb))
 
             # 5. Direct Gmail API Cancellation Email to Admin & Customer
             gcal_row = await self.db_pool.fetchrow(
@@ -4870,7 +4978,7 @@ class CoreWorker:
                    LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
                    WHERE b.tenant_id = $1::uuid
                      AND (b.contact_id = $2::uuid OR b.conversation_id = $3::uuid OR c.phone = $4 OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($4, '[^0-9]', '', 'g'), 10))
-                     AND b.status IN ('confirmed', 'rescheduled')
+                     AND b.status IN ('confirmed', 'rescheduled', 'pending', 'reminded')
                    ORDER BY b.start_time DESC LIMIT 1""",
                 tenant_id, contact_id, conv_id, contact_phone
             )
