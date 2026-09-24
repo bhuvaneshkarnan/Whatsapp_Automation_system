@@ -961,12 +961,12 @@ RULES:
 --- BUSINESS INFORMATION DUMP ---
 """ + raw_dump
 
-    # Call Gemini (try fast flash-lite first, then flash)
+    # 1. Call Gemini (try flash first, then flash-lite, then gemma)
     result_text = ""
-    for model in ["gemini-3.5-flash-lite", "gemini-3.5-flash"]:
+    for model in ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemma-4-26b-a4b-it"]:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gem_key}"
         try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
+            async with httpx.AsyncClient(timeout=35.0) as client:
                 res = await client.post(
                     url,
                     headers={"Content-Type": "application/json"},
@@ -978,12 +978,51 @@ RULES:
                 if res.status_code == 200:
                     raw = res.json()["candidates"][0]["content"]["parts"][0]["text"]
                     result_text = raw.strip()
-                    break
+                    if result_text:
+                        break
                 else:
                     logger.warning("optimize_prompt_gemini_http_err", model=model, status_code=res.status_code, body=res.text[:200])
         except Exception as _err:
             logger.warning("optimize_prompt_gemini_error", model=model, error=str(_err))
             continue
+
+    # 2. Resilient Fallback to Groq if Gemini fails or quota is exhausted
+    if not result_text:
+        groq_key = ""
+        async with database.db_pool.acquire() as conn:
+            groq_row = await conn.fetchrow(
+                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'groq' AND is_active = true",
+                tenant_id
+            )
+            if groq_row and groq_row["credential_data"]:
+                d = groq_row["credential_data"]
+                if isinstance(d, str):
+                    try: d = json.loads(d)
+                    except: d = {}
+                groq_key = d.get("api_key", "")
+        if not groq_key:
+            groq_key = os.getenv("GROQ_API_KEY", "")
+
+        if groq_key:
+            try:
+                async with httpx.AsyncClient(timeout=35.0) as client:
+                    g_res = await client.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                        json={
+                            "model": "qwen/qwen3.8-27b",
+                            "messages": [{"role": "user", "content": meta_prompt}],
+                            "temperature": 0.1,
+                            "response_format": {"type": "json_object"}
+                        }
+                    )
+                    if g_res.status_code == 200:
+                        raw = g_res.json()["choices"][0]["message"]["content"]
+                        result_text = raw.strip()
+                    else:
+                        logger.warning("optimize_prompt_groq_fallback_err", status=g_res.status_code, body=g_res.text[:200])
+            except Exception as e_groq:
+                logger.warning("optimize_prompt_groq_exception", error=str(e_groq))
 
     if not result_text:
         raise HTTPException(status_code=502, detail="AI generation failed. Please try again.")
