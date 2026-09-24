@@ -349,20 +349,26 @@ async def call_gemini(
         },
     }
 
-    # Verified active Gemini models
+    # Verified active Gemini models (ordered fastest/most-reliable first)
+    # gemini-2.5-flash: Google's recommended current fast model (replaces 2.5-flash-lite)
+    # gemini-3.5-flash: Also active, reliable
+    # gemini-3.6-flash: Active, slightly slower
+    # gemma-4 models: Use only as last resort for Gemini — they are bigger/slower
     active_gemini_models = [
-        "gemini-3.5-flash-lite",
+        "gemini-2.5-flash",
         "gemini-3.5-flash",
-        "gemini-flash-latest",
-        "gemini-3.7-flash",
+        "gemini-3.6-flash",
         "gemma-4-26b-a4b-it",
     ]
     candidate_models = []
-    if model and not any(bad in model.lower() for bad in ["2.5-flash", "2.5-pro", "2.0-flash", "1.5-flash", "flash-latest"]):
+    # Strip known-dead/retired model aliases
+    bad_aliases = ["2.5-pro", "2.0-flash", "1.5-flash", "flash-lite-latest", "flash-latest", "gemma-4-26b-a4b-it"]
+    if model and not any(bad in model.lower() for bad in bad_aliases):
         candidate_models.append(model)
     for m in active_gemini_models:
         if m not in candidate_models:
             candidate_models.append(m)
+
 
     last_err = None
     # Fast per-model timeout: max 6.5s so we never hang or delay customer replies
@@ -406,26 +412,17 @@ async def call_gemini(
     raise LLMError(last_err or "Gemini API call failed")
 
 
-def budget_prompt_for_groq(system_prompt: str, max_chars: int = 24000) -> str:
+def budget_prompt_for_groq(system_prompt: str, max_chars: int = 28000) -> str:
     """
-    Intelligently budget system prompt for Groq LPU inference:
-    Groq models (qwen/qwen3.8-27b, openai/gpt-oss-120b, llama-3.3-70b) support 32k-128k token context windows.
-    Guarantees that ALL critical business context is preserved:
-    1. Identity, Time & Context (<= 1,000 chars)
-    2. Global Platform & Conversation Rules (<= 2,500 chars)
-    3. Tenant Strict Rules & Policies (<= 2,000 chars)
-    4. Verified Services & Pricing Catalog (<= 3,500 chars)
-    5. Tenant Custom Instructions & Knowledge Base (<= 14,000 chars)
-    6. Website & Business Address (<= 800 chars)
-    7. Goals, Objection Handling & Strategy (<= 1,500 chars)
-    8. Customer Profile & Phone Numbers (<= 800 chars)
-    9. Live Calendar Verified Slots (<= 1,200 chars)
-    10. Action Tag Protocols (<= 1,000 chars)
+    Intelligently budget system prompt for Groq LPU inference.
+    Preserves ALL critical business context in priority order.
+    Groq qwen/qwen3.8-27b supports 32k token context (approx 128k chars), so
+    we budget conservatively at 28k chars to leave room for history + output.
     """
     if not system_prompt or len(system_prompt) <= max_chars:
         return system_prompt or ""
 
-    # Split prompt into sections using '### ' as section delimiter to preserve internal double newlines
+    # Split prompt into sections using '### ' as section delimiter
     raw_sections = re.split(r'\n(?=###\s+)', system_prompt)
 
     identity_parts = []
@@ -443,7 +440,7 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 24000) -> str:
         sec_strip = sec.strip()
         sec_upper = sec_strip.upper()
 
-        if "LIVE GOOGLE CALENDAR" in sec_upper or "VERIFIED EMPTY & AVAILABLE SLOTS" in sec_upper:
+        if "LIVE GOOGLE CALENDAR" in sec_upper or "VERIFIED EMPTY" in sec_upper and "AVAILABLE SLOTS" in sec_upper:
             if not calendar_text:
                 cal_clean = sec_strip
                 if "OCCUPIED / BUSY SLOTS" in cal_clean:
@@ -456,46 +453,58 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 24000) -> str:
             if not action_text:
                 action_text = sec_strip[:1000].rsplit("\n", 1)[0] if len(sec_strip) > 1000 else sec_strip
 
-        elif "CUSTOMER PROFILE" in sec_upper or "STRICT IDENTITY, NAMES" in sec_upper or "TALKING TO: CUSTOMER" in sec_upper:
+        elif any(k in sec_upper for k in ["STRICT IDENTITY, NAMES", "TALKING TO: CUSTOMER", "CUSTOMER PROFILE", "ZERO CROSS-TENANT"]):
             if not customer_text:
                 customer_text = sec_strip[:800].rsplit("\n", 1)[0] if len(sec_strip) > 800 else sec_strip
 
-        elif "VERIFIED SERVICES" in sec_upper:
+        elif "VERIFIED SERVICES" in sec_upper and "PRICING" in sec_upper:
             if not pricing_text:
                 pricing_text = sec_strip[:3500].rsplit("\n", 1)[0] if len(sec_strip) > 3500 else sec_strip
 
-        elif "TENANT CUSTOM AI INSTRUCTIONS" in sec_upper:
+        elif "TENANT CUSTOM AI INSTRUCTIONS" in sec_upper or "BUSINESS KNOWLEDGE BASE" in sec_upper:
             if not kb_text:
                 kb_text = sec_strip[:14000].rsplit("\n", 1)[0] if len(sec_strip) > 14000 else sec_strip
 
-        elif "GLOBAL PLATFORM DEFAULT RULES" in sec_upper or "GLOBAL CONVERSATION RULES" in sec_upper:
+        elif any(k in sec_upper for k in [
+            "GLOBAL CONVERSATION ENGINE", "ABSOLUTE GLOBAL", "GLOBAL PLATFORM",
+            "HOW THE AI BEHAVES", "MANDATORY WHATSAPP", "FINAL WHATSAPP FORMAT",
+        ]):
             global_rules.append(sec_strip[:2500])
 
-        elif "TENANT STRICT BUSINESS RULES" in sec_upper:
+        elif "TENANT STRICT BUSINESS RULES" in sec_upper or "STRICT BUSINESS RULES" in sec_upper:
             if not tenant_strict_rules:
                 tenant_strict_rules = sec_strip[:2000].rsplit("\n", 1)[0] if len(sec_strip) > 2000 else sec_strip
 
         elif "BUSINESS ADDRESS" in sec_upper or "OFFICIAL BUSINESS WEBSITE" in sec_upper:
             location_and_web.append(sec_strip[:800])
 
-        elif "GOALS & OBJECTIVES" in sec_upper or "OBJECTION HANDLING" in sec_upper or "UNIVERSAL OBJECTION" in sec_upper:
-            other_sections.append(sec_strip[:1000])
+        elif any(k in sec_upper for k in ["GOALS & OBJECTIVES", "OBJECTION HANDLING", "UNIVERSAL OBJECTION", "CONVERSATION STYLE", "CONVERSATION METHODOLOGY", "DIALECT & STYLE"]):
+            other_sections.append(sec_strip[:1500])
 
         elif "You are " in sec_strip and "representing " in sec_strip:
             identity_parts.append(sec_strip[:500])
-        elif "Today is " in sec_strip and "current time is" in sec_strip:
+        elif "Today is " in sec_strip or "Current time is" in sec_strip.title():
             identity_parts.append(sec_strip[:600])
 
     if not identity_parts:
-        top_lines = [l for l in system_prompt[:1200].split("\n") if "You are " in l or "Today is " in l or "Organization" in l]
+        top_lines = [l for l in system_prompt[:1500].split("\n") if "You are " in l or "Today is " in l or "Organization" in l]
         if top_lines:
             identity_parts.append("\n".join(top_lines[:4]))
+
+    # If kb_text is still empty (section header not matched), try a broader search
+    if not kb_text:
+        for sec in raw_sections:
+            sec_strip = sec.strip()
+            sec_upper = sec_strip.upper()
+            if ("PRIMARY BUSINESS DIRECTIVE" in sec_upper or "KNOWLEDGE BASE" in sec_upper) and len(sec_strip) > 200:
+                kb_text = sec_strip[:14000].rsplit("\n", 1)[0] if len(sec_strip) > 14000 else sec_strip
+                break
 
     concise_rules = (
         "### MANDATORY WHATSAPP CONVERSATION RULES:\n"
         "- Friendly, helpful, authentic WhatsApp conversational texting.\n"
         "- ZERO hyphens (-), dashes (--), bullets (•), asterisks (*), or emojis.\n"
-        "- When asked about services, treatments, prices, doctor details, or website, ALWAYS answer directly and completely using the verified knowledge base and pricing above (2 to 4 natural sentences, up to 75 words).\n"
+        "- When asked about services, treatments, prices, or details, ALWAYS answer directly using the verified knowledge base and pricing above (2 to 3 natural sentences, up to 60 words).\n"
         "- For casual greetings or quick checks, reply in 1 to 2 short lines.\n"
         "- Binary Assumptive Close: Offer two specific choices when suggesting a time (e.g. 'Tomorrow 11 AM or 4 PM — which works?'). Never say 'Would you like to book?'.\n"
         "- Match customer's language organically (English, Tanglish, Tamil, Hindi)."
@@ -505,7 +514,7 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 24000) -> str:
     if identity_parts:
         parts.append("\n".join(identity_parts))
     if global_rules:
-        parts.extend(global_rules)
+        parts.extend(global_rules[:2])  # Keep first 2 global rule sections
     if tenant_strict_rules:
         parts.append(tenant_strict_rules)
     if kb_text:
@@ -515,7 +524,7 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 24000) -> str:
     if location_and_web:
         parts.extend(location_and_web)
     if other_sections:
-        parts.extend(other_sections)
+        parts.extend(other_sections[:3])  # Keep first 3 other sections
     if customer_text:
         parts.append(customer_text)
     if calendar_text:
@@ -528,6 +537,7 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 24000) -> str:
     if len(assembled) > max_chars:
         return assembled[:max_chars].rsplit("\n", 1)[0]
     return assembled
+
 
 
 async def call_groq(
@@ -733,8 +743,8 @@ async def call_llm_cascade(
     master_groq_key: Optional[str] = None,
     master_opencode_key: Optional[str] = None,
     master_opencode_base_url: str = "https://opencode.ai/zen/v1",
-    primary_provider: str = "gemini",
-    gemini_model: str = "gemini-3.5-flash-lite",
+    primary_provider: str = "groq",
+    gemini_model: str = "gemini-2.5-flash",
     max_tokens: int = 2048,
     temperature: float = 0.3,
     timeout_seconds: float = 4.0,
@@ -897,7 +907,7 @@ async def call_llm_cascade(
     # Master Groq is prioritized first as it provides verified <500ms reliable uptime.
     master_providers = [
         ("groq", master_groq_key, groq_key, "qwen/qwen3.8-27b", None),
-        ("gemini", master_gemini_key, gemini_key, "gemma-4-26b-a4b-it", None),
+        ("gemini", master_gemini_key, gemini_key, "gemini-2.5-flash", None),
     ]
     if master_opencode_key:
         master_providers.append(("opencode", master_opencode_key, opencode_key, "deepseek-v4-flash", master_opencode_base_url))
@@ -1012,7 +1022,7 @@ async def call_llm_cascade(
                         messages=emergency_messages,
                         api_key=gm_k,
                         system_prompt=emergency_prompt,
-                        model="gemma-4-26b-a4b-it",
+                        model="gemini-2.5-flash",
                         max_tokens=max_tokens,
                         temperature=temperature,
                         timeout_seconds=5.0,

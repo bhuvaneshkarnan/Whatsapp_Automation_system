@@ -3071,7 +3071,7 @@ class CoreWorker:
             master_opencode_key=master_keys.get("opencode_key"),
             master_opencode_base_url=master_keys.get("opencode_base_url"),
             primary_provider=primary_provider,
-            gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
+            gemini_model=ai_cfg.get("model") or "gemini-2.5-flash",
             max_tokens=2048,
             temperature=0.3,
             timeout_seconds=12.0,

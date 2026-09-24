@@ -961,9 +961,9 @@ RULES:
 --- BUSINESS INFORMATION DUMP ---
 """ + raw_dump
 
-    # 1. Call Gemini (try flash first, then flash-lite, then gemma)
+    # 1. Call Gemini (try gemini-2.5-flash first — Google's recommended current fast model)
     result_text = ""
-    for model in ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemma-4-26b-a4b-it"]:
+    for model in ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash"]:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gem_key}"
         try:
             async with httpx.AsyncClient(timeout=35.0) as client:
