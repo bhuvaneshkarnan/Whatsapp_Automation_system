@@ -122,7 +122,7 @@ async def get_customer_global_stats(
                     AND followup_date IS NULL
                     AND NOT EXISTS (
                         SELECT 1 FROM bookings b
-                        JOIN contacts ct ON b.contact_id = ct.id
+                        JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
                         WHERE b.tenant_id = customers.tenant_id
                           AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
                           AND b.status IN ('completed', 'attended', 'confirmed')
@@ -155,7 +155,7 @@ async def get_customer_global_stats(
                     OR call_status ILIKE '%confirm%'
                     OR EXISTS (
                         SELECT 1 FROM bookings b
-                        JOIN contacts ct ON b.contact_id = ct.id
+                        JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
                         WHERE b.tenant_id = customers.tenant_id
                           AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
                           AND b.status IN ('completed', 'attended')
@@ -190,7 +190,7 @@ async def get_customer_global_stats(
                         AND followup_date IS NULL
                         AND NOT EXISTS (
                             SELECT 1 FROM bookings b
-                            JOIN contacts ct ON b.contact_id = ct.id
+                            JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
                             WHERE b.tenant_id = customers.tenant_id
                               AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
                               AND b.status IN ('completed', 'attended')
@@ -221,7 +221,7 @@ async def get_customer_global_stats(
                         OR call_status ILIKE '%confirm%'
                         OR EXISTS (
                             SELECT 1 FROM bookings b
-                            JOIN contacts ct ON b.contact_id = ct.id
+                            JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
                             WHERE b.tenant_id = customers.tenant_id
                               AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
                               AND b.status IN ('completed', 'attended')
@@ -300,7 +300,7 @@ async def get_customer_global_stats(
             if client_type == "repeat":
                 conditions.append("""EXISTS (
                     SELECT 1 FROM bookings b
-                    JOIN contacts ct ON b.contact_id = ct.id
+                    JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
                     WHERE b.tenant_id = customers.tenant_id
                       AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
                       AND b.status IN ('completed', 'attended')
@@ -308,7 +308,7 @@ async def get_customer_global_stats(
             elif client_type == "new_lead":
                 conditions.append("""NOT EXISTS (
                     SELECT 1 FROM bookings b
-                    JOIN contacts ct ON b.contact_id = ct.id
+                    JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
                     WHERE b.tenant_id = customers.tenant_id
                       AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
                       AND b.status IN ('completed', 'attended')
@@ -316,7 +316,7 @@ async def get_customer_global_stats(
             elif client_type == "lapsed":
                 conditions.append("""EXISTS (
                     SELECT 1 FROM bookings b
-                    JOIN contacts ct ON b.contact_id = ct.id
+                    JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
                     WHERE b.tenant_id = customers.tenant_id
                       AND (ct.phone = customers.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(customers.phone, '[^0-9]', '', 'g'), 10))
                       AND b.status IN ('completed', 'attended')
@@ -1583,7 +1583,7 @@ async def get_duplicate_customers(
         cust_rows = await conn.fetch("""
             SELECT c.id, c.name, c.internal_name, c.phone, c.status, c.health_concern,
                    c.preferred_doctor, c.last_messaged_at, c.created_at,
-                   (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id 
+                   (SELECT COUNT(*) FROM bookings b JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
                     WHERE b.tenant_id = c.tenant_id AND (ct.phone = c.phone OR RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10))) as bookings_count,
                    (SELECT COUNT(*) FROM customer_notes cn WHERE cn.customer_id = c.id AND cn.tenant_id = c.tenant_id) as notes_count
             FROM customers c

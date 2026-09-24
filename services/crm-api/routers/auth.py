@@ -1540,11 +1540,9 @@ async def send_admin_due_date_alert(payload: AdminDueAlertRequest, background_ta
                    LIMIT 1"""
             )
         if not sender_cred:
-            logger.warning("admin_due_alert_fallback_to_any_whatsapp_sender")
-            sender_cred = await conn.fetchrow(
-                "SELECT tenant_id, credential_data FROM tenant_credentials WHERE provider = 'whatsapp' AND is_active = true LIMIT 1"
-            )
-        sender_tenant_id = str(sender_cred["tenant_id"]) if sender_cred else str(uuid.uuid4())
+            logger.warning("admin_due_alert_no_platform_sender_found")
+            raise HTTPException(503, "No platform administrative WhatsApp credentials configured to send alerts.")
+        sender_tenant_id = str(sender_cred["tenant_id"])
 
         if payload.tenant_id:
             # Single tenant alert

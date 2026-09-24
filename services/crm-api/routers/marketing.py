@@ -566,7 +566,7 @@ async def _fetch_analytics_slice(conn, is_all: bool, actual_tenant_uuid: Optiona
             UNION
             SELECT RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10) as phone_clean
             FROM contacts c
-            JOIN conversations cv ON cv.contact_id = c.id
+            JOIN conversations cv ON cv.contact_id = c.id AND cv.tenant_id = c.tenant_id
             WHERE ($1::boolean IS TRUE OR c.tenant_id = $2::uuid)
               AND ($3::timestamptz IS NULL OR cv.created_at >= $3::timestamptz)
               AND ($4::timestamptz IS NULL OR cv.created_at <= $4::timestamptz)
@@ -610,7 +610,7 @@ async def _fetch_analytics_slice(conn, is_all: bool, actual_tenant_uuid: Optiona
                )
                OR EXISTS (
                  SELECT 1 FROM bookings b
-                 JOIN contacts ct ON b.contact_id = ct.id
+                 JOIN contacts ct ON b.contact_id = ct.id AND ct.tenant_id = b.tenant_id
                  WHERE b.tenant_id = cu.tenant_id
                    AND (cu.phone = ct.phone OR RIGHT(REGEXP_REPLACE(cu.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10))
                    AND ($3::timestamptz IS NULL OR COALESCE(b.start_time, b.created_at) >= $3::timestamptz)
@@ -1849,6 +1849,8 @@ async def execute_meta_template_sync(tenant_id: str, pool) -> dict:
             "UPDATE tenant_credentials SET credential_data = $1::jsonb, updated_at = now() WHERE tenant_id = $2::uuid AND provider = 'whatsapp' AND is_active = true",
             json.dumps(w_data), tenant_id
         )
+
+    await utils.invalidate_tenant_cache(tenant_id)
 
     return {
         "success": True,

@@ -126,7 +126,7 @@ def sanitize_and_fix_email(email: str) -> str:
 
 
 async def invalidate_tenant_cache(tenant_id: str):
-    """Invalidate cached credentials and ai_config for a tenant in Redis."""
+    """Invalidate cached credentials, knowledge base, and ai_config for a tenant in Redis."""
     if not tenant_id:
         return
     try:
@@ -139,8 +139,17 @@ async def invalidate_tenant_cache(tenant_id: str):
             f"tenant_creds:{tenant_id}:gemini",
             f"tenant_creds:{tenant_id}:groq",
             f"tenant_creds:{tenant_id}:opencode",
+            f"tenant_creds:{tenant_id}:google_calendar",
+            f"tenant_creds:{tenant_id}:google_business",
         ]
-        await r.delete(*keys)
+        # Invalidate any tenant-namespaced knowledge base cache keys (kb:{tenant_id}:*)
+        try:
+            async for k in r.scan_iter(f"kb:{tenant_id}:*"):
+                keys.append(k)
+        except Exception:
+            pass
+        if keys:
+            await r.delete(*keys)
         await r.aclose()
     except Exception:
         pass

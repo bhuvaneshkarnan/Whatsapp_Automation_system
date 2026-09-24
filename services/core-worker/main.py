@@ -920,6 +920,10 @@ class CoreWorker:
                         status = fields.get("status", "")  # 'sent', 'delivered', 'read', 'failed'
                         tenant_id = fields.get("tenantId") or fields.get("tenant_id")
                         if wa_message_id and status:
+                            if not tenant_id:
+                                row_t = await self.db_pool.fetchrow("SELECT tenant_id FROM messages WHERE wa_message_id = $1", wa_message_id)
+                                if row_t:
+                                    tenant_id = str(row_t["tenant_id"])
                             if tenant_id:
                                 await self.db_pool.execute(
                                     """UPDATE messages 
@@ -927,14 +931,9 @@ class CoreWorker:
                                        WHERE wa_message_id = $2 AND tenant_id = $3::uuid""",
                                     status, wa_message_id, tenant_id
                                 )
+                                logger.info("status_updated", wa_message_id=wa_message_id, status=status, tenant_id=tenant_id)
                             else:
-                                await self.db_pool.execute(
-                                    """UPDATE messages 
-                                       SET status = $1, updated_at = now() 
-                                       WHERE wa_message_id = $2""",
-                                    status, wa_message_id
-                                )
-                            logger.info("status_updated", wa_message_id=wa_message_id, status=status, tenant_id=tenant_id)
+                                logger.warning("status_update_skipped_unresolved_tenant", wa_message_id=wa_message_id)
                         await self.redis.xack(STATUS_STREAM_KEY, STATUS_CONSUMER_GROUP, msg_id)
 
             except asyncio.CancelledError:
@@ -3354,14 +3353,14 @@ class CoreWorker:
                     )
                     # Update message with wa_message_id and sent status
                     await self.db_pool.execute(
-                        "UPDATE messages SET wa_message_id = $1, status = 'sent' WHERE id = $2::uuid",
-                        wa_id, str(out_msg_id),
+                        "UPDATE messages SET wa_message_id = $1, status = 'sent' WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                        wa_id, str(out_msg_id), tenant_id
                     )
                     wa_sends.labels(tenant=tenant_id, status="success").inc()
                 except WhatsAppSendError as e:
                     await self.db_pool.execute(
-                        "UPDATE messages SET status = 'failed', error_message = $1 WHERE id = $2::uuid",
-                        str(e), str(out_msg_id),
+                        "UPDATE messages SET status = 'failed', error_message = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                        str(e), str(out_msg_id), tenant_id
                     )
                     wa_sends.labels(tenant=tenant_id, status="failed").inc()
                     logger.error("wa_send_failed", error=str(e), tenant_id=tenant_id)
@@ -5261,8 +5260,8 @@ class CoreWorker:
                        SET name = CASE WHEN name IS NULL OR name = 'Customer' THEN COALESCE($2, name) ELSE name END,
                            last_messaged_at = now(),
                            updated_at = now()
-                       WHERE id = $1::uuid""",
-                    matched_cust["id"], name
+                       WHERE id = $1::uuid AND tenant_id = $3::uuid""",
+                    matched_cust["id"], name, tenant_id
                 )
             else:
                 await self.db_pool.execute(
@@ -5377,10 +5376,10 @@ class CoreWorker:
                    SET last_messaged_at = NOW(), updated_at = NOW()
                    FROM contacts ct
                    JOIN conversations cv ON cv.contact_id = ct.id AND ct.tenant_id = cv.tenant_id
-                   WHERE cv.id = $1::uuid
+                   WHERE cv.id = $1::uuid AND cv.tenant_id = $2::uuid
                      AND (c.phone = ct.phone OR RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10))
-                     AND c.tenant_id = cv.tenant_id""",
-                conversation_id
+                     AND c.tenant_id = $2::uuid""",
+                conversation_id, tenant_id
             )
         except Exception as e:
             logger.warning("update_conversation_timestamp_failed", conv_id=conversation_id, error=str(e))

@@ -272,7 +272,7 @@ async def check_and_notify_due_tasks():
                     t.customer_id, c.name AS customer_name, c.phone AS customer_phone,
                     ten.slug AS tenant_slug, ten.name AS tenant_name
                 FROM tasks t
-                LEFT JOIN customers c ON t.customer_id = c.id
+                LEFT JOIN customers c ON t.customer_id = c.id AND c.tenant_id = t.tenant_id
                 LEFT JOIN tenants ten ON t.tenant_id = ten.id
                 WHERE t.completed = false
                   AND t.due_date <= now()
@@ -321,187 +321,12 @@ async def check_and_notify_due_tasks():
 
 async def check_and_send_conversation_recovery_followups():
     """
-    Finds conversations where the customer stopped replying mid-conversation
-    (no booking, no outbound after last inbound, last inbound was 2-3 hours ago)
-    and sends a contextual AI-generated follow-up message.
-    Only targets bot-managed conversations (status = 'bot').
+    Incomplete conversation followups are handled exclusively by core-worker
+    (_process_incomplete_conversation_followups) with full tenant knowledge base
+    grounding, verified catalog services, multi-LLM router cascade, and dialect mirroring.
+    Disabled here to prevent duplicate, ungrounded messages without tenant context.
     """
-    global db_pool
-    if not db_pool:
-        return
-    try:
-        import httpx
-        from services.whatsapp_service import dispatch_whatsapp_message
-    except ImportError as ie:
-        logger.warning("recovery_followup_import_error", error=str(ie))
-        return
-
-    try:
-        async with db_pool.acquire() as conn:
-            # Find eligible conversations: last inbound was 2-3h ago, no outbound after it,
-            # no active booking, no recent recovery followup sent
-            rows = await conn.fetch("""
-                SELECT
-                    cv.id          AS conv_id,
-                    cv.tenant_id,
-                    ct.phone,
-                    ct.name        AS contact_name,
-                    ct.id          AS contact_id
-                FROM conversations cv
-                JOIN contacts ct ON ct.id = cv.contact_id AND ct.tenant_id = cv.tenant_id
-                WHERE cv.status = 'bot'
-                  AND (
-                      cv.recovery_followup_sent_at IS NULL
-                      OR cv.recovery_followup_sent_at < now() - INTERVAL '20 hours'
-                  )
-                  AND EXISTS (
-                      SELECT 1 FROM messages m
-                      WHERE m.conversation_id = cv.id
-                        AND m.tenant_id = cv.tenant_id
-                        AND m.direction = 'inbound'
-                        AND m.created_at BETWEEN now() - INTERVAL '3 hours' AND now() - INTERVAL '2 hours'
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM messages m2
-                      WHERE m2.conversation_id = cv.id
-                        AND m2.tenant_id = cv.tenant_id
-                        AND m2.direction = 'outbound'
-                        AND m2.created_at > (
-                            SELECT MAX(m3.created_at) FROM messages m3
-                            WHERE m3.conversation_id = cv.id
-                              AND m3.tenant_id = cv.tenant_id
-                              AND m3.direction = 'inbound'
-                        )
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM bookings b
-                      WHERE b.contact_id = ct.id
-                        AND b.tenant_id = cv.tenant_id
-                        AND b.status IN ('confirmed', 'active', 'scheduled')
-                        AND b.start_time >= now()
-                  )
-                LIMIT 20
-            """)
-
-            if not rows:
-                return
-
-            for row in rows:
-                conv_id      = str(row["conv_id"])
-                tenant_id    = str(row["tenant_id"])
-                phone        = row["phone"]
-                contact_name = row["contact_name"] or "there"
-
-                try:
-                    # Fetch last 5 messages for context (oldest first for AI prompt)
-                    msgs = await conn.fetch(
-                        """SELECT direction, body, created_at
-                           FROM messages
-                           WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid
-                             AND body IS NOT NULL AND body != ''
-                           ORDER BY created_at DESC
-                           LIMIT 5""",
-                        row["conv_id"], row["tenant_id"]
-                    )
-                    if not msgs:
-                        continue
-
-                    # Build conversation snippet (oldest first)
-                    convo_lines = []
-                    for m in list(reversed(list(msgs))):
-                        role = "Customer" if m["direction"] == "inbound" else "Assistant"
-                        convo_lines.append(f"{role}: {m['body']}")
-                    convo_text = "\n".join(convo_lines)
-
-                    # Get Gemini API key for tenant, fallback to platform env key
-                    gem_row = await conn.fetchrow(
-                        """SELECT credential_data FROM tenant_credentials
-                           WHERE tenant_id = $1::uuid AND provider = 'gemini' AND is_active = true
-                           LIMIT 1""",
-                        row["tenant_id"]
-                    )
-                    gkey = None
-                    if gem_row and gem_row["credential_data"]:
-                        cd = gem_row["credential_data"]
-                        if isinstance(cd, str):
-                            try: cd = json.loads(cd)
-                            except Exception: cd = {}
-                        gkey = cd.get("api_key")
-                    if not gkey:
-                        gkey = os.getenv("GEMINI_API_KEY", "")
-                    if not gkey:
-                        logger.warning("recovery_followup_no_gemini_key", tenant_id=tenant_id)
-                        continue
-
-                    # Generate contextual follow-up via Gemini
-                    prompt = (
-                        f"You are a friendly, professional assistant. A customer named {contact_name} "
-                        f"was having a conversation with you but stopped replying about 2 hours ago.\n\n"
-                        f"Here is the recent conversation:\n{convo_text}\n\n"
-                        f"Write a short, warm follow-up message (1–2 sentences) that:\n"
-                        f"- Directly references the specific topic or question they were discussing\n"
-                        f"- Gently checks if they still need help or have any questions\n"
-                        f"- Does NOT sound generic or copy-paste\n"
-                        f"- Does NOT start with 'Hi' or 'Hello'\n"
-                        f"Return ONLY the message text, nothing else."
-                    )
-
-                    followup_text = None
-                    try:
-                        async with httpx.AsyncClient(timeout=10.0) as client:
-                            resp = await client.post(
-                                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gkey}",
-                                json={"contents": [{"parts": [{"text": prompt}]}]}
-                            )
-                            if resp.status_code == 200:
-                                data = resp.json()
-                                followup_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    except Exception as ai_err:
-                        logger.warning("recovery_followup_ai_error", conv_id=conv_id, error=str(ai_err))
-                        continue
-
-                    if not followup_text:
-                        continue
-
-                    # Send via WhatsApp (free-form text, valid within 24h window)
-                    wa_result = await dispatch_whatsapp_message(
-                        tenant_id=tenant_id,
-                        to_phone=phone,
-                        text=followup_text
-                    )
-                    if not wa_result:
-                        logger.warning("recovery_followup_wa_send_failed", conv_id=conv_id, phone=phone)
-                        continue
-
-                    # Stamp recovery_followup_sent_at FIRST (before message INSERT)
-                    # so a subsequent DB write failure can never trigger a duplicate send.
-                    await conn.execute(
-                        """UPDATE conversations
-                           SET last_message_at = now(),
-                               recovery_followup_sent_at = now()
-                           WHERE id = $1::uuid AND tenant_id = $2::uuid""",
-                        row["conv_id"], row["tenant_id"]
-                    )
-
-                    # Record outbound message in messages table
-                    await conn.execute(
-                        """INSERT INTO messages
-                               (id, conversation_id, tenant_id, direction, body, content_type, status, created_at)
-                           VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', $4, 'text', 'sent', now())""",
-                        str(uuid.uuid4()), row["conv_id"], row["tenant_id"], followup_text
-                    )
-
-                    logger.info(
-                        "conversation_recovery_followup_sent",
-                        conv_id=conv_id, tenant_id=tenant_id,
-                        phone=phone, message_preview=followup_text[:80]
-                    )
-
-                except Exception as conv_err:
-                    logger.warning("recovery_followup_conv_error", conv_id=conv_id, error=str(conv_err))
-
-    except Exception as ex:
-        logger.error("check_and_send_conversation_recovery_followups_error", error=str(ex))
+    return
 
 
 async def due_tasks_worker_loop():

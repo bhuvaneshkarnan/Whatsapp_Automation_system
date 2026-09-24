@@ -142,7 +142,7 @@ async def sync_calendar(
             """SELECT b.id, b.service, b.start_time, b.end_time, b.status, b.google_event_id, b.notes,
                       c.name, c.phone
                FROM bookings b
-               JOIN contacts c ON c.id = b.contact_id
+               JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
                WHERE b.id = $1::uuid AND b.tenant_id = $2::uuid""",
             req.booking_id, effective_tenant_id
         )

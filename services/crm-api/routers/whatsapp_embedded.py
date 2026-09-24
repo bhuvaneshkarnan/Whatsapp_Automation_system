@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any
 
 import database
 from dependencies import get_tenant_id, get_caller_context, verify_super_admin
+from utils import invalidate_tenant_cache
 
 router = APIRouter()
 logger = structlog.get_logger("crm-api-whatsapp-embedded")
@@ -195,6 +196,8 @@ async def execute_embedded_signup(conn, tenant_id: str, code: str, waba_id: Opti
         "UPDATE tenants SET whatsapp_configured = true, updated_at = now() WHERE id = $1::uuid",
         tenant_id
     )
+
+    await invalidate_tenant_cache(tenant_id)
 
     # 6. Automatically trigger background Meta template sync so all standard templates are immediately provisioned
     try:
