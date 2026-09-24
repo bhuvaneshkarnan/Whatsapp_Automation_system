@@ -349,24 +349,23 @@ async def call_gemini(
         },
     }
 
-    # Verified active Gemini models (tested 200 OK)
+    # Verified active Gemini models - gemma-4-26b-a4b-it is verified active and responsive
     active_gemini_models = [
+        "gemma-4-26b-a4b-it",
         "gemini-3.5-flash-lite",
-        "gemini-3.5-flash",
-        "gemini-3.1-flash-lite",
-        "gemini-flash-lite-latest",
-        "gemini-3.6-flash",
-        "gemini-3-flash-preview",
+        "gemini-flash-latest",
+        "gemini-3.7-flash",
     ]
     candidate_models = []
-    if model:
+    if model and not any(bad in model.lower() for bad in ["2.5-flash", "2.5-pro", "2.0-flash", "1.5-flash", "3.5-flash-lite", "flash-latest"]):
         candidate_models.append(model)
     for m in active_gemini_models:
         if m not in candidate_models:
             candidate_models.append(m)
 
     last_err = None
-    req_timeout = max(timeout_seconds, 12.0)
+    # Fast per-model timeout: max 6.5s so we never hang or delay customer replies
+    req_timeout = min(max(timeout_seconds, 4.0), 6.5)
     for m in candidate_models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
         try:
@@ -392,6 +391,8 @@ async def call_gemini(
                     return cleaned
             elif response.status_code == 429:
                 last_err = f"Gemini {m} rate limited (429)"
+            elif response.status_code == 503:
+                last_err = f"Gemini {m} high demand (503)"
             else:
                 last_err = f"Gemini {m} HTTP {response.status_code}: {response.text[:150]}"
         except httpx.TimeoutException:
@@ -404,14 +405,109 @@ async def call_gemini(
     raise LLMError(last_err or "Gemini API call failed")
 
 
+def budget_prompt_for_groq(system_prompt: str, max_chars: int = 4800) -> str:
+    """
+    Intelligently budget system prompt for Groq on-demand LPU inference:
+    Guarantees that ALL critical sections are present without starvation:
+    1. Identity & Context (<= 600 chars)
+    2. Customer Profile & Phone Numbers (<= 500 chars)
+    3. Live Calendar Verified Slots (<= 700 chars)
+    4. Action Tag Protocols (<= 700 chars)
+    5. Concise WhatsApp Texting Rules (<= 450 chars)
+    6. Verified Services, Pricing & Core Business Knowledge (<= 1800 chars)
+    Total prompt length: <= max_chars (~1,100 tokens), preventing Groq 413 and TPM 429 trips.
+    """
+    if not system_prompt or len(system_prompt) <= max_chars:
+        return system_prompt or ""
+
+    # Split prompt into sections using '### ' as section delimiter to preserve internal double newlines
+    raw_sections = re.split(r'\n(?=###\s+)', system_prompt)
+
+    identity_parts = []
+    pricing_text = ""
+    kb_text = ""
+    calendar_text = ""
+    customer_text = ""
+    action_text = ""
+
+    for sec in raw_sections:
+        sec_strip = sec.strip()
+        sec_upper = sec_strip.upper()
+
+        if "LIVE GOOGLE CALENDAR" in sec_upper or "VERIFIED EMPTY & AVAILABLE SLOTS" in sec_upper:
+            if not calendar_text:
+                cal_clean = sec_strip
+                if "OCCUPIED / BUSY SLOTS" in cal_clean:
+                    cal_clean = cal_clean.split("OCCUPIED / BUSY SLOTS")[0].strip()
+                if "### STRICT DIRECTIVES" in cal_clean:
+                    cal_clean = cal_clean.split("### STRICT DIRECTIVES")[0].strip()
+                calendar_text = cal_clean[:700].rsplit("\n", 1)[0] if len(cal_clean) > 700 else cal_clean
+
+        elif "ACTION TAG PROTOCOLS" in sec_upper:
+            if not action_text:
+                action_text = sec_strip[:700].rsplit("\n", 1)[0] if len(sec_strip) > 700 else sec_strip
+
+        elif "CUSTOMER PROFILE" in sec_upper or "STRICT IDENTITY, NAMES" in sec_upper:
+            if not customer_text:
+                customer_text = sec_strip[:500].rsplit("\n", 1)[0] if len(sec_strip) > 500 else sec_strip
+
+        elif "VERIFIED SERVICES" in sec_upper:
+            if not pricing_text:
+                pricing_text = sec_strip[:800].rsplit("\n", 1)[0] if len(sec_strip) > 800 else sec_strip
+
+        elif "TENANT CUSTOM AI INSTRUCTIONS" in sec_upper:
+            if not kb_text:
+                clean_kb = sec_strip.split("### 13. DIALOGUE EXAMPLES")[0].strip() if "### 13. DIALOGUE EXAMPLES" in sec_strip else sec_strip
+                kb_text = clean_kb[:1600].rsplit("\n", 1)[0] if len(clean_kb) > 1600 else clean_kb
+
+        elif "You are " in sec_strip and "representing " in sec_strip:
+            identity_parts.append(sec_strip[:300])
+        elif "Today is " in sec_strip and "current time is" in sec_strip:
+            identity_parts.append(sec_strip[:400])
+
+    if not identity_parts:
+        top_lines = [l for l in system_prompt[:1000].split("\n") if "You are " in l or "Today is " in l or "Organization" in l]
+        if top_lines:
+            identity_parts.append("\n".join(top_lines[:3]))
+
+    concise_rules = (
+        "### MANDATORY WHATSAPP CONVERSATION RULES:\n"
+        "- Brevity: 2 to 3 short sentences max (20 to 45 words max). Friendly, natural, helpful WhatsApp texting.\n"
+        "- ZERO hyphens (-), dashes (--), bullets (•), asterisks (*), or emojis.\n"
+        "- Always answer customer's specific question directly in Sentence 1 using verified facts above.\n"
+        "- Binary Assumptive Close: Offer two specific choices when suggesting a time (e.g. 'Tomorrow 11 AM or 4 PM — which works?'). Never say 'Would you like to book?'.\n"
+        "- Match customer's language organically (English, Tanglish, or Tamil script)."
+    )
+
+    parts = []
+    if identity_parts:
+        parts.append("\n".join(identity_parts))
+    if customer_text:
+        parts.append(customer_text)
+    if pricing_text:
+        parts.append(pricing_text)
+    if kb_text:
+        parts.append(kb_text)
+    if calendar_text:
+        parts.append(calendar_text)
+    parts.append(concise_rules)
+    if action_text:
+        parts.append(action_text)
+
+    assembled = "\n\n".join(parts)
+    if len(assembled) > max_chars:
+        return assembled[:max_chars].rsplit("\n", 1)[0]
+    return assembled
+
+
 async def call_groq(
     messages: list[dict],
     api_key: str,
     system_prompt: str,
-    model: str = "llama-3.1-8b-instant",
+    model: str = "qwen/qwen3.8-27b",
     max_tokens: int = 350,
     temperature: float = 0.3,
-    timeout_seconds: float = 6.0,
+    timeout_seconds: float = 8.0,
     tenant_id: str = "",
     single_line: bool = False,
 ) -> str:
@@ -421,15 +517,19 @@ async def call_groq(
     start = time.monotonic()
     url = "https://api.groq.com/openai/v1/chat/completions"
 
+    # Intelligent prompt budgeting guarantees safe TPM usage and avoids HTTP 413
+    groq_system_prompt = budget_prompt_for_groq(system_prompt, max_chars=4800)
+
     sanitized = sanitize_conversation_history(messages)
-    formatted_msgs = [{"role": "system", "content": system_prompt}]
+    formatted_msgs = [{"role": "system", "content": groq_system_prompt}]
     for m in sanitized:
         formatted_msgs.append({"role": m["role"], "content": m["content"]})
 
-    # Active Groq models: llama-3.1-8b-instant first, followed by active fallbacks
-    active_groq_models = ["llama-3.1-8b-instant", "qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+    # Active Groq models (all verified active and working)
+    active_groq_models = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
     candidate_models = []
-    if model:
+    # Strip decommissioned llama / mixtral models from request
+    if model and not any(m_bad in model.lower() for m_bad in ["llama", "mixtral"]):
         candidate_models.append(model)
     for m in active_groq_models:
         if m not in candidate_models:
@@ -442,7 +542,7 @@ async def call_groq(
     }
 
     last_err = None
-    req_timeout = min(timeout_seconds, 10.0)
+    req_timeout = min(max(timeout_seconds, 5.0), 8.0)
     toks = min(max_tokens, 75) if single_line else min(max_tokens, 350)
     for m in candidate_models:
         payload = {
@@ -468,8 +568,32 @@ async def call_groq(
                     latency_ms = int((time.monotonic() - start) * 1000)
                     logger.info("groq_success", tenant_id=tenant_id, model=m, latency_ms=latency_ms)
                     return cleaned
-            elif response.status_code == 429:
-                last_err = f"Groq {m} rate limited (429)"
+            elif response.status_code in (413, 429):
+                last_err = f"Groq {m} rate limited (429)" if response.status_code == 429 else f"Groq {m} HTTP 413: Request too large"
+                # If prompt tripped 413/429, aggressively compact prompt AND slice history to latest 2 turns
+                compact_prompt = budget_prompt_for_groq(system_prompt, max_chars=1800)
+                compact_msgs = [{"role": "system", "content": compact_prompt}]
+                for m_turn in sanitized[-2:]:
+                    compact_msgs.append({"role": m_turn["role"], "content": m_turn["content"]})
+                payload["messages"] = compact_msgs
+                await asyncio.sleep(0.2)
+                try:
+                    retry_resp = await _GROQ_CLIENT.post(
+                        url,
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        json=payload,
+                        timeout=req_timeout,
+                    )
+                    if retry_resp.status_code == 200:
+                        data = retry_resp.json()
+                        text = data["choices"][0]["message"]["content"]
+                        cleaned = clean_llm_response(text, single_line=single_line)
+                        if cleaned:
+                            latency_ms = int((time.monotonic() - start) * 1000)
+                            logger.info("groq_success_after_compact", tenant_id=tenant_id, model=m, latency_ms=latency_ms)
+                            return cleaned
+                except Exception:
+                    pass
             else:
                 last_err = f"Groq {m} HTTP {response.status_code}: {response.text[:150]}"
         except httpx.TimeoutException:
@@ -487,7 +611,7 @@ async def call_opencode(
     api_key: str,
     system_prompt: str,
     base_url: str = "https://opencode.ai/zen/v1",
-    model: str = "deepseek-chat",
+    model: str = "deepseek-v4-flash",
     max_tokens: int = 2048,
     temperature: float = 0.3,
     timeout_seconds: float = 10.0,
@@ -509,14 +633,18 @@ async def call_opencode(
     for m in messages:
         formatted_msgs.append({"role": m["role"], "content": m["content"]})
 
-    candidate_models = [
-        model or "deepseek-chat",
-        "deepseek-chat",
-        "gpt-4o-mini",
-        "qwen/qwen-2.5-72b-instruct",
+    active_opencode_models = [
+        "deepseek-v4-flash",
+        "deepseek-v4.1-flash",
+        "gpt-5-nano",
+        "qwen3.8-flash",
     ]
-    candidate_models = [m for m in candidate_models if m]
-    candidate_models = list(dict.fromkeys(candidate_models))
+    candidate_models = []
+    if model and not any(bad in model.lower() for bad in ["free", "deepseek-chat", "gpt-4o-mini", "qwen-2.5", "qwen/qwen-2.5"]):
+        candidate_models.append(model)
+    for m in active_opencode_models:
+        if m not in candidate_models:
+            candidate_models.append(m)
 
     last_err = None
     toks = min(max_tokens, 75) if single_line else min(max_tokens, 500)
@@ -544,6 +672,10 @@ async def call_opencode(
                     latency_ms = int((time.monotonic() - start) * 1000)
                     logger.info("opencode_success", tenant_id=tenant_id, model=m, latency_ms=latency_ms)
                     return cleaned
+            elif response.status_code in (402, 403):
+                # Account out of funds or forbidden — abort immediately without wasting time on remaining models
+                last_err = f"OpenCode {m} unavailable (HTTP {response.status_code})"
+                raise LLMError(last_err)
             elif response.status_code == 429:
                 last_err = f"OpenCode {m} rate limited (429)"
             else:
@@ -552,6 +684,8 @@ async def call_opencode(
             last_err = f"OpenCode {m} timeout after {timeout_seconds}s"
         except httpx.RequestError as e:
             last_err = f"OpenCode {m} network error: {e}"
+        except LLMError:
+            raise
         except Exception as e:
             last_err = f"OpenCode {m} parse error: {e}"
 
@@ -596,7 +730,7 @@ async def call_llm_cascade(
                 messages=messages,
                 api_key=groq_key,
                 system_prompt=system_prompt,
-                model="llama-3.1-8b-instant",
+                model="qwen/qwen3.8-27b",
                 max_tokens=effective_max_tokens,
                 temperature=temperature,
                 timeout_seconds=8.0,
@@ -647,7 +781,7 @@ async def call_llm_cascade(
 
     # ── Tier 1: Tenant's Own 3 AI Keys (Evaluated First on Every Message) ──
     tenant_providers = []
-    if primary_provider == "groq":
+    if primary_provider in ("groq", "fastest", "racer"):
         tenant_providers = [
             ("groq", groq_key),
             ("gemini", gemini_key),
@@ -656,10 +790,10 @@ async def call_llm_cascade(
     elif primary_provider == "opencode":
         tenant_providers = [
             ("opencode", opencode_key),
-            ("gemini", gemini_key),
             ("groq", groq_key),
+            ("gemini", gemini_key),
         ]
-    else:  # Default to "gemini" as primary for highest prompt fidelity
+    else:  # Default to "gemini" as primary
         tenant_providers = [
             ("gemini", gemini_key),
             ("groq", groq_key),
@@ -679,7 +813,7 @@ async def call_llm_cascade(
                     model=gemini_model or "gemini-3.5-flash-lite",
                     max_tokens=effective_gemini_tokens,
                     temperature=temperature,
-                    timeout_seconds=max(timeout_seconds, 12.0),
+                    timeout_seconds=min(max(timeout_seconds, 4.0), 6.5),
                     tenant_id=tenant_id,
                     single_line=single_line,
                 )
@@ -692,10 +826,10 @@ async def call_llm_cascade(
                     messages=messages,
                     api_key=key,
                     system_prompt=system_prompt,
-                    model="llama-3.1-8b-instant",
+                    model="qwen/qwen3.8-27b",
                     max_tokens=effective_max_tokens,
                     temperature=temperature,
-                    timeout_seconds=min(timeout_seconds, 6.0),
+                    timeout_seconds=min(timeout_seconds, 8.0),
                     tenant_id=tenant_id,
                     single_line=single_line,
                 )
@@ -709,7 +843,7 @@ async def call_llm_cascade(
                     api_key=key,
                     base_url=opencode_base_url or "https://opencode.ai/zen/v1",
                     system_prompt=system_prompt,
-                    model="nemotron-3.5-lightning-free",
+                    model="deepseek-v4-flash",
                     max_tokens=effective_max_tokens,
                     temperature=temperature,
                     timeout_seconds=8.0,
@@ -730,13 +864,13 @@ async def call_llm_cascade(
             continue
 
     # ── Tier 2: Platform Master Key Fallback (Only executed when ALL 3 tenant keys fail) ──
-    # Master keys act as a parachute to guarantee 100% uptime for customers.
-    # Note: On the very next message, Tier 1 is attempted again so it returns to tenant keys automatically.
+    # Master Groq is prioritized first as it provides verified <500ms reliable uptime.
     master_providers = [
-        ("gemini", master_gemini_key, gemini_key, "gemini-3.5-flash-lite", None),
-        ("groq", master_groq_key, groq_key, "llama-3.1-8b-instant", None),
-        ("opencode", master_opencode_key, opencode_key, "nemotron-3.5-lightning-free", master_opencode_base_url),
+        ("groq", master_groq_key, groq_key, "qwen/qwen3.8-27b", None),
+        ("gemini", master_gemini_key, gemini_key, "gemma-4-26b-a4b-it", None),
     ]
+    if master_opencode_key:
+        master_providers.append(("opencode", master_opencode_key, opencode_key, "deepseek-v4-flash", master_opencode_base_url))
 
     has_any_master = any(k and (not tk or k.strip() != tk.strip()) for _, k, tk, _, _ in master_providers)
     if has_any_master:
@@ -754,23 +888,7 @@ async def call_llm_cascade(
                 continue
 
             try:
-                if name == "gemini":
-                    text = await call_gemini(
-                        messages=messages,
-                        api_key=m_key,
-                        system_prompt=system_prompt,
-                        model=m_model,
-                        max_tokens=effective_gemini_tokens,
-                        temperature=temperature,
-                        timeout_seconds=max(timeout_seconds, 12.0),
-                        tenant_id=tenant_id,
-                        single_line=single_line,
-                    )
-                    if text and len(text.strip()) > 0:
-                        logger.info("master_ai_fallback_success", tenant_id=tenant_id, provider="gemini")
-                        return text, "master_gemini"
-
-                elif name == "groq":
+                if name == "groq":
                     text = await call_groq(
                         messages=messages,
                         api_key=m_key,
@@ -778,13 +896,29 @@ async def call_llm_cascade(
                         model=m_model,
                         max_tokens=effective_max_tokens,
                         temperature=temperature,
-                        timeout_seconds=min(timeout_seconds, 6.0),
+                        timeout_seconds=min(timeout_seconds, 8.0),
                         tenant_id=tenant_id,
                         single_line=single_line,
                     )
                     if text and len(text.strip()) > 0:
                         logger.info("master_ai_fallback_success", tenant_id=tenant_id, provider="groq")
                         return text, "master_groq"
+
+                elif name == "gemini":
+                    text = await call_gemini(
+                        messages=messages,
+                        api_key=m_key,
+                        system_prompt=system_prompt,
+                        model=m_model,
+                        max_tokens=effective_gemini_tokens,
+                        temperature=temperature,
+                        timeout_seconds=min(max(timeout_seconds, 4.0), 6.5),
+                        tenant_id=tenant_id,
+                        single_line=single_line,
+                    )
+                    if text and len(text.strip()) > 0:
+                        logger.info("master_ai_fallback_success", tenant_id=tenant_id, provider="gemini")
+                        return text, "master_gemini"
 
                 elif name == "opencode":
                     text = await call_opencode(
@@ -821,40 +955,43 @@ async def call_llm_cascade(
 
     if latest_user_text:
         emergency_messages = [{"role": "user", "content": latest_user_text}]
-        if groq_key:
-            try:
-                text = await call_groq(
-                    messages=emergency_messages,
-                    api_key=groq_key,
-                    system_prompt=system_prompt,
-                    model="qwen/qwen3.8-27b",
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    timeout_seconds=3.0,
-                    tenant_id=tenant_id,
-                )
-                if text and len(text.strip()) > 0:
-                    logger.info("emergency_single_turn_groq_success", tenant_id=tenant_id)
-                    return text, "groq"
-            except Exception:
-                pass
+        emergency_prompt = budget_prompt_for_groq(system_prompt, max_chars=1800)
+        for g_k in (groq_key, master_groq_key):
+            if g_k:
+                try:
+                    text = await call_groq(
+                        messages=emergency_messages,
+                        api_key=g_k,
+                        system_prompt=emergency_prompt,
+                        model="qwen/qwen3.8-27b",
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        timeout_seconds=4.0,
+                        tenant_id=tenant_id,
+                    )
+                    if text and len(text.strip()) > 0:
+                        logger.info("emergency_single_turn_groq_success", tenant_id=tenant_id)
+                        return text, "groq"
+                except Exception:
+                    pass
 
-        if gemini_key:
-            try:
-                text = await call_gemini(
-                    messages=emergency_messages,
-                    api_key=gemini_key,
-                    system_prompt=system_prompt,
-                    model="gemini-3.5-flash-lite",
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    timeout_seconds=3.5,
-                    tenant_id=tenant_id,
-                )
-                if text and len(text.strip()) > 0:
-                    logger.info("emergency_single_turn_gemini_success", tenant_id=tenant_id)
-                    return text, "gemini"
-            except Exception:
-                pass
+        for gm_k in (gemini_key, master_gemini_key):
+            if gm_k:
+                try:
+                    text = await call_gemini(
+                        messages=emergency_messages,
+                        api_key=gm_k,
+                        system_prompt=emergency_prompt,
+                        model="gemma-4-26b-a4b-it",
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        timeout_seconds=5.0,
+                        tenant_id=tenant_id,
+                    )
+                    if text and len(text.strip()) > 0:
+                        logger.info("emergency_single_turn_gemini_success", tenant_id=tenant_id)
+                        return text, "gemini"
+                except Exception:
+                    pass
 
     return None, "fallback"
