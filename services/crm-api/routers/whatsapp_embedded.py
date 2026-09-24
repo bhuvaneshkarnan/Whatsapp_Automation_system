@@ -180,8 +180,8 @@ async def execute_embedded_signup(conn, tenant_id: str, code: str, waba_id: Opti
 
     if g_row:
         await conn.execute(
-            "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid",
-            json.dumps(wa_data), cred_id
+            "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid AND tenant_id = $3::uuid",
+            json.dumps(wa_data), cred_id, tenant_id
         )
     else:
         await conn.execute(

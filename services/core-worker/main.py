@@ -770,8 +770,8 @@ async def dispatch_push_notification(
             try:
                 async with pool.acquire() as conn:
                     await conn.execute(
-                        "DELETE FROM push_subscriptions WHERE id = ANY($1::uuid[])",
-                        expired_ids
+                        "DELETE FROM push_subscriptions WHERE id = ANY($1::uuid[]) AND tenant_id = $2::uuid",
+                        expired_ids, tenant_id
                     )
             except Exception:
                 pass
@@ -893,8 +893,8 @@ class CoreWorker:
                 await self.db_pool.execute(
                     """UPDATE marketing_campaigns
                        SET status = 'failed'
-                       WHERE id = $1 AND status = 'in_progress'""",
-                    camp_id
+                       WHERE id = $1 AND tenant_id = $2::uuid AND status = 'in_progress'""",
+                    camp_id, camp["tenant_id"]
                 )
                 logger.info("abandoned_campaign_marked_failed_for_retry", campaign_id=str(camp_id))
         except Exception as e:
@@ -918,14 +918,23 @@ class CoreWorker:
                     for msg_id, fields in messages:
                         wa_message_id = fields.get("waMessageId", "")
                         status = fields.get("status", "")  # 'sent', 'delivered', 'read', 'failed'
+                        tenant_id = fields.get("tenantId") or fields.get("tenant_id")
                         if wa_message_id and status:
-                            await self.db_pool.execute(
-                                """UPDATE messages 
-                                   SET status = $1, updated_at = now() 
-                                   WHERE wa_message_id = $2""",
-                                status, wa_message_id
-                            )
-                            logger.info("status_updated", wa_message_id=wa_message_id, status=status)
+                            if tenant_id:
+                                await self.db_pool.execute(
+                                    """UPDATE messages 
+                                       SET status = $1, updated_at = now() 
+                                       WHERE wa_message_id = $2 AND tenant_id = $3::uuid""",
+                                    status, wa_message_id, tenant_id
+                                )
+                            else:
+                                await self.db_pool.execute(
+                                    """UPDATE messages 
+                                       SET status = $1, updated_at = now() 
+                                       WHERE wa_message_id = $2""",
+                                    status, wa_message_id
+                                )
+                            logger.info("status_updated", wa_message_id=wa_message_id, status=status, tenant_id=tenant_id)
                         await self.redis.xack(STATUS_STREAM_KEY, STATUS_CONSUMER_GROUP, msg_id)
 
             except asyncio.CancelledError:
@@ -1111,8 +1120,8 @@ class CoreWorker:
                 wa_token = (creds.get("access_token") if creds else None) or fields.get("accessToken")
                 if media_id and wa_token:
                     try:
-                        groq_key = await self._get_groq_key(tenant_id)
-                        gemini_key = await self._get_gemini_key(tenant_id)
+                        groq_key = await self._get_tenant_groq_key(tenant_id)
+                        gemini_key = await self._get_tenant_gemini_key(tenant_id)
                         transcription = await transcribe_voice_message(
                             media_id=media_id,
                             wa_access_token=wa_token,
@@ -1245,8 +1254,8 @@ class CoreWorker:
                     if clean_em:
                         try:
                             await self.db_pool.execute(
-                                "UPDATE contacts SET metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{email}', to_jsonb($1::text)) WHERE id = $2::uuid",
-                                clean_em, contact_id
+                                "UPDATE contacts SET metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{email}', to_jsonb($1::text)) WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                                clean_em, contact_id, tenant_id
                             )
                             logger.info("customer_email_auto_extracted", email=clean_em, contact_id=contact_id)
                             break
@@ -3057,7 +3066,7 @@ class CoreWorker:
             "want a real person", "customer care executive", "connect to agent", "human support", "speak with someone"
         ])
         if human_request_intent:
-            await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid", conv_id)
+            await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
             response_text = "I have notified our team. A staff member will take over this conversation shortly!"
             asyncio.create_task(
                 self._execute_admin_human_alert(
@@ -3073,7 +3082,7 @@ class CoreWorker:
         if response_text:
             # 1. Intercept [ACTION:HUMAN_TAKEOVER]
             if "[ACTION:HUMAN_TAKEOVER]" in response_text:
-                await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid", conv_id)
+                await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                 asyncio.create_task(
                     self._execute_admin_human_alert(
                         tenant_id=tenant_id,
@@ -3292,8 +3301,8 @@ class CoreWorker:
             )
             try:
                 await self.db_pool.execute(
-                    "UPDATE conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1::uuid",
-                    conv_id
+                    "UPDATE conversations SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                    conv_id, tenant_id
                 )
                 clean_cp = re.sub(r'\D', '', str(contact_phone))
                 await self.db_pool.execute(
@@ -3738,16 +3747,16 @@ class CoreWorker:
                 if customer_email:
                     try:
                         await self.db_pool.execute(
-                            "UPDATE contacts SET metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{email}', to_jsonb($1::text)) WHERE id = $2::uuid",
-                            customer_email, contact_id
+                            "UPDATE contacts SET metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{email}', to_jsonb($1::text)) WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                            customer_email, contact_id, tenant_id
                         )
                     except Exception as e:
                         logger.warning("save_contact_email_failed", error=str(e))
                 if name and name not in ["Valued Customer", "Client", "Customer"]:
                     try:
                         await self.db_pool.execute(
-                            "UPDATE contacts SET name = $1 WHERE id = $2::uuid AND (name IS NULL OR name = '' OR name = 'Valued Customer' OR name = 'Client')",
-                            name, contact_id
+                            "UPDATE contacts SET name = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid AND (name IS NULL OR name = '' OR name = 'Valued Customer' OR name = 'Client')",
+                            name, contact_id, tenant_id
                         )
                     except Exception as e:
                         logger.warning("save_contact_name_failed", error=str(e))
@@ -3855,8 +3864,8 @@ class CoreWorker:
                 booking_id = str(existing_contact_booking["id"])
                 await self.db_pool.execute(
                     """UPDATE bookings SET service = $1, start_time = $2, end_time = $3, notes = $4, updated_at = NOW()
-                       WHERE id = $5::uuid""",
-                    service_name, st_dt, et_dt, notes, booking_id
+                       WHERE id = $5::uuid AND tenant_id = $6::uuid""",
+                    service_name, st_dt, et_dt, notes, booking_id, tenant_id
                 )
                 logger.info("ai_booking_updated_existing", booking_id=booking_id, service=service_name, start_time=str(st_dt))
             else:
@@ -3961,7 +3970,7 @@ class CoreWorker:
                            VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, 'sent', $5, false)""",
                         conf_msg_id, conv_id, tenant_id, confirmation_body, tmpl_wa_id
                     )
-                    await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+                    await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                 except Exception as e:
                     logger.warning("meta_template_send_failed_trying_text", error=str(e), template=template_name)
                     try:
@@ -3977,7 +3986,7 @@ class CoreWorker:
                                VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
                             conf_msg_id, conv_id, tenant_id, confirmation_body, txt_wa_id
                         )
-                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                     except Exception as txt_err:
                         logger.error("confirmation_text_fallback_send_failed", error=str(txt_err))
 
@@ -4008,7 +4017,7 @@ class CoreWorker:
                                VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
                             loc_msg_id, conv_id, tenant_id, loc_msg, loc_wa_id
                         )
-                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                         logger.info("location_directions_sent_to_customer", to=contact_phone)
                     except Exception as e:
                         logger.warning("location_directions_send_failed", error=str(e))
@@ -4130,8 +4139,8 @@ class CoreWorker:
                         event = await asyncio.to_thread(lambda: g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all").execute())
                         if event and event.get("id"):
                             await self.db_pool.execute(
-                                "UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid",
-                                event["id"], booking_id
+                                "UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                                event["id"], booking_id, tenant_id
                             )
                             logger.info("google_calendar_event_created", event_id=event["id"], booking_id=booking_id)
 
@@ -4685,7 +4694,7 @@ class CoreWorker:
                         )
                         # Fetch customer email
                         customer_email = ""
-                        c_meta = await self.db_pool.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid", contact_id)
+                        c_meta = await self.db_pool.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
                         if c_meta:
                             if isinstance(c_meta, str):
                                 try: c_meta = json.loads(c_meta)
@@ -4990,7 +4999,7 @@ class CoreWorker:
                             ins_req = g_service.events().insert(calendarId=cal_id, body=event_body, sendUpdates="all")
                             event = await asyncio.to_thread(lambda: ins_req.execute())
                             if event and event.get("id"):
-                                await self.db_pool.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid", event["id"], booking_id)
+                                await self.db_pool.execute("UPDATE bookings SET google_event_id = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid", event["id"], booking_id, tenant_id)
 
                         # 4. Direct Gmail API Reschedule Email to Admin & Customer
                         full_location = (creds.get("full_location_text") or "").strip() if creds else ""
@@ -5000,7 +5009,7 @@ class CoreWorker:
                         # Fetch customer email
                         customer_email = (booking_data.get("email") or "").strip()
                         if not customer_email:
-                            c_meta = await self.db_pool.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid", contact_id)
+                            c_meta = await self.db_pool.fetchval("SELECT metadata FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
                             if c_meta:
                                 if isinstance(c_meta, str):
                                     try: c_meta = json.loads(c_meta)
@@ -5102,7 +5111,7 @@ class CoreWorker:
                            VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'template', $4, 'sent', $5, false)""",
                         conf_msg_id, conv_id, tenant_id, resched_body, tmpl_wa_id
                     )
-                    await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+                    await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                 except Exception as e:
                     logger.warning("reschedule_template_send_failed_trying_text", error=str(e), template=template_name)
                     try:
@@ -5118,7 +5127,7 @@ class CoreWorker:
                                VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
                             conf_msg_id, conv_id, tenant_id, resched_body, txt_wa_id
                         )
-                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_id)
+                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                     except Exception as txt_err:
                         logger.error("reschedule_text_fallback_failed", error=str(txt_err))
 
@@ -5214,8 +5223,8 @@ class CoreWorker:
                        SET wa_profile_name = COALESCE($2, wa_profile_name),
                            name = CASE WHEN name IS NULL OR name = '' OR name = 'Customer' OR name = 'Valued Customer' THEN COALESCE($2, name) ELSE name END,
                            updated_at = now()
-                       WHERE id = $1::uuid""",
-                    existing_contact["id"], name,
+                       WHERE id = $1::uuid AND tenant_id = $3::uuid""",
+                    existing_contact["id"], name, tenant_id,
                 )
         else:
             row = await self.db_pool.fetchrow(
@@ -5351,15 +5360,15 @@ class CoreWorker:
                 await self.db_pool.execute(
                     """UPDATE conversations 
                        SET last_message_at = NOW(), unread_count = COALESCE(unread_count, 0) + 1, updated_at = NOW() 
-                       WHERE id = $1::uuid""",
-                    conversation_id
+                       WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                    conversation_id, tenant_id
                 )
             else:
                 await self.db_pool.execute(
                     """UPDATE conversations 
                        SET last_message_at = NOW(), updated_at = NOW() 
-                       WHERE id = $1::uuid""",
-                    conversation_id
+                       WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                    conversation_id, tenant_id
                 )
 
             # Keep customer record in customers table synced with latest WhatsApp chat timestamp
@@ -5377,22 +5386,44 @@ class CoreWorker:
             logger.warning("update_conversation_timestamp_failed", conv_id=conversation_id, error=str(e))
 
     async def _get_tenant_whatsapp_creds(self, tenant_id: str) -> Optional[dict]:
+        cache_key = f"tenant_creds:{tenant_id}:whatsapp"
+        if self.redis:
+            try:
+                cached = await self.redis.get(cache_key)
+                if cached:
+                    c_str = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
+                    return json.loads(c_str) if c_str != "__none__" else None
+            except Exception:
+                pass
+
         row = await self.db_pool.fetchrow(
             """SELECT credential_data FROM tenant_credentials
                WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true""",
             tenant_id,
         )
         if not row or not row["credential_data"]:
+            if self.redis:
+                try: await self.redis.setex(cache_key, 60, "__none__")
+                except Exception: pass
             return None
         data = row["credential_data"]
-        if isinstance(data, str):
-            try:
-                return json.loads(data)
-            except Exception:
-                return {}
-        return dict(data)
+        res = json.loads(data) if isinstance(data, str) else dict(data)
+        if self.redis:
+            try: await self.redis.setex(cache_key, 60, json.dumps(res))
+            except Exception: pass
+        return res
 
     async def _get_tenant_gemini_key(self, tenant_id: str) -> Optional[str]:
+        cache_key = f"tenant_creds:{tenant_id}:gemini"
+        if self.redis:
+            try:
+                cached = await self.redis.get(cache_key)
+                if cached:
+                    c_str = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
+                    return c_str if c_str != "__none__" else None
+            except Exception:
+                pass
+
         row = await self.db_pool.fetchrow(
             """SELECT credential_data FROM tenant_credentials
                WHERE tenant_id = $1::uuid AND provider = 'gemini' AND is_active = true""",
@@ -5405,10 +5436,27 @@ class CoreWorker:
                 except Exception: data = {}
             k = data.get("api_key")
             if k and str(k).strip() and not str(k).endswith("_CHANGE_ME") and not str(k).startswith("AIzaSy_DRAINED") and len(str(k)) > 15:
-                return str(k).strip()
+                res = str(k).strip()
+                if self.redis:
+                    try: await self.redis.setex(cache_key, 60, res)
+                    except Exception: pass
+                return res
+        if self.redis:
+            try: await self.redis.setex(cache_key, 60, "__none__")
+            except Exception: pass
         return None
 
     async def _get_tenant_groq_key(self, tenant_id: str) -> Optional[str]:
+        cache_key = f"tenant_creds:{tenant_id}:groq"
+        if self.redis:
+            try:
+                cached = await self.redis.get(cache_key)
+                if cached:
+                    c_str = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
+                    return c_str if c_str != "__none__" else None
+            except Exception:
+                pass
+
         row = await self.db_pool.fetchrow(
             """SELECT credential_data FROM tenant_credentials
                WHERE tenant_id = $1::uuid AND provider = 'groq' AND is_active = true""",
@@ -5421,10 +5469,30 @@ class CoreWorker:
                 except Exception: data = {}
             k = data.get("api_key")
             if k and str(k).strip() and not str(k).endswith("_CHANGE_ME") and len(str(k)) > 15:
-                return str(k).strip()
+                res = str(k).strip()
+                if self.redis:
+                    try: await self.redis.setex(cache_key, 60, res)
+                    except Exception: pass
+                return res
+        if self.redis:
+            try: await self.redis.setex(cache_key, 60, "__none__")
+            except Exception: pass
         return None
 
     async def _get_tenant_opencode_creds(self, tenant_id: str) -> tuple[Optional[str], str]:
+        cache_key = f"tenant_creds:{tenant_id}:opencode"
+        if self.redis:
+            try:
+                cached = await self.redis.get(cache_key)
+                if cached:
+                    c_str = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
+                    if c_str != "__none__":
+                        parsed = json.loads(c_str)
+                        return parsed.get("api_key"), parsed.get("base_url", "https://opencode.ai/zen/v1")
+                    return None, "https://opencode.ai/zen/v1"
+            except Exception:
+                pass
+
         row = await self.db_pool.fetchrow(
             """SELECT credential_data FROM tenant_credentials
                WHERE tenant_id = $1::uuid AND provider = 'opencode' AND is_active = true""",
@@ -5438,7 +5506,14 @@ class CoreWorker:
             api_key = data.get("api_key")
             base_url = data.get("base_url") or "https://opencode.ai/zen/v1"
             if api_key and str(api_key).strip() and not str(api_key).endswith("_CHANGE_ME") and len(str(api_key)) > 15:
-                return str(api_key).strip(), base_url
+                res_key = str(api_key).strip()
+                if self.redis:
+                    try: await self.redis.setex(cache_key, 60, json.dumps({"api_key": res_key, "base_url": base_url}))
+                    except Exception: pass
+                return res_key, base_url
+        if self.redis:
+            try: await self.redis.setex(cache_key, 60, "__none__")
+            except Exception: pass
         return None, "https://opencode.ai/zen/v1"
 
     def _get_master_ai_keys(self) -> dict:
@@ -5476,13 +5551,32 @@ class CoreWorker:
         return os.getenv("OPENCODE_API_KEY") or None, "https://opencode.ai/zen/v1"
 
     async def _get_ai_config(self, tenant_id: str) -> dict:
+        cache_key = f"ai_config:{tenant_id}"
+        if self.redis:
+            try:
+                cached = await self.redis.get(cache_key)
+                if cached:
+                    c_str = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
+                    return json.loads(c_str)
+            except Exception:
+                pass
+
         row = await self.db_pool.fetchrow(
             "SELECT model, temperature, max_tokens, timeout_ms, system_prompt, assistant_name, bot_goal, services_text, response_style, methodology, strict_rules, objection_handling FROM ai_config WHERE tenant_id = $1::uuid",
             tenant_id,
         )
-        if row:
-            return dict(row)
-        return {"model": "gemini-3.5-flash-lite", "temperature": 0.3, "max_tokens": 2048, "timeout_ms": 8000, "response_style": "short", "methodology": "dogfooding"}
+        result = dict(row) if row else {
+            "model": "gemini-3.5-flash-lite",
+            "temperature": 0.3,
+            "max_tokens": 2048,
+            "timeout_ms": 8000,
+            "response_style": "short",
+            "methodology": "dogfooding"
+        }
+        if self.redis:
+            try: await self.redis.setex(cache_key, 60, json.dumps(result))
+            except Exception: pass
+        return result
 
     async def _scheduled_job_loop(self):
         """
@@ -6219,14 +6313,14 @@ class CoreWorker:
                                 VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'outbound', 'template', $5, $6, $7::jsonb, 'sent', false)""",
                             str(uuid.uuid4()), conv_row["id"], job["tenant_id"], sent_wa_id, logged_body, template_name, json.dumps(components)
                         )
-                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid", conv_row["id"])
+                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_row["id"], job["tenant_id"])
 
                 logger.info("scheduled_job_sent", job_id=str(job["id"]), job_type=job["job_type"])
             except Exception as e:
                 logger.error("scheduled_job_failed", job_id=str(job["id"]), error=str(e))
                 await self.db_pool.execute(
-                    "UPDATE scheduled_jobs SET status = 'failed' WHERE id = $1",
-                    job["id"],
+                    "UPDATE scheduled_jobs SET status = 'failed' WHERE id = $1 AND tenant_id = $2::uuid",
+                    job["id"], job["tenant_id"]
                 )
 
     async def _process_scheduled_campaigns(self):
@@ -6262,10 +6356,10 @@ class CoreWorker:
                     except Exception:
                         template_params = []
 
-                await self.db_pool.execute("UPDATE marketing_campaigns SET status = 'in_progress' WHERE id = $1", camp_id)
+                await self.db_pool.execute("UPDATE marketing_campaigns SET status = 'in_progress' WHERE id = $1 AND tenant_id = $2::uuid", camp_id, tenant_id)
                 creds = await self._get_tenant_whatsapp_creds(tenant_id)
                 if not creds or not creds.get("phone_number_id") or not creds.get("access_token"):
-                    await self.db_pool.execute("UPDATE marketing_campaigns SET status = 'failed' WHERE id = $1", camp_id)
+                    await self.db_pool.execute("UPDATE marketing_campaigns SET status = 'failed' WHERE id = $1 AND tenant_id = $2::uuid", camp_id, tenant_id)
                     continue
 
                 success_count = 0
@@ -6304,8 +6398,8 @@ class CoreWorker:
                 await self.db_pool.execute(
                     """UPDATE marketing_campaigns 
                        SET status = 'completed', sent_count = $1, delivered_count = $2, read_count = $3, replied_count = $4, converted_count = $5
-                       WHERE id = $6""",
-                    success_count, delivered, read_cnt, replied, converted, camp_id
+                       WHERE id = $6 AND tenant_id = $7::uuid""",
+                    success_count, delivered, read_cnt, replied, converted, camp_id, tenant_id
                 )
 
                 try:
@@ -6396,7 +6490,7 @@ class CoreWorker:
                   -- Last message in thread must be outbound (customer dropped off after bot's reply)
                   AND (
                       SELECT direction FROM messages m 
-                      WHERE m.conversation_id = c.id AND m.body IS NOT NULL
+                      WHERE m.conversation_id = c.id AND m.tenant_id = c.tenant_id AND m.body IS NOT NULL
                       ORDER BY m.created_at DESC LIMIT 1
                   ) = 'outbound'
                   -- Customer must NOT have any upcoming active booking or recent booking today
@@ -6424,7 +6518,7 @@ class CoreWorker:
                               OR (c.wa_context->>'incomplete_followup_sent_at')::timestamp with time zone < (
                                   SELECT COALESCE(MAX(created_at), '1970-01-01'::timestamp with time zone)
                                   FROM messages 
-                                  WHERE conversation_id = c.id AND direction = 'inbound'
+                                  WHERE conversation_id = c.id AND tenant_id = c.tenant_id AND direction = 'inbound'
                               )
                           )
                       )
@@ -6438,7 +6532,7 @@ class CoreWorker:
                               OR (c.wa_context->>'touch2_followup_sent_at')::timestamp with time zone < (
                                   SELECT COALESCE(MAX(created_at), '1970-01-01'::timestamp with time zone)
                                   FROM messages 
-                                  WHERE conversation_id = c.id AND direction = 'inbound'
+                                  WHERE conversation_id = c.id AND tenant_id = c.tenant_id AND direction = 'inbound'
                               )
                           )
                       )
@@ -6894,8 +6988,8 @@ class CoreWorker:
                                        '{incomplete_followup_sent_at}', to_jsonb(NOW()::text)
                                    ),
                                    updated_at = NOW()
-                               WHERE id = $1::uuid""",
-                            conv_id,
+                               WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                            conv_id, tenant_id,
                         )
                     else:
                         await self.db_pool.execute(
@@ -6907,8 +7001,8 @@ class CoreWorker:
                                        to_jsonb(NOW()::text)
                                    ),
                                    updated_at = NOW()
-                               WHERE id = $1::uuid""",
-                            conv_id,
+                               WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                            conv_id, tenant_id,
                         )
 
                     # Update customer record so CRM dashboard reflects the sent follow-up date and time

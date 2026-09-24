@@ -240,8 +240,8 @@ async def dispatch_push_notification(
             try:
                 async with pool.acquire() as conn:
                     await conn.execute(
-                        "DELETE FROM push_subscriptions WHERE id = ANY($1::uuid[])",
-                        expired_ids
+                        "DELETE FROM push_subscriptions WHERE id = ANY($1::uuid[]) AND tenant_id = $2::uuid",
+                        expired_ids, tenant_id
                     )
             except Exception:
                 pass

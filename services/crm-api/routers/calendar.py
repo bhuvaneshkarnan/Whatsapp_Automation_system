@@ -59,8 +59,8 @@ async def init_google_oauth(
         
         if g_row:
             await conn.execute(
-                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid",
-                json.dumps(g_data), g_id
+                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                json.dumps(g_data), g_id, effective_tenant_id
             )
         else:
             await conn.execute(
@@ -255,8 +255,8 @@ async def google_oauth_callback(
         # Upsert credential row — insert if new (shareable link with no prior google row)
         if g_id:
             await conn.execute(
-                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid",
-                json.dumps(g_data), g_id
+                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                json.dumps(g_data), g_id, tenant_id
             )
         else:
             new_cred_id = str(uuid.uuid4())
@@ -291,8 +291,8 @@ async def disconnect_google_calendar(
             d.pop("refresh_token", None)
             d.pop("access_token", None)
             await conn.execute(
-                "UPDATE tenant_credentials SET credential_data = $1::jsonb WHERE id = $2::uuid",
-                json.dumps(d), str(g_row["id"])
+                "UPDATE tenant_credentials SET credential_data = $1::jsonb WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                json.dumps(d), str(g_row["id"]), tenant_id
             )
     return {"status": "disconnected"}
 

@@ -123,3 +123,25 @@ def sanitize_and_fix_email(email: str) -> str:
     if email.endswith(".con"):
         email = email[:-4] + ".com"
     return email
+
+
+async def invalidate_tenant_cache(tenant_id: str):
+    """Invalidate cached credentials and ai_config for a tenant in Redis."""
+    if not tenant_id:
+        return
+    try:
+        import redis.asyncio as aioredis
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        r = aioredis.from_url(redis_url, decode_responses=True)
+        keys = [
+            f"ai_config:{tenant_id}",
+            f"tenant_creds:{tenant_id}:whatsapp",
+            f"tenant_creds:{tenant_id}:gemini",
+            f"tenant_creds:{tenant_id}:groq",
+            f"tenant_creds:{tenant_id}:opencode",
+        ]
+        await r.delete(*keys)
+        await r.aclose()
+    except Exception:
+        pass
+

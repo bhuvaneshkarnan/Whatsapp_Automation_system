@@ -14,7 +14,7 @@ from pydantic import BaseModel
 import database
 from models import TenantSettingsUpdate
 from dependencies import get_tenant_id, get_caller_context
-from utils import APP_BASE_URL
+from utils import APP_BASE_URL, invalidate_tenant_cache
 from routers.marketing import execute_meta_template_sync
 
 router = APIRouter()
@@ -763,7 +763,7 @@ async def update_tenant_settings(
         if payload.disable_template_text_fallback is not None: wa_data["disable_template_text_fallback"] = payload.disable_template_text_fallback
 
         if wa_row:
-            await conn.execute("UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid", json.dumps(wa_data), wa_cred_id)
+            await conn.execute("UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid AND tenant_id = $3::uuid", json.dumps(wa_data), wa_cred_id, tenant_id)
         else:
             await conn.execute("INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'whatsapp', $3::jsonb, true)", wa_cred_id, tenant_id, json.dumps(wa_data))
 
@@ -778,14 +778,14 @@ async def update_tenant_settings(
         if payload.gemini_api_key is not None and payload.gemini_api_key.strip():
             g_row = await conn.fetchrow("SELECT id FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'gemini'", tenant_id)
             if g_row:
-                await conn.execute("UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid", json.dumps({"api_key": payload.gemini_api_key.strip()}), str(g_row["id"]))
+                await conn.execute("UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid AND tenant_id = $3::uuid", json.dumps({"api_key": payload.gemini_api_key.strip()}), str(g_row["id"]), tenant_id)
             else:
                 await conn.execute("INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'gemini', $3::jsonb, true)", str(uuid.uuid4()), tenant_id, json.dumps({"api_key": payload.gemini_api_key.strip()}))
 
         if payload.groq_api_key is not None and payload.groq_api_key.strip():
             gr_row = await conn.fetchrow("SELECT id FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'groq'", tenant_id)
             if gr_row:
-                await conn.execute("UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid", json.dumps({"api_key": payload.groq_api_key.strip()}), str(gr_row["id"]))
+                await conn.execute("UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid AND tenant_id = $3::uuid", json.dumps({"api_key": payload.groq_api_key.strip()}), str(gr_row["id"]), tenant_id)
             else:
                 await conn.execute("INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'groq', $3::jsonb, true)", str(uuid.uuid4()), tenant_id, json.dumps({"api_key": payload.groq_api_key.strip()}))
 
@@ -796,7 +796,7 @@ async def update_tenant_settings(
             }
             op_row = await conn.fetchrow("SELECT id FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'opencode'", tenant_id)
             if op_row:
-                await conn.execute("UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid", json.dumps(op_data), str(op_row["id"]))
+                await conn.execute("UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid AND tenant_id = $3::uuid", json.dumps(op_data), str(op_row["id"]), tenant_id)
             else:
                 await conn.execute("INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'opencode', $3::jsonb, true)", str(uuid.uuid4()), tenant_id, json.dumps(op_data))
 
@@ -818,7 +818,7 @@ async def update_tenant_settings(
             if payload.notification_email is not None: g_data["notification_email"] = payload.notification_email.strip()
 
             if g_row:
-                await conn.execute("UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid", json.dumps(g_data), g_id)
+                await conn.execute("UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid AND tenant_id = $3::uuid", json.dumps(g_data), g_id, tenant_id)
             else:
                 await conn.execute("INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'google_calendar', $3::jsonb, true)", g_id, tenant_id, json.dumps(g_data))
 
@@ -870,6 +870,7 @@ async def update_tenant_settings(
                 response_style, methodology, strict_rules, objection_handling
             )
 
+    await invalidate_tenant_cache(tenant_id)
     return await get_tenant_settings(tenant_id, target_tenant_id=tenant_id, caller=caller if isinstance(caller, dict) else {"role": "admin"})
 
 
@@ -1274,8 +1275,8 @@ async def update_whatsapp_credentials(
 
         if wa_row:
             await conn.execute(
-                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true, updated_at = now() WHERE id = $2::uuid",
-                json.dumps(wa_data), wa_cred_id
+                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                json.dumps(wa_data), wa_cred_id, tenant_id
             )
         else:
             await conn.execute(
@@ -1289,6 +1290,8 @@ async def update_whatsapp_credentials(
             asyncio.create_task(execute_meta_template_sync(tenant_id, database.db_pool))
         except Exception as e:
             logger.warning("template_sync_after_cred_update_warn", tenant_id=tenant_id, error=str(e))
+
+    await invalidate_tenant_cache(tenant_id)
 
     return {
         "status": "success",

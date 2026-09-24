@@ -510,8 +510,8 @@ async def get_google_business_access_token(conn, tenant_id: str) -> tuple[str, d
         data["token_expiry"] = now_ts + expires_in
 
         await conn.execute(
-            "UPDATE tenant_credentials SET credential_data = $1::jsonb WHERE id = $2::uuid",
-            json.dumps(data), row["id"]
+            "UPDATE tenant_credentials SET credential_data = $1::jsonb WHERE id = $2::uuid AND tenant_id = $3::uuid",
+            json.dumps(data), row["id"], tenant_id
         )
         return new_access_token, data
 
@@ -568,8 +568,8 @@ async def init_google_business_oauth(
 
         if row:
             await conn.execute(
-                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid",
-                json.dumps(data), g_id
+                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                json.dumps(data), g_id, tenant_id
             )
         else:
             await conn.execute(
@@ -736,8 +736,8 @@ async def google_business_oauth_callback(
             cdata["location_title"] = location_title
 
             await conn.execute(
-                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true, updated_at = now() WHERE id = $2::uuid",
-                json.dumps(cdata), row["id"]
+                "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true, updated_at = now() WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                json.dumps(cdata), row["id"], tenant_id
             )
 
         return RedirectResponse(f"{base_redir}?gmb=connected")

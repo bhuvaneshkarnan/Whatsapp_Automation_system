@@ -102,7 +102,7 @@ webhookRouter.post(
 
       // Inbound messages
       for (const msg of (value.messages ?? []) as MetaMessage[]) {
-        const dedupeKey = `dedup:wa:${msg.id}`;
+        const dedupeKey = `dedup:wa:${config.tenantId}:${msg.id}`;
         // Atomic NX set to prevent concurrent deduplication race conditions
         const acquired = await redis.set(dedupeKey, 'in_flight', 'EX', 60, 'NX');
 

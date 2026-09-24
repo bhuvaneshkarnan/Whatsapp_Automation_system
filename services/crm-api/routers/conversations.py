@@ -535,69 +535,112 @@ async def send_direct_whatsapp(
 @router.get("/api/v1/crm/media/{media_id}")
 async def get_media_proxy(
     media_id: str,
+    request: Request,
     tenant_id: Optional[str] = None
 ):
     """
-    Proxy WhatsApp media files securely.
-    1. Checks local cache /tmp/wa_media/{media_id}.*
-    2. If not found, resolves tenant credentials and fetches media download URL from Meta Graph API.
-    3. Downloads binary, writes to disk cache, and returns FileResponse/Response with proper Content-Type.
+    Proxy WhatsApp media files securely with strict tenant isolation.
+    1. Resolves owning tenant: If tenant_id is provided, verifies that the media
+       actually belongs to that tenant in the messages table.
+       If tenant_id is not provided, locates the message in the messages table to identify the owning tenant.
+    2. Checks tenant-isolated disk cache (/tmp/wa_media/{tenant_id}/{media_id}.*).
+    3. If not cached, fetches exclusively using THAT tenant's WhatsApp credentials.
+    4. Caches inside the tenant-isolated directory and returns FileResponse/Response.
     """
     import os, mimetypes
     from fastapi.responses import Response, FileResponse
 
-    cache_dir = "/tmp/wa_media"
-    os.makedirs(cache_dir, exist_ok=True)
+    # Sanitize media_id to avoid path traversal
+    clean_media_id = re.sub(r'[^a-zA-Z0-9_-]', '', media_id)
+    if not clean_media_id:
+        raise HTTPException(400, "Invalid media ID")
 
-    # 1. Check if cached locally
-    if os.path.exists(cache_dir):
-        for fn in os.listdir(cache_dir):
-            if fn == media_id or fn.startswith(f"{media_id}."):
-                file_path = os.path.join(cache_dir, fn)
-                mime, _ = mimetypes.guess_type(file_path)
-                return FileResponse(
-                    file_path,
-                    media_type=mime or "application/octet-stream",
-                    headers={"Cache-Control": "public, max-age=604800"}
-                )
+    resolved_tenant_id = None
 
-    # 2. Retrieve WhatsApp access token from tenant_credentials
-    access_token = None
     async with database.db_pool.acquire() as conn:
         if tenant_id:
-            cred_row = await conn.fetchrow(
-                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
-                tenant_id
-            )
-            if cred_row and cred_row["credential_data"]:
-                d = json.loads(cred_row["credential_data"]) if isinstance(cred_row["credential_data"], str) else dict(cred_row["credential_data"])
-                access_token = d.get("access_token")
+            try:
+                t_uuid = str(uuid.UUID(str(tenant_id).strip()))
+            except ValueError:
+                raise HTTPException(400, "Invalid tenant_id format")
 
-        if not access_token:
+            # Verify the media belongs strictly to this tenant
             msg_row = await conn.fetchrow(
-                "SELECT tenant_id FROM messages WHERE media_url LIKE $1 LIMIT 1",
-                f"%{media_id}%"
+                "SELECT tenant_id FROM messages WHERE (media_url LIKE $1 OR wa_message_id = $2) AND tenant_id = $3::uuid LIMIT 1",
+                f"%{clean_media_id}%", clean_media_id, t_uuid
+            )
+            if not msg_row:
+                cust_row = await conn.fetchrow(
+                    "SELECT tenant_id FROM customer_notes WHERE (note_text LIKE $1) AND tenant_id = $2::uuid LIMIT 1",
+                    f"%{clean_media_id}%", t_uuid
+                )
+                if not cust_row:
+                    raise HTTPException(404, "Media not found for the specified tenant.")
+            resolved_tenant_id = t_uuid
+        else:
+            # Query message to resolve owning tenant
+            msg_row = await conn.fetchrow(
+                """SELECT m.tenant_id 
+                   FROM messages m 
+                   JOIN tenants t ON t.id = m.tenant_id 
+                   WHERE (m.media_url LIKE $1 OR m.wa_message_id = $2) AND t.is_active = true 
+                   LIMIT 1""",
+                f"%{clean_media_id}%", clean_media_id
             )
             if msg_row:
-                cred_row = await conn.fetchrow(
-                    "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
-                    msg_row["tenant_id"]
+                resolved_tenant_id = str(msg_row["tenant_id"])
+            else:
+                cust_row = await conn.fetchrow(
+                    """SELECT cn.tenant_id 
+                       FROM customer_notes cn 
+                       JOIN tenants t ON t.id = cn.tenant_id 
+                       WHERE (cn.note_text LIKE $1) AND t.is_active = true 
+                       LIMIT 1""",
+                    f"%{clean_media_id}%"
                 )
-                if cred_row and cred_row["credential_data"]:
-                    d = json.loads(cred_row["credential_data"]) if isinstance(cred_row["credential_data"], str) else dict(cred_row["credential_data"])
-                    access_token = d.get("access_token")
+                if cust_row:
+                    resolved_tenant_id = str(cust_row["tenant_id"])
 
-    if not access_token:
-        raise HTTPException(404, "Media not found or credentials unavailable.")
+        if not resolved_tenant_id:
+            raise HTTPException(404, "Media not found.")
 
-    # 3. Query Meta Graph API to get direct download URL
+        # Strict tenant-isolated cache directory
+        cache_dir = os.path.join("/tmp/wa_media", str(resolved_tenant_id))
+        os.makedirs(cache_dir, exist_ok=True)
+
+        # 1. Check if cached in tenant's isolated directory
+        if os.path.exists(cache_dir):
+            for fn in os.listdir(cache_dir):
+                if fn == clean_media_id or fn.startswith(f"{clean_media_id}."):
+                    file_path = os.path.join(cache_dir, fn)
+                    mime, _ = mimetypes.guess_type(file_path)
+                    return FileResponse(
+                        file_path,
+                        media_type=mime or "application/octet-stream",
+                        headers={"Cache-Control": "private, max-age=604800"}
+                    )
+
+        # 2. Retrieve WhatsApp access token strictly for THIS tenant
+        cred_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
+            resolved_tenant_id
+        )
+        if not cred_row or not cred_row["credential_data"]:
+            raise HTTPException(404, "Tenant WhatsApp credentials not found or inactive.")
+
+        d = json.loads(cred_row["credential_data"]) if isinstance(cred_row["credential_data"], str) else dict(cred_row["credential_data"])
+        access_token = d.get("access_token")
+        if not access_token:
+            raise HTTPException(404, "WhatsApp access token not available for this tenant.")
+
+    # 3. Query Meta Graph API using THIS tenant's access token ONLY
     async with httpx.AsyncClient(timeout=20.0) as client:
         meta_res = await client.get(
-            f"https://graph.facebook.com/v19.0/{media_id}",
+            f"https://graph.facebook.com/v19.0/{clean_media_id}",
             headers={"Authorization": f"Bearer {access_token}"}
         )
         if meta_res.status_code != 200:
-            logger.error("meta_media_query_failed", media_id=media_id, status=meta_res.status_code, body=meta_res.text)
+            logger.error("meta_media_query_failed", media_id=clean_media_id, tenant_id=resolved_tenant_id, status=meta_res.status_code, body=meta_res.text)
             raise HTTPException(404, "Media not found or expired on Meta servers.")
 
         meta_data = meta_res.json()
@@ -613,27 +656,27 @@ async def get_media_proxy(
             headers={"Authorization": f"Bearer {access_token}"}
         )
         if media_res.status_code != 200:
-            logger.error("meta_media_download_failed", media_id=media_id, status=media_res.status_code)
+            logger.error("meta_media_download_failed", media_id=clean_media_id, tenant_id=resolved_tenant_id, status=media_res.status_code)
             raise HTTPException(502, "Failed to download media binary from Meta.")
 
         content = media_res.content
 
-        # 5. Cache on disk
+        # 5. Cache inside tenant's isolated directory
         ext = mimetypes.guess_extension(mime_type) or ".bin"
         if ext == ".jpe": ext = ".jpg"
-        cached_file_path = os.path.join(cache_dir, f"{media_id}{ext}")
+        cached_file_path = os.path.join(cache_dir, f"{clean_media_id}{ext}")
         try:
             with open(cached_file_path, "wb") as f:
                 f.write(content)
         except Exception as cache_err:
-            logger.warning("media_cache_write_failed", error=str(cache_err))
+            logger.warning("media_cache_write_failed", tenant_id=resolved_tenant_id, error=str(cache_err))
 
         return Response(
             content=content,
             media_type=mime_type,
             headers={
-                "Cache-Control": "public, max-age=604800",
-                "Content-Disposition": f'inline; filename="{media_id}{ext}"'
+                "Cache-Control": "private, max-age=604800",
+                "Content-Disposition": f'inline; filename="{clean_media_id}{ext}"'
             }
         )
 
