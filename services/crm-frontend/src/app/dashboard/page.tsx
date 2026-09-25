@@ -5421,6 +5421,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   async function handleDeleteCustomer(customerId: string) {
     setDeletingCustomerId(customerId);
     try {
+      const targetCust = customers.find(c => c.id === customerId);
+      const custPhone = targetCust?.phone || '';
+
       await crm.deleteCustomer(customerId);
       setActionNotice('Customer permanently deleted.');
       setTimeout(() => setActionNotice(null), 3000);
@@ -5430,6 +5433,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         setIsDrawerExpanded(false);
       }
       setConfirmDeleteStep(false);
+
+      if (custPhone) {
+        const norm = custPhone.replace(/\D/g, '').slice(-10);
+        setConversations(prev => prev.filter(cv => {
+          const cvNorm = (cv.contact_phone || '').replace(/\D/g, '').slice(-10);
+          return norm && cvNorm ? norm !== cvNorm : true;
+        }));
+        if (selectedConv) {
+          const selNorm = (selectedConv.contact_phone || '').replace(/\D/g, '').slice(-10);
+          if (norm && selNorm && norm === selNorm) {
+            setSelectedConv(null);
+            setMessages([]);
+          }
+        }
+      }
     } catch (err: any) {
       console.error('Failed to delete customer:', err);
       setActionNotice('Failed to delete customer: ' + (err.message || 'Error'));
@@ -7007,18 +7025,33 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   async function handleDeleteConversation(convId: string, deleteType: 'for_me' | 'for_everyone') {
     setDeletingItem(true);
     try {
+      const targetConv = conversations.find((c) => c.id === convId);
+      const targetPhone = targetConv?.contact_phone || '';
+
       await crm.deleteConversation(convId, deleteType);
       setConversations((prev) => prev.filter((c) => c.id !== convId));
       if (selectedConv?.id === convId) {
         setSelectedConv(null);
         setMessages([]);
       }
+
+      if (targetPhone) {
+        const norm = targetPhone.replace(/\D/g, '').slice(-10);
+        setCustomers((prev) => prev.filter((c) => {
+          const cNorm = (c.phone || '').replace(/\D/g, '').slice(-10);
+          return norm && cNorm ? norm !== cNorm : true;
+        }));
+        if (selectedCustomer) {
+          const selNorm = (selectedCustomer.phone || '').replace(/\D/g, '').slice(-10);
+          if (norm && selNorm && norm === selNorm) {
+            setSelectedCustomer(null);
+            setIsDrawerExpanded(false);
+          }
+        }
+      }
+
       setDeleteChatModal(null);
-      setActionNotice(
-        deleteType === 'for_everyone'
-          ? 'Chat history deleted for everyone.'
-          : 'Chat deleted from CRM.'
-      );
+      setActionNotice('Chat and customer record deleted permanently.');
       setTimeout(() => setActionNotice(null), 3000);
     } catch (err) {
       console.error('Failed to delete conversation:', err);
@@ -23161,7 +23194,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   Are you sure you want to delete this chat?
                 </p>
                 <p className="text-xs text-text-muted leading-relaxed">
-                  This will permanently clear the message history from your CRM. Any booked appointments and contact information will remain safely preserved.
+                  This will permanently remove this chat, contact, and associated customer record from your CRM.
                 </p>
               </div>
 

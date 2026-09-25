@@ -3125,39 +3125,112 @@ async def delete_customer(
     caller: dict = Depends(get_caller_context)
 ):
     caller_role = caller.get("role", "admin") if isinstance(caller, dict) else "admin"
-    if caller_role not in ("admin", "owner", "super_admin"):
-        raise HTTPException(status_code=403, detail="Admin privileges required to delete a customer.")
+    caller_perms = caller.get("permissions", {}) if isinstance(caller, dict) else {}
+    can_manage = (
+        caller_role in ("admin", "owner", "super_admin")
+        or caller_perms.get("can_manage_customers", False)
+    )
+    if not can_manage:
+        raise HTTPException(status_code=403, detail="Admin or customer management privileges required to delete a customer.")
+
     async with database.db_pool.acquire() as conn:
         async with conn.transaction():
             cust = await conn.fetchrow(
-                "SELECT phone FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                "SELECT id, phone, name FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid",
                 customer_id, tenant_id
             )
             if not cust:
                 raise HTTPException(404, "Customer not found")
 
             phone = cust["phone"]
-            await conn.execute("DELETE FROM customer_notes WHERE customer_id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
-            await conn.execute("DELETE FROM tasks WHERE customer_id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
-            await conn.execute("DELETE FROM customers WHERE id = $1::uuid AND tenant_id = $2::uuid", customer_id, tenant_id)
+            customer_ids = [customer_id]
+            norm_phone = None
 
-            # Also remove contact and conversations if present
             if phone:
-                contact = await conn.fetchrow(
-                    "SELECT id FROM contacts WHERE phone = $1 AND tenant_id = $2::uuid",
-                    phone, tenant_id
+                clean_digits = re.sub(r'\D', '', phone)
+                norm_phone = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
+                # Find all matching customer records (e.g. duplicates)
+                duplicate_custs = await conn.fetch(
+                    """SELECT id FROM customers 
+                       WHERE tenant_id = $1::uuid 
+                         AND (id = $2::uuid OR phone = $3 OR (LENGTH($4) >= 7 AND RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4))""",
+                    tenant_id, customer_id, phone, norm_phone
                 )
-                if contact:
-                    contact_id = contact["id"]
-                    convs = await conn.fetch(
-                        "SELECT id FROM conversations WHERE contact_id = $1::uuid AND tenant_id = $2::uuid",
-                        contact_id, tenant_id
+                customer_ids = [r["id"] for r in duplicate_custs]
+
+            # 1. Delete customer notes and tasks
+            await conn.execute(
+                "DELETE FROM customer_notes WHERE customer_id = ANY($1::uuid[]) AND tenant_id = $2::uuid",
+                customer_ids, tenant_id
+            )
+            await conn.execute(
+                "DELETE FROM tasks WHERE customer_id = ANY($1::uuid[]) AND tenant_id = $2::uuid",
+                customer_ids, tenant_id
+            )
+
+            # 2. Find all matching contacts
+            contact_ids = []
+            if phone and norm_phone:
+                matching_contacts = await conn.fetch(
+                    """SELECT id FROM contacts 
+                       WHERE tenant_id = $1::uuid 
+                         AND (phone = $2 OR (LENGTH($3) >= 7 AND RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $3))""",
+                    tenant_id, phone, norm_phone
+                )
+                contact_ids = [c["id"] for c in matching_contacts]
+
+            # 3. Clean up bookings, scheduled jobs, messages, conversations, and contacts
+            if contact_ids:
+                conv_rows = await conn.fetch(
+                    "SELECT id FROM conversations WHERE contact_id = ANY($1::uuid[]) AND tenant_id = $2::uuid",
+                    contact_ids, tenant_id
+                )
+                conv_ids = [c["id"] for c in conv_rows]
+
+                await conn.execute(
+                    """DELETE FROM scheduled_jobs 
+                       WHERE booking_id IN (SELECT id FROM bookings WHERE contact_id = ANY($1::uuid[]) AND tenant_id = $2::uuid)
+                         AND tenant_id = $2::uuid""",
+                    contact_ids, tenant_id
+                )
+                await conn.execute(
+                    """UPDATE bookings SET rescheduled_from = NULL 
+                       WHERE contact_id = ANY($1::uuid[]) AND tenant_id = $2::uuid""",
+                    contact_ids, tenant_id
+                )
+                await conn.execute(
+                    "DELETE FROM bookings WHERE contact_id = ANY($1::uuid[]) AND tenant_id = $2::uuid",
+                    contact_ids, tenant_id
+                )
+
+                if conv_ids:
+                    await conn.execute(
+                        "DELETE FROM messages WHERE conversation_id = ANY($1::uuid[]) AND tenant_id = $2::uuid",
+                        conv_ids, tenant_id
                     )
-                    for c in convs:
-                        await conn.execute("DELETE FROM messages WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid", c["id"], tenant_id)
-                    await conn.execute("DELETE FROM conversations WHERE contact_id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
-                    await conn.execute("DELETE FROM scheduled_jobs WHERE booking_id IN (SELECT id FROM bookings WHERE contact_id = $1::uuid AND tenant_id = $2::uuid) AND tenant_id = $2::uuid", contact_id, tenant_id)
-                    await conn.execute("DELETE FROM bookings WHERE contact_id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
-                    await conn.execute("DELETE FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid", contact_id, tenant_id)
+                    await conn.execute(
+                        "DELETE FROM conversations WHERE id = ANY($1::uuid[]) AND tenant_id = $2::uuid",
+                        conv_ids, tenant_id
+                    )
+
+                await conn.execute(
+                    "DELETE FROM contacts WHERE id = ANY($1::uuid[]) AND tenant_id = $2::uuid",
+                    contact_ids, tenant_id
+                )
+
+            # 4. Delete the customers
+            await conn.execute(
+                "DELETE FROM customers WHERE id = ANY($1::uuid[]) AND tenant_id = $2::uuid",
+                customer_ids, tenant_id
+            )
+
+            # 5. Delete reviews if matching phone
+            if phone and norm_phone:
+                await conn.execute(
+                    """DELETE FROM customer_reviews 
+                       WHERE tenant_id = $1::uuid 
+                         AND (customer_phone = $2 OR (LENGTH($3) >= 7 AND RIGHT(REGEXP_REPLACE(customer_phone, '[^0-9]', '', 'g'), 10) = $3))""",
+                    tenant_id, phone, norm_phone
+                )
 
     return {"status": "ok", "deleted_id": customer_id}

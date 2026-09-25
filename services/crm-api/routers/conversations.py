@@ -834,38 +834,151 @@ async def send_conversation_media(
 
 
 @router.delete("/conversations/{conv_id}")
+@router.delete("/api/v1/crm/conversations/{conv_id}")
 async def delete_conversation(
     conv_id: str,
     delete_type: str = Query("for_everyone", pattern="^(for_me|for_everyone)$"),
     tenant_id: str = Depends(get_tenant_id),
     caller: dict = Depends(get_caller_context)
 ):
-    """Delete a conversation and its messages. Unlinks any linked appointments."""
-    if caller.get("role") not in ("admin", "owner", "super_admin"):
-        raise HTTPException(status_code=403, detail="Admin privileges required to delete a conversation.")
+    """Delete a conversation, linked contact, and associated customer record completely."""
+    caller_role = caller.get("role", "admin") if isinstance(caller, dict) else "admin"
+    caller_perms = caller.get("permissions", {}) if isinstance(caller, dict) else {}
+    can_manage = (
+        caller_role in ("admin", "owner", "super_admin")
+        or caller_perms.get("can_manage_customers", False)
+        or caller_perms.get("can_send_messages", False)
+    )
+    if not can_manage:
+        raise HTTPException(status_code=403, detail="Admin or customer management privileges required to delete a conversation.")
+
     async with database.db_pool.acquire() as conn:
         async with conn.transaction():
-            # Unlink any linked bookings
-            await conn.execute(
-                "UPDATE bookings SET conversation_id = NULL WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid",
+            # 1. Fetch conversation and linked contact
+            conv = await conn.fetchrow(
+                "SELECT id, contact_id FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid",
                 conv_id, tenant_id
             )
-            # Delete messages
-            await conn.execute(
-                "DELETE FROM messages WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid",
-                conv_id, tenant_id
-            )
-            # Delete conversation
-            res = await conn.execute(
-                "DELETE FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid",
-                conv_id, tenant_id
-            )
-            if res == "DELETE 0":
+            if not conv:
                 raise HTTPException(404, "Conversation not found")
+
+            contact_id = conv["contact_id"]
+            phone = None
+            if contact_id:
+                ct = await conn.fetchrow(
+                    "SELECT phone FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                    contact_id, tenant_id
+                )
+                if ct:
+                    phone = ct["phone"]
+
+            # 2. Find any customer records for this phone in the same tenant
+            customer_ids = []
+            norm_phone = None
+            if phone:
+                clean_digits = re.sub(r'\D', '', phone)
+                norm_phone = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
+                cust_rows = await conn.fetch(
+                    """SELECT id FROM customers 
+                       WHERE tenant_id = $1::uuid 
+                         AND (phone = $2 OR (LENGTH($3) >= 7 AND RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $3))""",
+                    tenant_id, phone, norm_phone
+                )
+                customer_ids = [r["id"] for r in cust_rows]
+
+            # 3. Clean up customer notes and tasks
+            if customer_ids:
+                await conn.execute(
+                    "DELETE FROM customer_notes WHERE customer_id = ANY($1::uuid[]) AND tenant_id = $2::uuid",
+                    customer_ids, tenant_id
+                )
+                await conn.execute(
+                    "DELETE FROM tasks WHERE customer_id = ANY($1::uuid[]) AND tenant_id = $2::uuid",
+                    customer_ids, tenant_id
+                )
+                await conn.execute(
+                    "DELETE FROM customers WHERE id = ANY($1::uuid[]) AND tenant_id = $2::uuid",
+                    customer_ids, tenant_id
+                )
+
+            # 4. Clean up bookings and scheduled jobs
+            if contact_id:
+                await conn.execute(
+                    """DELETE FROM scheduled_jobs 
+                       WHERE booking_id IN (
+                           SELECT id FROM bookings 
+                           WHERE (contact_id = $1::uuid OR conversation_id = $2::uuid) AND tenant_id = $3::uuid
+                       ) AND tenant_id = $3::uuid""",
+                    contact_id, conv_id, tenant_id
+                )
+                await conn.execute(
+                    """UPDATE bookings SET rescheduled_from = NULL 
+                       WHERE (contact_id = $1::uuid OR conversation_id = $2::uuid) AND tenant_id = $3::uuid""",
+                    contact_id, conv_id, tenant_id
+                )
+                await conn.execute(
+                    "DELETE FROM bookings WHERE (contact_id = $1::uuid OR conversation_id = $2::uuid) AND tenant_id = $3::uuid",
+                    contact_id, conv_id, tenant_id
+                )
+            else:
+                await conn.execute(
+                    """DELETE FROM scheduled_jobs 
+                       WHERE booking_id IN (SELECT id FROM bookings WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid) 
+                         AND tenant_id = $2::uuid""",
+                    conv_id, tenant_id
+                )
+                await conn.execute(
+                    "UPDATE bookings SET rescheduled_from = NULL WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid",
+                    conv_id, tenant_id
+                )
+                await conn.execute(
+                    "DELETE FROM bookings WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid",
+                    conv_id, tenant_id
+                )
+
+            # 5. Delete messages
+            if contact_id:
+                await conn.execute(
+                    """DELETE FROM messages 
+                       WHERE conversation_id IN (
+                           SELECT id FROM conversations WHERE (id = $1::uuid OR contact_id = $2::uuid) AND tenant_id = $3::uuid
+                       ) AND tenant_id = $3::uuid""",
+                    conv_id, contact_id, tenant_id
+                )
+                # 6. Delete conversations
+                await conn.execute(
+                    "DELETE FROM conversations WHERE (id = $1::uuid OR contact_id = $2::uuid) AND tenant_id = $3::uuid",
+                    conv_id, contact_id, tenant_id
+                )
+                # 7. Delete contacts
+                await conn.execute(
+                    "DELETE FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                    contact_id, tenant_id
+                )
+            else:
+                await conn.execute(
+                    "DELETE FROM messages WHERE conversation_id = $1::uuid AND tenant_id = $2::uuid",
+                    conv_id, tenant_id
+                )
+                await conn.execute(
+                    "DELETE FROM conversations WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                    conv_id, tenant_id
+                )
+
+            # 8. Delete reviews if phone exists
+            if phone and norm_phone:
+                await conn.execute(
+                    """DELETE FROM customer_reviews 
+                       WHERE tenant_id = $1::uuid 
+                         AND (customer_phone = $2 OR (LENGTH($3) >= 7 AND RIGHT(REGEXP_REPLACE(customer_phone, '[^0-9]', '', 'g'), 10) = $3))""",
+                    tenant_id, phone, norm_phone
+                )
+
     return {"status": "deleted", "id": conv_id, "delete_type": delete_type}
 
 
 @router.delete("/messages/{msg_id}")
+@router.delete("/api/v1/crm/messages/{msg_id}")
 async def delete_message(
     msg_id: str,
     delete_type: str = Query("for_everyone", pattern="^(for_me|for_everyone)$"),
@@ -876,7 +989,14 @@ async def delete_message(
     'for_everyone': replaces body with '🚫 This message was deleted' like official WhatsApp.
     'for_me': permanently wipes message from CRM database.
     """
-    if caller.get("role") not in ("admin", "owner", "super_admin"):
+    caller_role = caller.get("role", "admin") if isinstance(caller, dict) else "admin"
+    caller_perms = caller.get("permissions", {}) if isinstance(caller, dict) else {}
+    can_manage = (
+        caller_role in ("admin", "owner", "super_admin")
+        or caller_perms.get("can_send_messages", False)
+        or caller_perms.get("can_manage_customers", False)
+    )
+    if not can_manage:
         raise HTTPException(status_code=403, detail="Admin privileges required to delete a message.")
     async with database.db_pool.acquire() as conn:
         msg_row = await conn.fetchrow(
