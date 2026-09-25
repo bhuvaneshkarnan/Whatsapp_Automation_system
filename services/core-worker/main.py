@@ -321,7 +321,7 @@ def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.dateti
 
 
 GLOBAL_DEFAULT_STRICT_RULES = (
-    "- CONSULTATIVE SALES CLOSER (NOT PASSIVE SUPPORT): Act like a proactive, high-converting WhatsApp sales closer, not a passive customer support desk. Follow the 3-Beat Sales Formula: (1) Answer the customer's query directly and anchor value or relief in sentence 1. (2) If their specific need or pain is unclear, ask 1 diagnostic qualification question. (3) When guiding to a booking, consult, or visit, always provide binary closing choices (e.g. 'morning or evening?', 'tomorrow 11:30 AM or 4:30 PM?') instead of passive 'do you want to book?'.\n"
+    "- CONSULTATIVE SALES CLOSER (NOT PASSIVE SUPPORT): Act like a proactive, high-converting WhatsApp sales closer, not a passive customer support desk. Follow the 3-Beat Sales Formula: (1) Answer the customer's query directly and anchor value or relief in sentence 1. (2) If their specific need or pain is unclear, ask 1 diagnostic qualification question. (3) When guiding to a booking, consult, or visit, ask what day and convenient time works best for them within operating hours (e.g. 'What day and time suits you best within our hours?').\n"
     "- ACTIVE OBJECTION RE-FRAMING: When a customer expresses price resistance ('too expensive') or delay ('will check and let you know'), never accept a dead-end. Reframe the value in 1 sentence and offer a zero-friction micro-step (such as a 5-minute call with the coordinator or a tentative slot hold).\n"
     "- EASY INDIAN ENGLISH & NATURAL HUMAN TONE: Reply like an authentic, friendly real person texting on WhatsApp in India using easy Indian English. Avoid stiff corporate jargon, robotic filler ('Certainly!', 'I would be delighted to assist you', 'Please feel free to reach out'), and formal customer service essays.\n"
     "- TAMIL & LANGUAGE CONTINUITY: If the customer writes in Tamil (Tamil script or Tanglish), reply 100% in natural Tamil/Tanglish. If the customer communicates in another language (Hindi, Telugu, etc.), detect and save their language preference and consistently reply in that language for all future messages.\n"
@@ -1932,7 +1932,7 @@ class CoreWorker:
             "directive": (
                 "Speak in warm, polite, directly helpful, easy Indian English. "
                 "Talk like an authentic, friendly real person texting on WhatsApp in India. "
-                "Use simple words and natural, warm phrasing (e.g. 'Sure, I can help with that.', 'Could you share what problem you are facing?', 'Our clinic is in T. Nagar. Would morning or evening suit you better?'). "
+                "Use simple words and natural, warm phrasing (e.g. 'Sure, I can help with that.', 'Could you share what problem you are facing?', 'What day and convenient time would suit you best within our clinic hours?'). "
                 "NEVER use robotic AI clichés: do NOT say 'Certainly!', 'I would be delighted to assist you', 'I completely understand your concern', 'Please feel free to reach out', or 'How may I assist you today?'. "
                 "Avoid stiff formal corporate phrasing. Answer the customer's query directly in sentence 1, then ask 1 gentle, relevant follow-up question."
             )
@@ -2112,31 +2112,35 @@ class CoreWorker:
             "2. ZERO HYPHENS, ZERO BULLETS & PURE HUMAN TEXTING FLOW:\n"
             "   - Strictly FORBIDDEN from using ANY hyphens (-), dashes (--), asterisks (*), bullet points, numbered lists (1. 2. 3.), or emojis.\n"
             "   - Real humans texting on WhatsApp never write hyphenated listicles. Write in natural conversational sentences.\n"
-            "3. COMPLETE SERVICE DETAILS FIRST & FACTUAL PRICING:\n"
+            "3. NUMBERS, PRICES, CURRENCY & TIMINGS (MANDATORY FORMATTING):\n"
+            "   - Always write prices and currency amounts using standard digits and symbols (e.g. ₹1299 or Rs. 1299). NEVER spell out prices in words like 'twelve ninety nine rupees'.\n"
+            "   - Always write appointment times using digits with AM/PM (e.g. 10:00 AM or 6:30 PM). NEVER spell out times in words like 'ten morning' or 'six thirty evening'.\n"
+            "   - The restriction on numbered lists only forbids listicle formatting (like '1. Item \n 2. Item'); numbers for prices, times, dates, and phone numbers MUST ALWAYS be written as normal digits.\n"
+            "4. COMPLETE SERVICE DETAILS FIRST & FACTUAL PRICING:\n"
             "   - When customer asks what you do, what treatments or services you offer, how it works, website, or background, give a direct, informative answer using THIS business's verified knowledge base and pricing catalog below.\n"
             "   - When customer specifically asks for price or cost, quote the exact verified pricing from knowledge base warmly and directly.\n"
             "   - Never say 'I don't have this in my records' or give a generic response when the facts exist in the knowledge base below.\n"
-            "4. MESSAGE TYPE CLASSIFICATION — CLASSIFY FIRST, THEN REPLY:\n"
+            "5. MESSAGE TYPE CLASSIFICATION — CLASSIFY FIRST, THEN REPLY:\n"
             "   Before writing your reply, silently classify the customer's message into ONE of these types:\n"
             "   TYPE A (CASUAL): Greetings ('Hi', 'Hello'), one-word replies ('Ok', 'Sure', 'Thanks', 'Fine'), simple acknowledgements.\n"
             "     Rule: Reply in 1 to 2 short lines only (15 to 30 words). Warm and natural. DO NOT force a full sales pitch on casual messages.\n"
             "   TYPE B (INQUIRY): Customer asks about services, pricing, how it works, features, treatments, location, website, or what you do.\n"
             "     Rule: Use the FULL 3-BEAT SALES FLOW. Write exactly 3 sentences totalling 45 to 70 words.\n"
             "   TYPE C (OBJECTION): Customer pushes back ('too expensive', 'need to think', 'already have something', 'not sure').\n"
-            "     Rule: Beat 1 = Brief empathetic acknowledgement. Beat 2 = Value reframe. Beat 3 = Binary close.\n"
+            "     Rule: Beat 1 = Brief empathetic acknowledgement. Beat 2 = Value reframe. Beat 3 = Next step with convenient time selection.\n"
             "   TYPE D (READY): Customer shows clear intent ('I want to book', 'Yes let us do it', 'I want a demo').\n"
-            "     Rule: Skip the pitch. Confirm the next step with a Binary Assumptive Close only. No re-selling.\n"
+            "     Rule: Skip the pitch. Ask for their convenient time to finalize booking. No re-selling.\n"
             "5. 3-BEAT CONSULTATIVE SALES FLOW (use ONLY for TYPE B, C, D messages):\n"
             "   BEAT 1 (Sentence 1, 15-20 words): Directly answer their question using verified facts from the knowledge base. No fluff.\n"
             "   BEAT 2 (Sentence 2, 10-15 words): Ask exactly ONE sharp, specific question to understand their situation better.\n"
-            "   BEAT 3 (Sentence 3, 12-18 words): Offer two specific concrete choices. NEVER use 'Would you like to book?', 'Do you want to schedule?', or 'Let me know if you want to proceed'.\n"
-            "   TARGET: 3 sentences. 45 to 70 words total. Complete ALL 3 beats. Never drop a beat.\n"
+            "   BEAT 3 (Sentence 3, 12-18 words): Guide toward the booking by asking what day and convenient time works best for them within operating hours (e.g. 'What day and convenient time suits you best within our clinic hours?'). ABSOLUTELY NEVER suggest, invent, or force two arbitrary morning/evening slots (such as 10:00 AM or 4:30 PM). If the customer already agreed on a date and time earlier in the chat, do NOT repeat slot proposals on unrelated inquiries; simply answer their question directly.\n"
+            "   TARGET: 2 to 3 sentences. 40 to 70 words total. Complete all relevant beats naturally.\n"
             "6. AUTOMATIC LANGUAGE & DIALECT MIRRORING:\n"
             "   - Organically detect and reply in the customer's exact language and dialect (Tamil in Tamil, Tanglish in Tanglish, Hinglish in Hinglish, English in English).\n"
             "7. KNOWLEDGE GROUNDING & SPECIAL ACTIONS:\n"
             "   - Ground every single fact 100% in this business's verified data below. Never invent or guess.\n"
             "   - VOICE NOTES: When customer sends a voice note, warmly acknowledge it and directly answer their query.\n"
-            "   - HUMAN ESCALATION: When requested to speak with a human/doctor/staff, reassure them a team member will follow up shortly and append [ACTION:HUMAN_TAKEOVER]."
+            "   - HUMAN ESCALATION: Append [ACTION:HUMAN_TAKEOVER] ONLY AND EXCLUSIVELY when the customer explicitly demands to stop talking to the AI or demands human staff (e.g. 'stop bot', 'connect me to a real agent', 'talk to human'). NEVER append [ACTION:HUMAN_TAKEOVER] for normal pricing questions, doctor consultations, therapy bookings, or routine medical questions."
         )
 
         # 2. Retrieve customer profile & bookings memory with strict tenant scoping
@@ -2495,8 +2499,10 @@ class CoreWorker:
             )
             + "### STRICT DIRECTIVES FOR APPOINTMENT SCHEDULING & TIME SELECTION:\n"
             + "- PROACTIVE & CUSTOMER-ALIGNED APPOINTMENT TIME SELECTION:\n"
-            "  * If customer has not stated a time: Offer two real open slots from verified empty slots above using a binary close (e.g. 'We have openings tomorrow at 11:00 AM or 3:30 PM — which works better for you?').\n"
+            "  * If customer has not stated a time: Ask what day and convenient time works best for them within operating hours (e.g. 'What day and time suits you best within our clinic hours?').\n"
             "  * If customer already stated a preferred day or time: Respect and verify their preferred time immediately without overriding it!\n"
+            "  * ABSOLUTELY NEVER FORCE 2 ARBITRARY SLOTS: NEVER offer a rigid pair of arbitrary times (e.g. do NOT say 'tomorrow at 10:00 AM or 4:30 PM' or 'morning or evening'). Always invite the customer to choose their own preferred day and convenient time within operating hours.\n"
+            "  * NO REPEATING SLOTS ON UNRELATED QUESTIONS: If an appointment slot was already agreed or discussed earlier in the conversation, do NOT append 'your slot is booked for tomorrow at 11:00 AM' on unrelated questions (such as asking about pricing, facilities, or what to bring); answer the question directly.\n"
             "- WHEN CUSTOMER STATES THEIR PREFERRED TIME: When the customer mentions their preferred day or time (e.g., 'Tomorrow at 2 PM', 'Can I come today at 4:30?', 'Monday 11:00 AM'):\n"
             f"  1. Verify the time falls within operating hours ({op_hours_display}) and is available in the verified calendar above.\n"
             f"  2. If the slot is available (or concurrent bookings are allowed): Immediately confirm that exact requested time, provide a clear and reassuring confirmation message, and output the booking action tag: [ACTION:CREATE_BOOKING: {{\"service\": \"...\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"...\"}}].\n"
@@ -2632,6 +2638,7 @@ class CoreWorker:
 
         # 2. Dynamic Conversation Funnel State Tracking (Never Getting Stuck)
         inbound_clean = (message_text or "").lower().strip()
+        inbound_lower = inbound_clean
         has_upcoming = bool(upcoming_active_bookings)
 
         # Check high-specificity intents that take precedence over generic upcoming appointments
@@ -2649,15 +2656,17 @@ class CoreWorker:
         )
 
         admin_lower = (admin_name or "").lower().strip()
-        human_triggers = [
-            "human agent", "talk to human", "speak to human", "talk to agent", "talk to staff",
-            "speak to real person", "real person", "customer care", "connect to agent", "human support",
-            "speak with someone", "talk with someone", "can i speak", "can i talk to",
-            "talk to founder", "speak to founder", "talk to doctor", "speak to doctor", "speak to owner"
+        is_bot_honesty_check = any(q in inbound_clean for q in ["are you", "is this", "am i talking", "am i speaking", "who are you"]) and any(w in inbound_clean for w in ["ai", "bot", "robot", "real person", "human"])
+        explicit_human_keywords = [
+            "talk to human", "speak to human", "talk to a human", "speak to a human",
+            "talk to agent", "speak to agent", "talk to an agent", "speak to an agent",
+            "talk to staff", "speak to staff", "connect to agent", "connect to human",
+            "human support", "want human", "need human", "stop bot", "stop ai",
+            "human mode", "human agent", "talk to owner", "speak to owner"
         ]
-        if admin_lower and admin_lower not in ("our team", "assistant"):
-            human_triggers.extend([f"talk to {admin_lower}", f"speak to {admin_lower}"])
-        is_human_request = any(w in inbound_clean for w in human_triggers)
+        if admin_lower and admin_lower not in ("our team", "assistant", "aadhiran", "doctor", "consultant"):
+            explicit_human_keywords.extend([f"talk to {admin_lower}", f"speak to {admin_lower}"])
+        is_human_request = (not is_bot_honesty_check) and any(w in inbound_clean for w in explicit_human_keywords)
 
         is_voice_note = bool(re.search(r'🎤\s*\[voice note(?:\s*-\s*[^\]]+)?\]:', (message_text or ""), flags=re.IGNORECASE))
         voice_note_content = ""
@@ -2734,9 +2743,9 @@ class CoreWorker:
         elif is_human_request:
             funnel_stage = "HUMAN_TAKEOVER_REQUEST"
             stage_directive = (
-                f"The customer explicitly wants to speak with a human, staff member, doctor, or owner ({admin_name or 'our team'}). "
-                f"1. Reassure them: 'I will have {admin_name or 'a team member'} connect with you directly!' "
-                + (f"2. You can also share that they can reach {admin_name} directly at {admin_phone}. " if admin_phone else "")
+                f"The customer explicitly requested to speak with a human staff member or customer care agent instead of the AI. "
+                f"1. Reassure them: 'I will have a team member connect with you directly!' "
+                + (f"2. You can also share that they can reach us directly at {admin_phone}. " if admin_phone else "")
                 + f"3. Append [ACTION:HUMAN_TAKEOVER] at the very end of your reply on a new line."
             )
         elif is_media_only:
@@ -2901,7 +2910,7 @@ class CoreWorker:
             f"- RESCHEDULE CONFIRMATION: When customer reschedules to a new Date & Time, append at end:\n"
             f"  [ACTION:RESCHEDULE_BOOKING: {{\"service\": \"<Service Name>\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}}]\n"
             "- CANCELLATION: When explicitly asking to cancel, append: [ACTION:CANCEL_BOOKING]\n"
-            "- HUMAN TAKEOVER / ESCALATION: When asking to speak with human/doctor/owner, append: [ACTION:HUMAN_TAKEOVER]\n"
+            "- HUMAN TAKEOVER / ESCALATION: Output [ACTION:HUMAN_TAKEOVER] ONLY when customer explicitly demands human staff over AI (e.g. 'stop bot', 'connect to human agent'). NEVER output for routine consultations, therapy bookings, or doctor inquiries.\n"
             "- CUSTOMER DETAIL & INTENT EXTRACTION:\n"
             "  When customer shares contact info, health concern, doctor, age, or location, append:\n"
             "  [ACTION:CUSTOMER_INFO: {\"name\": \"<Name or null>\", \"health_concern\": \"<Concern or null>\", \"preferred_doctor\": \"<Doctor or null>\", \"age\": <age or null>, \"location\": \"<City or null>\", \"lead_probability\": \"hot\" | \"warm\" | \"cold\"}]\n"
@@ -3064,13 +3073,15 @@ class CoreWorker:
 
         reinforcement_parts = [
             "### FINAL WHATSAPP FORMAT & REINFORCEMENT DIRECTIVE:",
-            "- STEP 1 — CLASSIFY THE MESSAGE: Before writing, classify the customer's message: TYPE A (casual/greeting) = 1-2 lines only. TYPE B (inquiry about services/price/features) = full 3-beat response. TYPE C (objection) = empathy + reframe + close. TYPE D (ready to proceed) = binary close immediately.",
-            "- STEP 2 — EXECUTE THE RIGHT LENGTH: TYPE A: 15-30 words. TYPE B/C/D: exactly 3 sentences, 45-70 words total covering all 3 beats (Answer + Diagnostic Question + Binary Close).",
+            "- STEP 1 — CLASSIFY THE MESSAGE: Before writing, classify the customer's message: TYPE A (casual/greeting) = 1-2 lines only. TYPE B (inquiry about services/price/features) = direct answer + 1 question + convenient time invitation. TYPE C (objection) = empathy + value reframe + next step invitation. TYPE D (ready to proceed) = ask for their convenient date and time to finalize booking.",
+            "- STEP 2 — EXECUTE THE RIGHT LENGTH: TYPE A: 15-30 words. TYPE B/C/D: 2 to 3 natural conversational sentences (40-70 words total).",
             "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use hyphens (-), dashes (--), asterisks (*), bullets, or emojis.",
-            "- ONE QUESTION AT A TIME: Never stack multiple questions. Ask exactly ONE diagnostic question per reply.",
+            "- PRICES & TIMES IN DIGITS: ALWAYS write prices in standard digits with currency (e.g. ₹1299 or Rs. 1299, never spell out in words like 'twelve ninety nine rupees'). ALWAYS write times with digits (e.g. 10:00 AM or 6:30 PM).",
+            "- ONE QUESTION AT A TIME: Never stack multiple questions. Ask at most ONE question per reply.",
             "- NO REPEATED GREETINGS: Do NOT say 'Hi', 'Hello', or 'Hi [Name]' again on follow-up messages. Dive straight into your reply." if is_ongoing_conversation else "- GREETING: Greet warmly in sentence 1.",
             f"- LANGUAGE & IDENTITY: Strictly match customer's language ({style_profile['label']}). Ground answers exclusively in this tenant's details above.",
-            "- BINARY ASSUMPTIVE CLOSE (Beat 3): NEVER ask 'Would you like to book?' or 'Do you want to schedule?'. Always offer two specific concrete options (e.g. 'Tomorrow 11 AM or 4 PM — which works for you?'). If the customer already stated their preferred time, confirm it directly.",
+            "- ABSOLUTE BAN ON 2 ARBITRARY TIMES: When inviting the customer to book, NEVER propose two fixed arbitrary times (such as 'tomorrow at 10:00 AM or 4:30 PM', 'morning or evening', or any preset pair of times). ALWAYS ask what day and convenient time works best for them within operating hours. Only share specific slot times if the customer explicitly asks 'What slots are available?'.",
+            "- NO REPEATED BOOKING CONFIRMATIONS: If an appointment slot was already agreed earlier in the chat, do NOT append 'your slot is booked' or re-propose times on unrelated inquiries; simply answer their question directly.",
         ]
         if is_voice_note:
             reinforcement_parts.append("- VOICE NOTE INBOUND: Acknowledge the voice note warmly and answer directly.")
@@ -3155,11 +3166,14 @@ class CoreWorker:
 
         # Inbound Human Takeover Request Intent (Distinguish from bot honesty queries like "are you a real person or bot?")
         is_bot_honesty_q = any(q in inbound_lower for q in ["are you", "is this", "am i talking", "am i speaking", "who are you"]) and any(w in inbound_lower for w in ["ai", "bot", "robot", "real person", "human"])
-        human_request_intent = (not is_bot_honesty_q) and any(w in inbound_lower for w in [
-            "human agent", "talk to human", "speak to human", "talk to agent", "talk to staff",
-            "speak to real person", "talk to a real person", "speak to a real person", "need a real person",
-            "want a real person", "customer care executive", "connect to agent", "human support", "speak with someone"
-        ])
+        explicit_human_phrases = [
+            "human agent", "talk to human", "speak to human", "talk to a human", "speak to a human",
+            "talk to agent", "speak to agent", "talk to an agent", "speak to an agent",
+            "talk to staff", "speak to staff", "connect to agent", "connect to human", "human support",
+            "want a real person", "need a real person", "stop bot", "stop ai", "switch to human",
+            "human mode"
+        ]
+        human_request_intent = (not is_bot_honesty_q) and any(w in inbound_lower for w in explicit_human_phrases)
         if human_request_intent:
             await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
             response_text = "I have notified our team. A staff member will take over this conversation shortly!"
@@ -3173,20 +3187,31 @@ class CoreWorker:
                 )
             )
 
-
         if response_text:
             # 1. Intercept [ACTION:HUMAN_TAKEOVER]
             if "[ACTION:HUMAN_TAKEOVER]" in response_text:
-                await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
-                asyncio.create_task(
-                    self._execute_admin_human_alert(
-                        tenant_id=tenant_id,
-                        conv_id=conv_id,
-                        contact_phone=contact_phone,
-                        customer_name=customer_name,
-                        creds=creds,
-                    )
+                # SAFEGUARD: Only switch conversation status to human if customer ACTUALLY requested human takeover!
+                # Do NOT switch to human mode on pricing inquiries, greetings, or consultation questions.
+                is_real_human_request = human_request_intent or is_human_request or (
+                    any(w in inbound_clean for w in [
+                        "talk to human", "speak to human", "talk to agent", "speak to agent",
+                        "talk to staff", "connect to agent", "human support", "stop bot", "human mode"
+                    ]) and not is_bot_honesty_q
                 )
+                if is_real_human_request:
+                    await self.db_pool.execute("UPDATE conversations SET status = 'human', updated_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                    asyncio.create_task(
+                        self._execute_admin_human_alert(
+                            tenant_id=tenant_id,
+                            conv_id=conv_id,
+                            contact_phone=contact_phone,
+                            customer_name=customer_name,
+                            creds=creds,
+                        )
+                    )
+                    logger.info("human_takeover_confirmed", conv_id=conv_id, tenant_id=tenant_id)
+                else:
+                    logger.warning("human_takeover_tag_ignored_for_non_human_intent", conv_id=conv_id, inbound=inbound_clean[:60])
                 response_text = response_text.replace("[ACTION:HUMAN_TAKEOVER]", "").strip()
 
             # 2. Intercept [ACTION:CANCEL_BOOKING], [ACTION:CANCEL], etc. or AI confirmation phrases
@@ -6974,13 +6999,13 @@ class CoreWorker:
                     hour = now_local.hour
                     if hour < 12:
                         time_of_day = "morning"
-                        suggested_slots = "11:30 AM or 3:00 PM today"
+                        suggested_slots = "a convenient time today or tomorrow"
                     elif hour < 16:
                         time_of_day = "afternoon"
-                        suggested_slots = "4:30 PM today or 11:00 AM tomorrow"
+                        suggested_slots = "a convenient time today or tomorrow"
                     else:
                         time_of_day = "evening"
-                        suggested_slots = "11:00 AM or 3:30 PM tomorrow"
+                        suggested_slots = "a convenient time tomorrow"
 
                     # Check if last user message was on a previous day (overnight deferral)
                     last_user_dt = None
@@ -7032,13 +7057,12 @@ class CoreWorker:
                         mission_title = "TOUCH 2: PRE-24H FREE WINDOW EXPIRY CLOSER"
                         mission_prompt_text = (
                             "The customer has been quiet for around 20 hours. WhatsApp's 24-hour free service window is about to expire.\n"
-                            "Your goal is to send a gentle, zero-pressure 1-2 sentence message offering two simple options or a slot hold. "
-                            "(e.g. 'We have two slots open tomorrow morning or evening. Should we keep one aside for you, or would another day work better?')."
+                            "Your goal is to send a gentle, zero-pressure 1-2 sentence message asking what date and convenient time works best for them within operating hours to keep a slot for them."
                         )
                         followup_instruction = (
                             f"[Touch 2 Pre-24h window closer. Customer has been quiet for 20 hours. "
-                            f"Send a gentle, warm 1-2 sentence message in easy Indian English offering two choices or offering to keep a slot for them in {style_profile['label']}. "
-                            f"Use simple everyday words — avoid formal words like 'tentatively'. Do not say 'Just checking in' and do not push canned demo times.]"
+                            f"Send a gentle, warm 1-2 sentence message in easy Indian English asking what day and convenient time suits them best in {style_profile['label']}. "
+                            f"Use simple everyday words. Do not force morning/evening or arbitrary slots.]"
                         )
                     elif is_price_drop:
                         mission_title = "STAGE 1: PRICE INQUIRY DROP-OFF RECOVERY"
@@ -7046,10 +7070,10 @@ class CoreWorker:
                             mission_prompt_text = (
                                 "The customer stopped replying after asking about fees or pricing.\n"
                                 "1. Remind them warmly of the complete value, root-cause diagnosis, or treatment roadmap included with our specialist.\n"
-                                "2. Offer a simple next step: ask if they would like us to keep a slot for them, or if a quick 5-minute call with our coordinator would help clear their doubts."
+                                "2. Offer a simple next step: ask what day and convenient time suits them best to visit, or if a quick 5-minute call with our coordinator would help clear their doubts."
                             )
                             followup_instruction = (
-                                f"[Customer dropped off after pricing inquiry. Remind them warmly of the value/relief included and offer to keep a slot or do a 5-minute call in {style_profile['label']}. "
+                                f"[Customer dropped off after pricing inquiry. Remind them warmly of the value/relief included and ask for their convenient time or offer a 5-minute call in {style_profile['label']}. "
                                 f"Use simple everyday Indian English — avoid formal words like 'tentatively'. Write a short, clear 1-2 sentence followup without robotic fillers.]"
                             )
                         else:
@@ -7067,10 +7091,10 @@ class CoreWorker:
                         mission_prompt_text = (
                             "The customer stopped replying after discussing their pain, symptom, or condition.\n"
                             "1. Express genuine care for their condition (leaving pain unassessed often worsens stiffness).\n"
-                            "2. Offer a binary choice: ask if a morning or evening checkup with the specialist would suit them better to get it diagnosed."
+                            "2. Ask what day and convenient time works best for them within clinic hours to visit our specialist."
                         )
                         followup_instruction = (
-                            f"[Customer dropped off after discussing symptoms/pain. Follow up with care about their condition and offer a binary choice (morning or evening visit) in {style_profile['label']}. "
+                            f"[Customer dropped off after discussing symptoms/pain. Follow up with care about their condition and ask what day and convenient time works best for them within clinic hours in {style_profile['label']}. "
                             f"Write a short, clear 1-2 sentence followup without robotic fillers.]"
                         )
                     elif is_slot_drop:
@@ -7078,10 +7102,10 @@ class CoreWorker:
                         mission_prompt_text = (
                             "The customer was in the middle of scheduling or discussing times and went quiet.\n"
                             "1. Create subtle, natural slot scarcity: mention that upcoming appointments are filling up.\n"
-                            "2. Offer two specific convenient times (e.g. morning vs. evening, or today vs. tomorrow) so they can easily confirm."
+                            "2. Ask what day and convenient time works best for them within operating hours so we can confirm their booking."
                         )
                         followup_instruction = (
-                            f"[Customer dropped off during scheduling. Note that upcoming slots are filling and offer two specific times to pick from in {style_profile['label']}. "
+                            f"[Customer dropped off during scheduling. Note that upcoming slots are filling and ask what day and convenient time works best for them in {style_profile['label']}. "
                             f"Write a short, clear 1-2 sentence followup without robotic fillers.]"
                         )
                     else:
