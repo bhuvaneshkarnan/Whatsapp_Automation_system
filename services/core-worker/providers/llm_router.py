@@ -501,11 +501,13 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 28000) -> str:
 
     concise_rules = (
         "### MANDATORY WHATSAPP CONVERSATION RULES:\n"
-        "- Friendly, helpful, authentic WhatsApp conversational texting.\n"
+        "- Friendly, helpful, authentic WhatsApp conversational texting with natural flow.\n"
         "- ZERO hyphens (-), dashes (--), bullets (•), asterisks (*), or emojis.\n"
         "- ALWAYS write prices using numbers with currency (e.g. ₹1299 or Rs. 1299, never 'twelve ninety nine rupees'). Always write times using numbers (e.g. 10:00 AM or 6:30 PM, never 'ten morning').\n"
-        "- When asked about services, treatments, prices, or details, ALWAYS answer directly using the verified knowledge base and pricing above (2 to 3 natural sentences, up to 60 words).\n"
+        "- When asked about services, treatments, prices, or details, ALWAYS answer directly using the verified knowledge base and pricing above (1 to 2 natural sentences). Do NOT force qualification questions or booking pitches onto every answer!\n"
+        "- NATURAL FLOW OVER RIGID FORMULAS: Do not always use the 3-step sales agent technique. Use qualification questions only when actually needed for broad or unclear inquiries. Reply naturally to the customer's specific question.\n"
         "- For casual greetings or quick checks, reply in 1 to 2 short lines.\n"
+        "- CONTEXT & TEMPORAL UNDERSTANDING: Understand short customer replies (like '3 pm') as answering your prior question. If a time has already passed today or today is closed/booked, it AUTOMATICALLY refers to TOMORROW. Confirm tomorrow's appointment/demo at that time and append [ACTION:CREATE_BOOKING: ...]. NEVER say today is fully booked or reject their chosen time!\n"
         "- Convenient Time Selection: Ask what day and convenient time works best for them within operating hours. NEVER suggest or force arbitrary morning/evening slots (e.g. NEVER propose '10:00 AM or 4:30 PM'). If the customer already agreed on a time or has an existing appointment, do NOT repeat slot proposals on unrelated inquiries.\n"
         "- Match customer's language organically (English, Tanglish, Tamil, Hindi)."
     )

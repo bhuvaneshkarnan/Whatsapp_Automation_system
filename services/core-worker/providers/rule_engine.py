@@ -48,7 +48,7 @@ DEFAULT_RULES: list[Rule] = [
     Rule("status",        75,  "keyword", r"\b(status|my booking|appointment status|confirmed)\b",
          "Let me check your booking status with {business_name}! Please share your name or phone number."),
 
-    Rule("human",         70,  "keyword", r"\b(human|agent|person|staff|speak to someone|talk to someone|real person)\b",
+    Rule("human",         70,  "keyword", r"\b(talk to human|speak to human|talk to agent|speak to agent|human agent|connect to agent|connect to human|human support|stop bot|switch to human)\b",
          "I'm connecting you with our team at {business_name} right away. One moment! 🤝"),
 
     Rule("price",         65,  "keyword", r"\b(price|cost|how much|rate|charges|fee)\b",
@@ -141,7 +141,7 @@ def apply_rule_engine(
                     loc = full_location.strip()
                     if "Car Parking" in loc:
                         loc = loc.split("Car Parking")[0].strip()
-                    return f"We are located at {loc}. Would morning or afternoon suit you best for a visit?"
+                    return f"We are located at {loc}. What day and convenient time would suit you best for a visit?"
                 return f"We would be delighted to guide you to {b_name}! Are you looking for directions to our office, or would you like to schedule an appointment?"
 
             # 3. Booking / Appointment / Slots / Timing Inquiry
@@ -149,7 +149,7 @@ def apply_rule_engine(
                 if empty_slots_text and empty_slots_text.strip():
                     first_line = empty_slots_text.strip().split("\n")[0]
                     return f"We have openings available! {first_line}. What time works best for you?"
-                return f"We have consultation and appointment openings available this week at {b_name}! Would morning or afternoon work better for you?"
+                return f"We have consultation and appointment openings available this week at {b_name}! What day and convenient time works best for you?"
 
             # 4. Direct Contact / Phone Inquiry
             if any(k in text_lower for k in ["phone", "call", "number", "contact", "speak", "talk"]):

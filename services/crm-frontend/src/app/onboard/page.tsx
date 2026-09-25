@@ -90,6 +90,50 @@ function OnboardingContent() {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
+  // Auto-handle redirect fallback with ?code=...
+  useEffect(() => {
+    const urlCode = searchParams.get('code');
+    const stateParam = searchParams.get('state');
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId && stateParam) {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(stateParam));
+        if (parsed.target_tenant_id) resolvedTenantId = parsed.target_tenant_id;
+      } catch {}
+    }
+
+    if (urlCode && resolvedTenantId && status === 'idle' && !loading) {
+      setLoading(true);
+      setStatus('processing');
+      crm.submitWhatsAppEmbeddedSignup({
+        code: urlCode,
+        target_tenant_id: resolvedTenantId,
+      })
+        .then((res: any) => {
+          setLoading(false);
+          setPhoneId(res.phone_number_id || '');
+          setWabaId(res.waba_id || '');
+          if (res.status === 'action_required' || res.has_issue) {
+            setStatus('action_required');
+            setActionNotice({
+              message: res.issue_message || res.message || 'Meta flagged the business display name or number.',
+              metaUrl: res.meta_manager_url || `https://business.facebook.com/wa/manage/phone-numbers/?waba_id=${res.waba_id}`,
+              phoneStatus: res.phone_status,
+              nameStatus: res.name_status,
+              verifiedName: res.verified_name
+            });
+          } else {
+            setStatus('success');
+          }
+        })
+        .catch((err) => {
+          setLoading(false);
+          setStatus('error');
+          setErrorMessage(err instanceof Error ? err.message : 'WhatsApp registration failed.');
+        });
+    }
+  }, [searchParams, tenantId, status, loading]);
+
   const initFbSdk = (appId: string, version: string) => {
     if (typeof window === 'undefined') return;
 
@@ -208,7 +252,7 @@ function OnboardingContent() {
       featureType: 'whatsapp_business_app_onboarding',
     });
     const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://crm.goboldlabs.com';
-    const redirectUri = `${currentOrigin}/dashboard`;
+    const redirectUri = `${currentOrigin}/onboard`;
     const metaUrl = `https://business.facebook.com/messaging/whatsapp/onboard/?app_id=${encodeURIComponent(activeAppId)}&config_id=${encodeURIComponent(activeConfigId)}&extras=${encodeURIComponent(extras)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(JSON.stringify({ target_tenant_id: tenantId }))}`;
     window.location.href = metaUrl;
   };
