@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { redis, publishToStream, STREAMS } from '../lib/redis';
-import { getTenantWebhookConfig } from '../lib/tenantConfig';
+import { getTenantWebhookConfig, getTenantWebhookConfigByPhoneOrWaba } from '../lib/tenantConfig';
 import { logger } from '../lib/logger';
 import { Counter, Histogram } from 'prom-client';
 
@@ -36,8 +36,8 @@ const webhookDuration = new Histogram({
 });
 
 // ── GET — Meta webhook verification & browser health check ───────────────────
-webhookRouter.get('/:tenantSlug', async (req: Request, res: Response) => {
-  const { tenantSlug } = req.params;
+async function handleVerification(req: Request, res: Response) {
+  const tenantSlug = req.params.tenantSlug || 'boldlabs';
   const config = await getTenantWebhookConfig(tenantSlug);
 
   if (!config) {
@@ -72,131 +72,150 @@ webhookRouter.get('/:tenantSlug', async (req: Request, res: Response) => {
     ready: true,
     message: 'Webhook endpoint is active and ready for Meta Cloud API callbacks.'
   });
-});
+}
+
+webhookRouter.get('/', handleVerification);
+webhookRouter.get('/:tenantSlug', handleVerification);
 
 // ── POST — Inbound messages & status updates ──────────────────────────────────
-webhookRouter.post(
-  '/:tenantSlug',
-  captureRawBody,          // Must run before express.json() parses body
-  async (req: Request, res: Response) => {
-    const { tenantSlug } = req.params;
-    const end = webhookDuration.startTimer({ tenant: tenantSlug });
+async function handleInboundWebhook(req: Request, res: Response) {
+  const urlSlug = req.params.tenantSlug;
+  const value = req.body?.entry?.[0]?.changes?.[0]?.value ?? {};
+  const incomingPhoneId = value.metadata?.phone_number_id ? String(value.metadata.phone_number_id) : undefined;
+  const incomingWabaId = req.body?.entry?.[0]?.id ? String(req.body.entry[0].id) : undefined;
 
-    const config = await getTenantWebhookConfig(tenantSlug);
-    if (!config) return res.sendStatus(404);
+  // 1. Dynamically resolve tenant from payload metadata (phone_number_id or waba_id)
+  let config = await getTenantWebhookConfigByPhoneOrWaba(incomingPhoneId, incomingWabaId);
 
-    // ── 1. Validate Meta HMAC signature ──────────────────────────────────────
-    const sig = req.headers['x-hub-signature-256'] as string | undefined;
-    if (!sig || !verifyHmac(req.rawBody!, config.appSecret, sig)) {
-      signatureErrors.inc({ tenant: tenantSlug });
-      logger.warn('Invalid HMAC signature', { tenantSlug });
-      return res.sendStatus(401);
-    }
+  // 2. Fall back to URL slug if not matched by phone_number_id
+  if (!config && urlSlug) {
+    config = await getTenantWebhookConfig(urlSlug);
+  }
 
-    // ── 2. Acknowledge immediately — Meta requires < 5s ───────────────────────
-    res.sendStatus(200);
+  // 3. Fall back to default tenant
+  if (!config) {
+    config = await getTenantWebhookConfig('boldlabs');
+  }
 
-    // ── 3. Process asynchronously ────────────────────────────────────────────
-    try {
-      const value = req.body?.entry?.[0]?.changes?.[0]?.value ?? {};
+  const tenantSlug = config?.slug || urlSlug || 'boldlabs';
+  const end = webhookDuration.startTimer({ tenant: tenantSlug });
 
-      // Inbound messages
-      for (const msg of (value.messages ?? []) as MetaMessage[]) {
-        const dedupeKey = `dedup:wa:${config.tenantId}:${msg.id}`;
-        // Atomic NX set to prevent concurrent deduplication race conditions
-        const acquired = await redis.set(dedupeKey, 'in_flight', 'EX', 60, 'NX');
+  if (!config) return res.sendStatus(404);
 
-        if (!acquired) {
-          duplicatesSkipped.inc({ tenant: tenantSlug });
-          continue;
-        }
+  // ── 1. Validate Meta HMAC signature ──────────────────────────────────────
+  const sig = req.headers['x-hub-signature-256'] as string | undefined;
+  const appSecret = config.appSecret || process.env.META_APP_SECRET || '';
+  if (!sig || !verifyHmac(req.rawBody!, appSecret, sig)) {
+    signatureErrors.inc({ tenant: tenantSlug });
+    logger.warn('Invalid HMAC signature', { tenantSlug, incomingPhoneId, incomingWabaId });
+    return res.sendStatus(401);
+  }
 
-        msgsReceived.inc({ tenant: tenantSlug, type: msg.type });
+  // ── 2. Acknowledge immediately — Meta requires < 5s ───────────────────────
+  res.sendStatus(200);
 
-        let extractedBody = msg.text?.body ?? msg.image?.caption ?? msg.document?.caption ?? msg.video?.caption ?? msg.button?.text ?? msg.button?.payload ?? msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? '';
+  // ── 3. Process asynchronously ────────────────────────────────────────────
+  try {
+    // Inbound messages
+    for (const msg of (value.messages ?? []) as MetaMessage[]) {
+      const dedupeKey = `dedup:wa:${config.tenantId}:${msg.id}`;
+      // Atomic NX set to prevent concurrent deduplication race conditions
+      const acquired = await redis.set(dedupeKey, 'in_flight', 'EX', 60, 'NX');
 
-        if (!extractedBody || !extractedBody.trim()) {
-          const rawMsg: any = msg;
-          if (msg.type === 'image') {
-            extractedBody = '📷 [Photo]';
-          } else if (msg.type === 'video') {
-            extractedBody = '🎥 [Video]';
-          } else if (msg.type === 'document') {
-            const fn = rawMsg.document?.filename;
-            extractedBody = fn ? `📄 ${fn}` : '📄 [Document]';
-          } else if (msg.type === 'audio' || msg.type === 'voice') {
-            extractedBody = '🎤 [Voice Note]';
-          } else if (msg.type === 'sticker') {
-            extractedBody = '🏷️ [Sticker]';
-          } else if (msg.type === 'location') {
-            const loc = rawMsg.location;
-            extractedBody = loc?.name ? `📍 Location: ${loc.name}` : (loc?.latitude ? `📍 Location: https://maps.google.com/?q=${loc.latitude},${loc.longitude}` : '📍 [Location shared]');
-          } else if (msg.type === 'contacts') {
-            const cList = rawMsg.contacts;
-            const cName = cList?.[0]?.name?.formatted_name || cList?.[0]?.name?.first_name;
-            extractedBody = cName ? `👤 Contact: ${cName}` : '👤 [Contact shared]';
-          } else if (msg.type === 'reaction') {
-            const em = rawMsg.reaction?.emoji;
-            extractedBody = em ? `Reaction: ${em}` : 'Reaction';
-          }
-        }
-
-        try {
-          // Publish to Redis Stream for core-worker to consume
-          await publishToStream(STREAMS.INBOUND, {
-            tenantId:      config.tenantId,
-            tenantSlug,
-            phoneNumberId: config.phoneNumberId,
-            accessToken:   config.accessToken,
-            waMessageId:   msg.id,
-            from:          msg.from,
-            type:          msg.type,
-            body:          extractedBody,
-            timestamp:     msg.timestamp,
-            contactName:   value.contacts?.[0]?.profile?.name ?? '',
-            rawJson:       JSON.stringify(msg),
-          });
-
-          // Mark as permanent dedupe AFTER publishToStream succeeds
-          await redis.set(dedupeKey, 'done', 'EX', 86400); // 24h TTL
-        } catch (publishErr) {
-          // If stream publish fails, delete dedupe key so retry can succeed
-          await redis.del(dedupeKey).catch(() => {});
-          throw publishErr;
-        }
-
-        logger.info('Message enqueued', {
-          tenantSlug,
-          waMessageId: msg.id,
-          from: maskPhone(msg.from),
-          type: msg.type,
-        });
+      if (!acquired) {
+        duplicatesSkipped.inc({ tenant: tenantSlug });
+        continue;
       }
 
-      // Delivery status updates
-      for (const status of (value.statuses ?? []) as MetaStatus[]) {
-        statusUpdates.inc({ tenant: tenantSlug, status: status.status });
+      msgsReceived.inc({ tenant: tenantSlug, type: msg.type });
 
-        await publishToStream(STREAMS.STATUS, {
-          tenantId:    config.tenantId,
-          tenantSlug,
-          waMessageId: status.id,
-          status:      status.status,
-          timestamp:   status.timestamp,
-          recipientId: status.recipient_id,
-          errors:      JSON.stringify(status.errors ?? []),
-        });
+      let extractedBody = msg.text?.body ?? msg.image?.caption ?? msg.document?.caption ?? msg.video?.caption ?? msg.button?.text ?? msg.button?.payload ?? msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? '';
+
+      if (!extractedBody || !extractedBody.trim()) {
+        const rawMsg: any = msg;
+        if (msg.type === 'image') {
+          extractedBody = '📷 [Photo]';
+        } else if (msg.type === 'video') {
+          extractedBody = '🎥 [Video]';
+        } else if (msg.type === 'document') {
+          const fn = rawMsg.document?.filename;
+          extractedBody = fn ? `📄 ${fn}` : '📄 [Document]';
+        } else if (msg.type === 'audio' || msg.type === 'voice') {
+          extractedBody = '🎤 [Voice Note]';
+        } else if (msg.type === 'sticker') {
+          extractedBody = '🏷️ [Sticker]';
+        } else if (msg.type === 'location') {
+          const loc = rawMsg.location;
+          extractedBody = loc?.name ? `📍 Location: ${loc.name}` : (loc?.latitude ? `📍 Location: https://maps.google.com/?q=${loc.latitude},${loc.longitude}` : '📍 [Location shared]');
+        } else if (msg.type === 'contacts') {
+          const cList = rawMsg.contacts;
+          const cName = cList?.[0]?.name?.formatted_name || cList?.[0]?.name?.first_name;
+          extractedBody = cName ? `👤 Contact: ${cName}` : '👤 [Contact shared]';
+        } else if (msg.type === 'reaction') {
+          const em = rawMsg.reaction?.emoji;
+          extractedBody = em ? `Reaction: ${em}` : 'Reaction';
+        }
       }
-    } catch (error) {
-      logger.error('Error processing webhook', {
-        tenantSlug,
-        error: error instanceof Error ? error.message : String(error),
+
+      try {
+        // Publish to Redis Stream for core-worker to consume
+        await publishToStream(STREAMS.INBOUND, {
+          tenantId:      config.tenantId,
+          tenantSlug:    config.slug,
+          phoneNumberId: incomingPhoneId || config.phoneNumberId,
+          accessToken:   config.accessToken,
+          waMessageId:   msg.id,
+          from:          msg.from,
+          type:          msg.type,
+          body:          extractedBody,
+          timestamp:     msg.timestamp,
+          contactName:   value.contacts?.[0]?.profile?.name ?? '',
+          rawJson:       JSON.stringify(msg),
+        });
+
+        // Mark as permanent dedupe AFTER publishToStream succeeds
+        await redis.set(dedupeKey, 'done', 'EX', 86400); // 24h TTL
+      } catch (publishErr) {
+        // If stream publish fails, delete dedupe key so retry can succeed
+        await redis.del(dedupeKey).catch(() => {});
+        throw publishErr;
+      }
+
+      logger.info('Message enqueued', {
+        tenantSlug: config.slug,
+        waMessageId: msg.id,
+        from: maskPhone(msg.from),
+        type: msg.type,
       });
-    } finally {
-      end();
     }
-  },
-);
+
+    // Delivery status updates
+    for (const status of (value.statuses ?? []) as MetaStatus[]) {
+      statusUpdates.inc({ tenant: tenantSlug, status: status.status });
+
+      await publishToStream(STREAMS.STATUS, {
+        tenantId:    config.tenantId,
+        tenantSlug:  config.slug,
+        waMessageId: status.id,
+        status:      status.status,
+        timestamp:   status.timestamp,
+        recipientId: status.recipient_id,
+        errors:      JSON.stringify(status.errors ?? []),
+      });
+    }
+  } catch (error) {
+    logger.error('Error processing webhook', {
+      tenantSlug,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    end();
+  }
+}
+
+webhookRouter.post('/', captureRawBody, handleInboundWebhook);
+webhookRouter.post('/:tenantSlug', captureRawBody, handleInboundWebhook);
+
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

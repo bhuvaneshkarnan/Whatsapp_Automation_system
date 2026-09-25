@@ -124,3 +124,69 @@ export async function getTenantWebhookConfig(
 export function invalidateTenantCache(tenantSlug: string): void {
   cache.delete(tenantSlug);
 }
+
+/**
+ * Look up tenant WhatsApp credentials dynamically by phone_number_id or waba_id.
+ * Critical for multi-tenant Tech Provider setups where Meta sends webhooks to a central URL.
+ */
+export async function getTenantWebhookConfigByPhoneOrWaba(
+  phoneNumberId?: string,
+  wabaId?: string,
+): Promise<TenantWebhookConfig | null> {
+  if (!phoneNumberId && !wabaId) return null;
+  const cacheKey = phoneNumberId ? `phone:${phoneNumberId}` : `waba:${wabaId}`;
+  const now = Date.now();
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    if (cached.expiresAt > now) {
+      return cached.config;
+    }
+    cache.delete(cacheKey);
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT t.id as tenant_id, t.slug, tc.credential_data
+       FROM tenants t
+       JOIN tenant_credentials tc ON tc.tenant_id = t.id
+       WHERE t.is_active = true
+         AND tc.provider = 'whatsapp'
+         AND tc.is_active = true
+         AND (
+           ($1::text IS NOT NULL AND tc.credential_data->>'phone_number_id' = $1::text)
+           OR
+           ($2::text IS NOT NULL AND tc.credential_data->>'waba_id' = $2::text)
+         )
+       LIMIT 1`,
+      [phoneNumberId || null, wabaId || null],
+    );
+
+    if (!result.rows[0]) {
+      return null;
+    }
+
+    const row = result.rows[0];
+    const creds = row.credential_data;
+
+    const config: TenantWebhookConfig = {
+      tenantId: row.tenant_id,
+      slug: row.slug,
+      phoneNumberId: creds.phone_number_id,
+      accessToken: creds.access_token,
+      wabaId: creds.waba_id,
+      verifyToken: creds.verify_token,
+      appSecret: creds.app_secret ?? process.env.META_APP_SECRET ?? '',
+    };
+
+    cache.set(cacheKey, { config, expiresAt: now + CACHE_TTL_MS });
+    cache.set(row.slug, { config, expiresAt: now + CACHE_TTL_MS });
+    return config;
+  } catch (err) {
+    logger.error('Failed to load tenant webhook config by phone/waba', {
+      phoneNumberId,
+      wabaId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
