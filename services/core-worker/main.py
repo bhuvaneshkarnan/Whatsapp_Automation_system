@@ -345,6 +345,8 @@ GLOBAL_DEFAULT_STRICT_RULES = (
     "  * Reply with natural flow without following strict template patterns or repeating the same message structure for every question.\n"
     "  * DO NOT ALWAYS USE THE 3-STEP SALES AGENT TECHNIQUE: Use qualification questions only when ACTUALLY needed (e.g. when a new customer's requirement is broad, vague, or exploratory). When a customer asks a direct question (e.g. price, timings, features, address), simply answer their question directly, clearly, and helpfully. Do NOT force a diagnostic question or a booking pitch onto every single answer.\n"
     "  * When guiding to a booking or consult, ask what day and convenient time works best for them within operating hours. NEVER force 2 rigid arbitrary times (such as '10:00 AM or 4:30 PM' or 'morning or evening').\n"
+    "- OPERATING HOURS INTEGRITY:\n"
+    "  * When a customer asks about clinic / business timings, operating hours, working hours, opening or closing times, always state our exact operating hours from the knowledge base (e.g. 7:00 AM to 9:30 PM daily for Mind Body Recovery, or as configured). NEVER infer, guess, or invent operating hours from open calendar slots or list of available slots.\n"
     "- ACTIVE OBJECTION RE-FRAMING:\n"
     "  * When a customer expresses price resistance ('too expensive') or delay ('will check and let you know'), never accept a dead-end. Reframe value in 1 sentence and offer a zero-friction micro-step.\n"
     "- EASY INDIAN ENGLISH & NATURAL HUMAN TONE:\n"
@@ -2442,17 +2444,17 @@ class CoreWorker:
             )
 
         # Extract business operating hours from tenant settings
-        opening_time_raw = "09:00"
-        closing_time_raw = "20:00"
-        if tenant_st_row:
-            if tenant_st_row.get("opening_time"):
-                opening_time_raw = str(tenant_st_row.get("opening_time")).strip()
-            elif tenant_st_row.get("working_hours_start"):
-                opening_time_raw = str(tenant_st_row.get("working_hours_start")).strip()
-            if tenant_st_row.get("closing_time"):
-                closing_time_raw = str(tenant_st_row.get("closing_time")).strip()
-            elif tenant_st_row.get("working_hours_end"):
-                closing_time_raw = str(tenant_st_row.get("working_hours_end")).strip()
+        opening_time_raw = "07:00" if is_mbr else "09:00"
+        closing_time_raw = "21:30" if is_mbr else "20:00"
+        if tenant_st_row and isinstance(tenant_st_row, dict):
+            for k in ("opening_time", "open_time", "working_hours_start", "start_time"):
+                if tenant_st_row.get(k):
+                    opening_time_raw = str(tenant_st_row.get(k)).strip()
+                    break
+            for k in ("closing_time", "close_time", "working_hours_end", "end_time"):
+                if tenant_st_row.get(k):
+                    closing_time_raw = str(tenant_st_row.get(k)).strip()
+                    break
 
         def _fmt_ampm(t_str: str, default_val: str) -> str:
             try:
@@ -2464,7 +2466,7 @@ class CoreWorker:
             except Exception:
                 return default_val
 
-        op_hours_display = f"{_fmt_ampm(opening_time_raw, '09:00 AM')} to {_fmt_ampm(closing_time_raw, '08:00 PM')}"
+        op_hours_display = f"{_fmt_ampm(opening_time_raw, '07:00 AM' if is_mbr else '09:00 AM')} to {_fmt_ampm(closing_time_raw, '09:30 PM' if is_mbr else '08:00 PM')}"
 
         # Extract slot scheduling config from tenant settings
         slot_duration_mins = int(tenant_st_row.get("slot_duration_mins") or 30) if tenant_st_row else 30
@@ -2526,7 +2528,8 @@ class CoreWorker:
         busy_slots_block = (
             f"### LIVE GOOGLE CALENDAR GROUND TRUTH & VERIFIED EMPTY SLOTS ({'GOOGLE CALENDAR LIVE SYNC ACTIVE' if gcal_connected else 'CRM LOCAL SCHEDULE'}):\n"
             f"- Live Integration Status: {'Google Calendar Connected & Verified (Ground Truth)' if gcal_connected else 'CRM Internal Schedule Active'}\n"
-            f"- Business Operating Hours: {op_hours_display}\n\n"
+            f"- Official Business Operating Hours: {op_hours_display} (Daily)\n"
+            f"- NOTE ON SLOTS VS OPERATING HOURS: Operating hours are ALWAYS {op_hours_display} daily. The verified open slots below only reflect currently unbooked slots on calendar, NOT business operating hours. NEVER confuse slot ranges with business operating hours!\n\n"
             "VERIFIED EMPTY & AVAILABLE SLOTS (CHECKED IN REAL-TIME AGAINST GOOGLE CALENDAR):\n"
             "The following are the EXACT, VERIFIED OPEN SLOTS where no events exist on Google Calendar or the CRM:\n"
             + "\n".join(empty_slot_lines)
@@ -2536,6 +2539,7 @@ class CoreWorker:
                 if busy_lines else "OCCUPIED / BUSY SLOTS: None. The calendar is completely clear.\n\n"
             )
             + "### STRICT DIRECTIVES FOR APPOINTMENT SCHEDULING & TIME SELECTION:\n"
+            + f"- BUSINESS HOURS VS SLOTS: The clinic / business operating hours are strictly {op_hours_display} daily. When asked about timings, ALWAYS reply with '{op_hours_display} daily'. Never say '10 AM to 9 PM' or infer business hours from slot samples.\n"
             + "- PROACTIVE & CUSTOMER-ALIGNED APPOINTMENT TIME SELECTION:\n"
             "  * If customer has not stated a time: Ask what day and convenient time works best for them within operating hours (e.g. 'What day and time suits you best within our clinic hours?').\n"
             "  * If customer already stated a preferred day or time: Respect and verify their preferred time immediately without overriding it!\n"
@@ -2870,6 +2874,20 @@ class CoreWorker:
                 "Follow this business's verified location instructions above (if the business specifies a short address format like 'T Nagar, Chennai', follow that exact format; otherwise provide the verified business address). "
                 "Then naturally continue the conversation."
             )
+        elif any(w in inbound_clean for w in [
+            "timing", "timings", "hours", "open", "opening time", "closing time",
+            "opening hours", "operating hours", "clinic time", "clinic timing", "clinic timings",
+            "working hours", "work hours", "when are you open", "what time do you open",
+            "what time do you close", "till what time", "closing hours", "open today",
+            "open tomorrow", "time table", "timetable", "schedule today"
+        ]):
+            funnel_stage = "EVALUATION_TIMINGS"
+            stage_directive = (
+                f"The customer is asking about business / clinic operating hours or timings. "
+                f"1. Directly state our official operating hours: '{op_hours_display} daily'. "
+                f"2. Then naturally ask what day and convenient time works best for them within these hours (e.g. 'What day and time suits you best?'). "
+                f"CRITICAL: Always state '{op_hours_display} daily'. Never invent or assume other hours from calendar slots."
+            )
         elif is_voice_note:
             funnel_stage = "VOICE_NOTE_INBOUND"
             stage_directive = (
@@ -3080,6 +3098,13 @@ class CoreWorker:
                 f"- If the customer asks for our website link, portal, or where to view information online, share: '{tenant_website}'."
             )
 
+        # ── SECTION 1: BUSINESS OPERATING HOURS (TOP GROUND TRUTH FOR TIMINGS) ──
+        prompt_blocks.append(
+            f"### OFFICIAL BUSINESS OPERATING HOURS:\n"
+            f"- Daily Operating Hours: {op_hours_display} (Daily Monday through Sunday)\n"
+            f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, working hours, opening/closing times, or when we are open, ALWAYS state: '{op_hours_display} daily'. NEVER guess or infer operating hours from empty calendar slots! Calendar slots only show currently open appointment slots, NOT total business operating hours."
+        )
+
         if objection_handling.strip():
             prompt_blocks.append(f"### OBJECTION HANDLING STRATEGY:\n{objection_handling.strip()}")
         else:
@@ -3117,6 +3142,7 @@ class CoreWorker:
             "### FINAL WHATSAPP FORMAT & REINFORCEMENT DIRECTIVE:",
             "- CONVERSATIONAL FLOW & GENUINE COMPREHENSION: Listen to what the customer is asking right now and reply naturally in the flow of the conversation. DO NOT follow a rigid template or give identical canned replies. Do NOT force a 3-step sales formula (answer + qualify + pitch) on every message — use qualification questions only when the customer's need is broad, vague, or exploratory.",
             "- DIRECT ANSWERS TO DIRECT QUESTIONS: If the customer asks about price, timing, location, or features, answer directly and cleanly in 1 to 2 sentences without appending unnecessary questions or sales pitches.",
+            f"- OPERATING HOURS INTEGRITY: If asked about clinic / business timings or hours, directly state '{op_hours_display} daily'. Never say '10 AM to 9 PM' or guess from calendar slot lists.",
             "- DEMOS & BOOKING INVITATIONS: If they ask for a demo or appointment, accept warmly and ask what day and convenient time works best for them within operating hours.",
             "- TIME PROVIDED: If they provide a time (e.g. '3 pm'), resolve to tomorrow if today is past/closed, confirm warmly, and append [ACTION:CREATE_BOOKING: ...]. NEVER reject them or claim today is fully booked!",
             "- NATURAL BREVITY: Keep your reply concise (1 to 3 short natural sentences, 20 to 50 words max). Pure conversational flow.",

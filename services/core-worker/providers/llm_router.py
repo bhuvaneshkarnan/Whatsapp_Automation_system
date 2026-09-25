@@ -474,7 +474,7 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 28000) -> str:
             if not tenant_strict_rules:
                 tenant_strict_rules = sec_strip[:2000].rsplit("\n", 1)[0] if len(sec_strip) > 2000 else sec_strip
 
-        elif "BUSINESS ADDRESS" in sec_upper or "OFFICIAL BUSINESS WEBSITE" in sec_upper:
+        elif any(k in sec_upper for k in ["BUSINESS ADDRESS", "OFFICIAL BUSINESS WEBSITE", "OFFICIAL BUSINESS OPERATING HOURS", "BUSINESS OPERATING HOURS", "OPERATING HOURS"]):
             location_and_web.append(sec_strip[:800])
 
         elif any(k in sec_upper for k in ["GOALS & OBJECTIVES", "OBJECTION HANDLING", "UNIVERSAL OBJECTION", "CONVERSATION STYLE", "CONVERSATION METHODOLOGY", "DIALECT & STYLE"]):
@@ -504,6 +504,7 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 28000) -> str:
         "- Friendly, helpful, authentic WhatsApp conversational texting with natural flow.\n"
         "- ZERO hyphens (-), dashes (--), bullets (•), asterisks (*), or emojis.\n"
         "- ALWAYS write prices using numbers with currency (e.g. ₹1299 or Rs. 1299, never 'twelve ninety nine rupees'). Always write times using numbers (e.g. 10:00 AM or 6:30 PM, never 'ten morning').\n"
+        "- OPERATING HOURS INTEGRITY: When asked about timings, working hours, or when open, ALWAYS state official operating hours from above (e.g. 7:00 AM to 9:30 PM daily for Mind Body Recovery). Never guess or infer operating hours from empty calendar slots!\n"
         "- When asked about services, treatments, prices, or details, ALWAYS answer directly using the verified knowledge base and pricing above (1 to 2 natural sentences). Do NOT force qualification questions or booking pitches onto every answer!\n"
         "- NATURAL FLOW OVER RIGID FORMULAS: Do not always use the 3-step sales agent technique. Use qualification questions only when actually needed for broad or unclear inquiries. Reply naturally to the customer's specific question.\n"
         "- For casual greetings or quick checks, reply in 1 to 2 short lines.\n"
