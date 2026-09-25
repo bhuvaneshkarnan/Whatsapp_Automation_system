@@ -6036,6 +6036,7 @@ class CoreWorker:
                        AND t.is_active = true
                        AND (
                            t.subscription_status = 'active'
+                           OR t.subscription_status = 'not_started'
                            OR (t.subscription_status = 'payment_failed'
                                AND t.grace_period_until IS NOT NULL
                                AND t.grace_period_until > NOW())
@@ -6681,6 +6682,7 @@ class CoreWorker:
                 JOIN tenants t ON t.id = c.tenant_id AND t.is_active = true
                     AND (
                         t.subscription_status = 'active'
+                        OR t.subscription_status = 'not_started'
                         OR (t.subscription_status = 'payment_failed'
                             AND t.grace_period_until IS NOT NULL
                             AND t.grace_period_until > NOW())
