@@ -503,9 +503,10 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 28000) -> str:
         "### MANDATORY WHATSAPP CONVERSATION RULES:\n"
         "- Friendly, helpful, authentic WhatsApp conversational texting.\n"
         "- ZERO hyphens (-), dashes (--), bullets (•), asterisks (*), or emojis.\n"
+        "- ALWAYS write prices using numbers with currency (e.g. ₹1299 or Rs. 1299, never 'twelve ninety nine rupees'). Always write times using numbers (e.g. 10:00 AM or 6:30 PM, never 'ten morning').\n"
         "- When asked about services, treatments, prices, or details, ALWAYS answer directly using the verified knowledge base and pricing above (2 to 3 natural sentences, up to 60 words).\n"
         "- For casual greetings or quick checks, reply in 1 to 2 short lines.\n"
-        "- Binary Assumptive Close: Offer two specific choices when suggesting a time (e.g. 'Tomorrow 11 AM or 4 PM — which works?'). Never say 'Would you like to book?'.\n"
+        "- Convenient Time Selection: Ask what day and convenient time works best for them within operating hours. NEVER suggest or force arbitrary morning/evening slots (e.g. NEVER propose '10:00 AM or 4:30 PM'). If the customer already agreed on a time or has an existing appointment, do NOT repeat slot proposals on unrelated inquiries.\n"
         "- Match customer's language organically (English, Tanglish, Tamil, Hindi)."
     )
 
@@ -852,7 +853,7 @@ async def call_llm_cascade(
                     model=gemini_model or "gemini-3.5-flash",
                     max_tokens=effective_gemini_tokens,
                     temperature=temperature,
-                    timeout_seconds=min(max(timeout_seconds, 4.0), 6.5),
+                    timeout_seconds=min(max(timeout_seconds, 4.0), 10.0),
                     tenant_id=tenant_id,
                     single_line=single_line,
                 )
@@ -951,7 +952,7 @@ async def call_llm_cascade(
                         model=m_model,
                         max_tokens=effective_gemini_tokens,
                         temperature=temperature,
-                        timeout_seconds=min(max(timeout_seconds, 4.0), 6.5),
+                        timeout_seconds=min(max(timeout_seconds, 4.0), 10.0),
                         tenant_id=tenant_id,
                         single_line=single_line,
                     )

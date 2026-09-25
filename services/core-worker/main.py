@@ -2094,9 +2094,10 @@ class CoreWorker:
 
         # Clean humanized conversational WhatsApp texting format directive (Global Mandatory Rules for All Tenants)
         greeting_flow_rule = (
-            "- ONGOING CONVERSATION (ABSOLUTELY ZERO REPEATED GREETINGS): This is an ongoing conversation. "
+            "- ONGOING CONVERSATION (ABSOLUTELY ZERO REPEATED GREETINGS OR RE-INTRODUCTIONS): This is an ongoing conversation. "
             "ABSOLUTELY DO NOT start your reply with 'Hi', 'Hello', 'Hey', or 'Hi [Customer Name]'! "
-            "Real people on WhatsApp never greet on every single message. Dive straight into answering their query."
+            "ABSOLUTELY DO NOT re-introduce yourself with 'I am [Name] from [Business]', and DO NOT ask generic opener questions like 'How can I help you today?'. "
+            "Real people on WhatsApp never re-introduce themselves repeatedly mid-chat. Dive straight into continuing the conversation from where it left off."
             if is_ongoing_conversation else
             "- OPENING GREETING: Warmly greet the customer in your opening message."
         )
@@ -2123,7 +2124,11 @@ class CoreWorker:
             "5. MESSAGE TYPE CLASSIFICATION — CLASSIFY FIRST, THEN REPLY:\n"
             "   Before writing your reply, silently classify the customer's message into ONE of these types:\n"
             "   TYPE A (CASUAL): Greetings ('Hi', 'Hello'), one-word replies ('Ok', 'Sure', 'Thanks', 'Fine'), simple acknowledgements.\n"
-            "     Rule: Reply in 1 to 2 short lines only (15 to 30 words). Warm and natural. DO NOT force a full sales pitch on casual messages.\n"
+            + (
+                "     Rule (ONGOING CHAT): The customer sent a simple ping or greeting mid-conversation. NEVER say 'How can I help you today?' or introduce yourself. Acknowledge briefly and follow up directly on the previous topic or question you asked them in 1 short line.\n"
+                if is_ongoing_conversation else
+                "     Rule: Reply in 1 to 2 short lines only (15 to 30 words). Warm and natural. DO NOT force a full sales pitch on casual messages.\n"
+            ) +
             "   TYPE B (INQUIRY): Customer asks about services, pricing, how it works, features, treatments, location, website, or what you do.\n"
             "     Rule: Use the FULL 3-BEAT SALES FLOW. Write exactly 3 sentences totalling 45 to 70 words.\n"
             "   TYPE C (OBJECTION): Customer pushes back ('too expensive', 'need to think', 'already have something', 'not sure').\n"
@@ -2414,7 +2419,11 @@ class CoreWorker:
                 "- Any previous appointments on file are past, cancelled, completed, or marked as no-show.\n"
                 "- STRICT PROHIBITION: NEVER tell or imply to the customer that they have an upcoming, confirmed, or scheduled appointment!\n"
                 "- NEVER say 'I see you have a confirmed appointment for tomorrow' or 'You have an appointment on file'.\n"
-                "- When the customer sends a greeting (e.g. 'hi', 'hello', 'hey'), warmly greet them and ask how you can help them today without claiming they have an appointment.\n"
+                + (
+                    "- ONGOING CONVERSATION: If the customer sends a greeting or ping like 'hi' or 'hello', NEVER reset the chat or ask generic 'How can I help you today?'. Acknowledge them briefly and seamlessly continue the discussion from the previous message.\n"
+                    if is_ongoing_conversation else
+                    "- When the customer sends a greeting (e.g. 'hi', 'hello', 'hey'), warmly greet them and ask how you can help them today without claiming they have an appointment.\n"
+                ) +
                 "- If the customer asks to book a new appointment or reschedule a past/missed/cancelled appointment, guide them smoothly by offering available slots from the list below.\n"
             )
 
@@ -2837,11 +2846,12 @@ class CoreWorker:
                 f"2. Directly answer whatever question, query, or service detail they asked about using ONLY this business's verified details below. "
                 f"3. Keep your reply short, direct, and conversational (1 to 3 short lines). Never ask them to type what they just spoke."
             )
-        elif len(history) > 2:
+        elif is_ongoing_conversation:
             funnel_stage = "CONSIDERATION_PROGRESSION"
             stage_directive = (
-                "Ongoing conversation. Directly and clearly answer what they just said using this business's verified details. "
-                "Advance the conversation naturally: ask the next relevant discovery question per the business prompt, or guide toward scheduling if ready."
+                "Ongoing conversation. Directly and clearly address what they just said in the context of the prior chat messages. "
+                "If the customer sends a simple greeting or ping like 'hi' or 'hello', DO NOT restart the conversation or ask generic intro questions like 'How can I help you today?'. "
+                "Briefly acknowledge them and seamlessly pick up right where the conversation left off from your previous message."
             )
         else:
             funnel_stage = "DISCOVERY"
@@ -3078,7 +3088,7 @@ class CoreWorker:
             "- ZERO HYPHENS, ZERO BULLETS & ZERO EMOJIS: Never use hyphens (-), dashes (--), asterisks (*), bullets, or emojis.",
             "- PRICES & TIMES IN DIGITS: ALWAYS write prices in standard digits with currency (e.g. ₹1299 or Rs. 1299, never spell out in words like 'twelve ninety nine rupees'). ALWAYS write times with digits (e.g. 10:00 AM or 6:30 PM).",
             "- ONE QUESTION AT A TIME: Never stack multiple questions. Ask at most ONE question per reply.",
-            "- NO REPEATED GREETINGS: Do NOT say 'Hi', 'Hello', or 'Hi [Name]' again on follow-up messages. Dive straight into your reply." if is_ongoing_conversation else "- GREETING: Greet warmly in sentence 1.",
+            "- NO REPEATED GREETINGS OR RE-INTRODUCTIONS: NEVER say 'Hi', 'Hello', 'I am [Name] from [Business]', or 'How can I help you today?'. Pick up directly from the prior conversation thread." if is_ongoing_conversation else "- GREETING: Greet warmly in sentence 1.",
             f"- LANGUAGE & IDENTITY: Strictly match customer's language ({style_profile['label']}). Ground answers exclusively in this tenant's details above.",
             "- ABSOLUTE BAN ON 2 ARBITRARY TIMES: When inviting the customer to book, NEVER propose two fixed arbitrary times (such as 'tomorrow at 10:00 AM or 4:30 PM', 'morning or evening', or any preset pair of times). ALWAYS ask what day and convenient time works best for them within operating hours. Only share specific slot times if the customer explicitly asks 'What slots are available?'.",
             "- NO REPEATED BOOKING CONFIRMATIONS: If an appointment slot was already agreed earlier in the chat, do NOT append 'your slot is booked' or re-propose times on unrelated inquiries; simply answer their question directly.",
