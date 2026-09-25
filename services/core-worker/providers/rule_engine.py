@@ -31,10 +31,10 @@ DEFAULT_RULES: list[Rule] = [
          "Hello! Welcome to {business_name}, how can I assist you today?"),
 
     Rule("bye",           90,  "keyword", r"\b(bye|goodbye|see you|thanks|thank you|dhanyavaad)\b",
-         "You're very welcome from {business_name}! Have a wonderful day ahead. 😊"),
+         "You are very welcome from {business_name}! Have a wonderful day ahead."),
 
     Rule("book",          85,  "keyword", r"\b(book|appointment|schedule|reserve|booking|consultation|call|demo)\b",
-         "I'd love to help you schedule an appointment or consultation with {business_name}! 📅 What date and time works best for you?"),
+         "I would love to help you schedule an appointment or consultation with {business_name}! What date and time works best for you?"),
 
     Rule("reschedule",    84,  "keyword", r"\b(reschedule|change.*appointment|move.*booking|shift.*appointment)\b",
          "Sure, I can help you reschedule your appointment with {business_name}. What new date and time would you prefer?"),
@@ -42,14 +42,14 @@ DEFAULT_RULES: list[Rule] = [
     Rule("cancel",        83,  "keyword", r"\b(cancel|cancellation|don't need|not coming)\b",
          "I can help cancel your booking with {business_name}. Could you please confirm your name or phone number?"),
 
-    Rule("hours",         80,  "keyword", r"\b(hours|open|timing|when|available|schedule)\b",
-         "We are available throughout standard business hours at {business_name}. When would you like to schedule? 🕐"),
+    Rule("hours",         80,  "keyword", r"\b(hours|open|timing|timings|when are you open|opening time|closing time|working hours)\b",
+         "We are open daily during business hours at {business_name}. What day and convenient time works best for you?"),
 
     Rule("status",        75,  "keyword", r"\b(status|my booking|appointment status|confirmed)\b",
          "Let me check your booking status with {business_name}! Please share your name or phone number."),
 
     Rule("human",         70,  "keyword", r"\b(talk to human|speak to human|talk to agent|speak to agent|human agent|connect to agent|connect to human|human support|stop bot|switch to human)\b",
-         "I'm connecting you with our team at {business_name} right away. One moment! 🤝"),
+         "I am connecting you with our team at {business_name} right away. One moment!"),
 
     Rule("price",         65,  "keyword", r"\b(price|cost|how much|rate|charges|fee)\b",
          "I can share our pricing details with you for {business_name}. Could you let me know which service you are interested in?"),
@@ -69,12 +69,13 @@ def apply_rule_engine(
     full_location: str = "",
     admin_phone: str = "",
     empty_slots_text: str = "",
+    op_hours_display: str = "",
 ) -> str:
     """
     Match message against rules in priority order.
     Tenant-specific rules are merged with defaults (tenant rules take priority at same level).
     If fallback rule is triggered, intelligently grounds response in verified business context
-    (services, pricing, location, slots) instead of returning a generic canned fallback.
+    (services, pricing, location, slots, operating hours) instead of returning a generic canned fallback.
     """
     # Merge: tenant rules first, then defaults
     all_rules = sorted(
@@ -113,7 +114,12 @@ def apply_rule_engine(
                         summary = ", ".join(lines[:3])
                         logger.info("rule_matched_grounded_price", rule=rule.name, tenant_id=tenant_id)
                         return f"Our services at {b_name} start from: {summary}. Would you like to check available slots for today or tomorrow?"
-                    if rule.name in ("book", "hours") and empty_slots_text and empty_slots_text.strip():
+                    if rule.name == "hours":
+                        if op_hours_display and op_hours_display.strip():
+                            logger.info("rule_matched_grounded_hours", rule=rule.name, tenant_id=tenant_id)
+                            return f"We are open from {op_hours_display} daily at {b_name}. What day and convenient time works best for you?"
+                        return f"We are open daily during business hours at {b_name}. What day and convenient time works best for you?"
+                    if rule.name == "book" and empty_slots_text and empty_slots_text.strip():
                         first_line = empty_slots_text.strip().split("\n")[0]
                         logger.info("rule_matched_grounded_slots", rule=rule.name, tenant_id=tenant_id)
                         return f"We have openings available at {b_name}! {first_line}. What time works best for you?"
@@ -144,14 +150,20 @@ def apply_rule_engine(
                     return f"We are located at {loc}. What day and convenient time would suit you best for a visit?"
                 return f"We would be delighted to guide you to {b_name}! Are you looking for directions to our office, or would you like to schedule an appointment?"
 
-            # 3. Booking / Appointment / Slots / Timing Inquiry
-            if any(k in text_lower for k in ["book", "appointment", "slot", "timing", "available", "schedule", "come today", "come tomorrow"]):
+            # 3. Timing / Operating Hours Inquiry
+            if any(k in text_lower for k in ["timing", "timings", "hours", "open", "opening time", "closing time", "when are you open", "working hours"]):
+                if op_hours_display and op_hours_display.strip():
+                    return f"We are open from {op_hours_display} daily at {b_name}. What day and convenient time works best for you?"
+                return f"We are open daily during business hours at {b_name}. What day and convenient time works best for you?"
+
+            # 4. Booking / Appointment / Slots Inquiry
+            if any(k in text_lower for k in ["book", "appointment", "slot", "available", "schedule", "come today", "come tomorrow"]):
                 if empty_slots_text and empty_slots_text.strip():
                     first_line = empty_slots_text.strip().split("\n")[0]
                     return f"We have openings available! {first_line}. What time works best for you?"
                 return f"We have consultation and appointment openings available this week at {b_name}! What day and convenient time works best for you?"
 
-            # 4. Direct Contact / Phone Inquiry
+            # 5. Direct Contact / Phone Inquiry
             if any(k in text_lower for k in ["phone", "call", "number", "contact", "speak", "talk"]):
                 if admin_phone and admin_phone.strip():
                     return f"You can reach our team directly at {admin_phone.strip()}. Would you like us to schedule a call or consultation?"

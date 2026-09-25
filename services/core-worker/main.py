@@ -840,6 +840,7 @@ class CoreWorker:
         self.db_pool: Optional[asyncpg.Pool] = None
         self.redis: Optional[aioredis.Redis] = None
         self.in_flight_messages: set = set()
+        self._worker_semaphore: asyncio.Semaphore = asyncio.Semaphore(15)
 
     @staticmethod
     async def _fire_and_log(coro, label: str, **ctx):
@@ -1037,6 +1038,10 @@ class CoreWorker:
                 await asyncio.sleep(2)
 
     async def _handle_message(self, stream_msg_id: str, fields: dict):
+        if not hasattr(self, "_worker_semaphore") or self._worker_semaphore is None:
+            self._worker_semaphore = asyncio.Semaphore(15)
+        await self._worker_semaphore.acquire()
+
         tenant_id = fields.get("tenantId", "")
         wa_message_id = fields.get("waMessageId", "")
         start = time.monotonic()
@@ -1347,10 +1352,25 @@ class CoreWorker:
         except Exception as e:
             logger.error("message_handling_failed", tenant_id=tenant_id, wa_id=wa_message_id, error=str(e))
             messages_processed.labels(tenant=tenant_id, status="error").inc()
+            try:
+                _f_from = fields.get("from")
+                if _f_from and tenant_id:
+                    _c = creds if 'creds' in locals() and creds else await self._get_tenant_whatsapp_creds(tenant_id)
+                    if _c and _c.get("phone_number_id") and _c.get("access_token"):
+                        await send_text(
+                            phone_number_id=_c["phone_number_id"],
+                            access_token=_c["access_token"],
+                            to=_f_from,
+                            body="Thank you for reaching out! We have received your message and our team will assist you shortly.",
+                        )
+            except Exception as send_err:
+                logger.warning("emergency_fallback_send_failed", error=str(send_err))
             # ACK anyway to prevent poison-pill loop; dead letter handled by ops
             if self.redis:
                 await self.redis.xack(STREAM_KEY, CONSUMER_GROUP, stream_msg_id)
         finally:
+            if hasattr(self, "_worker_semaphore") and self._worker_semaphore:
+                self._worker_semaphore.release()
             self.in_flight_messages.discard(stream_msg_id)
             elapsed = time.monotonic() - start
             processing_time.labels(tenant=tenant_id).observe(elapsed)
@@ -3478,10 +3498,21 @@ class CoreWorker:
                 full_location=full_location,
                 admin_phone=admin_phone_clean,
                 empty_slots_text=("\n".join(empty_slot_lines) if empty_slot_lines else ""),
+                op_hours_display=op_hours_display,
             )
             provider_used = "rule_engine"
             ai_used_fallback = True
             ai_requests.labels(tenant=tenant_id, provider="rule_engine").inc()
+
+        if not response_text or not response_text.strip():
+            b_name = tenant_name or "our team"
+            if admin_phone_clean:
+                response_text = f"Hello from {b_name}! Thank you for reaching out. We have received your message and our team will get back to you shortly. You can also reach us directly at {admin_phone_clean}."
+            else:
+                response_text = f"Hello from {b_name}! Thank you for reaching out. We have received your message and our team will assist you shortly."
+            provider_used = "emergency_fallback"
+            ai_used_fallback = True
+            logger.warning("emergency_fallback_parachute_triggered", tenant_id=tenant_id, conv_id=conv_id)
 
         if response_text:
             def _repl_12hr(m):
