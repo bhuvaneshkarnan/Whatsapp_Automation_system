@@ -1046,6 +1046,44 @@ class CoreWorker:
         wa_message_id = fields.get("waMessageId", "")
         start = time.monotonic()
 
+        # ── Safeguard 4: Per-Customer Redis Distributed Lock ─────────────────
+        # Prevents race conditions, out-of-order replies, and double-bookings
+        # when a single customer sends multiple messages in rapid succession.
+        # Lock key is scoped per-tenant + per-phone so different customers
+        # are never blocked by each other.
+        _customer_phone = fields.get("from", "")
+        _chat_lock_key = f"lock:chat:{tenant_id}:{_customer_phone}"
+        _chat_lock_value = stream_msg_id          # unique per message — used to safely release ONLY our lock
+        _chat_lock_acquired = False
+        _LOCK_TTL_MS = 12000                       # 12-second TTL: auto-expires even if worker dies mid-flight
+        _LOCK_WAIT_S  = 8.0                        # wait up to 8 s before giving up and processing anyway
+        if self.redis and tenant_id and _customer_phone:
+            _lock_deadline = time.monotonic() + _LOCK_WAIT_S
+            while time.monotonic() < _lock_deadline:
+                # Atomic SET NX PX — only one worker gets this at a time
+                _acquired = await self.redis.set(
+                    _chat_lock_key, _chat_lock_value,
+                    nx=True, px=_LOCK_TTL_MS,
+                )
+                if _acquired:
+                    _chat_lock_acquired = True
+                    logger.debug(
+                        "chat_lock_acquired",
+                        tenant_id=tenant_id, phone=_customer_phone,
+                        stream_msg_id=stream_msg_id,
+                    )
+                    break
+                # Not acquired yet — another message for this customer is being processed.
+                # Wait a short interval and retry so we process messages in-order.
+                await asyncio.sleep(0.15)
+            if not _chat_lock_acquired:
+                logger.warning(
+                    "chat_lock_timeout_proceeding",
+                    tenant_id=tenant_id, phone=_customer_phone,
+                    stream_msg_id=stream_msg_id,
+                )
+        # ── End of Safeguard 4 lock acquisition ──────────────────────────────
+
         try:
             # ── 1. Upsert contact ─────────────────────────────────────────────
             contact_id = await self._upsert_contact(
@@ -1371,6 +1409,29 @@ class CoreWorker:
         finally:
             if hasattr(self, "_worker_semaphore") and self._worker_semaphore:
                 self._worker_semaphore.release()
+            # ── Safeguard 4: Release per-customer Redis lock ──────────────────
+            # Use a Lua script for atomic compare-and-delete:
+            # We only delete the key if it still holds OUR stream_msg_id as the value.
+            # This prevents accidentally releasing a lock that a new message already acquired
+            # after our 12-second TTL expired during an unusually slow processing run.
+            if _chat_lock_acquired and self.redis and _chat_lock_key:
+                try:
+                    _release_lua = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+else
+    return 0
+end
+"""
+                    await self.redis.eval(_release_lua, 1, _chat_lock_key, _chat_lock_value)
+                    logger.debug(
+                        "chat_lock_released",
+                        tenant_id=tenant_id, phone=_customer_phone,
+                        stream_msg_id=stream_msg_id,
+                    )
+                except Exception as _lock_rel_err:
+                    logger.warning("chat_lock_release_failed", error=str(_lock_rel_err))
+            # ── End of Safeguard 4 lock release ──────────────────────────────
             self.in_flight_messages.discard(stream_msg_id)
             elapsed = time.monotonic() - start
             processing_time.labels(tenant=tenant_id).observe(elapsed)
