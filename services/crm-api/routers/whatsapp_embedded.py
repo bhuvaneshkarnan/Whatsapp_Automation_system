@@ -392,3 +392,55 @@ async def admin_whatsapp_embedded_signup(
             waba_id=payload.waba_id,
             phone_number_id=payload.phone_number_id
         )
+
+
+@router.post("/oauth/whatsapp/disconnect")
+async def tenant_disconnect_whatsapp(
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
+    """Disconnect and clear WhatsApp credentials for the current tenant workspace."""
+    if caller.get("role") not in ("admin", "owner", "super_admin"):
+        raise HTTPException(status_code=403, detail="Admin permissions required to disconnect WhatsApp.")
+
+    async with database.db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp'",
+            tenant_id
+        )
+        await conn.execute(
+            """UPDATE tenants 
+               SET whatsapp_configured = false, 
+                   settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{whatsapp_configured}', 'false'),
+                   updated_at = now() 
+               WHERE id = $1::uuid""",
+            tenant_id
+        )
+
+    await invalidate_tenant_cache(tenant_id)
+    return {"status": "disconnected", "tenant_id": tenant_id}
+
+
+@router.post("/admin/tenants/{target_tenant_id}/oauth/whatsapp/disconnect")
+async def admin_disconnect_whatsapp(
+    target_tenant_id: str,
+    admin_user: dict = Depends(verify_super_admin)
+):
+    """Super Admin endpoint to disconnect and clear WhatsApp credentials for a specific client tenant."""
+    async with database.db_pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp'",
+            target_tenant_id
+        )
+        await conn.execute(
+            """UPDATE tenants 
+               SET whatsapp_configured = false, 
+                   settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{whatsapp_configured}', 'false'),
+                   updated_at = now() 
+               WHERE id = $1::uuid""",
+            target_tenant_id
+        )
+
+    await invalidate_tenant_cache(target_tenant_id)
+    return {"status": "disconnected", "tenant_id": target_tenant_id}
+

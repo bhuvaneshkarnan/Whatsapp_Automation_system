@@ -1090,6 +1090,12 @@ export const crm = {
     );
   },
 
+  disconnectWhatsApp: () =>
+    request<{ status: string; tenant_id: string }>('/api/v1/crm/oauth/whatsapp/disconnect', {
+      method: 'POST',
+    }),
+
+
   getOnboardingStatus: (targetTenantId?: string) => {
     const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
     return request<TenantOnboardingStatus>(
@@ -2073,6 +2079,11 @@ export const admin = {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
+  disconnectWhatsApp: (tenantId: string) =>
+    request<{ status: string; tenant_id: string }>(`/api/v1/crm/admin/tenants/${tenantId}/oauth/whatsapp/disconnect`, {
+      method: 'POST',
+    }),
+
   // Staff Roles & Granular Permissions
   listStaff: (tenantId: string) =>
     request<StaffUser[]>(`/api/v1/crm/admin/tenants/${tenantId}/staff`),

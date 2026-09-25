@@ -5798,23 +5798,55 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                           </div>
                         )}
 
-                        <div className="pt-1">
-                          <WhatsAppEmbeddedSignupButton
-                            targetTenantId={editingConfigTenant.id}
-                            label={configForm.meta_phone_id ? 'Re-connect / Change Number via Meta' : 'Connect WhatsApp Business with Meta'}
-                            onSuccess={(data) => {
-                              setConfigForm((prev) => ({
-                                ...prev,
-                                meta_phone_id: data.phone_number_id,
-                                meta_waba_id: data.waba_id,
-                              }));
-                              loadData();
-                            }}
-                            onError={(err) => {
-                              alert(`Meta Embedded Signup error: ${err}`);
-                            }}
-                          />
+                        <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                          <div className="flex-1">
+                            <WhatsAppEmbeddedSignupButton
+                              targetTenantId={editingConfigTenant.id}
+                              label={configForm.meta_phone_id ? 'Re-connect / Change Number via Meta' : 'Connect WhatsApp Business with Meta'}
+                              onSuccess={(data) => {
+                                setConfigForm((prev) => ({
+                                  ...prev,
+                                  meta_phone_id: data.phone_number_id,
+                                  meta_waba_id: data.waba_id,
+                                }));
+                                loadData();
+                              }}
+                              onError={(err) => {
+                                alert(`Meta Embedded Signup error: ${err}`);
+                              }}
+                            />
+                          </div>
+                          {configForm.meta_phone_id && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!editingConfigTenant) return;
+                                if (!confirm(`Disconnect and clear WhatsApp for "${editingConfigTenant.name}"? This removes the current Phone Number ID and WABA keys so you can connect a fresh number.`)) return;
+                                try {
+                                  await admin.disconnectWhatsApp(editingConfigTenant.id);
+                                  setConfigForm((prev) => ({
+                                    ...prev,
+                                    meta_phone_id: '',
+                                    meta_waba_id: '',
+                                    meta_access_token: '',
+                                    meta_app_secret: '',
+                                  }));
+                                  setActionSuccessNotice(`WhatsApp credentials cleared for ${editingConfigTenant.name}`);
+                                  setTimeout(() => setActionSuccessNotice(null), 3500);
+                                  loadData();
+                                } catch (err: any) {
+                                  alert(`Failed to disconnect: ${err?.message || err}`);
+                                }
+                              }}
+                              className="px-3 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 border border-rose-500/30 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                              title="Clear WhatsApp credentials and reset"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Clear / Disconnect</span>
+                            </button>
+                          )}
                         </div>
+
 
                         {/* Shareable Client Onboarding Link */}
                         <div className="mt-3 p-3 bg-surface border border-emerald-300/60 dark:border-emerald-700/60 rounded-md flex flex-col gap-2.5 text-xs">
