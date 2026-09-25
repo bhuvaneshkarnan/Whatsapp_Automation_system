@@ -556,7 +556,9 @@ async def create_booking(
             # 5. Push Admin WhatsApp notification (if configured)
             admin_phone = creds.get("admin_whatsapp_number") or tenant_settings.get("admin_whatsapp_number")
             if admin_phone and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
-                clean_admin_phone = admin_phone.replace("+", "").replace(" ", "").replace("-", "").strip()
+                clean_admin_phone = re.sub(r'[^0-9]', '', str(admin_phone))
+                if len(clean_admin_phone) == 10:
+                    clean_admin_phone = f"91{clean_admin_phone}"
                 admin_tpl_name = (
                     tenant_settings.get("template_admin_notification") or
                     creds.get("template_admin_notification") or
@@ -586,7 +588,16 @@ async def create_booking(
                     }
                     async with httpx.AsyncClient(timeout=10.0) as client:
                         admin_res = await client.post(url, headers=headers, json=admin_payload_tpl)
-                        if admin_res.status_code not in (200, 201):
+                        if admin_res.status_code in (200, 201):
+                            logger.info("admin_booking_wa_template_success", template=admin_tpl_name, to=clean_admin_phone)
+                        elif "132000" in admin_res.text or "132001" in admin_res.text or "does not exist in" in admin_res.text:
+                            admin_payload_tpl["template"]["language"] = {"code": "en_US"}
+                            admin_res_retry = await client.post(url, headers=headers, json=admin_payload_tpl)
+                            if admin_res_retry.status_code in (200, 201):
+                                logger.info("admin_booking_wa_template_retry_lang_success", template=admin_tpl_name, to=clean_admin_phone)
+                            else:
+                                logger.warning("admin_booking_wa_template_failed_text_suppressed", status=admin_res_retry.status_code, text=admin_res_retry.text)
+                        else:
                             logger.warning("admin_booking_wa_template_failed_text_suppressed", status=admin_res.status_code, text=admin_res.text)
                 except Exception as e:
                     logger.error("admin_booking_wa_notify_error", error=str(e))

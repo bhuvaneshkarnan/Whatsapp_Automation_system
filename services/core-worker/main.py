@@ -2341,24 +2341,32 @@ class CoreWorker:
             "Use this live timestamp to resolve relative dates (today, tomorrow, next Monday) and know if a time has already passed.\n\n"
         )
 
+        active_statuses = ('confirmed', 'rescheduled', 'pending', 'reminded')
         upcoming_active_bookings = []
-        past_bookings = []
-        booking_info = "No previous appointments."
+        past_or_inactive_bookings = []
         if booking_rows:
-            b_list = []
             for b in booking_rows:
                 st = b['start_time']
                 st_local = st.astimezone(tenant_tz) if hasattr(st, 'astimezone') else st
                 b_dict = dict(b)
                 b_dict['start_time_local'] = st_local
                 b_status = (b.get('status') or 'confirmed').lower()
-                if b_status in ('confirmed', 'pending') and st_local >= (now - datetime.timedelta(hours=1)):
+                if b_status in active_statuses and st_local >= (now - datetime.timedelta(minutes=30)):
                     upcoming_active_bookings.append(b_dict)
                 else:
-                    past_bookings.append(b_dict)
-                staff_tag = f" with {b['staff_member']}" if b.get('staff_member') else ""
-                b_list.append(f"{b.get('service', 'Appointment')} on {st_local.strftime('%A, %d %b %Y at %I:%M %p')}{staff_tag} (Status: {b.get('status', 'confirmed')})")
-            booking_info = "; ".join(b_list)
+                    past_or_inactive_bookings.append(b_dict)
+
+        active_b_str = "; ".join([
+            f"{b.get('service', 'Appointment')} on {b['start_time_local'].strftime('%A, %d %b %Y at %I:%M %p')}" + (f" with {b['staff_member']}" if b.get('staff_member') else "") + f" (Status: {b.get('status', 'confirmed').upper()})"
+            for b in upcoming_active_bookings
+        ]) or "None (No active appointments)"
+
+        past_b_str = "; ".join([
+            f"{b.get('service', 'Appointment')} on {b['start_time_local'].strftime('%A, %d %b %Y at %I:%M %p')}" + (f" with {b['staff_member']}" if b.get('staff_member') else "") + f" (Status: {b.get('status', 'confirmed').upper()})"
+            for b in past_or_inactive_bookings
+        ]) or "None"
+
+        booking_info = f"Active: {active_b_str} | Past/Inactive: {past_b_str}"
 
         upcoming_booking_block = ""
         if upcoming_active_bookings:
@@ -2394,6 +2402,16 @@ class CoreWorker:
                 "   - Then and only then guide them through booking an additional session and append [ACTION:CREATE_BOOKING: ...] tag once confirmed.\n"
                 "4. CHECKING APPOINTMENT STATUS:\n"
                 "   - If they ask 'when is my appointment', 'what time is my booking', or similar status queries, confirm their upcoming appointment details clearly and reassure them.\n"
+            )
+        else:
+            upcoming_booking_block = (
+                "### CRITICAL APPOINTMENT STATUS — NO ACTIVE UPCOMING APPOINTMENTS:\n"
+                "- This customer CURRENTLY DOES NOT HAVE ANY ACTIVE OR UPCOMING APPOINTMENTS ON FILE.\n"
+                "- Any previous appointments on file are past, cancelled, completed, or marked as no-show.\n"
+                "- STRICT PROHIBITION: NEVER tell or imply to the customer that they have an upcoming, confirmed, or scheduled appointment!\n"
+                "- NEVER say 'I see you have a confirmed appointment for tomorrow' or 'You have an appointment on file'.\n"
+                "- When the customer sends a greeting (e.g. 'hi', 'hello', 'hey'), warmly greet them and ask how you can help them today without claiming they have an appointment.\n"
+                "- If the customer asks to book a new appointment or reschedule a past/missed/cancelled appointment, guide them smoothly by offering available slots from the list below.\n"
             )
 
         # Extract business operating hours from tenant settings
@@ -2533,7 +2551,8 @@ class CoreWorker:
                 f"- Customer Age on File: {customer_age if customer_age is not None else 'Not provided yet'}\n"
                 f"- Customer Location / City on File: {customer_location if customer_location else 'Not provided yet'}\n"
                 f"- Customer Email on File: {customer_email if customer_email else 'Not provided yet'}\n"
-                f"- Known Bookings for THIS Customer: {booking_info}\n"
+                f"- Active Upcoming Appointments: {active_b_str}\n"
+                f"- Past / Inactive Appointments: {past_b_str}\n"
                 f"- CRM Tags: {tags}\n"
                 f"- Clinical & Staff Notes: {customer_notes_text or notes or 'None'}\n\n"
                 "### RETURNING CUSTOMER RECOGNITION PROTOCOL:\n"
@@ -4010,6 +4029,9 @@ class CoreWorker:
                 logger.warning("booking_push_failed", error=str(b_err))
 
             # 1. Send Meta WhatsApp Template (booking_confirmationn) and record in messages table
+            if not creds:
+                creds = await self._get_tenant_whatsapp_creds(tenant_id)
+
             if creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
                 template_name = (
                     creds.get("template_booking_confirmation") or
@@ -4140,9 +4162,9 @@ class CoreWorker:
                         admin_phone = (tenant_st_data.get("admin_whatsapp_number") or "").strip()
 
                 if admin_phone:
-                    clean_admin_phone = re.sub(r'[^0-9+]', '', admin_phone)
-                    if not clean_admin_phone.startswith("+"):
-                        clean_admin_phone = f"+91{clean_admin_phone}" if len(clean_admin_phone) == 10 else f"+{clean_admin_phone}"
+                    clean_admin_phone = re.sub(r'[^0-9]', '', admin_phone)
+                    if len(clean_admin_phone) == 10:
+                        clean_admin_phone = f"91{clean_admin_phone}"
 
                     admin_alert_text = (
                         f"🔔 *New Booking Confirmed!* 📅\n\n"
@@ -4631,9 +4653,9 @@ class CoreWorker:
                     except Exception:
                         pass
 
-            # Find active booking (confirmed, rescheduled, pending, or reminded)
+            # Find booking to cancel (prioritizes active/upcoming, but matches any recent booking even if previously no_show or uncancelled)
             booking = await self.db_pool.fetchrow(
-                """SELECT b.id, b.service, b.start_time, b.google_event_id
+                """SELECT b.id, b.service, b.start_time, b.google_event_id, b.status
                    FROM bookings b
                    LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
                    WHERE b.tenant_id = $1::uuid 
@@ -4643,12 +4665,15 @@ class CoreWorker:
                        OR c.phone = $4 
                        OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($4, '[^0-9]', '', 'g'), 10)
                      )
-                     AND b.status IN ('confirmed', 'rescheduled', 'pending', 'reminded')
-                   ORDER BY b.start_time DESC LIMIT 1""",
+                   ORDER BY 
+                     CASE WHEN b.status NOT IN ('cancelled', 'completed') THEN 0 ELSE 1 END,
+                     CASE WHEN b.start_time >= (now() - INTERVAL '12 hours') THEN 0 ELSE 1 END,
+                     b.start_time DESC
+                   LIMIT 1""",
                 tenant_id, contact_id, conv_id, contact_phone
             )
             if not booking:
-                logger.info("no_active_booking_to_cancel", contact_id=contact_id, conv_id=conv_id, phone=contact_phone)
+                logger.info("no_booking_found_to_cancel", contact_id=contact_id, conv_id=conv_id, phone=contact_phone)
                 return
 
             booking_id = str(booking["id"])
@@ -4657,6 +4682,18 @@ class CoreWorker:
             formatted_date = st_dt.strftime("%d-%m-%Y")
             formatted_time = st_dt.strftime("%I:%M %p")
             name = customer_name or "Valued Customer"
+            if not customer_name or customer_name.strip() in ("", "Valued Customer", "there"):
+                db_name = await self.db_pool.fetchval(
+                    """SELECT COALESCE(c.name, c.wa_profile_name) FROM contacts c WHERE c.id = $1::uuid AND c.tenant_id = $2::uuid""",
+                    contact_id, tenant_id
+                )
+                if not db_name and contact_phone:
+                    db_name = await self.db_pool.fetchval(
+                        """SELECT name FROM customers WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10)) LIMIT 1""",
+                        tenant_id, contact_phone
+                    )
+                if db_name and str(db_name).strip():
+                    name = str(db_name).strip()
 
             # 1. Update status in DB with strict multi-tenancy
             await self.db_pool.execute(
@@ -4754,6 +4791,9 @@ class CoreWorker:
                             logger.warning("gcal_delete_event_failed", error=str(e))
 
             # 3. Send Customer Cancellation Meta Template
+            if not creds:
+                creds = await self._get_tenant_whatsapp_creds(tenant_id)
+
             if creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
                 template_name = (
                     creds.get("template_cancellation_confirmation") or
@@ -4797,9 +4837,9 @@ class CoreWorker:
                     admin_phone = (tenant_st_row.get("admin_whatsapp_number") or "").strip()
 
                 if admin_phone:
-                    clean_admin_phone = re.sub(r'[^0-9+]', '', admin_phone)
-                    if not clean_admin_phone.startswith("+"):
-                        clean_admin_phone = f"+91{clean_admin_phone}" if len(clean_admin_phone) == 10 else f"+{clean_admin_phone}"
+                    clean_admin_phone = re.sub(r'[^0-9]', '', admin_phone)
+                    if len(clean_admin_phone) == 10:
+                        clean_admin_phone = f"91{clean_admin_phone}"
 
                     admin_cancel_text = (
                         f"⚠️ *Booking Cancelled Notice!* 📅\n\n"
@@ -5059,15 +5099,19 @@ class CoreWorker:
                     except Exception:
                         pass
 
-            # Find existing confirmed or rescheduled booking
+            # Find existing booking to reschedule (prioritize active/upcoming, but allow rescheduling any recent non-cancelled booking)
             old_booking = await self.db_pool.fetchrow(
-                """SELECT b.id, b.service, b.google_event_id
+                """SELECT b.id, b.service, b.google_event_id, b.status
                    FROM bookings b
                    LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
                    WHERE b.tenant_id = $1::uuid
                      AND (b.contact_id = $2::uuid OR b.conversation_id = $3::uuid OR c.phone = $4 OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($4, '[^0-9]', '', 'g'), 10))
-                     AND b.status IN ('confirmed', 'rescheduled', 'pending', 'reminded')
-                   ORDER BY b.start_time DESC LIMIT 1""",
+                     AND b.status != 'cancelled'
+                   ORDER BY 
+                     CASE WHEN b.status NOT IN ('cancelled', 'completed') THEN 0 ELSE 1 END,
+                     CASE WHEN b.start_time >= (now() - INTERVAL '12 hours') THEN 0 ELSE 1 END,
+                     b.start_time DESC
+                   LIMIT 1""",
                 tenant_id, contact_id, conv_id, contact_phone
             )
 
@@ -5268,6 +5312,22 @@ class CoreWorker:
                 logger.warning("reminder_job_reschedule_failed", error=str(e_rem))
 
             # Send Customer Reschedule Meta Template
+            if not creds:
+                creds = await self._get_tenant_whatsapp_creds(tenant_id)
+
+            if not customer_name or customer_name.strip() in ("", "Valued Customer", "there"):
+                db_name = await self.db_pool.fetchval(
+                    """SELECT COALESCE(c.name, c.wa_profile_name) FROM contacts c WHERE c.id = $1::uuid AND c.tenant_id = $2::uuid""",
+                    contact_id, tenant_id
+                )
+                if not db_name and contact_phone:
+                    db_name = await self.db_pool.fetchval(
+                        """SELECT name FROM customers WHERE tenant_id = $1::uuid AND (phone = $2 OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($2, '[^0-9]', '', 'g'), 10)) LIMIT 1""",
+                        tenant_id, contact_phone
+                    )
+                if db_name and str(db_name).strip():
+                    name = str(db_name).strip()
+
             if creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
                 template_name = (
                     creds.get("template_reschedule_confirmation") or
@@ -5329,9 +5389,9 @@ class CoreWorker:
                     admin_phone = (tenant_st_row.get("admin_whatsapp_number") or "").strip()
 
                 if admin_phone:
-                    clean_admin_phone = re.sub(r'[^0-9+]', '', admin_phone)
-                    if not clean_admin_phone.startswith("+"):
-                        clean_admin_phone = f"+91{clean_admin_phone}" if len(clean_admin_phone) == 10 else f"+{clean_admin_phone}"
+                    clean_admin_phone = re.sub(r'[^0-9]', '', admin_phone)
+                    if len(clean_admin_phone) == 10:
+                        clean_admin_phone = f"91{clean_admin_phone}"
 
                     # Send Meta Template FIRST (immune to 24h customer window)
                     admin_template = (

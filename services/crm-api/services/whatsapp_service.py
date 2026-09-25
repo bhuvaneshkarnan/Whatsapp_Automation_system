@@ -25,6 +25,36 @@ from utils import expand_template_body
 
 logger = structlog.get_logger('crm-api-whatsapp')
 
+
+async def get_active_pool():
+    """Find active db_pool across crm_api.database or database modules, or auto-initialize."""
+    import sys
+    for mod_name in ("crm_api.database", "database"):
+        m = sys.modules.get(mod_name)
+        if m and getattr(m, "db_pool", None):
+            return m.db_pool
+    try:
+        import database as db_mod
+        if getattr(db_mod, "db_pool", None):
+            return db_mod.db_pool
+    except Exception:
+        pass
+    try:
+        import crm_api.database as crm_db
+        if getattr(crm_db, "db_pool", None):
+            return crm_db.db_pool
+    except Exception:
+        pass
+    try:
+        import database
+        if not getattr(database, "db_pool", None):
+            await database.init_db_pool()
+        return database.db_pool
+    except Exception as e:
+        logger.error("failed_to_initialize_fallback_pool", error=str(e))
+        return None
+
+
 async def dispatch_whatsapp_message(
     tenant_id: str,
     to_phone: str,
@@ -39,7 +69,12 @@ async def dispatch_whatsapp_message(
     if len(clean_phone) == 10:
         clean_phone = f"91{clean_phone}"
     try:
-        async with database.db_pool.acquire() as conn:
+        pool = await get_active_pool()
+        if not pool:
+            logger.error("dispatch_whatsapp_message_no_pool", tenant_id=tenant_id)
+            return None
+
+        async with pool.acquire() as conn:
             cred_row = await conn.fetchrow(
                 """SELECT credential_data FROM tenant_credentials
                    WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true""",
@@ -93,6 +128,15 @@ async def dispatch_whatsapp_message(
             if resp.status_code in (200, 201):
                 logger.info("dispatch_whatsapp_message_success", tenant_id=tenant_id, phone=clean_phone)
                 return resp.json()
+
+            # Retry with en_US if en returns template not found
+            if template_name and ("132000" in resp.text or "132001" in resp.text or "does not exist in" in resp.text):
+                payload["template"]["language"] = {"code": "en_US"}
+                resp_retry = await client.post(url, headers=headers, json=payload)
+                if resp_retry.status_code in (200, 201):
+                    logger.info("dispatch_whatsapp_message_retry_lang_success", tenant_id=tenant_id, phone=clean_phone)
+                    return resp_retry.json()
+
             logger.warning("dispatch_whatsapp_message_status_error", status_code=resp.status_code, body=resp.text, phone=clean_phone)
 
             # Proactive Alert: notify Super Admin of dispatch failure with tenant name
@@ -160,7 +204,12 @@ async def dispatch_automated_status_whatsapp(
             logger.info("delayed_automated_wa_scheduled", tenant_id=tenant_id, delay=delay_seconds, phone=phone, template=template_name)
             await asyncio.sleep(delay_seconds)
 
-        async with database.db_pool.acquire() as conn:
+        pool = await get_active_pool()
+        if not pool:
+            logger.error("dispatch_automated_status_whatsapp_no_pool", tenant_id=tenant_id)
+            return
+
+        async with pool.acquire() as conn:
             cred_row = await conn.fetchrow(
                 "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
                 tenant_id
@@ -337,7 +386,12 @@ async def dispatch_admin_reschedule_whatsapp(
     Push admin reschedule notification via WhatsApp template (with fallback to approved admin_notification, then text).
     """
     try:
-        async with database.db_pool.acquire() as conn:
+        pool = await get_active_pool()
+        if not pool:
+            logger.error("dispatch_admin_reschedule_whatsapp_no_pool", tenant_id=tenant_id)
+            return
+
+        async with pool.acquire() as conn:
             wa_row = await conn.fetchrow(
                 "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
                 tenant_id
@@ -429,7 +483,12 @@ async def dispatch_admin_cancellation_whatsapp(
     Push admin cancellation notification via approved Meta template admin_cancellation_notice (with fallback to text).
     """
     try:
-        async with database.db_pool.acquire() as conn:
+        pool = await get_active_pool()
+        if not pool:
+            logger.error("dispatch_admin_cancellation_whatsapp_no_pool", tenant_id=tenant_id)
+            return
+
+        async with pool.acquire() as conn:
             wa_row = await conn.fetchrow(
                 "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'whatsapp' AND is_active = true",
                 tenant_id
