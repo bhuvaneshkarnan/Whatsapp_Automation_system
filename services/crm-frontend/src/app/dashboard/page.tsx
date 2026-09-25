@@ -58,6 +58,7 @@ import {
   LogOut,
   RefreshCw,
   Sliders,
+  SlidersHorizontal,
   Building2,
   ShoppingBag,
   CheckCircle2,
