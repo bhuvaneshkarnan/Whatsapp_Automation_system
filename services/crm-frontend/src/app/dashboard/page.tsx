@@ -36,6 +36,7 @@ import {
   TenantOnboardingStatus,
   OnboardingStep,
 } from '@/lib/api';
+import { ModernCustomerView } from '@/components/dashboard/ModernCustomerView';
 import { MergeCustomersModal } from '@/components/dashboard/MergeCustomersModal';
 import QrStandeeModal from '@/components/QrStandeeModal';
 import WhatsAppEmbeddedSignupButton from '@/components/WhatsAppEmbeddedSignupButton';
@@ -13989,7 +13990,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             )}
             {/* ── UNIFIED VIEW: CUSTOMERS & FOLLOW-UP ───────────────────── */}
             {(activeNav === 'customers' || activeNav === 'followup') && (
-              <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
+              isMindBodyRecovery ? (
+                <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
                 {/* Clean, Unified Header with Title, Taxonomy, Sub-Tabs, Search, and Action Toolbar */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-1.5 pt-0.5 shrink-0">
                   <div className="flex items-center gap-2.5 flex-wrap">
@@ -14632,28 +14634,30 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           </select>
                                         </div>
 
-                                        {/* Call Button below Status / Outcome */}
-                                        <div className="pt-0.5 flex justify-start">
-                                          {cust.phone ? (
-                                            <a
-                                              href={`tel:${(cust.phone || '').replace(/[^0-9+]/g, '')}`}
-                                              onClick={(e) => e.stopPropagation()}
-                                              className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[10.5px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/80 shadow-2xs transition-all cursor-pointer group hover:border-emerald-400"
-                                              title={`Call ${cust.name || (currentTaxonomy.client_label || 'Customer')}: ${cust.phone}`}
-                                            >
-                                              <PhoneCall className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 stroke-[2.2] group-hover:scale-110 transition-transform shrink-0" />
-                                              <span>Call</span>
-                                            </a>
-                                          ) : (
-                                            <span
-                                              className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[10px] font-medium bg-surface-subtle text-text-muted border border-border/60 shadow-2xs opacity-50 cursor-not-allowed"
-                                              title="No phone number available"
-                                            >
-                                              <PhoneCall className="w-2.5 h-2.5 text-text-muted shrink-0" />
-                                              <span>Call</span>
-                                            </span>
-                                          )}
-                                        </div>
+                                        {/* Mind Body Recovery ONLY: Call Button below Status / Outcome */}
+                                        {isMindBodyRecovery && (
+                                          <div className="pt-0.5 flex justify-start">
+                                            {cust.phone ? (
+                                              <a
+                                                href={`tel:${(cust.phone || '').replace(/[^0-9+]/g, '')}`}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[10.5px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/80 shadow-2xs transition-all cursor-pointer group hover:border-emerald-400"
+                                                title={`Call ${cust.name || 'Patient'}: ${cust.phone}`}
+                                              >
+                                                <PhoneCall className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 stroke-[2.2] group-hover:scale-110 transition-transform shrink-0" />
+                                                <span>Call</span>
+                                              </a>
+                                            ) : (
+                                              <span
+                                                className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[10px] font-medium bg-surface-subtle text-text-muted border border-border/60 shadow-2xs opacity-50 cursor-not-allowed"
+                                                title="No phone number available"
+                                              >
+                                                <PhoneCall className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                                                <span>Call</span>
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
                                       </div>
                                     </td>
 
@@ -15391,6 +15395,64 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                 )}
               </div>
+              ) : (
+                <ModernCustomerView
+                  customers={customers}
+                  selectedCustomer={selectedCustomer}
+                  onSelectCustomer={handleSelectCustomer}
+                  onUpdateCustomer={handleUpdateCustomer}
+                  onOpenChat={(cust) => {
+                    handleSelectCustomer(cust);
+                    setDrawerActiveTab('chat');
+                  }}
+                  onOpenDetails={(cust) => {
+                    handleSelectCustomer(cust);
+                    setDrawerActiveTab('profile');
+                  }}
+                  onAddCustomer={() => setShowAddCustomerModal(true)}
+                  onExportCsv={exportCustomersToCsv}
+                  onRefresh={() => {
+                    loadCustomers();
+                    loadTasks();
+                    setLoadingAllNotes(true);
+                    crm.getAllNotes().then((n) => {
+                      setAllNotes(Array.isArray(n) ? n : []);
+                      setLoadingAllNotes(false);
+                    }).catch(() => setLoadingAllNotes(false));
+                  }}
+                  loading={loadingCustomers}
+                  tasks={tasks}
+                  allNotes={allNotes}
+                  taxonomy={currentTaxonomy}
+                  renderDrawer={renderCustomerDetailDrawer}
+                  categorizedStaffOptions={categorizedStaffOptions}
+                  crmDropdowns={crmDropdowns}
+                  openDropdownOptionsModal={openDropdownOptionsModal}
+                  loadingTasks={loadingTasks}
+                  loadingNotes={loadingAllNotes}
+                  onDeleteNote={handleDeleteNote}
+                  onAddTask={() => setShowAddTaskModal(true)}
+                  onToggleTask={handleToggleTask}
+                  onDeleteTask={handleDeleteTask}
+                  onOpenQuickNote={(cust: any) => {
+                    setQuickNoteCustomer({
+                      customerId: cust.id,
+                      name: cust.name || 'Customer',
+                      phone: cust.phone || null,
+                      noteId: cust.latest_note_id || null,
+                      ai_summary: cust.ai_summary || null,
+                      health_concern: cust.health_concern || null,
+                    });
+                    setQuickNoteText(cust.latest_note || '');
+                    setQuickNoteColor((cust.latest_note_color || 'slate').toLowerCase());
+                  }}
+                  onDeleteLatestNote={handleDeleteCustomerLatestNote}
+                  onOpenMergeModal={(cust, secId) => {
+                    setMergeModalCustomer(cust);
+                    setMergeModalSecondaryId(secId || null);
+                  }}
+                />
+              )
             )}
 
             {/* Merge Customers Modal */}
