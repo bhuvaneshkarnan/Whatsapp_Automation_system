@@ -4588,7 +4588,7 @@ class CoreWorker:
         _lock_key = f"cancel_lock:{tenant_id}:{conv_id}"
         _lock_acquired = False
         try:
-            _lock_acquired = await self.redis.set(_lock_key, "1", nx=True, ex=30)
+            _lock_acquired = await self.redis.set(_lock_key, "1", nx=True, ex=60)
         except Exception as _lock_err:
             logger.warning("cancel_lock_redis_error", error=str(_lock_err), conv_id=conv_id)
             _lock_acquired = True  # Degrade gracefully: proceed if Redis is down
