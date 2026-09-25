@@ -36,7 +36,6 @@ import {
   TenantOnboardingStatus,
   OnboardingStep,
 } from '@/lib/api';
-import { ModernCustomerView } from '@/components/dashboard/ModernCustomerView';
 import { MergeCustomersModal } from '@/components/dashboard/MergeCustomersModal';
 import QrStandeeModal from '@/components/QrStandeeModal';
 import WhatsAppEmbeddedSignupButton from '@/components/WhatsAppEmbeddedSignupButton';
@@ -5109,7 +5108,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       const [bData, cData, tData, gData, statsData] = await Promise.all([
           crm.getBookings(undefined, 500).catch(() => []),
           crm.getCustomers({ limit: 1000 }).catch(() => []),
-          isMindBodyRecovery ? crm.getTasks('all').catch(() => []) : Promise.resolve([]),
+          crm.getTasks('all').catch(() => []),
           crm.getLiveCalendarAvailability().catch(() => null),
           crm.getCustomerStats({
             status: followupStatusFilter,
@@ -11803,17 +11802,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <span>{syncingGoogleTasks ? 'Syncing...' : 'Sync Tasks'}</span>
                       </button>
 
-                      {isMindBodyRecovery && (
-                        <button
-                          type="button"
-                          onClick={() => setShowAddTaskModal(true)}
-                          className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
-                          title="Create a new task"
-                        >
-                          <CheckSquare className="w-3.5 h-3.5 stroke-[1.5] text-amber-600" />
-                          <span>+ Task</span>
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowAddTaskModal(true)}
+                        className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
+                        title="Create a new task"
+                      >
+                        <CheckSquare className="w-3.5 h-3.5 stroke-[1.5] text-amber-600" />
+                        <span>+ Task</span>
+                      </button>
 
                       <button
                         type="button"
@@ -11829,11 +11826,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   {/* Row 2: Unified Layer / Filter Selector Pills (All, Appointments, Follow-ups, Tasks) */}
                   <div className="flex items-center gap-1.5 bg-surface-subtle border border-border rounded-sm p-0.5 w-full sm:w-fit flex-nowrap overflow-x-auto no-scrollbar max-w-full">
                     {[
-                      { key: 'all', label: 'All Schedule', icon: LayoutGrid, count: (bookings?.length || 0) + (customers?.filter(c => c.followup_date).length || 0) + (isMindBodyRecovery ? (tasks?.filter(t => !t.completed).length || 0) : 0) + (liveGcalEvents?.length || 0) },
+                      { key: 'all', label: 'All Schedule', icon: LayoutGrid, count: (bookings?.length || 0) + (customers?.filter(c => c.followup_date).length || 0) + (tasks?.filter(t => !t.completed).length || 0) + (liveGcalEvents?.length || 0) },
                       { key: 'bookings', label: currentTaxonomy.event_label || 'Appointments', icon: Calendar, count: bookings?.length || 0 },
                       ...(liveGcalEvents && liveGcalEvents.length > 0 ? [{ key: 'gcal', label: 'Google Cal', icon: Calendar, count: liveGcalEvents.length }] : []),
                       { key: 'followups', label: 'Follow-ups', icon: Phone, count: customers?.filter(c => c.followup_date).length || 0 },
-                      ...(isMindBodyRecovery ? [{ key: 'tasks', label: 'Tasks', icon: CheckSquare, count: tasks?.filter(t => !t.completed).length || 0 }] : []),
+                      { key: 'tasks', label: 'Tasks', icon: CheckSquare, count: tasks?.filter(t => !t.completed).length || 0 },
                     ].map((tab) => {
                       const IconComp = tab.icon;
                       const isActive = calendarLayerFilter === tab.key;
@@ -11892,11 +11889,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           return isSameDay(c.followup_date, cellDate);
                         });
 
-                        // 3. Matching Tasks (MindBodyRecovery ONLY)
-                        const cellTasks = isMindBodyRecovery ? (tasks || []).filter((t) => {
+                        // 3. Matching Tasks
+                        const cellTasks = (tasks || []).filter((t) => {
                           if (!t || !t.due_date) return false;
                           return isSameDay(t.due_date, cellDate);
-                        }) : [];
+                        });
 
                         // 4. Matching Google Calendar Live Events
                         const cellGcalEvents = (liveGcalEvents || []).filter((g) => {
@@ -11911,7 +11908,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                         const showBookings = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings';
                         const showFollowups = calendarLayerFilter === 'all' || calendarLayerFilter === 'followups';
-                        const showTasks = isMindBodyRecovery && (calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks');
+                        const showTasks = calendarLayerFilter === 'all' || calendarLayerFilter === 'tasks';
                         const showGcal = calendarLayerFilter === 'all' || calendarLayerFilter === 'bookings' || calendarLayerFilter === 'gcal';
 
                         const allCellItems: Array<
@@ -13959,7 +13956,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             )}
             {/* ── UNIFIED VIEW: CUSTOMERS & FOLLOW-UP ───────────────────── */}
             {(activeNav === 'customers' || activeNav === 'followup') && (
-              isClinicTenant ? (
               <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
                 {/* Compact Header with Title, Dynamic Taxonomy, + Add Customer, and Sub-Tabs */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-1.5 pt-0.5">
@@ -14663,30 +14659,28 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           </select>
                                         </div>
 
-                                        {/* Mind Body Recovery ONLY: Call Button below Status / Outcome */}
-                                        {isMindBodyRecovery && (
-                                          <div className="pt-0.5 flex justify-start">
-                                            {cust.phone ? (
-                                              <a
-                                                href={`tel:${(cust.phone || '').replace(/[^0-9+]/g, '')}`}
-                                                onClick={(e) => e.stopPropagation()}
-                                                className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[10.5px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/80 shadow-2xs transition-all cursor-pointer group hover:border-emerald-400"
-                                                title={`Call ${cust.name || 'Patient'}: ${cust.phone}`}
-                                              >
-                                                <PhoneCall className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 stroke-[2.2] group-hover:scale-110 transition-transform shrink-0" />
-                                                <span>Call</span>
-                                              </a>
-                                            ) : (
-                                              <span
-                                                className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[10px] font-medium bg-surface-subtle text-text-muted border border-border/60 shadow-2xs opacity-50 cursor-not-allowed"
-                                                title="No phone number available"
-                                              >
-                                                <PhoneCall className="w-2.5 h-2.5 text-text-muted shrink-0" />
-                                                <span>Call</span>
-                                              </span>
-                                            )}
-                                          </div>
-                                        )}
+                                        {/* Call Button below Status / Outcome */}
+                                        <div className="pt-0.5 flex justify-start">
+                                          {cust.phone ? (
+                                            <a
+                                              href={`tel:${(cust.phone || '').replace(/[^0-9+]/g, '')}`}
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[10.5px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/80 shadow-2xs transition-all cursor-pointer group hover:border-emerald-400"
+                                              title={`Call ${cust.name || (currentTaxonomy.client_label || 'Customer')}: ${cust.phone}`}
+                                            >
+                                              <PhoneCall className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 stroke-[2.2] group-hover:scale-110 transition-transform shrink-0" />
+                                              <span>Call</span>
+                                            </a>
+                                          ) : (
+                                            <span
+                                              className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[10px] font-medium bg-surface-subtle text-text-muted border border-border/60 shadow-2xs opacity-50 cursor-not-allowed"
+                                              title="No phone number available"
+                                            >
+                                              <PhoneCall className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                                              <span>Call</span>
+                                            </span>
+                                          )}
+                                        </div>
                                       </div>
                                     </td>
 
@@ -15424,64 +15418,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
                 )}
               </div>
-              ) : (
-                <ModernCustomerView
-                  customers={customers}
-                  selectedCustomer={selectedCustomer}
-                  onSelectCustomer={handleSelectCustomer}
-                  onUpdateCustomer={handleUpdateCustomer}
-                  onOpenChat={(cust) => {
-                    handleSelectCustomer(cust);
-                    setDrawerActiveTab('chat');
-                  }}
-                  onOpenDetails={(cust) => {
-                    handleSelectCustomer(cust);
-                    setDrawerActiveTab('profile');
-                  }}
-                  onAddCustomer={() => setShowAddCustomerModal(true)}
-                  onExportCsv={exportCustomersToCsv}
-                  onRefresh={() => {
-                    loadCustomers();
-                    loadTasks();
-                    setLoadingAllNotes(true);
-                    crm.getAllNotes().then((n) => {
-                      setAllNotes(Array.isArray(n) ? n : []);
-                      setLoadingAllNotes(false);
-                    }).catch(() => setLoadingAllNotes(false));
-                  }}
-                  loading={loadingCustomers}
-                  tasks={tasks}
-                  allNotes={allNotes}
-                  taxonomy={currentTaxonomy}
-                  renderDrawer={renderCustomerDetailDrawer}
-                  categorizedStaffOptions={categorizedStaffOptions}
-                  crmDropdowns={crmDropdowns}
-                  openDropdownOptionsModal={openDropdownOptionsModal}
-                  loadingTasks={loadingTasks}
-                  loadingNotes={loadingAllNotes}
-                  onDeleteNote={handleDeleteNote}
-                  onAddTask={() => setShowAddTaskModal(true)}
-                  onToggleTask={handleToggleTask}
-                  onDeleteTask={handleDeleteTask}
-                  onOpenQuickNote={(cust: any) => {
-                    setQuickNoteCustomer({
-                      customerId: cust.id,
-                      name: cust.name || 'Customer',
-                      phone: cust.phone || null,
-                      noteId: cust.latest_note_id || null,
-                      ai_summary: cust.ai_summary || null,
-                      health_concern: cust.health_concern || null,
-                    });
-                    setQuickNoteText(cust.latest_note || '');
-                    setQuickNoteColor((cust.latest_note_color || 'slate').toLowerCase());
-                  }}
-                  onDeleteLatestNote={handleDeleteCustomerLatestNote}
-                  onOpenMergeModal={(cust, secId) => {
-                    setMergeModalCustomer(cust);
-                    setMergeModalSecondaryId(secId || null);
-                  }}
-                />
-              )
             )}
 
             {/* Merge Customers Modal */}
