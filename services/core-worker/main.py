@@ -2889,14 +2889,19 @@ class CoreWorker:
             "  Scoring: 'hot' (booking/payment/call requested), 'warm' (asking pricing/services/questions), 'cold' (disengaged/declining)."
         )
 
-        full_location = (creds.get("full_location_text") or "").strip() if creds else ""
+        # full_location: creds is WhatsApp API keys only — never has full_location_text.
+        # Use tenant_st_row (already loaded above) which is the full tenants.settings dict.
+        full_location = ""
+        if tenant_st_row and isinstance(tenant_st_row, dict):
+            full_location = (tenant_st_row.get("full_location_text") or "").strip()
         if not full_location:
-            tenant_st = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
-            if tenant_st:
-                if isinstance(tenant_st, str):
-                    try: tenant_st = json.loads(tenant_st)
-                    except: tenant_st = {}
-                full_location = (tenant_st.get("full_location_text") or "").strip()
+            # Fallback: fresh DB fetch in case tenant_st_row wasn't loaded
+            _ts = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+            if _ts:
+                if isinstance(_ts, str):
+                    try: _ts = json.loads(_ts)
+                    except: _ts = {}
+                full_location = (_ts.get("full_location_text") or "").strip()
 
         tenant_isolation_boundary = (
             "### STRICT TENANT IDENTITY & FACTUAL DATA ISOLATION (ABSOLUTE MANDATORY DIRECTIVE):\n"
@@ -2977,7 +2982,14 @@ class CoreWorker:
         if full_location:
             prompt_blocks.append(
                 f"### BUSINESS ADDRESS ON FILE:\n{full_location}\n"
-                "- Use this address when asked for location, unless the Tenant Custom AI Instructions above specify a custom format (e.g. short city/area only)."
+                "- Use EXACTLY this address when asked for location. Do NOT modify, abbreviate, or replace it with any other address."
+            )
+        else:
+            prompt_blocks.append(
+                "### BUSINESS ADDRESS:\n"
+                "- No address has been configured for this business in the system.\n"
+                "- STRICT RULE: Do NOT invent, guess, or fabricate any address or location.\n"
+                "- When asked for address or location: reply warmly that the team will send the exact address and map pin shortly, and offer to confirm via a quick call. Example: 'Our team will send you the exact address and map pin in the next message. Would you like to confirm via a quick call first?'"
             )
 
         tenant_website = ""
