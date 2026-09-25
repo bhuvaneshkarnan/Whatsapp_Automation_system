@@ -136,9 +136,51 @@ export default function WhatsAppEmbeddedSignupButton({
   const handleLaunchEmbeddedSignup = () => {
     setLoading(true);
     capturedEventData.current = {};
-    const metaUrl = getMetaOnboardingUrl();
 
-    // Direct popup window opener (guaranteed to open on user click, bypassing adblockers & broken SDKs)
+    if (typeof window !== 'undefined' && window.FB) {
+      try {
+        window.FB.login(
+          (response: any) => {
+            if (response?.authResponse?.code) {
+              const code = response.authResponse.code;
+              crm.submitWhatsAppEmbeddedSignup({
+                code,
+                phone_number_id: capturedEventData.current.phone_number_id || '',
+                waba_id: capturedEventData.current.waba_id || '',
+                target_tenant_id: targetTenantId,
+              })
+                .then((res) => {
+                  setLoading(false);
+                  onSuccess({
+                    phone_number_id: res.phone_number_id || '',
+                    waba_id: res.waba_id || '',
+                  });
+                })
+                .catch((err) => {
+                  setLoading(false);
+                  if (onError) onError(err instanceof Error ? err.message : 'WhatsApp registration failed.');
+                });
+            } else {
+              setLoading(false);
+            }
+          },
+          {
+            config_id: activeConfigId,
+            response_type: 'code',
+            override_default_response_type: true,
+            extras: {
+              featureType: 'whatsapp_business_app_onboarding',
+            },
+          }
+        );
+        return;
+      } catch (e) {
+        console.warn('FB.login failed, using popup fallback:', e);
+      }
+    }
+
+    // Direct popup window opener (guaranteed fallback)
+    const metaUrl = getMetaOnboardingUrl();
     const w = 660;
     const h = 820;
     const left = typeof window !== 'undefined' ? Math.max(0, (window.screen.width - w) / 2) : 100;
@@ -151,7 +193,6 @@ export default function WhatsAppEmbeddedSignupButton({
     );
 
     if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-      // Browser popup blocker strictly prevented popup; redirect direct
       window.location.href = metaUrl;
       return;
     }
@@ -173,8 +214,8 @@ export default function WhatsAppEmbeddedSignupButton({
             popup.close();
             crm.submitWhatsAppEmbeddedSignup({
               code,
-              phone_number_id: urlParams.get('phone_number_id') || '',
-              waba_id: urlParams.get('waba_id') || '',
+              phone_number_id: urlParams.get('phone_number_id') || capturedEventData.current.phone_number_id || '',
+              waba_id: urlParams.get('waba_id') || capturedEventData.current.waba_id || '',
               target_tenant_id: targetTenantId,
             })
               .then((res) => {

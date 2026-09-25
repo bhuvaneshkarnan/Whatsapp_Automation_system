@@ -5823,12 +5823,8 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                           <button
                             type="button"
                             onClick={() => {
-                              const extras = JSON.stringify({
-                                version: "v4",
-                                sessionInfoVersion: "3",
-                                featureType: "whatsapp_business_app_onboarding"
-                              });
-                              const link = `https://business.facebook.com/messaging/whatsapp/onboard/?app_id=966476346452663&config_id=2164202260830085&extras=${encodeURIComponent(extras)}&redirect_uri=${encodeURIComponent('https://crm.goboldlabs.com/dashboard')}&state=${encodeURIComponent(JSON.stringify({ target_tenant_id: editingConfigTenant.id }))}`;
+                              const origin = typeof window !== 'undefined' ? window.location.origin : 'https://crm.goboldlabs.com';
+                              const link = `${origin}/onboard?tenant_id=${encodeURIComponent(editingConfigTenant.id)}&tenant_name=${encodeURIComponent(editingConfigTenant.name || '')}`;
                               navigator.clipboard.writeText(link);
                               alert('Copied 1-Click WhatsApp Onboarding Link to clipboard!\n\nYou can now send this link directly to your client via WhatsApp or Email.');
                             }}
