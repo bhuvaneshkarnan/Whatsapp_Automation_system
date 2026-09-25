@@ -32,7 +32,8 @@ export default function Home() {
 
     auth.me()
       .then((me) => {
-        const slug = me.tenant_slug || localStorage.getItem('tenant_slug');
+        const savedSlug = typeof window !== 'undefined' ? localStorage.getItem('tenant_slug') : null;
+        const slug = (me.role === 'super_admin' ? (savedSlug || me.tenant_slug) : (me.tenant_slug || savedSlug));
 
         // On a custom domain (e.g. ai.bizpipe.in), verify the logged-in user belongs to this domain
         if (isCustomDomain && slug && slug !== 'bhuvanesh') {

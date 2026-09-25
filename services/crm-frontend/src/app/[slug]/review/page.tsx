@@ -7,6 +7,7 @@ export function generateStaticParams() {
     { slug: 'mindbodyrecovery' },
     { slug: 'bizpipe-demo' },
     { slug: 'smaato-mobile' },
+    { slug: 'aadhiran' },
     { slug: 'dashboard' },
   ];
 }

@@ -96,6 +96,7 @@ import {
   PartnerAgencyTemplate,
   TenantOnboardingStatus,
   OnboardingStep,
+  registerTenantSlug,
 } from '@/lib/api';
 import WhatsAppEmbeddedSignupButton from '@/components/WhatsAppEmbeddedSignupButton';
 
@@ -1681,7 +1682,9 @@ Any missed call will now automatically get followed up on WhatsApp!`;
   }
 
   function handleImpersonateTenant(tenant: { id: string; slug: string; custom_domain?: string; partner_name?: string }) {
+    if (!tenant) return;
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') || '' : '';
+    registerTenantSlug(tenant.slug, tenant.id);
     localStorage.setItem('tenant_id', tenant.id);
     localStorage.setItem('tenant_slug', tenant.slug);
 
@@ -1695,7 +1698,11 @@ Any missed call will now automatically get followed up on WhatsApp!`;
       window.open(`https://${domain}/${tenant.slug}?token=${encodeURIComponent(token)}&tenant_id=${encodeURIComponent(tenant.id)}&tenant_slug=${encodeURIComponent(tenant.slug)}`, '_blank');
       return;
     }
-    router.push(`/${tenant.slug}`);
+    if (typeof window !== 'undefined') {
+      window.location.href = `/${tenant.slug}`;
+    } else {
+      router.push(`/${tenant.slug}`);
+    }
   }
 
   function copyToClipboard(text: string, fieldName: string) {
@@ -2802,7 +2809,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                             <td className="py-2.5 px-3 text-right">
                               <button
                                 type="button"
-                                onClick={() => router.push(`/${call.tenant_slug}`)}
+                                onClick={() => handleImpersonateTenant({ id: call.tenant_id, slug: call.tenant_slug })}
                                 className="px-2 py-1 bg-surface-subtle hover:bg-surface border border-border rounded text-[10px] font-medium text-text-primary transition-colors cursor-pointer inline-flex items-center gap-1"
                               >
                                 <span>Open CRM</span>
