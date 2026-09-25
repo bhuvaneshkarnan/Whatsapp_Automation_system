@@ -13957,20 +13957,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {/* ── UNIFIED VIEW: CUSTOMERS & FOLLOW-UP ───────────────────── */}
             {(activeNav === 'customers' || activeNav === 'followup') && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
-                {/* Compact Header with Title, Dynamic Taxonomy, + Add Customer, and Sub-Tabs */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-1.5 pt-0.5">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-sm text-text-primary flex items-center gap-1.5">
+                {/* Clean, Unified Header with Title, Taxonomy, Sub-Tabs, Search, and Action Toolbar */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-border pb-2 pt-0.5 shrink-0">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-1.5">
                       <Users className="w-4 h-4 text-accent stroke-[1.8]" />
-                      <span>{currentTaxonomy.client_plural || 'Customers'}</span>
-                    </h3>
-                    <span className="text-xs text-text-muted font-mono">({customers.length})</span>
-                  </div>
+                      <h3 className="font-semibold text-sm text-text-primary">
+                        {currentTaxonomy.client_plural || 'Customers'}
+                      </h3>
+                      <span className="text-xs text-text-muted font-mono">({customers.length})</span>
+                    </div>
 
-                  <div className="flex items-center gap-2 flex-wrap">
                     {/* View Switcher Pills */}
                     <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-md p-0.5 overflow-x-auto no-scrollbar shrink-0">
                       <button
+                        type="button"
                         onClick={() => setFollowupView('list')}
                         className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
                           followupView === 'list'
@@ -13983,6 +13984,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{customers.length}</span>
                       </button>
                       <button
+                        type="button"
                         onClick={() => setFollowupView('tasks')}
                         className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
                           followupView === 'tasks'
@@ -13995,6 +13997,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{tasks.filter(t => !t.completed).length}</span>
                       </button>
                       <button
+                        type="button"
                         onClick={() => {
                           setFollowupView('notes');
                           setLoadingAllNotes(true);
@@ -14011,60 +14014,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <span className="text-[10px] text-text-muted bg-surface-subtle border border-border px-1 py-0.2 rounded-xs font-mono">{allNotes.length}</span>
                       </button>
                     </div>
-
-                    {/* Export CSV Button */}
-                    <button
-                      onClick={exportCustomersToCsv}
-                      className="flex items-center gap-1.5 px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-sm transition-colors cursor-pointer"
-                      title="Export customer records to CSV"
-                    >
-                      <Download className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>Export CSV</span>
-                    </button>
-
-                    {/* Manage Dropdown Options Button */}
-                    <button
-                      type="button"
-                      onClick={openDropdownOptionsModal}
-                      className="flex items-center gap-1.5 px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-sm transition-colors cursor-pointer shrink-0"
-                      title="Add, remove, or update CRM dropdown options"
-                    >
-                      <Sliders className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>Dropdown Options</span>
-                    </button>
-
-                    {/* + Add Customer Button */}
-                    <button
-                      onClick={() => setShowAddCustomerModal(true)}
-                      className="flex items-center gap-1.5 px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors cursor-pointer shrink-0"
-                    >
-                      <UserPlus className="w-3.5 h-3.5 stroke-[1.5]" />
-                      Add {currentTaxonomy.client_label || 'Customer'}
-                    </button>
-
-                    {/* Refresh Button */}
-                    <button
-                      onClick={() => {
-                        loadCustomers();
-                        loadTasks();
-                        if (followupView === 'notes') {
-                          setLoadingAllNotes(true);
-                          crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
-                        }
-                      }}
-                      className="px-2.5 py-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
-                      title="Refresh"
-                    >
-                      <RotateCcw className={`w-3.5 h-3.5 ${loadingCustomers || loadingTasks || loadingAllNotes ? 'animate-spin' : ''}`} />
-                    </button>
                   </div>
-                </div>
 
-                {/* ── SUB-VIEW A: FOLLOW-UP PIPELINE ──────────────────────────────── */}
-                {followupView === 'list' && (
-                  <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
-                    {/* Dedicated Mobile Search Input (Prominently visible on mobile screens) */}
-                    <div className="md:hidden relative w-full shrink-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Prominent Search Bar (Always visible on all screen sizes, uniform h-8) */}
+                    <div className="relative flex-1 sm:flex-initial w-full sm:w-48 md:w-56 lg:w-64 min-w-[160px]">
                       <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
                       <input
                         type="text"
@@ -14076,7 +14030,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             setFollowupSearch(followupSearchInput);
                           }
                         }}
-                        className="w-full pl-8 pr-7 py-1 bg-surface border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent h-8 shadow-2xs"
+                        className="w-full pl-8 pr-7 h-8 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface transition-colors shadow-2xs"
                       />
                       {followupSearchInput && (
                         <button
@@ -14085,7 +14039,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             setFollowupSearchInput('');
                             setFollowupSearch('');
                           }}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-1"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 rounded cursor-pointer"
                           title="Clear search"
                         >
                           <X className="w-3.5 h-3.5" />
@@ -14093,100 +14047,172 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       )}
                     </div>
 
-                    {/* Filter & Segment Controls - Streamlined Single Compact Bar */}
-                    <div className="flex items-center gap-2 p-1 px-2 bg-surface border border-border rounded-sm overflow-x-auto no-scrollbar">
-                      {/* Outcome Filter Pills & Specific Outcome Selector */}
-                      <div className="flex items-center gap-1 shrink-0">
-                        <span className="text-[11px] font-medium text-text-secondary mr-0.5">Outcome:</span>
-                        <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border/80 rounded-sm gap-0.5">
-                          {[
-                            { key: 'all', label: 'All' },
-                            { key: 'new', label: 'New' },
-                            { key: 'follow-up', label: 'Follow-up' },
-                            { key: 'converted', label: 'Converted' },
-                            { key: 'lost', label: 'Lost' },
-                          ].map((st) => {
-                            const isActive = followupStatusFilter.toLowerCase() === st.key;
-                            return (
-                              <button
-                                key={st.key}
-                                type="button"
-                                onClick={() => setFollowupStatusFilter(st.key)}
-                                className={`px-2 py-0.5 text-[11px] rounded-xs transition-colors cursor-pointer font-medium ${
-                                  isActive
-                                    ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
-                                    : 'text-text-muted hover:text-text-primary hover:bg-surface/50'
-                                }`}
-                              >
-                                {st.label}
-                              </button>
-                            );
-                          })}
+                    {/* Export CSV Button */}
+                    <button
+                      type="button"
+                      onClick={exportCustomersToCsv}
+                      className="h-8 flex items-center gap-1.5 px-2.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                      title="Export customer records to CSV"
+                    >
+                      <Download className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span className="hidden sm:inline">Export CSV</span>
+                    </button>
+
+                    {/* + Add Customer / Client Button */}
+                    <button
+                      type="button"
+                      onClick={() => setShowAddCustomerModal(true)}
+                      className="h-8 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                    >
+                      <UserPlus className="w-3.5 h-3.5 stroke-[1.5]" />
+                      <span>Add {currentTaxonomy.client_label || 'Customer'}</span>
+                    </button>
+
+                    {/* Subtle Dropdown Options Icon Button (Replaces bulky button) */}
+                    <button
+                      type="button"
+                      onClick={openDropdownOptionsModal}
+                      className="h-8 w-8 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                      title="Customize CRM dropdown options (outcomes, actions, services)"
+                    >
+                      <Sliders className="w-3.5 h-3.5 stroke-[1.5]" />
+                    </button>
+
+                    {/* Refresh Button (Uniform h-8 w-8) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        loadCustomers();
+                        loadTasks();
+                        if (followupView === 'notes') {
+                          setLoadingAllNotes(true);
+                          crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
+                        }
+                      }}
+                      className="h-8 w-8 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                      title="Refresh customer data"
+                    >
+                      <RotateCcw className={`w-3.5 h-3.5 ${loadingCustomers || loadingTasks || loadingAllNotes ? 'animate-spin' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* ── SUB-VIEW A: FOLLOW-UP PIPELINE ──────────────────────────────── */}
+                {followupView === 'list' && (
+                  <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
+                    {/* Unified Filter & Metrics Bar (Clean, single-row layout with zero duplicates) */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-1.5 px-2 bg-surface border border-border rounded-md text-xs">
+                      {/* Left: Filter Controls */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {/* Outcome Filter Pills */}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[11px] font-medium text-text-secondary mr-0.5">Outcome:</span>
+                          <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border rounded-md gap-0.5">
+                            {[
+                              { key: 'all', label: 'All' },
+                              { key: 'new', label: 'New' },
+                              { key: 'follow-up', label: 'Follow-up' },
+                              { key: 'converted', label: 'Converted' },
+                              { key: 'lost', label: 'Lost' },
+                            ].map((st) => {
+                              const isActive = followupStatusFilter.toLowerCase() === st.key;
+                              return (
+                                <button
+                                  key={st.key}
+                                  type="button"
+                                  onClick={() => setFollowupStatusFilter(st.key)}
+                                  className={`px-2 py-0.5 text-[11px] rounded-sm transition-colors cursor-pointer font-medium ${
+                                    isActive
+                                      ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
+                                      : 'text-text-muted hover:text-text-primary hover:bg-surface/50'
+                                  }`}
+                                >
+                                  {st.label}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
 
-                      {/* Divider */}
-                      <div className="h-4 w-px bg-border/80 shrink-0" />
+                        {/* Active Custom Outcome Badge (if non-standard outcome selected) */}
+                        {!['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) && (
+                          <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-accent/10 border border-accent/30 text-accent rounded-md text-[11px] font-semibold">
+                            <span>{followupStatusFilter}</span>
+                            <button
+                              type="button"
+                              onClick={() => setFollowupStatusFilter('all')}
+                              className="hover:text-accent-hover p-0.5 cursor-pointer"
+                              title="Clear custom outcome filter"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        )}
 
-                      {/* Lead Warmth Badges (Minimal Clean Icons) */}
-                      <div className="flex items-center gap-1 shrink-0">
-                        <span className="text-[11px] font-medium text-text-secondary mr-0.5">Lead:</span>
-                        <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border/80 rounded-sm gap-0.5">
-                          {[
-                            { key: 'all', label: 'All' },
-                            { key: 'hot', label: 'Hot', icon: Flame, color: 'text-amber-500 fill-amber-500/20' },
-                            { key: 'warm', label: 'Warm', icon: Sun, color: 'text-amber-500 stroke-[2.2]' },
-                            { key: 'cold', label: 'Cold', icon: Snowflake, color: 'text-sky-500 stroke-[2.2]' },
-                          ].map((prob) => {
-                            const isActive = followupProbabilityFilter === prob.key;
-                            const ProbIcon = prob.icon;
-                            return (
-                              <button
-                                key={prob.key}
-                                type="button"
-                                onClick={() => setFollowupProbabilityFilter(prob.key)}
-                                className={`px-1.5 py-0.5 text-[11px] rounded-xs transition-colors cursor-pointer flex items-center gap-1 font-medium ${
-                                  isActive
-                                    ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
-                                    : 'text-text-muted hover:text-text-primary hover:bg-surface/50'
-                                }`}
-                              >
-                                {ProbIcon && <ProbIcon className={`w-3 h-3 ${prob.color}`} />}
-                                <span>{prob.label}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Divider */}
-                      <div className="h-4 w-px bg-border/80 shrink-0" />
-
-                      {/* Staff & Next Action Selectors & Search */}
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {/* Specific Outcome Dropdown (Moved here for clarity) */}
-                        <div className="shrink-0">
+                        {/* Custom Outcomes Dropdown (Only shown if custom outcomes exist in settings, without duplicating core outcomes) */}
+                        {crmDropdowns.outcome_statuses && crmDropdowns.outcome_statuses.filter(
+                          st => !['all', 'new', 'follow-up', 'converted', 'lost'].includes(st.toLowerCase())
+                        ).length > 0 && (
                           <select
-                            value={crmDropdowns.outcome_statuses.includes(followupStatusFilter) ? followupStatusFilter : (['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? 'all' : followupStatusFilter)}
-                            onChange={(e) => setFollowupStatusFilter(e.target.value)}
-                            className={`px-2 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[140px] h-[26px] cursor-pointer ${
-                              crmDropdowns.outcome_statuses.includes(followupStatusFilter) || !['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? 'border-text-primary font-semibold' : ''
-                            }`}
-                            title="Filter by specific outcome status"
+                            value={!['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? followupStatusFilter : ''}
+                            onChange={(e) => {
+                              if (e.target.value) setFollowupStatusFilter(e.target.value);
+                            }}
+                            className="h-7 px-2 text-[11px] bg-surface border border-border rounded-md text-text-secondary focus:outline-none focus:border-accent cursor-pointer"
+                            title="Filter by custom outcome status"
                           >
-                            <option value="all">All Outcomes</option>
-                            {crmDropdowns.outcome_statuses.map((st) => (
-                              <option key={st} value={st}>{st}</option>
-                            ))}
+                            <option value="">More Outcomes...</option>
+                            {crmDropdowns.outcome_statuses
+                              .filter(st => !['all', 'new', 'follow-up', 'converted', 'lost'].includes(st.toLowerCase()))
+                              .map(st => (
+                                <option key={st} value={st}>{st}</option>
+                              ))}
                           </select>
+                        )}
+
+                        {/* Divider */}
+                        <div className="h-4 w-px bg-border/80 shrink-0" />
+
+                        {/* Lead Warmth Badges */}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[11px] font-medium text-text-secondary mr-0.5">Lead:</span>
+                          <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border rounded-md gap-0.5">
+                            {[
+                              { key: 'all', label: 'All' },
+                              { key: 'hot', label: 'Hot', icon: Flame, color: 'text-amber-500 fill-amber-500/20' },
+                              { key: 'warm', label: 'Warm', icon: Sun, color: 'text-amber-500 stroke-[2.2]' },
+                              { key: 'cold', label: 'Cold', icon: Snowflake, color: 'text-sky-500 stroke-[2.2]' },
+                            ].map((prob) => {
+                              const isActive = followupProbabilityFilter === prob.key;
+                              const ProbIcon = prob.icon;
+                              return (
+                                <button
+                                  key={prob.key}
+                                  type="button"
+                                  onClick={() => setFollowupProbabilityFilter(prob.key)}
+                                  className={`px-1.5 py-0.5 text-[11px] rounded-sm transition-colors cursor-pointer flex items-center gap-1 font-medium ${
+                                    isActive
+                                      ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
+                                      : 'text-text-muted hover:text-text-primary hover:bg-surface/50'
+                                  }`}
+                                >
+                                  {ProbIcon && <ProbIcon className={`w-3 h-3 ${prob.color}`} />}
+                                  <span>{prob.label}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                        
-                        {/* Staff / Doctor Selector */}
-                        <div className="flex items-center gap-0.5">
+
+                        {/* Divider */}
+                        <div className="h-4 w-px bg-border/80 shrink-0" />
+
+                        {/* Staff / Doctor Selector with docked preset edit button */}
+                        <div className="inline-flex items-center border border-border rounded-md bg-surface h-7 overflow-hidden">
                           <select
                             value={followupDoctorFilter}
                             onChange={(e) => setFollowupDoctorFilter(e.target.value)}
-                            className="px-2 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[125px] h-[26px]"
+                            className="h-full px-2 text-[11px] bg-transparent border-0 text-text-primary focus:outline-none cursor-pointer max-w-[130px]"
                           >
                             <option value="all">All {presetRolePlural}</option>
                             <option value="unassigned">Unassigned</option>
@@ -14201,8 +14227,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <button
                             type="button"
                             onClick={openDoctorEditor}
-                            title={`Manage ${presetRolePlural}`}
-                            className="p-1 text-text-muted hover:text-accent hover:bg-surface-subtle border border-border rounded-sm transition-colors cursor-pointer h-[26px] w-[26px] flex items-center justify-center"
+                            title={`Manage ${presetRolePlural} presets`}
+                            className="h-full px-1.5 border-l border-border text-text-muted hover:text-accent hover:bg-surface-subtle transition-colors flex items-center justify-center cursor-pointer"
                           >
                             <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
                           </button>
@@ -14212,8 +14238,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <select
                           value={followupActionFilter}
                           onChange={(e) => setFollowupActionFilter(e.target.value)}
-                          className={`px-2 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[110px] h-[26px] ${
-                            followupActionFilter !== 'all' ? 'border-text-primary font-semibold bg-surface-subtle' : ''
+                          className={`h-7 px-2 text-[11px] bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[115px] ${
+                            followupActionFilter !== 'all' ? 'border-accent font-semibold bg-accent/5' : ''
                           }`}
                           title="Filter by Next Action"
                         >
@@ -14227,8 +14253,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <select
                           value={customerClientTypeFilter}
                           onChange={(e) => setCustomerClientTypeFilter(e.target.value)}
-                          className={`px-2 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[105px] h-[26px] cursor-pointer ${
-                            customerClientTypeFilter !== 'all' ? 'border-text-primary font-semibold bg-surface-subtle' : ''
+                          className={`h-7 px-2 text-[11px] bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[110px] ${
+                            customerClientTypeFilter !== 'all' ? 'border-accent font-semibold bg-accent/5' : ''
                           }`}
                           title="Filter by Client Type"
                         >
@@ -14237,89 +14263,54 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <option value="repeat">Repeat Clients</option>
                           <option value="lapsed">Lapsed (&gt;30d)</option>
                         </select>
-                      </div>
 
-                      {/* Divider (Desktop) */}
-                      <div className="h-4 w-px bg-border/80 shrink-0 hidden md:block" />
-
-                      {/* Search Input (Desktop) */}
-                      <div className="relative shrink-0 hidden md:block">
-                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-                        <input
-                          type="text"
-                          placeholder={`Search ${(currentTaxonomy.client_plural || 'customers').toLowerCase()}, phone, staff...`}
-                          value={followupSearchInput}
-                          onChange={(e) => setFollowupSearchInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              setFollowupSearch(followupSearchInput);
-                            }
-                          }}
-                          className="pl-8 pr-7 py-0.5 bg-surface-subtle border border-border rounded-sm text-[11px] text-text-primary focus:outline-none focus:border-accent w-44 lg:w-56 h-[26px]"
-                        />
-                        {followupSearchInput && (
+                        {/* Quick Reset All Filters Button */}
+                        {(followupStatusFilter !== 'all' || followupProbabilityFilter !== 'all' || followupDoctorFilter !== 'all' || followupActionFilter !== 'all' || customerClientTypeFilter !== 'all' || followupSearch.trim()) && (
                           <button
                             type="button"
                             onClick={() => {
+                              setFollowupStatusFilter('all');
+                              setFollowupProbabilityFilter('all');
+                              setFollowupDoctorFilter('all');
+                              setFollowupActionFilter('all');
+                              setCustomerClientTypeFilter('all');
                               setFollowupSearchInput('');
                               setFollowupSearch('');
                             }}
-                            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5"
-                            title="Clear search"
+                            className="h-7 text-[11px] text-accent hover:text-accent-hover flex items-center gap-1 px-1.5 rounded-md hover:bg-surface-subtle font-medium cursor-pointer"
+                            title="Reset all filters"
                           >
                             <X className="w-3 h-3" />
+                            <span>Reset</span>
                           </button>
                         )}
                       </div>
 
-                      {/* Quick Reset All Filters Button */}
-                      {(followupStatusFilter !== 'all' || followupProbabilityFilter !== 'all' || followupDoctorFilter !== 'all' || followupActionFilter !== 'all' || customerClientTypeFilter !== 'all' || followupSearchInput.trim()) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFollowupStatusFilter('all');
-                            setFollowupProbabilityFilter('all');
-                            setFollowupDoctorFilter('all');
-                            setFollowupActionFilter('all');
-                            setCustomerClientTypeFilter('all');
-                            setFollowupSearchInput('');
-                            setFollowupSearch('');
-                          }}
-                          className="text-[11px] text-accent hover:underline flex items-center gap-0.5 px-1 py-0.5 rounded hover:bg-surface-subtle font-medium cursor-pointer shrink-0 ml-auto"
-                          title="Reset all filters"
-                        >
-                          <X className="w-3 h-3" />
-                          <span>Reset</span>
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Compact KPI Summary Strip */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1 bg-surface border border-border rounded-sm text-xs">
-                      <div className="flex items-center gap-3.5 flex-wrap">
-                        <div className="flex items-center gap-1.5">
+                      {/* Right: Integrated Compact KPI Metrics Strip */}
+                      <div className="flex items-center gap-3 text-xs shrink-0 py-0.5">
+                        <div className="flex items-center gap-1">
                           <Users className="w-3.5 h-3.5 text-text-muted stroke-[1.8]" />
                           <span className="text-[11px] text-text-muted">Total:</span>
-                            <span className="font-bold text-text-primary font-mono text-xs">{customerStats?.total ?? customers.length}</span>
+                          <span className="font-bold text-text-primary font-mono text-xs">{customerStats?.total ?? customers.length}</span>
                         </div>
                         <span className="text-border text-xs hidden sm:inline">•</span>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1">
                           <Clock3 className="w-3.5 h-3.5 text-amber-600 stroke-[1.8]" />
                           <span className="text-[11px] text-amber-800 font-medium">Pending:</span>
-                            <span className="font-bold text-amber-900 font-mono text-xs">
-                              {customerStats?.pending ?? customers.filter(c => c.status === 'follow-up' || c.status === 'new').length}
-                            </span>
+                          <span className="font-bold text-amber-900 font-mono text-xs">
+                            {customerStats?.pending ?? customers.filter(c => c.status === 'follow-up' || c.status === 'new').length}
+                          </span>
                         </div>
                         <span className="text-border text-xs hidden sm:inline">•</span>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1">
                           <Flame className="w-3.5 h-3.5 text-rose-500 fill-rose-500/20 stroke-[1.8]" />
                           <span className="text-[11px] text-rose-700 font-medium">Hot Leads:</span>
-                            <span className="font-bold text-rose-900 font-mono text-xs">
-                              {customerStats?.hot_leads ?? customers.filter(c => c.lead_probability === 'hot' && c.status !== 'converted' && c.status !== 'lost').length}
-                            </span>
+                          <span className="font-bold text-rose-900 font-mono text-xs">
+                            {customerStats?.hot_leads ?? customers.filter(c => c.lead_probability === 'hot' && c.status !== 'converted' && c.status !== 'lost').length}
+                          </span>
                         </div>
                         <span className="text-border text-xs hidden sm:inline">•</span>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 stroke-[1.8]" />
                           <span className="text-[11px] text-emerald-800 font-medium">Converted:</span>
                           <span className="font-bold text-emerald-900 font-mono text-xs">
