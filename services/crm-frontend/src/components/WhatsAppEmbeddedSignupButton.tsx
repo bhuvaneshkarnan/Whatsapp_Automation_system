@@ -79,13 +79,17 @@ export default function WhatsAppEmbeddedSignupButton({
           payload = JSON.parse(payload);
         }
         if (payload?.type === 'WA_EMBEDDED_SIGNUP') {
-          if (payload.event === 'FINISH' && payload.data) {
+          if (
+            (payload.event === 'FINISH' || payload.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING') &&
+            payload.data
+          ) {
             capturedEventData.current = {
               phone_number_id: payload.data.phone_number_id,
               waba_id: payload.data.waba_id,
             };
           }
         }
+
       } catch (e) {
         // Ignore non-JSON or unrelated messages
       }
@@ -169,8 +173,11 @@ export default function WhatsAppEmbeddedSignupButton({
             response_type: 'code',
             override_default_response_type: true,
             extras: {
+              version: 'v4',
               featureType: 'whatsapp_business_app_onboarding',
+              sessionInfoVersion: '3',
             },
+
           }
         );
         return;

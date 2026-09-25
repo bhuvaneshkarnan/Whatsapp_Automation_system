@@ -70,7 +70,11 @@ function OnboardingContent() {
         if (typeof payload === 'string') {
           payload = JSON.parse(payload);
         }
-        if (payload?.type === 'WA_EMBEDDED_SIGNUP' && payload.event === 'FINISH' && payload.data) {
+        if (
+          payload?.type === 'WA_EMBEDDED_SIGNUP' &&
+          (payload.event === 'FINISH' || payload.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING') &&
+          payload.data
+        ) {
           capturedData.current = {
             phone_number_id: payload.data.phone_number_id,
             waba_id: payload.data.waba_id,
@@ -78,6 +82,7 @@ function OnboardingContent() {
           if (payload.data.phone_number_id) setPhoneId(payload.data.phone_number_id);
           if (payload.data.waba_id) setWabaId(payload.data.waba_id);
         }
+
       } catch {}
     };
 
@@ -184,8 +189,11 @@ function OnboardingContent() {
             response_type: 'code',
             override_default_response_type: true,
             extras: {
+              version: 'v4',
               featureType: 'whatsapp_business_app_onboarding',
+              sessionInfoVersion: '3',
             },
+
           }
         );
         return;
@@ -296,13 +304,16 @@ function OnboardingContent() {
                     <li className="flex items-start gap-2 pt-2 border-t border-[#fde68a]">
                       <span className="w-5 h-5 rounded-full bg-[#b45309] text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
                       <div>
-                        <strong className="text-[#111827]">Phone Number</strong>
-                        <p className="mt-0.5 leading-relaxed text-[#4b5563]">Must be able to receive an SMS or Call OTP.</p>
-                        <p className="mt-1 text-[11px] text-[#b45309] leading-relaxed">
-                          ⚠️ If already on WhatsApp app — <strong className="text-[#111827] underline">delete that account first</strong> (Settings → Account → Delete Account).
-                        </p>
+                        <strong className="text-[#111827]">Phone Number (Coexistence Supported 📱)</strong>
+                        <p className="mt-0.5 leading-relaxed text-[#4b5563]">Must be able to receive an SMS or WhatsApp code.</p>
+                        <div className="mt-1.5 p-2.5 bg-[#f0fdf4] rounded-lg border border-[#bbf7d0] text-[11px] text-[#15803d] leading-relaxed">
+                          <strong className="font-semibold text-[#166534]">✨ Keep using WhatsApp on your phone:</strong>
+                          <p className="mt-0.5 text-[#166534]">Keep the <strong>WhatsApp Business App</strong> active on your phone! Meta will enable Coexistence so you can make calls and chat on your mobile phone while our CRM runs AI automation simultaneously.</p>
+                          <p className="mt-1 text-[#b45309]"><em>(If currently using personal WhatsApp, upgrade to WhatsApp Business app on your phone first — do not delete).</em></p>
+                        </div>
                       </div>
                     </li>
+
 
                     <li className="flex items-start gap-2 pt-2 border-t border-[#fde68a]">
                       <span className="w-5 h-5 rounded-full bg-[#b45309] text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>

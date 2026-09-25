@@ -5880,7 +5880,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                               onClick={() => {
                                 const origin = typeof window !== 'undefined' ? window.location.origin : 'https://crm.goboldlabs.com';
                                 const link = `${origin}/onboard?tenant_id=${encodeURIComponent(editingConfigTenant.id)}&tenant_name=${encodeURIComponent(editingConfigTenant.name || '')}`;
-                                const msg = `Hello ${editingConfigTenant.name},\n\nHere is your official 1-Click WhatsApp Business activation link:\n${link}\n\n⚠️ IMPORTANT: To ensure instant Meta approval without automated rejection:\n1. Business Name: Enter your commercial business name (e.g. "${editingConfigTenant.name} Clinic" or "${editingConfigTenant.name} Enterprises") — do NOT enter just a personal name like "John".\n2. Phone Number: If this number is currently used on the WhatsApp mobile app, delete the account in WhatsApp Settings > Account > Delete Account first.\n3. Category: Select your business category.\n\nOnce completed, your WhatsApp AI automation will be live!`;
+                                const msg = `Hello ${editingConfigTenant.name},\n\nHere is your official 1-Click WhatsApp Business activation link:\n${link}\n\n⚠️ IMPORTANT: To ensure instant Meta approval without automated rejection:\n1. Business Name: Enter your full commercial business name (e.g. "${editingConfigTenant.name} Clinic" or "${editingConfigTenant.name} Enterprises") — never enter a single personal name like "John".\n2. Phone Number (Keep Phone Active!): Keep the WhatsApp Business App active on your phone — do NOT delete it! Meta will enable Coexistence so you can make/receive calls on your phone while our CRM handles AI automation. (If currently on personal WhatsApp, upgrade to WhatsApp Business app on your phone first).\n3. Category: Select your business category.\n\nOnce completed, your WhatsApp AI automation will be live!`;
                                 navigator.clipboard.writeText(msg);
                                 alert('Copied full client onboarding instructions (with link) to clipboard! You can paste and send directly.');
                               }}
@@ -5895,7 +5895,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                               onClick={() => {
                                 const origin = typeof window !== 'undefined' ? window.location.origin : 'https://crm.goboldlabs.com';
                                 const link = `${origin}/onboard?tenant_id=${encodeURIComponent(editingConfigTenant.id)}&tenant_name=${encodeURIComponent(editingConfigTenant.name || '')}`;
-                                const msg = `Hello ${editingConfigTenant.name},\n\nHere is your official 1-Click WhatsApp Business activation link:\n${link}\n\n⚠️ IMPORTANT: To ensure instant Meta approval without automated rejection:\n1. Business Name: Enter your commercial business name (e.g. "${editingConfigTenant.name} Clinic" or "${editingConfigTenant.name} Enterprises") — do NOT enter just a personal name like "John".\n2. Phone Number: If this number is currently used on the WhatsApp mobile app, delete the account in WhatsApp Settings > Account > Delete Account first.\n3. Category: Select your business category.\n\nOnce completed, your WhatsApp AI automation will be live!`;
+                                const msg = `Hello ${editingConfigTenant.name},\n\nHere is your official 1-Click WhatsApp Business activation link:\n${link}\n\n⚠️ IMPORTANT: To ensure instant Meta approval without automated rejection:\n1. Business Name: Enter your full commercial business name (e.g. "${editingConfigTenant.name} Clinic" or "${editingConfigTenant.name} Enterprises") — never enter a single personal name like "John".\n2. Phone Number (Keep Phone Active!): Keep the WhatsApp Business App active on your phone — do NOT delete it! Meta will enable Coexistence so you can make/receive calls on your phone while our CRM handles AI automation. (If currently on personal WhatsApp, upgrade to WhatsApp Business app on your phone first).\n3. Category: Select your business category.\n\nOnce completed, your WhatsApp AI automation will be live!`;
                                 window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
                               }}
                               className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-sm text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
@@ -5903,6 +5903,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                               <Share2 className="w-3.5 h-3.5" />
                               <span>Share via WhatsApp</span>
                             </button>
+
                           </div>
                         </div>
                       </div>
