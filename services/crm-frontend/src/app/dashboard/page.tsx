@@ -4684,10 +4684,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
         window.history.replaceState(null, '', cleanUrl);
 
+        // Parse state param — Meta echoes back the state we sent (contains target_tenant_id for shareable client links)
+        let targetTenantId: string | undefined;
+        try {
+          const stateRaw = urlParams.get('state');
+          if (stateRaw) {
+            const stateObj = JSON.parse(decodeURIComponent(stateRaw));
+            targetTenantId = stateObj?.target_tenant_id || undefined;
+          }
+        } catch {}
+
         crm.submitWhatsAppEmbeddedSignup({
           code: waCode,
           waba_id: urlParams.get('waba_id') || '',
           phone_number_id: urlParams.get('phone_number_id') || '',
+          target_tenant_id: targetTenantId,
         })
           .then(async () => {
             await loadWhatsAppHealth(true);
