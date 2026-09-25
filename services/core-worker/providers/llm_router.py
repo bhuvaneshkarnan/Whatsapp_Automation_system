@@ -350,18 +350,18 @@ async def call_gemini(
     }
 
     # Verified active Gemini models (ordered fastest/most-reliable first)
-    # gemini-2.5-flash: Google's recommended current fast model
-    # gemini-3.5-flash: Also active, reliable
-    # gemini-3.6-flash: Active, slightly slower
+    # gemini-3.5-flash: Active, reliable fast model
+    # gemini-3.5-flash-lite: Active, high throughput, low latency
+    # gemini-3.6-flash: Active, high capability
     active_gemini_models = [
-        "gemini-2.5-flash",
         "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
         "gemini-3.6-flash",
     ]
     candidate_models = []
-    # Strip known-dead/retired model aliases
-    bad_aliases = ["2.5-pro", "2.0-flash", "1.5-flash", "flash-lite-latest", "flash-latest",
-                   "gemma-4-26b-a4b-it", "3.5-flash-lite", "3.7-flash", "3.8-flash"]
+    # Strip known-dead/retired model aliases (gemini-2.5-flash returns 404)
+    bad_aliases = ["2.5-pro", "2.0-flash", "1.5-flash", "2.5-flash", "flash-lite-latest", "flash-latest",
+                   "gemma-4-26b-a4b-it", "3.7-flash"]
     if model and not any(bad in model.lower() for bad in bad_aliases):
         candidate_models.append(model)
     for m in active_gemini_models:
@@ -743,7 +743,7 @@ async def call_llm_cascade(
     master_opencode_key: Optional[str] = None,
     master_opencode_base_url: str = "https://opencode.ai/zen/v1",
     primary_provider: str = "groq",
-    gemini_model: str = "gemini-2.5-flash",
+    gemini_model: str = "gemini-3.5-flash",
     max_tokens: int = 2048,
     temperature: float = 0.3,
     timeout_seconds: float = 4.0,
@@ -782,7 +782,7 @@ async def call_llm_cascade(
                 messages=messages,
                 api_key=gemini_key,
                 system_prompt=system_prompt,
-                model=gemini_model or "gemini-2.5-flash",
+                model=gemini_model or "gemini-3.5-flash",
                 max_tokens=effective_gemini_tokens,
                 temperature=temperature,
                 timeout_seconds=12.0,
@@ -849,7 +849,7 @@ async def call_llm_cascade(
                     messages=messages,
                     api_key=key,
                     system_prompt=system_prompt,
-                    model=gemini_model or "gemini-2.5-flash",
+                    model=gemini_model or "gemini-3.5-flash",
                     max_tokens=effective_gemini_tokens,
                     temperature=temperature,
                     timeout_seconds=min(max(timeout_seconds, 4.0), 6.5),
@@ -906,7 +906,7 @@ async def call_llm_cascade(
     # Master Groq is prioritized first as it provides verified <500ms reliable uptime.
     master_providers = [
         ("groq", master_groq_key, groq_key, "qwen/qwen3.8-27b", None),
-        ("gemini", master_gemini_key, gemini_key, "gemini-2.5-flash", None),
+        ("gemini", master_gemini_key, gemini_key, "gemini-3.5-flash", None),
     ]
     if master_opencode_key:
         master_providers.append(("opencode", master_opencode_key, opencode_key, "deepseek-v4-flash", master_opencode_base_url))
@@ -1021,7 +1021,7 @@ async def call_llm_cascade(
                         messages=emergency_messages,
                         api_key=gm_k,
                         system_prompt=emergency_prompt,
-                        model="gemini-2.5-flash",
+                        model="gemini-3.5-flash",
                         max_tokens=max_tokens,
                         temperature=temperature,
                         timeout_seconds=5.0,

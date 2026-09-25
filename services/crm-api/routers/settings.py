@@ -889,7 +889,8 @@ async def optimize_ai_prompt(
 ):
     """
     Admin-only: Convert a raw business brain-dump into structured ai_config fields.
-    Uses Gemini to intelligently extract, structure, and categorize the content with ZERO information loss.
+    Uses multi-model cascade (Gemini 3.5 -> Groq GPT-OSS 120B / Qwen 3.8 -> OpenCode) to intelligently extract,
+    structure, and categorize the content with ZERO information loss.
     Returns the 7 prompt fields ready to preview and apply.
     """
     caller_role = caller.get("role") if isinstance(caller, dict) else "agent"
@@ -906,153 +907,267 @@ async def optimize_ai_prompt(
     if len(raw_dump) < 30:
         raise HTTPException(status_code=400, detail="Please provide more business details (at least 30 characters).")
 
-    # Get tenant's Gemini key (fallback to platform key)
+    # Fetch tenant credentials or fall back to platform environment variables
     gem_key = ""
+    groq_key = ""
+    opencode_key = ""
     async with database.db_pool.acquire() as conn:
-        gem_row = await conn.fetchrow(
-            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'gemini' AND is_active = true",
+        cred_rows = await conn.fetch(
+            "SELECT provider, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND is_active = true",
             tenant_id
         )
-        if gem_row and gem_row["credential_data"]:
-            d = gem_row["credential_data"]
+        for crow in cred_rows:
+            p = crow["provider"]
+            d = crow["credential_data"]
             if isinstance(d, str):
                 try: d = json.loads(d)
-                except: d = {}
-            gem_key = d.get("api_key", "")
+                except Exception: d = {}
+            if isinstance(d, dict):
+                k = d.get("api_key", "")
+                if p == "gemini" and k:
+                    gem_key = k
+                elif p == "groq" and k:
+                    groq_key = k
+                elif p == "opencode" and k:
+                    opencode_key = k
+
     if not gem_key:
         gem_key = os.getenv("GEMINI_API_KEY", "")
-    if not gem_key:
-        raise HTTPException(status_code=503, detail="No Gemini API key configured. Please add a Gemini API key in AI Settings.")
+    if not groq_key:
+        groq_key = os.getenv("GROQ_API_KEY", "")
+    if not opencode_key:
+        opencode_key = os.getenv("OPENCODE_API_KEY", "")
 
-    # Meta-prompt: Structured organizer with zero information loss
-    meta_prompt = """You are an expert Master Business Knowledge Base Architect for a WhatsApp CRM automation platform.
-A business owner has provided comprehensive raw business information below. Your task is to PERFECTLY STRUCTURE, CATEGORIZE, and ORGANIZE this information into 7 configuration fields for their WhatsApp AI assistant.
+    if not gem_key and not groq_key and not opencode_key:
+        raise HTTPException(status_code=503, detail="No AI API key configured. Please add an API key in AI Settings.")
 
-ABSOLUTE MANDATORY DIRECTIVE — ZERO INFORMATION LOSS & COMPLETE PRESERVATION:
-- DO NOT summarize away, truncate, compress, or strip out any details, services, prices, or policies.
-- Retain 100% of all facts: every service, every price tier, package discounts, consultation fees, doctor credentials, clinic locations, operating hours, treatment details, policies, FAQs, and qualification questions.
-- Organize the content cleanly with clear Markdown headers, bullet points, and neat formatting.
-- Your role is to ORGANIZE and STRUCTURE the content into professional, readable sections, NOT to shorten or cut information.
-- If the user provides extensive lists of services, procedures, or prices, list ALL of them without omission.
+    meta_system_prompt = (
+        "You are an expert Master Business Knowledge Base Architect for an enterprise WhatsApp CRM platform. "
+        "Your task is to structure raw business knowledge into a strictly valid JSON object matching the 7 requested fields. "
+        "CRITICAL INSTRUCTIONS:\n"
+        "1. Output ONLY a valid JSON object. No Markdown code fences, no backticks, no introductory or concluding text.\n"
+        "2. ZERO INFORMATION LOSS: Retain 100% of all facts, services, prices, doctor credentials, operating hours, and policies.\n"
+        "3. Exactly 7 keys are required: assistant_name, ai_prompt, services_text, bot_goal, strict_rules, objection_handling, response_style."
+    )
 
-IMPORTANT — The following are ALREADY auto-injected globally by the system and do NOT need to be duplicated:
-- Live calendar availability / real-time appointment slot calculation (handled live)
-- Booking confirmation / reschedule / cancellation action tags (handled by system tools)
-- Customer conversation history & phone numbers (tracked automatically)
-- Format rules (no emojis, 1-2 lines, no bullets in chat messages) — enforced at generation time
-- Universal anti-hallucination and security directives
+    meta_user_prompt = f"""Structure the following business information into 7 configuration fields for a WhatsApp AI assistant:
 
-OUTPUT FORMAT — Return ONLY a valid JSON object with these exact 7 keys. No surrounding markdown fences or explanation:
-{
-  "assistant_name": "String. Assistant first name (e.g. Kavitha Clinic Assistant, Priya, Aadhi, Alex). Pick an appropriate warm name if not specified.",
-  "ai_prompt": "String. The COMPLETE, COMPREHENSIVE BUSINESS KNOWLEDGE BASE. Neatly structure ALL factual details provided in the dump using Markdown sections:\\n### Business Overview & Identity\\n(Full background, clinic/business identity, specialization, years in business, philosophy, unique selling points)\\n### Doctors, Specialists & Team Credentials\\n(Full credentials, degrees, specialties, and years of experience for every practitioner/doctor mentioned)\\n### Comprehensive Treatments & Clinical Procedures\\n(Detailed breakdown of all treatments, medical technologies/equipment used, procedure durations, steps, aftercare or preparation instructions mentioned)\\n### Clinic Timings, Locations & Contact Details\\n(Complete operating hours, days open, addresses, landmarks, contact numbers, email addresses)\\n### Clinic Policies & Patient Guidelines\\n(Booking terms, cancellation/rescheduling policies, advance tokens, accepted payment modes, refund terms)\\n### Patient Consultation Process & Discovery Flow\\n(Step-by-step patient journey, exact discovery questions to ask regarding symptoms, duration, prior treatments, or preferences)\\n### Frequently Asked Questions (FAQs) & Common Inquiries\\n(Every FAQ or common question mentioned in the dump, with its full answer preserved)\\n### Medical Disclaimers & Safety Boundaries\\n(Hard boundaries such as no prescriptions over WhatsApp chat, physical examination required, patch test requirements, emergency disclaimers)\\nRetain ALL details from the dump with zero omissions!",
-  "services_text": "String. The EXHAUSTIVE AND COMPLETE SERVICES & PRICING CATALOG. List EVERY SINGLE service, procedure, package, consultation fee, and pricing variation mentioned in the dump. Group by category with headers if multiple types exist. Format:\\n### Category Name\\n• Service Name — Full Description (Duration if stated) — Exact Price / Package Details / Starting Price\\nDo NOT omit or combine any services or prices. Everything must be listed.",
-  "bot_goal": "String. 2-3 clear sentences defining what this business wants the AI to achieve (e.g. qualify patient concerns, provide accurate pricing/treatment info, and secure confirmed consultation bookings with the doctor).",
-  "strict_rules": "String. Hard business rules and absolute restrictions the AI must never violate. Include all medical boundaries, quoting rules, patch test requirements, and operational rules from the dump. One rule per line, formatted with bullet points.",
-  "objection_handling": "String. Specific playbooks for handling patient objections, price resistance, fear of pain, or delays mentioned in the dump. Include the exact counter-arguments, value propositions, and zero-friction reassurance steps.",
-  "response_style": "String. Must enforce Easy Indian English: 'Warm, friendly, and empathetic. Sounds like an authentic, caring clinic coordinator texting on WhatsApp in Easy Indian English. 2 to 3 short sentences (25 to 45 words max), no corporate jargon, no robotic filler, no marketing essays.'"
-}
+MANDATORY DIRECTIVES — ZERO INFORMATION LOSS:
+- Retain all details, services, prices, packages, clinic hours, doctor credentials, disclaimers, and FAQs.
+- Format ai_prompt neatly with Markdown headers (### Business Overview, ### Doctors & Specialists, ### Treatments, ### Timings & Location, ### Policies, ### FAQs, etc.).
+- Format services_text with category headers and bullet points: ### Category\\n• Service Name — Description — Price
+- Format strict_rules as bullet points.
+- Format response_style as Easy Indian English: 'Warm, friendly, and empathetic. Sounds like an authentic, caring clinic coordinator texting on WhatsApp in Easy Indian English. 2 to 3 short sentences (25 to 45 words max), no corporate jargon, no robotic filler, no marketing essays.'
 
-RULES:
-- Extract and organize information from the business dump below. Do not invent facts not mentioned.
-- If a field has no relevant info in the dump, return an empty string "" for it (except response_style, which must always be set).
-- Output ONLY the JSON. No preamble, no explanation, no markdown fences.
+REQUIRED JSON KEYS:
+{{
+  "assistant_name": "String. Assistant first name",
+  "ai_prompt": "String. Complete comprehensive business knowledge base with all markdown sections",
+  "services_text": "String. Complete services & pricing catalog",
+  "bot_goal": "String. 2-3 clear sentences on what the AI must achieve",
+  "strict_rules": "String. Hard business rules and restrictions, one per bullet",
+  "objection_handling": "String. Playbook for patient objections and hesitations",
+  "response_style": "String. Easy Indian English texting style"
+}}
 
 --- BUSINESS INFORMATION DUMP ---
-""" + raw_dump
+{raw_dump}
+"""
 
-    # 1. Call Gemini (try gemini-2.5-flash first — Google's recommended current fast model)
     result_text = ""
-    for model in ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash"]:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gem_key}"
-        try:
-            async with httpx.AsyncClient(timeout=35.0) as client:
-                res = await client.post(
-                    url,
-                    headers={"Content-Type": "application/json"},
-                    json={
-                        "contents": [{"parts": [{"text": meta_prompt}]}],
-                        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192}
-                    }
-                )
-                if res.status_code == 200:
-                    raw = res.json()["candidates"][0]["content"]["parts"][0]["text"]
-                    result_text = raw.strip()
-                    if result_text:
-                        break
-                else:
-                    logger.warning("optimize_prompt_gemini_http_err", model=model, status_code=res.status_code, body=res.text[:200])
-        except Exception as _err:
-            logger.warning("optimize_prompt_gemini_error", model=model, error=str(_err))
-            continue
+    provider_used = ""
 
-    # 2. Resilient Fallback to Groq if Gemini fails or quota is exhausted
-    if not result_text:
-        groq_key = ""
-        async with database.db_pool.acquire() as conn:
-            groq_row = await conn.fetchrow(
-                "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'groq' AND is_active = true",
-                tenant_id
-            )
-            if groq_row and groq_row["credential_data"]:
-                d = groq_row["credential_data"]
-                if isinstance(d, str):
-                    try: d = json.loads(d)
-                    except: d = {}
-                groq_key = d.get("api_key", "")
-        if not groq_key:
-            groq_key = os.getenv("GROQ_API_KEY", "")
+    # ── 1. Gemini Cascade ──────────────────────────────────────────────────────────
+    if gem_key:
+        gemini_models = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash"]
+        for g_model in gemini_models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={gem_key}"
+            try:
+                async with httpx.AsyncClient(timeout=35.0) as client:
+                    res = await client.post(
+                        url,
+                        headers={"Content-Type": "application/json"},
+                        json={
+                            "systemInstruction": {"parts": [{"text": meta_system_prompt}]},
+                            "contents": [{"parts": [{"text": meta_user_prompt}]}],
+                            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192}
+                        }
+                    )
+                    if res.status_code == 200:
+                        raw = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+                        if raw and raw.strip():
+                            result_text = raw.strip()
+                            provider_used = f"gemini ({g_model})"
+                            break
+                    else:
+                        logger.warning("optimize_prompt_gemini_http_err", model=g_model, status_code=res.status_code, body=res.text[:200])
+            except Exception as _err:
+                logger.warning("optimize_prompt_gemini_error", model=g_model, error=str(_err))
+                continue
 
-        if groq_key:
+    # ── 2. Groq Cascade (Resilient Fallback) ───────────────────────────────────────
+    if not result_text and groq_key:
+        groq_models = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+        for gr_model in groq_models:
+            # Attempt 1: with response_format json_object
             try:
                 async with httpx.AsyncClient(timeout=35.0) as client:
                     g_res = await client.post(
                         "https://api.groq.com/openai/v1/chat/completions",
                         headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
                         json={
-                            "model": "qwen/qwen3.8-27b",
-                            "messages": [{"role": "user", "content": meta_prompt}],
+                            "model": gr_model,
+                            "messages": [
+                                {"role": "system", "content": meta_system_prompt},
+                                {"role": "user", "content": meta_user_prompt}
+                            ],
                             "temperature": 0.1,
                             "response_format": {"type": "json_object"}
                         }
                     )
                     if g_res.status_code == 200:
                         raw = g_res.json()["choices"][0]["message"]["content"]
-                        result_text = raw.strip()
+                        if raw and raw.strip():
+                            result_text = raw.strip()
+                            provider_used = f"groq ({gr_model})"
+                            break
                     else:
-                        logger.warning("optimize_prompt_groq_fallback_err", status=g_res.status_code, body=g_res.text[:200])
+                        logger.warning("optimize_prompt_groq_json_err", model=gr_model, status=g_res.status_code, body=g_res.text[:200])
             except Exception as e_groq:
-                logger.warning("optimize_prompt_groq_exception", error=str(e_groq))
+                logger.warning("optimize_prompt_groq_json_exception", model=gr_model, error=str(e_groq))
+
+            # Attempt 2: retry without response_format if json_object failed or returned 400
+            if not result_text:
+                try:
+                    async with httpx.AsyncClient(timeout=35.0) as client:
+                        g_res2 = await client.post(
+                            "https://api.groq.com/openai/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                            json={
+                                "model": gr_model,
+                                "messages": [
+                                    {"role": "system", "content": meta_system_prompt},
+                                    {"role": "user", "content": meta_user_prompt}
+                                ],
+                                "temperature": 0.1
+                            }
+                        )
+                        if g_res2.status_code == 200:
+                            raw = g_res2.json()["choices"][0]["message"]["content"]
+                            if raw and raw.strip():
+                                result_text = raw.strip()
+                                provider_used = f"groq-plain ({gr_model})"
+                                break
+                        else:
+                            logger.warning("optimize_prompt_groq_plain_err", model=gr_model, status=g_res2.status_code, body=g_res2.text[:200])
+                except Exception as e_groq2:
+                    logger.warning("optimize_prompt_groq_plain_exception", model=gr_model, error=str(e_groq2))
+
+    # ── 3. OpenCode Cascade (Tertiary Fallback) ───────────────────────────────────
+    if not result_text and opencode_key:
+        opencode_base = os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1").rstrip("/")
+        opencode_url = f"{opencode_base}/chat/completions" if not opencode_base.endswith("/chat/completions") else opencode_base
+        for oc_model in ["deepseek-v4-flash", "qwen3.8-flash"]:
+            try:
+                async with httpx.AsyncClient(timeout=35.0) as client:
+                    oc_res = await client.post(
+                        opencode_url,
+                        headers={"Authorization": f"Bearer {opencode_key}", "Content-Type": "application/json"},
+                        json={
+                            "model": oc_model,
+                            "messages": [
+                                {"role": "system", "content": meta_system_prompt},
+                                {"role": "user", "content": meta_user_prompt}
+                            ],
+                            "temperature": 0.1
+                        }
+                    )
+                    if oc_res.status_code == 200:
+                        raw = oc_res.json()["choices"][0]["message"]["content"]
+                        if raw and raw.strip():
+                            result_text = raw.strip()
+                            provider_used = f"opencode ({oc_model})"
+                            break
+            except Exception as e_oc:
+                logger.warning("optimize_prompt_opencode_exception", model=oc_model, error=str(e_oc))
 
     if not result_text:
-        raise HTTPException(status_code=502, detail="AI generation failed. Please try again.")
+        logger.error("optimize_prompt_all_providers_failed", tenant_id=tenant_id)
+        raise HTTPException(
+            status_code=503,
+            detail="AI prompt optimizer is temporarily busy or rate-limited. Please retry in a few moments."
+        )
 
-    # Parse and validate the JSON response
+    logger.info("optimize_prompt_generation_success", tenant_id=tenant_id, provider_used=provider_used, length=len(result_text))
+
+    # ── Robust Multi-Stage Parser ─────────────────────────────────────────────────
     structured = {}
-    try:
-        # Strip markdown fences if model wrapped it anyway
-        cleaned = re.sub(r'^```(?:json)?\s*', '', result_text, flags=re.MULTILINE)
-        cleaned = re.sub(r'\s*```$', '', cleaned, flags=re.MULTILINE).strip()
-        structured = json.loads(cleaned)
-    except Exception:
-        try:
-            m = re.search(r'(\{.*\})', result_text, re.DOTALL)
-            if m:
-                structured = json.loads(m.group(1))
-            else:
-                raise
-        except Exception:
-            logger.error("optimize_prompt_parse_failed", raw_len=len(result_text), raw_preview=result_text[:300])
-            raise HTTPException(status_code=502, detail="AI returned malformed response. Please try again.")
+    cleaned = result_text.strip()
+    # Strip markdown fences
+    cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r'\s*```$', '', cleaned, flags=re.MULTILINE).strip()
 
-    # Validate expected keys exist
-    expected_keys = {"assistant_name", "ai_prompt", "services_text", "bot_goal", "strict_rules", "objection_handling", "response_style"}
+    # Stage 1: Standard JSON parse
+    try:
+        data = json.loads(cleaned)
+        if isinstance(data, dict):
+            structured = data
+    except Exception:
+        pass
+
+    # Stage 2: Regex slice of outermost JSON object
+    if not structured:
+        m = re.search(r'(\{[\s\S]*\})', result_text)
+        if m:
+            cand = m.group(1).strip()
+            try:
+                data = json.loads(cand)
+                if isinstance(data, dict):
+                    structured = data
+            except Exception:
+                # Strip potential trailing commas before closing braces
+                cand_fixed = re.sub(r',\s*([\}\]])', r'\1', cand)
+                try:
+                    data = json.loads(cand_fixed)
+                    if isinstance(data, dict):
+                        structured = data
+                except Exception:
+                    pass
+
+    # Stage 3: Field-by-field regex extraction for resilient tolerance
+    if not isinstance(structured, dict):
+        structured = {}
+
+    expected_keys = [
+        "assistant_name", "ai_prompt", "services_text", "bot_goal",
+        "strict_rules", "objection_handling", "response_style"
+    ]
     for key in expected_keys:
-        if key not in structured:
-            structured[key] = ""
+        if not structured.get(key):
+            pat = rf'"{key}"\s*:\s*"((?:\\.|[^"\\])*)"'
+            m = re.search(pat, result_text)
+            if m:
+                try:
+                    structured[key] = json.loads(f'"{m.group(1)}"')
+                except Exception:
+                    structured[key] = m.group(1).replace(r'\"', '"').replace(r'\n', '\n')
+            else:
+                structured[key] = ""
+
+    # Stage 4: Ultimate markdown preservation fallback if raw text was returned
+    if not structured.get("ai_prompt") and len(result_text) > 100:
+        structured["ai_prompt"] = result_text
+    if not structured.get("assistant_name"):
+        structured["assistant_name"] = "Assistant"
+    if not structured.get("response_style"):
+        structured["response_style"] = (
+            "Warm, friendly, and empathetic. Sounds like an authentic, caring clinic coordinator texting on WhatsApp in Easy Indian English. "
+            "2 to 3 short sentences (25 to 45 words max), no corporate jargon, no robotic filler, no marketing essays."
+        )
 
     return {
         "success": True,
+        "provider": provider_used,
         "optimized": {
             "assistant_name": str(structured.get("assistant_name", "")).strip(),
             "ai_prompt": str(structured.get("ai_prompt", "")).strip(),
