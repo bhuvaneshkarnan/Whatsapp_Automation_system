@@ -3,7 +3,9 @@ import json
 import uuid
 import structlog
 import httpx
+import urllib.parse
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 
@@ -193,7 +195,11 @@ async def execute_embedded_signup(conn, tenant_id: str, code: str, waba_id: Opti
 
     # 5. Mark tenant WhatsApp status active
     await conn.execute(
-        "UPDATE tenants SET whatsapp_configured = true, updated_at = now() WHERE id = $1::uuid",
+        """UPDATE tenants 
+           SET whatsapp_configured = true, 
+               settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{whatsapp_configured}', 'true'),
+               updated_at = now() 
+           WHERE id = $1::uuid""",
         tenant_id
     )
 
@@ -214,6 +220,99 @@ async def execute_embedded_signup(conn, tenant_id: str, code: str, waba_id: Opti
         "waba_id": clean_waba,
         "message": "WhatsApp Business successfully connected with 1-Click Meta Embedded Signup."
     }
+
+
+class WhatsAppPublicCallbackPayload(BaseModel):
+    code: str
+    target_tenant_id: Optional[str] = None
+    state: Optional[str] = None
+    waba_id: Optional[str] = ""
+    phone_number_id: Optional[str] = ""
+
+
+@router.post("/oauth/whatsapp/public-callback")
+async def whatsapp_public_callback(payload: WhatsAppPublicCallbackPayload):
+    """
+    Public callback endpoint invoked when a client completes the shareable onboarding link.
+    Does not require CRM user authentication because the client is external.
+    Security is guaranteed by exchanging the one-time Meta authorization code with META_APP_SECRET.
+    """
+    target_tenant_id = payload.target_tenant_id
+    if not target_tenant_id and payload.state:
+        try:
+            state_data = json.loads(payload.state)
+            target_tenant_id = state_data.get("target_tenant_id")
+        except Exception:
+            try:
+                state_data = json.loads(urllib.parse.unquote(payload.state))
+                target_tenant_id = state_data.get("target_tenant_id")
+            except Exception:
+                pass
+
+    if not target_tenant_id:
+        raise HTTPException(status_code=400, detail="Missing target tenant identifier in callback.")
+
+    async with database.db_pool.acquire() as conn:
+        tenant_exists = await conn.fetchval("SELECT id FROM tenants WHERE id = $1::uuid", target_tenant_id)
+        if not tenant_exists:
+            raise HTTPException(status_code=404, detail="Target tenant organization not found.")
+
+        return await execute_embedded_signup(
+            conn=conn,
+            tenant_id=str(target_tenant_id),
+            code=payload.code,
+            waba_id=payload.waba_id,
+            phone_number_id=payload.phone_number_id
+        )
+
+
+@router.get("/oauth/whatsapp/callback")
+async def whatsapp_get_callback(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    waba_id: Optional[str] = None,
+    phone_number_id: Optional[str] = None,
+    error: Optional[str] = None,
+    error_description: Optional[str] = None,
+):
+    """
+    Direct GET redirect endpoint if Meta redirects directly to the API server.
+    """
+    if error:
+        err_msg = error_description or error or "Meta signup was cancelled or failed."
+        return RedirectResponse(url=f"https://crm.goboldlabs.com/dashboard?whatsapp_status=error&error={urllib.parse.quote(err_msg)}")
+
+    if not code:
+        return RedirectResponse(url="https://crm.goboldlabs.com/dashboard?whatsapp_status=error&error=Missing+authorization+code")
+
+    target_tenant_id = None
+    if state:
+        try:
+            state_data = json.loads(state)
+            target_tenant_id = state_data.get("target_tenant_id")
+        except Exception:
+            try:
+                state_data = json.loads(urllib.parse.unquote(state))
+                target_tenant_id = state_data.get("target_tenant_id")
+            except Exception:
+                pass
+
+    if not target_tenant_id:
+        return RedirectResponse(url="https://crm.goboldlabs.com/dashboard?whatsapp_status=error&error=Missing+target+tenant")
+
+    try:
+        async with database.db_pool.acquire() as conn:
+            res = await execute_embedded_signup(
+                conn=conn,
+                tenant_id=str(target_tenant_id),
+                code=code,
+                waba_id=waba_id,
+                phone_number_id=phone_number_id
+            )
+        return RedirectResponse(url=f"https://crm.goboldlabs.com/dashboard?whatsapp_status=connected&phone_id={urllib.parse.quote(res.get('phone_number_id', ''))}")
+    except Exception as e:
+        logger.error("whatsapp_get_callback_failed", error=str(e))
+        return RedirectResponse(url=f"https://crm.goboldlabs.com/dashboard?whatsapp_status=error&error={urllib.parse.quote(str(e))}")
 
 
 @router.post("/oauth/whatsapp/embedded-signup")

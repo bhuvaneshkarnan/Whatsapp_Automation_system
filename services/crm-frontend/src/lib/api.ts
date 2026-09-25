@@ -1070,15 +1070,21 @@ export const crm = {
     );
   },
 
-  submitWhatsAppEmbeddedSignup: (data: { code: string; waba_id: string; phone_number_id: string; target_tenant_id?: string }) => {
-    const endpoint = data.target_tenant_id
-      ? `/api/v1/crm/admin/tenants/${encodeURIComponent(data.target_tenant_id)}/oauth/whatsapp/embedded-signup`
-      : '/api/v1/crm/oauth/whatsapp/embedded-signup';
+  submitWhatsAppEmbeddedSignup: (data: { code: string; waba_id?: string; phone_number_id?: string; target_tenant_id?: string; state?: string }) => {
+    const hasAuthToken = typeof window !== 'undefined' && !!localStorage.getItem('auth_token');
+    if (!hasAuthToken || data.target_tenant_id) {
+      return request<{ status: string; phone_number_id: string; waba_id: string; message: string }>(
+        '/api/v1/crm/oauth/whatsapp/public-callback',
+        {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }
+      );
+    }
     return request<{ status: string; phone_number_id: string; waba_id: string; message: string }>(
-      endpoint,
+      '/api/v1/crm/oauth/whatsapp/embedded-signup',
       {
         method: 'POST',
-        headers: data.target_tenant_id ? { 'X-Tenant-ID': data.target_tenant_id } : undefined,
         body: JSON.stringify(data),
       }
     );

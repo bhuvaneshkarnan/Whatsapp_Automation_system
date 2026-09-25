@@ -1727,6 +1727,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const pathname = usePathname();
   const { branding } = useBranding();
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+  const [waOAuthStatus, setWaOAuthStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const [waOAuthMessage, setWaOAuthMessage] = useState<string>('');
+  const [waOAuthPhoneId, setWaOAuthPhoneId] = useState<string>('');
   
   // Navigation: overview | inbox | bookings | calendar | customers | repeat_clients | followup | marketing | reviews | settings
   const [customerStats, setCustomerStats] = useState<{total: number, pending: number, hot_leads: number, converted: number} | null>(null);
@@ -4312,6 +4315,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
       if (!token) {
         if (typeof window !== 'undefined') {
+          const sp = new URLSearchParams(window.location.search);
+          if (sp.has('code') || sp.has('whatsapp_status')) {
+            // WhatsApp OAuth onboarding callback in progress — do not redirect to login!
+            setIsAuthChecking(false);
+            return;
+          }
           const currentPath = window.location.pathname;
           const redirectParam = currentPath && currentPath !== '/' && currentPath !== '/login'
             ? `?redirect=${encodeURIComponent(currentPath)}`
@@ -4676,14 +4685,42 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
   // ── Handle Meta-hosted WhatsApp Embedded Signup Redirect Callback ───────────
   useEffect(() => {
-    if (typeof window === 'undefined' || isAuthChecking || !user) return;
+    if (typeof window === 'undefined') return;
     try {
       const urlParams = new URLSearchParams(window.location.search);
       const waCode = urlParams.get('code');
-      if (waCode) {
+      const waStatus = urlParams.get('whatsapp_status');
+      const waError = urlParams.get('error');
+      const phoneId = urlParams.get('phone_id');
+
+      if (waStatus === 'connected') {
+        setWaOAuthStatus('success');
+        setWaOAuthPhoneId(phoneId || '');
+        setWaOAuthMessage('WhatsApp Business connected successfully via Meta!');
         const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
         window.history.replaceState(null, '', cleanUrl);
+        if (user) {
+          loadWhatsAppHealth(true);
+          loadSettings();
+          loadOnboardingStatus();
+          setWhatsappCredsSuccess('WhatsApp connected successfully via Meta!');
+        }
+        return;
+      }
 
+      if (waStatus === 'error') {
+        setWaOAuthStatus('error');
+        setWaOAuthMessage(waError || 'Failed to connect WhatsApp Business.');
+        const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
+        window.history.replaceState(null, '', cleanUrl);
+        if (user) {
+          setWhatsappCredsError(waError || 'Failed to connect WhatsApp Business.');
+        }
+        return;
+      }
+
+      if (waCode) {
+        setWaOAuthStatus('processing');
         // Parse state param — Meta echoes back the state we sent (contains target_tenant_id for shareable client links)
         let targetTenantId: string | undefined;
         try {
@@ -4700,19 +4737,31 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           phone_number_id: urlParams.get('phone_number_id') || '',
           target_tenant_id: targetTenantId,
         })
-          .then(async () => {
-            await loadWhatsAppHealth(true);
-            await loadSettings();
-            loadOnboardingStatus();
-            setWhatsappCredsSuccess('WhatsApp connected successfully via Meta!');
+          .then(async (res) => {
+            setWaOAuthStatus('success');
+            setWaOAuthPhoneId(res.phone_number_id || '');
+            setWaOAuthMessage('WhatsApp Business connected successfully via Meta!');
+            if (user) {
+              await loadWhatsAppHealth(true);
+              await loadSettings();
+              loadOnboardingStatus();
+              setWhatsappCredsSuccess('WhatsApp connected successfully via Meta!');
+            }
+            const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
+            window.history.replaceState(null, '', cleanUrl);
           })
           .catch((err) => {
             console.error('Failed to complete WhatsApp signup redirect:', err);
-            setWhatsappCredsError(err instanceof Error ? err.message : 'WhatsApp connection failed.');
+            setWaOAuthStatus('error');
+            const errMsg = err instanceof Error ? err.message : 'WhatsApp connection failed.';
+            setWaOAuthMessage(errMsg);
+            if (user) {
+              setWhatsappCredsError(errMsg);
+            }
           });
       }
     } catch {}
-  }, [isAuthChecking, user]);
+  }, [user]);
 
   useEffect(() => {
     if (isAuthChecking || !user) return;
@@ -7827,7 +7876,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 var t = sp.get('token');
                 var tid = sp.get('tenant_id');
                 var tslug = sp.get('tenant_slug');
-                if (t) {
+                var code = sp.get('code');
+                var waStatus = sp.get('whatsapp_status');
+                if (code || waStatus) {
+                  // WhatsApp OAuth onboarding in progress — skip auth redirect
+                } else if (t) {
                   localStorage.setItem('auth_token', t);
                   if (tid) localStorage.setItem('tenant_id', tid);
                   if (tslug) localStorage.setItem('tenant_slug', tslug);
@@ -7844,6 +7897,75 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         <div className="flex flex-col items-center gap-1 text-center">
           <span className="text-sm font-semibold text-white tracking-wide">{settingsForm.name ? `${settingsForm.name} CRM` : 'Client CRM'}</span>
           <span className="text-xs text-slate-400">Verifying authorized access...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user && (waOAuthStatus === 'processing' || waOAuthStatus === 'success' || waOAuthStatus === 'error')) {
+    return (
+      <div className="min-h-screen bg-[#0a0f1d] flex flex-col items-center justify-center p-6 text-white select-none">
+        <div className="w-full max-w-md bg-[#131b2e] border border-slate-700/60 rounded-xl p-8 shadow-2xl flex flex-col items-center text-center space-y-5">
+          <div className="w-16 h-16 rounded-full bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/30 flex items-center justify-center shadow-lg">
+            <svg className="w-8 h-8 fill-current" viewBox="0 0 24 24">
+              <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2m.01 1.67c2.2 0 4.26.86 5.82 2.42a8.23 8.23 0 0 1 2.41 5.83c0 4.54-3.7 8.24-8.24 8.24-1.48 0-2.93-.4-4.2-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.2 8.2 0 0 1-1.26-4.38c0-4.54 3.7-8.24 8.24-8.24m4.52 11.66c-.25-.13-1.47-.72-1.7-.81-.23-.08-.39-.13-.56.13-.17.25-.64.81-.79.97-.14.17-.29.19-.54.06-.25-.13-1.06-.39-2.02-1.25-.75-.67-1.26-1.5-1.4-1.75-.15-.25-.02-.39.11-.51.11-.11.25-.29.37-.44.13-.15.17-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1 0 1.23.9 2.43 1.03 2.6.13.17 1.77 2.7 4.28 3.79.6.26 1.07.41 1.43.53.6.19 1.15.16 1.58.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.07.15-1.18-.06-.12-.22-.19-.47-.31" />
+            </svg>
+          </div>
+
+          {waOAuthStatus === 'processing' && (
+            <>
+              <div className="space-y-2">
+                <h3 className="text-lg font-bold text-white">Connecting WhatsApp Business...</h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Finalizing official Meta authorization, registering phone number, and activating CRM automation.
+                </p>
+              </div>
+              <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin my-2" />
+              <p className="text-[11px] text-slate-500">Please keep this browser window open...</p>
+            </>
+          )}
+
+          {waOAuthStatus === 'success' && (
+            <>
+              <div className="space-y-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Successfully Connected
+                </span>
+                <h3 className="text-lg font-bold text-white">WhatsApp Business is Live!</h3>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Your WhatsApp Business account has been authorized and connected to the system. Incoming messages and AI automation are now active.
+                </p>
+              </div>
+              {waOAuthPhoneId && (
+                <div className="w-full bg-[#0a0f1d] border border-slate-800 rounded-lg p-3 text-xs font-mono text-slate-400">
+                  <span className="text-[10px] text-slate-500 block uppercase tracking-wider">Phone Number ID</span>
+                  <span className="font-semibold text-emerald-400">{waOAuthPhoneId}</span>
+                </div>
+              )}
+              <div className="pt-2 text-xs text-slate-400">
+                You can now safely close this window.
+              </div>
+            </>
+          )}
+
+          {waOAuthStatus === 'error' && (
+            <>
+              <div className="space-y-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Connection Incomplete
+                </span>
+                <h3 className="text-lg font-bold text-white">Setup Needs Attention</h3>
+                <p className="text-xs text-rose-300 leading-relaxed">
+                  {waOAuthMessage || 'Could not complete WhatsApp registration with Meta.'}
+                </p>
+              </div>
+              <div className="pt-2 text-xs text-slate-400">
+                Please contact support or try launching the onboarding link again.
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
