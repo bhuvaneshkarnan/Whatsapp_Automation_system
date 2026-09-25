@@ -31,8 +31,9 @@ function OnboardingContent() {
   const tenantName = searchParams.get('tenant_name') || 'Your Business';
 
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'action_required' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
+  const [actionNotice, setActionNotice] = useState<{ message: string; metaUrl?: string; phoneStatus?: string; nameStatus?: string; verifiedName?: string } | null>(null);
   const [phoneId, setPhoneId] = useState('');
   const [wabaId, setWabaId] = useState('');
   const [copied, setCopied] = useState(false);
@@ -150,11 +151,23 @@ function OnboardingContent() {
                 waba_id: capturedData.current.waba_id || '',
                 target_tenant_id: tenantId,
               })
-                .then((res) => {
+                .then((res: any) => {
                   setLoading(false);
-                  setStatus('success');
                   setPhoneId(res.phone_number_id || capturedData.current.phone_number_id || '');
                   setWabaId(res.waba_id || capturedData.current.waba_id || '');
+
+                  if (res.status === 'action_required' || res.has_issue) {
+                    setStatus('action_required');
+                    setActionNotice({
+                      message: res.issue_message || res.message || 'Meta flagged the business display name or number.',
+                      metaUrl: res.meta_manager_url || `https://business.facebook.com/wa/manage/phone-numbers/?waba_id=${res.waba_id || capturedData.current.waba_id}`,
+                      phoneStatus: res.phone_status,
+                      nameStatus: res.name_status,
+                      verifiedName: res.verified_name
+                    });
+                  } else {
+                    setStatus('success');
+                  }
                 })
                 .catch((err) => {
                   setLoading(false);
@@ -258,6 +271,43 @@ function OnboardingContent() {
                   <span>
                     <strong className="text-white">Instant AI Automation:</strong> Booking reminders, appointment scheduling, and automated replies activate immediately.
                   </span>
+                </div>
+              </div>
+
+              {/* 3 Crucial Meta Approval Rules */}
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 space-y-3 text-xs">
+                <div className="flex items-center gap-2 font-semibold text-amber-300">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>3 Crucial Steps to Avoid Meta Verification Rejection</span>
+                </div>
+
+                <div className="space-y-2 text-slate-300 leading-relaxed">
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold text-amber-400 shrink-0">1.</span>
+                    <div>
+                      <strong className="text-white">Business Display Name:</strong> Enter your full business brand name (e.g. <span className="text-emerald-400 font-semibold">{tenantName || 'Your Business'} Clinic</span> or <span className="text-emerald-400 font-semibold">{tenantName || 'Your Business'} Enterprises</span>).
+                      <p className="text-[11px] text-amber-200/90 mt-0.5">
+                        ❌ Never enter just a single personal name (like &quot;John&quot; or &quot;Aadhiran&quot;) — Meta&apos;s automated AI bot will immediately decline it!
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold text-amber-400 shrink-0">2.</span>
+                    <div>
+                      <strong className="text-white">Phone Number Setup:</strong> Must receive an SMS or Call OTP.
+                      <p className="text-[11px] text-amber-200/90 mt-0.5">
+                        ⚠️ If this number is currently in use on the mobile WhatsApp app, you <strong className="text-white underline">must delete the account</strong> in WhatsApp app (<span className="font-mono text-[10px]">Settings → Account → Delete Account</span>) before connecting, or Meta will block the connection.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-2">
+                    <span className="font-bold text-amber-400 shrink-0">3.</span>
+                    <div>
+                      <strong className="text-white">Category & Website:</strong> Select your accurate business category and enter your business website or Instagram/Facebook profile URL if requested by Meta.
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -385,6 +435,69 @@ function OnboardingContent() {
                   className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-700/80 text-white font-medium text-xs rounded-xl border border-slate-700/60 transition-colors cursor-pointer"
                 >
                   Close this window
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── 3B. ACTION REQUIRED BY META STATE ──────────────────────── */}
+          {status === 'action_required' && (
+            <div className="space-y-6">
+              <div className="flex flex-col items-center text-center space-y-3">
+                <div className="w-14 h-14 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center justify-center shadow-lg shadow-amber-500/10">
+                  <AlertTriangle className="w-8 h-8 stroke-[2.2]" />
+                </div>
+                <div className="space-y-1">
+                  <h2 className="text-xl font-bold text-white tracking-tight">
+                    WhatsApp Linked — Action Required by Meta
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Your number is linked, but Meta flagged the display name <strong className="text-amber-300 font-semibold">{actionNotice?.verifiedName || tenantName}</strong>.
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Required Details Card */}
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 space-y-3 text-xs">
+                <div className="flex items-center gap-2 font-semibold text-amber-300">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Meta Review Status: {actionNotice?.nameStatus || 'DECLINED'}</span>
+                </div>
+                <p className="text-slate-300 leading-relaxed text-[11px]">
+                  {actionNotice?.message || 'Meta declined the display name because single personal names are not accepted. Meta requires a commercial name with business context.'}
+                </p>
+                <div className="bg-slate-950/60 rounded-lg p-3 space-y-1.5 text-[11px] text-slate-300 border border-slate-800">
+                  <span className="font-semibold text-white block">How to activate your number now:</span>
+                  <ol className="list-decimal pl-4 space-y-1 text-slate-400">
+                    <li>Click the button below to open Meta WhatsApp Manager.</li>
+                    <li>Click the pencil (Edit) icon next to the display name.</li>
+                    <li>Change it to a compliant business name (e.g. <strong className="text-emerald-400">{tenantName} Clinic</strong> or <strong className="text-emerald-400">{tenantName} Enterprises</strong>).</li>
+                    <li>Submit the change. Meta will approve the name and messaging will start working immediately.</li>
+                  </ol>
+                </div>
+              </div>
+
+              {/* Direct Link to Meta WhatsApp Manager */}
+              <div className="space-y-2 pt-1">
+                {actionNotice?.metaUrl && (
+                  <a
+                    href={actionNotice.metaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-md"
+                  >
+                    <span>Open Meta WhatsApp Manager to Fix Name</span>
+                    <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                      <path d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3zM5 5h6v2H5v12h12v-6h2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/>
+                    </svg>
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setStatus('idle')}
+                  className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium text-xs rounded-xl border border-slate-700/60 transition-colors cursor-pointer"
+                >
+                  Start Over
                 </button>
               </div>
             </div>

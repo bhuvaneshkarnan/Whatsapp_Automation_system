@@ -139,6 +139,11 @@ async def execute_embedded_signup(conn, tenant_id: str, code: str, waba_id: Opti
             logger.warning("meta_waba_webhook_subscribe_warn", error=str(e_sub))
 
     # 3. Register Phone Number on WhatsApp Cloud API (with standard PIN)
+    phone_status = "CONNECTED"
+    name_status = "APPROVED"
+    display_phone = ""
+    verified_name = ""
+
     async with httpx.AsyncClient() as client:
         try:
             reg_url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{clean_phone_id}/register"
@@ -151,6 +156,20 @@ async def execute_embedded_signup(conn, tenant_id: str, code: str, waba_id: Opti
             logger.info("meta_phone_register_status", status=reg_resp.status_code, body=reg_resp.text)
         except Exception as e_reg:
             logger.warning("meta_phone_register_warn", error=str(e_reg))
+
+        # Query live phone number status & display name approval
+        try:
+            p_check_url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{clean_phone_id}?fields=display_phone_number,verified_name,code_verification_status,quality_rating,status,name_status"
+            p_resp = await client.get(p_check_url, headers={"Authorization": f"Bearer {access_token}"}, timeout=10.0)
+            if p_resp.status_code == 200:
+                p_meta = p_resp.json()
+                phone_status = p_meta.get("status", "CONNECTED")
+                name_status = p_meta.get("name_status", "APPROVED")
+                display_phone = p_meta.get("display_phone_number", "")
+                verified_name = p_meta.get("verified_name", "")
+                logger.info("meta_phone_live_status", status=phone_status, name_status=name_status, phone=display_phone, name=verified_name)
+        except Exception as e_p:
+            logger.warning("meta_phone_live_status_warn", error=str(e_p))
 
     # 4. Fetch tenant info and persist credentials to database
     tenant_row = await conn.fetchrow("SELECT id, slug, name FROM tenants WHERE id = $1::uuid", tenant_id)
@@ -178,6 +197,10 @@ async def execute_embedded_signup(conn, tenant_id: str, code: str, waba_id: Opti
     wa_data["waba_id"] = clean_waba
     wa_data["access_token"] = access_token
     wa_data["app_secret"] = META_APP_SECRET
+    wa_data["display_phone_number"] = display_phone or wa_data.get("display_phone_number", "")
+    wa_data["verified_name"] = verified_name or wa_data.get("verified_name", "")
+    wa_data["status"] = phone_status
+    wa_data["name_status"] = name_status
     if not wa_data.get("verify_token"):
         wa_data["verify_token"] = f"{slug}_token" if slug else f"wa_{uuid.uuid4().hex[:12]}"
 
@@ -214,11 +237,25 @@ async def execute_embedded_signup(conn, tenant_id: str, code: str, waba_id: Opti
     except Exception as e_sync:
         logger.warning("meta_embedded_signup_auto_template_sync_warn", error=str(e_sync))
 
+    has_issue = (name_status == "DECLINED" or phone_status in ("BANNED", "RESTRICTED"))
+    issue_message = ""
+    if name_status == "DECLINED":
+        issue_message = f"Meta declined the display name '{verified_name}'. Meta requires a business name with commercial context (e.g. '{tenant_row['name']} Clinic' or '{tenant_row['name']} Enterprises')."
+    elif phone_status in ("BANNED", "RESTRICTED"):
+        issue_message = "Meta placed this phone number on hold. Please request a quick review in Meta Account Quality."
+
     return {
-        "status": "connected",
+        "status": "action_required" if has_issue else "connected",
+        "has_issue": has_issue,
+        "issue_message": issue_message,
         "phone_number_id": clean_phone_id,
         "waba_id": clean_waba,
-        "message": "WhatsApp Business successfully connected with 1-Click Meta Embedded Signup."
+        "display_phone_number": display_phone,
+        "verified_name": verified_name,
+        "phone_status": phone_status,
+        "name_status": name_status,
+        "meta_manager_url": f"https://business.facebook.com/wa/manage/phone-numbers/?waba_id={clean_waba}",
+        "message": issue_message or "WhatsApp Business successfully connected with 1-Click Meta Embedded Signup."
     }
 
 

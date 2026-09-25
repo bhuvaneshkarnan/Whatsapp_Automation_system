@@ -5817,29 +5817,61 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                         </div>
 
                         {/* Shareable Client Onboarding Link */}
-                        <div className="mt-3 p-3 bg-surface border border-emerald-300/60 dark:border-emerald-700/60 rounded-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                        <div className="mt-3 p-3 bg-surface border border-emerald-300/60 dark:border-emerald-700/60 rounded-md flex flex-col gap-2.5 text-xs">
                           <div className="space-y-0.5">
                             <span className="font-semibold text-text-primary flex items-center gap-1.5">
                               <Share2 className="w-3.5 h-3.5 text-emerald-600 stroke-[1.5]" />
-                              <span>Shareable Client Onboarding Link</span>
+                              <span>Shareable Client Onboarding Link & Instructions</span>
                             </span>
                             <p className="text-[11px] text-text-muted">
-                              Send this link to your client via WhatsApp or Email. They click it, sign into their own Meta account, and their WhatsApp is instantly activated in your CRM without them sharing passwords with you!
+                              Send this link to your client via WhatsApp or Email. It includes the 3 critical Meta compliance rules so their display name is approved instantly without rejection.
                             </p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const origin = typeof window !== 'undefined' ? window.location.origin : 'https://crm.goboldlabs.com';
-                              const link = `${origin}/onboard?tenant_id=${encodeURIComponent(editingConfigTenant.id)}&tenant_name=${encodeURIComponent(editingConfigTenant.name || '')}`;
-                              navigator.clipboard.writeText(link);
-                              alert('Copied 1-Click WhatsApp Onboarding Link to clipboard!\n\nYou can now send this link directly to your client via WhatsApp or Email.');
-                            }}
-                            className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60 border border-emerald-300 dark:border-emerald-700 font-semibold rounded-sm text-xs shrink-0 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                            <span>Copy Link for Client</span>
-                          </button>
+
+                          <div className="flex items-center gap-2 flex-wrap pt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const origin = typeof window !== 'undefined' ? window.location.origin : 'https://crm.goboldlabs.com';
+                                const link = `${origin}/onboard?tenant_id=${encodeURIComponent(editingConfigTenant.id)}&tenant_name=${encodeURIComponent(editingConfigTenant.name || '')}`;
+                                navigator.clipboard.writeText(link);
+                                alert('Copied 1-Click WhatsApp Onboarding Link to clipboard!');
+                              }}
+                              className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium rounded-sm text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>Copy Link Only</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const origin = typeof window !== 'undefined' ? window.location.origin : 'https://crm.goboldlabs.com';
+                                const link = `${origin}/onboard?tenant_id=${encodeURIComponent(editingConfigTenant.id)}&tenant_name=${encodeURIComponent(editingConfigTenant.name || '')}`;
+                                const msg = `Hello ${editingConfigTenant.name},\n\nHere is your official 1-Click WhatsApp Business activation link:\n${link}\n\n⚠️ IMPORTANT: To ensure instant Meta approval without automated rejection:\n1. Business Name: Enter your commercial business name (e.g. "${editingConfigTenant.name} Clinic" or "${editingConfigTenant.name} Enterprises") — do NOT enter just a personal name like "John".\n2. Phone Number: If this number is currently used on the WhatsApp mobile app, delete the account in WhatsApp Settings > Account > Delete Account first.\n3. Category: Select your business category.\n\nOnce completed, your WhatsApp AI automation will be live!`;
+                                navigator.clipboard.writeText(msg);
+                                alert('Copied full client onboarding instructions (with link) to clipboard! You can paste and send directly.');
+                              }}
+                              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60 border border-emerald-300 dark:border-emerald-700 font-semibold rounded-sm text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>Copy Full Instructions</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const origin = typeof window !== 'undefined' ? window.location.origin : 'https://crm.goboldlabs.com';
+                                const link = `${origin}/onboard?tenant_id=${encodeURIComponent(editingConfigTenant.id)}&tenant_name=${encodeURIComponent(editingConfigTenant.name || '')}`;
+                                const msg = `Hello ${editingConfigTenant.name},\n\nHere is your official 1-Click WhatsApp Business activation link:\n${link}\n\n⚠️ IMPORTANT: To ensure instant Meta approval without automated rejection:\n1. Business Name: Enter your commercial business name (e.g. "${editingConfigTenant.name} Clinic" or "${editingConfigTenant.name} Enterprises") — do NOT enter just a personal name like "John".\n2. Phone Number: If this number is currently used on the WhatsApp mobile app, delete the account in WhatsApp Settings > Account > Delete Account first.\n3. Category: Select your business category.\n\nOnce completed, your WhatsApp AI automation will be live!`;
+                                window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                              }}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-sm text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                            >
+                              <Share2 className="w-3.5 h-3.5" />
+                              <span>Share via WhatsApp</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
 
