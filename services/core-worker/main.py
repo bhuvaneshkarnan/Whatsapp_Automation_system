@@ -6972,13 +6972,13 @@ class CoreWorker:
                         mission_title = "TOUCH 2: PRE-24H FREE WINDOW EXPIRY CLOSER"
                         mission_prompt_text = (
                             "The customer has been quiet for around 20 hours. WhatsApp's 24-hour free service window is about to expire.\n"
-                            "Your goal is to send a gentle, zero-pressure 1-2 sentence message offering two binary options or a tentative slot hold "
-                            "(e.g. 'We have two slots open tomorrow morning or evening. Should I tentatively hold one for you, or would another day work better?')."
+                            "Your goal is to send a gentle, zero-pressure 1-2 sentence message offering two simple options or a slot hold. "
+                            "(e.g. 'We have two slots open tomorrow morning or evening. Should we keep one aside for you, or would another day work better?')."
                         )
                         followup_instruction = (
                             f"[Touch 2 Pre-24h window closer. Customer has been quiet for 20 hours. "
-                            f"Send a gentle, warm 1-2 sentence check-in offering two binary choices or a tentative slot hold in {style_profile['label']}. "
-                            f"Do not say 'Just checking in' and do not push canned demo times.]"
+                            f"Send a gentle, warm 1-2 sentence message in easy Indian English offering two choices or offering to keep a slot for them in {style_profile['label']}. "
+                            f"Use simple everyday words — avoid formal words like 'tentatively'. Do not say 'Just checking in' and do not push canned demo times.]"
                         )
                     elif is_price_drop:
                         mission_title = "STAGE 1: PRICE INQUIRY DROP-OFF RECOVERY"
@@ -6986,11 +6986,11 @@ class CoreWorker:
                             mission_prompt_text = (
                                 "The customer stopped replying after asking about fees or pricing.\n"
                                 "1. Remind them warmly of the complete value, root-cause diagnosis, or treatment roadmap included with our specialist.\n"
-                                "2. Offer a low-friction micro-step: ask if they would like to tentatively hold a consultation slot, or if a quick 5-minute call with our coordinator would help clear their doubts."
+                                "2. Offer a simple next step: ask if they would like us to keep a slot for them, or if a quick 5-minute call with our coordinator would help clear their doubts."
                             )
                             followup_instruction = (
-                                f"[Customer dropped off after pricing inquiry. Remind them warmly of the value/relief included and offer a tentative slot or 5-minute call in {style_profile['label']}. "
-                                f"Write a short, clear 1-2 sentence followup without robotic fillers.]"
+                                f"[Customer dropped off after pricing inquiry. Remind them warmly of the value/relief included and offer to keep a slot or do a 5-minute call in {style_profile['label']}. "
+                                f"Use simple everyday Indian English — avoid formal words like 'tentatively'. Write a short, clear 1-2 sentence followup without robotic fillers.]"
                             )
                         else:
                             mission_prompt_text = (
@@ -7050,7 +7050,8 @@ class CoreWorker:
                         "2. EASY INDIAN ENGLISH OR CUSTOMER'S PREFERRED LANGUAGE:\n"
                         f"   - Match customer's language ({style_profile['label']}). "
                         + ("If Tamil script, reply 100% in natural, polite Tamil script (தமிழ்)! If Tanglish, reply 100% in natural Romanized Tanglish without hyphens! If Hindi/Hinglish, reply in Hindi/Hinglish!\n" if style_profile['dialect'] not in ('indian_english', 'standard_conversational') else "Speak in easy, friendly Indian English.\n")
-                        + "3. LENGTH & FORMAT:\n"
+                        + "   - BANNED FORMAL WORDS (never use these): 'tentatively', 'provisionally', 'preliminarily', 'ascertain', 'revert back', 'kindly', 'do the needful'. Use simple everyday words instead — e.g. say 'keep a slot for you' not 'tentatively hold'.\n"
+                        "3. LENGTH & FORMAT:\n"
                         "   - Strictly 1 to 2 short sentences (20 to 35 words max).\n"
                         "   - ABSOLUTELY ZERO hyphens, dashes, asterisks, bullet points, or emojis.\n"
                         "   - Zero pressure. Always leave a warm, welcoming door open."
