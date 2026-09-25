@@ -350,19 +350,18 @@ async def call_gemini(
     }
 
     # Verified active Gemini models (ordered fastest/most-reliable first)
-    # gemini-2.5-flash: Google's recommended current fast model (replaces 2.5-flash-lite)
+    # gemini-2.5-flash: Google's recommended current fast model
     # gemini-3.5-flash: Also active, reliable
     # gemini-3.6-flash: Active, slightly slower
-    # gemma-4 models: Use only as last resort for Gemini — they are bigger/slower
     active_gemini_models = [
         "gemini-2.5-flash",
         "gemini-3.5-flash",
         "gemini-3.6-flash",
-        "gemma-4-26b-a4b-it",
     ]
     candidate_models = []
     # Strip known-dead/retired model aliases
-    bad_aliases = ["2.5-pro", "2.0-flash", "1.5-flash", "flash-lite-latest", "flash-latest", "gemma-4-26b-a4b-it"]
+    bad_aliases = ["2.5-pro", "2.0-flash", "1.5-flash", "flash-lite-latest", "flash-latest",
+                   "gemma-4-26b-a4b-it", "3.5-flash-lite", "3.7-flash", "3.8-flash"]
     if model and not any(bad in model.lower() for bad in bad_aliases):
         candidate_models.append(model)
     for m in active_gemini_models:
@@ -783,7 +782,7 @@ async def call_llm_cascade(
                 messages=messages,
                 api_key=gemini_key,
                 system_prompt=system_prompt,
-                model=gemini_model or "gemini-3.5-flash-lite",
+                model=gemini_model or "gemini-2.5-flash",
                 max_tokens=effective_gemini_tokens,
                 temperature=temperature,
                 timeout_seconds=12.0,
@@ -850,7 +849,7 @@ async def call_llm_cascade(
                     messages=messages,
                     api_key=key,
                     system_prompt=system_prompt,
-                    model=gemini_model or "gemini-3.5-flash-lite",
+                    model=gemini_model or "gemini-2.5-flash",
                     max_tokens=effective_gemini_tokens,
                     temperature=temperature,
                     timeout_seconds=min(max(timeout_seconds, 4.0), 6.5),
