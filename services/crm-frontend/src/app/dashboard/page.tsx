@@ -13958,8 +13958,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {(activeNav === 'customers' || activeNav === 'followup') && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
                 {/* Clean, Unified Header with Title, Taxonomy, Sub-Tabs, Search, and Action Toolbar */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-border pb-2 pt-0.5 shrink-0">
-                  <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-1.5 pt-0.5 shrink-0">
+                  <div className="flex items-center gap-2.5 flex-wrap">
                     <div className="flex items-center gap-1.5">
                       <Users className="w-4 h-4 text-accent stroke-[1.8]" />
                       <h3 className="font-semibold text-sm text-text-primary">
@@ -13969,11 +13969,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
 
                     {/* View Switcher Pills */}
-                    <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-md p-0.5 overflow-x-auto no-scrollbar shrink-0">
+                    <div className="flex items-center gap-0.5 bg-surface-subtle border border-border rounded-md p-0.5 overflow-x-auto no-scrollbar shrink-0">
                       <button
                         type="button"
                         onClick={() => setFollowupView('list')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                        className={`flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
                           followupView === 'list'
                             ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
                             : 'text-text-secondary hover:text-text-primary'
@@ -13986,7 +13986,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setFollowupView('tasks')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                        className={`flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
                           followupView === 'tasks'
                             ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
                             : 'text-text-secondary hover:text-text-primary'
@@ -14003,7 +14003,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           setLoadingAllNotes(true);
                           crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
                         }}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                        className={`flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
                           followupView === 'notes'
                             ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
                             : 'text-text-secondary hover:text-text-primary'
@@ -14016,9 +14016,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {/* Prominent Search Bar (Always visible on all screen sizes, uniform h-8) */}
-                    <div className="relative flex-1 sm:flex-initial w-full sm:w-48 md:w-56 lg:w-64 min-w-[160px]">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {/* Compact Search Bar */}
+                    <div className="relative flex-1 sm:flex-initial w-full sm:w-44 md:w-52 lg:w-56 min-w-[150px]">
                       <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
                       <input
                         type="text"
@@ -14030,7 +14030,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             setFollowupSearch(followupSearchInput);
                           }
                         }}
-                        className="w-full pl-8 pr-7 h-8 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface transition-colors shadow-2xs"
+                        className="w-full pl-8 pr-7 h-7.5 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface transition-colors shadow-2xs"
                       />
                       {followupSearchInput && (
                         <button
@@ -14051,7 +14051,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <button
                       type="button"
                       onClick={exportCustomersToCsv}
-                      className="h-8 flex items-center gap-1.5 px-2.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                      className="h-7.5 flex items-center gap-1 px-2 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
                       title="Export customer records to CSV"
                     >
                       <Download className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -14062,23 +14062,23 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <button
                       type="button"
                       onClick={() => setShowAddCustomerModal(true)}
-                      className="h-8 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                      className="h-7.5 flex items-center gap-1 px-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
                     >
                       <UserPlus className="w-3.5 h-3.5 stroke-[1.5]" />
                       <span>Add {currentTaxonomy.client_label || 'Customer'}</span>
                     </button>
 
-                    {/* Subtle Dropdown Options Icon Button (Replaces bulky button) */}
+                    {/* Subtle Dropdown Options Icon Button */}
                     <button
                       type="button"
                       onClick={openDropdownOptionsModal}
-                      className="h-8 w-8 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
-                      title="Customize CRM dropdown options (outcomes, actions, services)"
+                      className="h-7.5 w-7.5 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                      title="Customize CRM dropdown options"
                     >
                       <Sliders className="w-3.5 h-3.5 stroke-[1.5]" />
                     </button>
 
-                    {/* Refresh Button (Uniform h-8 w-8) */}
+                    {/* Refresh Button */}
                     <button
                       type="button"
                       onClick={() => {
@@ -14089,7 +14089,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
                         }
                       }}
-                      className="h-8 w-8 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                      className="h-7.5 w-7.5 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
                       title="Refresh customer data"
                     >
                       <RotateCcw className={`w-3.5 h-3.5 ${loadingCustomers || loadingTasks || loadingAllNotes ? 'animate-spin' : ''}`} />
@@ -14099,15 +14099,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                 {/* ── SUB-VIEW A: FOLLOW-UP PIPELINE ──────────────────────────────── */}
                 {followupView === 'list' && (
-                  <div className="flex-1 flex flex-col overflow-hidden space-y-1.5">
-                    {/* Unified Filter & Metrics Bar (Clean, single-row layout with zero duplicates) */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 p-1.5 px-2 bg-surface border border-border rounded-md text-xs">
-                      {/* Left: Filter Controls */}
-                      <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex-1 flex flex-col overflow-hidden space-y-1">
+                    {/* Compact & Clean Single-Row Filter & KPI Toolbar */}
+                    <div className="flex items-center justify-between gap-3 px-2 py-1 bg-surface border border-border rounded-md text-xs overflow-x-auto no-scrollbar">
+                      {/* Left: Essential Filter Controls */}
+                      <div className="flex items-center gap-2 shrink-0">
                         {/* Outcome Filter Pills */}
                         <div className="flex items-center gap-1">
-                          <span className="text-[11px] font-medium text-text-secondary mr-0.5">Outcome:</span>
-                          <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border rounded-md gap-0.5">
+                          <span className="text-[11px] font-medium text-text-muted mr-0.5">Outcome:</span>
+                          <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border/80 rounded-md gap-0.5">
                             {[
                               { key: 'all', label: 'All' },
                               { key: 'new', label: 'New' },
@@ -14121,7 +14121,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   key={st.key}
                                   type="button"
                                   onClick={() => setFollowupStatusFilter(st.key)}
-                                  className={`px-2 py-0.5 text-[11px] rounded-sm transition-colors cursor-pointer font-medium ${
+                                  className={`px-2 py-0.5 text-[11px] rounded-xs transition-colors cursor-pointer font-medium whitespace-nowrap ${
                                     isActive
                                       ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
                                       : 'text-text-muted hover:text-text-primary hover:bg-surface/50'
@@ -14134,9 +14134,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
                         </div>
 
-                        {/* Active Custom Outcome Badge (if non-standard outcome selected) */}
+                        {/* Active Custom Outcome Badge */}
                         {!['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) && (
-                          <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-accent/10 border border-accent/30 text-accent rounded-md text-[11px] font-semibold">
+                          <div className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-accent/10 border border-accent/30 text-accent rounded-sm text-[11px] font-semibold">
                             <span>{followupStatusFilter}</span>
                             <button
                               type="button"
@@ -14149,34 +14149,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </div>
                         )}
 
-                        {/* Custom Outcomes Dropdown (Only shown if custom outcomes exist in settings, without duplicating core outcomes) */}
-                        {crmDropdowns.outcome_statuses && crmDropdowns.outcome_statuses.filter(
-                          st => !['all', 'new', 'follow-up', 'converted', 'lost'].includes(st.toLowerCase())
-                        ).length > 0 && (
-                          <select
-                            value={!['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) ? followupStatusFilter : ''}
-                            onChange={(e) => {
-                              if (e.target.value) setFollowupStatusFilter(e.target.value);
-                            }}
-                            className="h-7 px-2 text-[11px] bg-surface border border-border rounded-md text-text-secondary focus:outline-none focus:border-accent cursor-pointer"
-                            title="Filter by custom outcome status"
-                          >
-                            <option value="">More Outcomes...</option>
-                            {crmDropdowns.outcome_statuses
-                              .filter(st => !['all', 'new', 'follow-up', 'converted', 'lost'].includes(st.toLowerCase()))
-                              .map(st => (
-                                <option key={st} value={st}>{st}</option>
-                              ))}
-                          </select>
-                        )}
-
                         {/* Divider */}
-                        <div className="h-4 w-px bg-border/80 shrink-0" />
+                        <div className="h-3.5 w-px bg-border/80 shrink-0" />
 
                         {/* Lead Warmth Badges */}
                         <div className="flex items-center gap-1">
-                          <span className="text-[11px] font-medium text-text-secondary mr-0.5">Lead:</span>
-                          <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border rounded-md gap-0.5">
+                          <span className="text-[11px] font-medium text-text-muted mr-0.5">Lead:</span>
+                          <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border/80 rounded-md gap-0.5">
                             {[
                               { key: 'all', label: 'All' },
                               { key: 'hot', label: 'Hot', icon: Flame, color: 'text-amber-500 fill-amber-500/20' },
@@ -14190,7 +14169,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   key={prob.key}
                                   type="button"
                                   onClick={() => setFollowupProbabilityFilter(prob.key)}
-                                  className={`px-1.5 py-0.5 text-[11px] rounded-sm transition-colors cursor-pointer flex items-center gap-1 font-medium ${
+                                  className={`px-1.5 py-0.5 text-[11px] rounded-xs transition-colors cursor-pointer flex items-center gap-1 font-medium whitespace-nowrap ${
                                     isActive
                                       ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
                                       : 'text-text-muted hover:text-text-primary hover:bg-surface/50'
@@ -14205,10 +14184,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
 
                         {/* Divider */}
-                        <div className="h-4 w-px bg-border/80 shrink-0" />
+                        <div className="h-3.5 w-px bg-border/80 shrink-0" />
 
                         {/* Staff / Doctor Selector with docked preset edit button */}
-                        <div className="inline-flex items-center border border-border rounded-md bg-surface h-7 overflow-hidden">
+                        <div className="inline-flex items-center border border-border rounded-md bg-surface h-6.5 overflow-hidden shrink-0">
                           <select
                             value={followupDoctorFilter}
                             onChange={(e) => setFollowupDoctorFilter(e.target.value)}
@@ -14234,36 +14213,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           </button>
                         </div>
 
-                        {/* Next Action Filter */}
-                        <select
-                          value={followupActionFilter}
-                          onChange={(e) => setFollowupActionFilter(e.target.value)}
-                          className={`h-7 px-2 text-[11px] bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[115px] ${
-                            followupActionFilter !== 'all' ? 'border-accent font-semibold bg-accent/5' : ''
-                          }`}
-                          title="Filter by Next Action"
-                        >
-                          <option value="all">All Actions</option>
-                          {crmDropdowns.next_actions.map((act) => (
-                            <option key={act} value={act}>{act}</option>
-                          ))}
-                        </select>
-
-                        {/* Client Type Filter */}
-                        <select
-                          value={customerClientTypeFilter}
-                          onChange={(e) => setCustomerClientTypeFilter(e.target.value)}
-                          className={`h-7 px-2 text-[11px] bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent cursor-pointer max-w-[110px] ${
-                            customerClientTypeFilter !== 'all' ? 'border-accent font-semibold bg-accent/5' : ''
-                          }`}
-                          title="Filter by Client Type"
-                        >
-                          <option value="all">All Clients</option>
-                          <option value="new_lead">New Leads</option>
-                          <option value="repeat">Repeat Clients</option>
-                          <option value="lapsed">Lapsed (&gt;30d)</option>
-                        </select>
-
                         {/* Quick Reset All Filters Button */}
                         {(followupStatusFilter !== 'all' || followupProbabilityFilter !== 'all' || followupDoctorFilter !== 'all' || followupActionFilter !== 'all' || customerClientTypeFilter !== 'all' || followupSearch.trim()) && (
                           <button
@@ -14277,7 +14226,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               setFollowupSearchInput('');
                               setFollowupSearch('');
                             }}
-                            className="h-7 text-[11px] text-accent hover:text-accent-hover flex items-center gap-1 px-1.5 rounded-md hover:bg-surface-subtle font-medium cursor-pointer"
+                            className="h-6.5 text-[11px] text-accent hover:text-accent-hover flex items-center gap-1 px-1.5 rounded hover:bg-surface-subtle font-medium cursor-pointer shrink-0"
                             title="Reset all filters"
                           >
                             <X className="w-3 h-3" />
@@ -14286,36 +14235,36 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         )}
                       </div>
 
-                      {/* Right: Integrated Compact KPI Metrics Strip */}
-                      <div className="flex items-center gap-3 text-xs shrink-0 py-0.5">
+                      {/* Right: Compact KPI Summary Strip (Single Line, Never Wraps) */}
+                      <div className="flex items-center gap-2.5 text-[11px] shrink-0 ml-auto whitespace-nowrap pl-2">
                         <div className="flex items-center gap-1">
                           <Users className="w-3.5 h-3.5 text-text-muted stroke-[1.8]" />
-                          <span className="text-[11px] text-text-muted">Total:</span>
-                          <span className="font-bold text-text-primary font-mono text-xs">{customerStats?.total ?? customers.length}</span>
+                          <span className="text-text-muted">Total:</span>
+                          <span className="font-bold text-text-primary font-mono">{customerStats?.total ?? customers.length}</span>
                         </div>
-                        <span className="text-border text-xs hidden sm:inline">•</span>
+                        <span className="text-border text-xs">•</span>
                         <div className="flex items-center gap-1">
                           <Clock3 className="w-3.5 h-3.5 text-amber-600 stroke-[1.8]" />
-                          <span className="text-[11px] text-amber-800 font-medium">Pending:</span>
-                          <span className="font-bold text-amber-900 font-mono text-xs">
+                          <span className="text-amber-800 font-medium">Pending:</span>
+                          <span className="font-bold text-amber-900 font-mono">
                             {customerStats?.pending ?? customers.filter(c => c.status === 'follow-up' || c.status === 'new').length}
                           </span>
                         </div>
-                        <span className="text-border text-xs hidden sm:inline">•</span>
+                        <span className="text-border text-xs">•</span>
                         <div className="flex items-center gap-1">
                           <Flame className="w-3.5 h-3.5 text-rose-500 fill-rose-500/20 stroke-[1.8]" />
-                          <span className="text-[11px] text-rose-700 font-medium">Hot Leads:</span>
-                          <span className="font-bold text-rose-900 font-mono text-xs">
+                          <span className="text-rose-700 font-medium">Hot:</span>
+                          <span className="font-bold text-rose-900 font-mono">
                             {customerStats?.hot_leads ?? customers.filter(c => c.lead_probability === 'hot' && c.status !== 'converted' && c.status !== 'lost').length}
                           </span>
                         </div>
-                        <span className="text-border text-xs hidden sm:inline">•</span>
+                        <span className="text-border text-xs">•</span>
                         <div className="flex items-center gap-1">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 stroke-[1.8]" />
-                          <span className="text-[11px] text-emerald-800 font-medium">Converted:</span>
-                          <span className="font-bold text-emerald-900 font-mono text-xs">
+                          <span className="text-emerald-800 font-medium">Converted:</span>
+                          <span className="font-bold text-emerald-900 font-mono">
                             {customerStats?.converted ?? customers.filter(c => c.converted).length}
-                            <span className="text-[10px] text-emerald-600 ml-1 font-normal">
+                            <span className="text-[10px] text-emerald-600 ml-0.5 font-normal">
                               ({customerStats ? Math.round((customerStats.converted / (customerStats.total || 1)) * 100) : (customers.length ? Math.round((customers.filter(c => c.converted).length / customers.length) * 100) : 0)}%)
                             </span>
                           </span>
