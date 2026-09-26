@@ -2568,6 +2568,29 @@ export function formatDialablePhone(phone?: string | null): string {
   return trimmed.startsWith('+') ? trimmed : `+${digits}`;
 }
 
+/**
+ * Formats a phone number for display and clipboard copy in the CRM.
+ * - For Indian numbers (12 digits starting with '91', or 11 digits starting with '0'):
+ *   Removes the country code prefix so users see and copy the clean 10-digit number (e.g. 8870341570).
+ * - For other numbers: returns as clean digits or trimmed string.
+ */
+export function formatDisplayPhone(phone?: string | null): string {
+  if (!phone) return '';
+  const trimmed = phone.trim();
+  const digits = trimmed.replace(/\D/g, '');
+
+  if (digits.length === 12 && digits.startsWith('91')) {
+    return digits.slice(2);
+  }
+  if (digits.length === 11 && digits.startsWith('0')) {
+    return digits.slice(1);
+  }
+  if (digits.length === 10) {
+    return digits;
+  }
+  return trimmed;
+}
+
 
 
 

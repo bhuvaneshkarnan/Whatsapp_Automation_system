@@ -47,7 +47,7 @@ import {
   FileText,
   Globe,
 } from 'lucide-react';
-import { Customer, FollowupTask, CrmDropdownOptions, DuplicateCustomerGroup, formatDialablePhone, crm as api } from '@/lib/api';
+import { Customer, FollowupTask, CrmDropdownOptions, DuplicateCustomerGroup, formatDialablePhone, formatDisplayPhone, crm as api } from '@/lib/api';
 
 // Date string helper for follow-up scheduling
 function getFollowupDateString(offsetDays: number = 0): string {
@@ -970,7 +970,7 @@ export function ModernCustomerView({
   const handleCopyPhone = (e: React.MouseEvent, phone?: string | null, id?: string) => {
     e.stopPropagation();
     if (!phone) return;
-    const clean = phone.trim();
+    const clean = formatDisplayPhone(phone).trim();
     if (typeof window !== 'undefined' && navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(clean).catch(() => {
         fallbackCopy(clean);
@@ -1820,9 +1820,9 @@ export function ModernCustomerView({
                                     href={`tel:${formatDialablePhone(cust.phone)}`}
                                     onClick={(e) => e.stopPropagation()}
                                     className="truncate hover:text-accent hover:underline cursor-pointer font-medium"
-                                    title={`Click to call ${cust.phone}`}
+                                    title={`Click to call ${formatDisplayPhone(cust.phone)}`}
                                   >
-                                    {cust.phone}
+                                    {formatDisplayPhone(cust.phone)}
                                   </a>
                                   {cust.phone && (
                                     <button
@@ -2140,7 +2140,7 @@ export function ModernCustomerView({
                                     href={`tel:${formatDialablePhone(cust.phone)}`}
                                     onClick={(e) => e.stopPropagation()}
                                     className="px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[11px] font-semibold rounded-sm border border-sky-200 dark:border-sky-800 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                                    title={`Click to call ${cust.phone}`}
+                                    title={`Click to call ${formatDisplayPhone(cust.phone)}`}
                                   >
                                     <PhoneCall className="w-3 h-3 text-sky-600 dark:text-sky-400 stroke-[2]" />
                                     <span>Call</span>
@@ -2409,9 +2409,9 @@ export function ModernCustomerView({
                                       onDragStart={(e) => e.stopPropagation()}
                                       onClick={(e) => e.stopPropagation()}
                                       className="text-[9.5px] text-text-muted hover:text-accent hover:underline font-mono leading-none truncate cursor-pointer"
-                                      title={`Click to call ${cust.phone}`}
+                                      title={`Click to call ${formatDisplayPhone(cust.phone)}`}
                                     >
-                                      {cust.phone}
+                                      {formatDisplayPhone(cust.phone)}
                                     </a>
                                     {cust.phone && (
                                       <button
@@ -2527,7 +2527,7 @@ export function ModernCustomerView({
                                     onDragStart={(e) => e.stopPropagation()}
                                     onClick={(e) => e.stopPropagation()}
                                     className="px-1.5 py-0.5 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 font-semibold rounded-xs border border-sky-200 dark:border-sky-800 transition-colors flex items-center gap-1 shadow-2xs text-[9.5px] cursor-pointer"
-                                    title={`Click to call ${cust.phone}`}
+                                    title={`Click to call ${formatDisplayPhone(cust.phone)}`}
                                   >
                                     <PhoneCall className="w-2.5 h-2.5 text-sky-600 dark:text-sky-400 stroke-[2]" />
                                     <span>Call</span>
@@ -2854,9 +2854,9 @@ export function ModernCustomerView({
                                   <a
                                     href={`tel:${formatDialablePhone(t.parsed.phone)}`}
                                     className="hover:text-accent hover:underline cursor-pointer"
-                                    title={`Click to call ${t.parsed.phone}`}
+                                    title={`Click to call ${formatDisplayPhone(t.parsed.phone)}`}
                                   >
-                                    {t.parsed.phone}
+                                    {formatDisplayPhone(t.parsed.phone)}
                                   </a>
                                   <button
                                     type="button"
@@ -2906,7 +2906,7 @@ export function ModernCustomerView({
                             <a
                               href={`tel:${formatDialablePhone(cust?.phone || t.parsed.phone)}`}
                               className="px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 font-semibold rounded-xs border border-sky-200 dark:border-sky-800 transition-colors flex items-center gap-1.5 text-xs shadow-2xs cursor-pointer"
-                              title={`Click to call ${cust?.phone || t.parsed.phone}`}
+                              title={`Click to call ${formatDisplayPhone(cust?.phone || t.parsed.phone)}`}
                             >
                               <PhoneCall className="w-3 h-3 text-sky-600 dark:text-sky-400 stroke-[2]" />
                               <span>Call</span>

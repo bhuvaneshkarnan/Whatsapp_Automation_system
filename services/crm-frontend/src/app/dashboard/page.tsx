@@ -36,6 +36,7 @@ import {
   TenantOnboardingStatus,
   OnboardingStep,
   formatDialablePhone,
+  formatDisplayPhone,
 } from '@/lib/api';
 import { ModernCustomerView } from '@/components/dashboard/ModernCustomerView';
 import { MergeCustomersModal } from '@/components/dashboard/MergeCustomersModal';
@@ -1785,7 +1786,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     e.stopPropagation();
     if (!phone) return;
     try {
-      navigator.clipboard.writeText(phone);
+      navigator.clipboard.writeText(formatDisplayPhone(phone).trim());
     } catch {}
     setCopiedPhoneId(id);
     setTimeout(() => {
@@ -8717,16 +8718,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 <a
                   href={`tel:${formatDialablePhone(selectedCustomer.phone)}`}
                   className="hover:text-accent hover:underline cursor-pointer font-semibold text-text-primary text-[10.5px]"
-                  title={`Click to call ${selectedCustomer.phone}`}
+                  title={`Click to call ${formatDisplayPhone(selectedCustomer.phone)}`}
                 >
-                  {selectedCustomer.phone}
+                  {formatDisplayPhone(selectedCustomer.phone)}
                 </a>
                 {selectedCustomer.phone && (
                   <button
                     type="button"
                     onClick={() => {
                       if (!selectedCustomer.phone) return;
-                      const clean = selectedCustomer.phone.trim();
+                      const clean = formatDisplayPhone(selectedCustomer.phone).trim();
                       if (typeof window !== 'undefined' && navigator.clipboard && window.isSecureContext) {
                         navigator.clipboard.writeText(clean);
                       } else {
@@ -8762,7 +8763,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <a
                     href={`tel:${formatDialablePhone(selectedCustomer.phone)}`}
                     className="ml-1 px-2 py-0.5 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[10px] font-semibold rounded border border-sky-200 dark:border-sky-800 transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
-                    title={`Click to call ${selectedCustomer.phone}`}
+                    title={`Click to call ${formatDisplayPhone(selectedCustomer.phone)}`}
                   >
                     <PhoneCall className="w-2.5 h-2.5 text-sky-600 dark:text-sky-400 stroke-[2]" />
                     <span>Call</span>
@@ -13343,7 +13344,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
                               <h4 className="font-semibold text-xs sm:text-sm text-text-primary truncate">
-                                {selectedConv.contact_name || selectedConv.contact_phone || selectedConv.name || selectedConv.phone}
+                                {selectedConv.contact_name || formatDisplayPhone(selectedConv.contact_phone || selectedConv.name || selectedConv.phone)}
                               </h4>
                               {(() => {
                                 const cleanP = (selectedConv?.contact_phone || selectedConv?.phone || '').replace(/[^0-9]/g, '');
@@ -13366,14 +13367,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     <a
                                       href={`tel:${formatDialablePhone(phoneNum)}`}
                                       className="text-text-primary hover:text-accent font-semibold hover:underline cursor-pointer"
-                                      title={`Click to call ${phoneNum}`}
+                                      title={`Click to call ${formatDisplayPhone(phoneNum)}`}
                                     >
-                                      {phoneNum}
+                                      {formatDisplayPhone(phoneNum)}
                                     </a>
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        const clean = phoneNum.trim();
+                                        const clean = formatDisplayPhone(phoneNum).trim();
                                         if (typeof window !== 'undefined' && navigator.clipboard && window.isSecureContext) {
                                           navigator.clipboard.writeText(clean);
                                         } else {
@@ -13407,7 +13408,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     <a
                                       href={`tel:${formatDialablePhone(phoneNum)}`}
                                       className="ml-0.5 px-1.5 py-0.2 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[9px] font-semibold rounded border border-sky-200 dark:border-sky-800 transition-colors inline-flex items-center gap-0.5 cursor-pointer shadow-2xs font-sans"
-                                      title={`Click to call ${phoneNum}`}
+                                      title={`Click to call ${formatDisplayPhone(phoneNum)}`}
                                     >
                                       <PhoneCall className="w-2.5 h-2.5 text-sky-600 dark:text-sky-400 stroke-[2]" />
                                       <span>Call</span>
@@ -14525,7 +14526,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                                         {/* Row B: Contact Phone, Location, Last Activity */}
                                         <div className="flex items-center gap-2 font-mono text-[11px] text-text-muted flex-wrap">
-                                          <span className="font-medium text-text-secondary">{cust.phone}</span>
+                                          <span className="font-medium text-text-secondary">{formatDisplayPhone(cust.phone)}</span>
                                           {(cust.age || cust.location) && (
                                             <>
                                               <span className="opacity-40">•</span>
@@ -14777,7 +14778,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                                 href={`tel:${formatDialablePhone(cust.phone)}`}
                                                 onClick={(e) => e.stopPropagation()}
                                                 className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[10.5px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/80 shadow-2xs transition-all cursor-pointer group hover:border-emerald-400"
-                                                title={`Call ${cust.name || 'Patient'}: ${cust.phone}`}
+                                                title={`Call ${cust.name || 'Patient'}: ${formatDisplayPhone(cust.phone)}`}
                                               >
                                                 <PhoneCall className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 stroke-[2.2] group-hover:scale-110 transition-transform shrink-0" />
                                                 <span>Call</span>
@@ -15183,7 +15184,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       </div>
                                     </td>
                                     <td className="p-2.5 font-mono text-[11px] text-text-muted whitespace-nowrap">
-                                      <div>{cust.phone}</div>
+                                      <div>{formatDisplayPhone(cust.phone)}</div>
                                       {cust.last_chat_at && (
                                         <div className="text-[10px] text-text-secondary mt-0.5 flex items-center gap-1 font-mono" title={`Last WhatsApp: ${formatFullDateTimeDetailed(cust.last_chat_at)}`}>
                                           <Clock className="w-2.5 h-2.5 text-text-muted shrink-0" />
@@ -15852,7 +15853,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <div>
                         <h3 className="text-xs font-bold text-text-primary">Note for {quickNoteCustomer.name}</h3>
                         {quickNoteCustomer.phone && (
-                          <span className="text-[10px] text-text-muted font-mono">{quickNoteCustomer.phone}</span>
+                          <span className="text-[10px] text-text-muted font-mono">{formatDisplayPhone(quickNoteCustomer.phone)}</span>
                         )}
                       </div>
                     </div>
@@ -16032,7 +16033,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             </span>
                           </div>
                           <p className="text-[11px] text-text-muted leading-relaxed">
-                            <strong className="text-text-primary">{existingMatch.name || 'Unnamed'}</strong> ({existingMatch.phone}) is already in your CRM. Submitting will update their record instead of creating a duplicate.
+                            <strong className="text-text-primary">{existingMatch.name || 'Unnamed'}</strong> ({formatDisplayPhone(existingMatch.phone)}) is already in your CRM. Submitting will update their record instead of creating a duplicate.
                           </p>
                           <div className="flex items-center gap-2 pt-0.5 text-[10px] font-semibold">
                             <button
@@ -16608,7 +16609,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   </div>
 
                                   <div className="font-mono text-[10px] text-text-muted mt-0.5 flex items-center gap-1 truncate">
-                                    <span>{cust.phone}</span>
+                                    <span>{formatDisplayPhone(cust.phone)}</span>
                                     {cust.phone && (
                                       <button
                                         type="button"
@@ -16737,7 +16738,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             className="flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-surface-subtle transition-colors"
                                           >
                                             <PhoneCall className="w-3.5 h-3.5 text-sky-600 stroke-[2]" />
-                                            <span>Call {cust.phone}</span>
+                                            <span>Call {formatDisplayPhone(cust.phone)}</span>
                                           </a>
                                         )}
                                         <button
@@ -17026,7 +17027,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             <input type="checkbox" checked={isSelected} onChange={() => {}} className="rounded-sm text-accent cursor-pointer" />
                                             <div className="min-w-0">
                                               <p className="font-medium text-text-primary truncate">{ct.name || 'Unnamed'}</p>
-                                              <p className="text-[11px] font-mono text-text-muted">{ct.phone}</p>
+                                              <p className="text-[11px] font-mono text-text-muted">{formatDisplayPhone(ct.phone)}</p>
                                             </div>
                                           </div>
                                           <div className="flex items-center gap-1.5 shrink-0">
@@ -17111,7 +17112,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         <div key={idx} className="p-1.5 px-2.5 flex items-center justify-between text-xs">
                                           <div className="flex items-center gap-2">
                                             <span className="font-medium text-text-primary">{ld.name}</span>
-                                            <span className="font-mono text-text-muted text-[11px]">{ld.phone}</span>
+                                            <span className="font-mono text-text-muted text-[11px]">{formatDisplayPhone(ld.phone)}</span>
                                           </div>
                                           <button type="button" onClick={() => setSheetLeads((prev) => prev.filter((_, i) => i !== idx))} className="text-text-muted hover:text-status-error p-0.5 cursor-pointer">
                                             <X className="w-3 h-3" />
@@ -18406,7 +18407,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                             title="Click to call customer"
                                           >
                                             <Phone className="w-2.5 h-2.5 shrink-0 text-text-muted hover:text-accent" />
-                                            <span>{rev.customer_phone}</span>
+                                            <span>{formatDisplayPhone(rev.customer_phone)}</span>
                                           </a>
                                         )}
                                       </div>
@@ -18583,7 +18584,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         title="Click to call customer"
                                       >
                                         <Phone className="w-2.5 h-2.5 shrink-0 text-text-muted" />
-                                        <span>{rev.customer_phone}</span>
+                                        <span>{formatDisplayPhone(rev.customer_phone)}</span>
                                       </a>
                                     )}
                                   </div>
@@ -22890,7 +22891,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <FileText className="w-4 h-4 text-accent stroke-[1.5]" />
                   <div>
                     <h2 className="text-sm font-semibold text-text-primary">{selectedCustomer.name || 'Customer'} — Complete History</h2>
-                    <p className="text-[11px] text-text-muted">{selectedCustomer.phone}</p>
+                    <p className="text-[11px] text-text-muted">{formatDisplayPhone(selectedCustomer.phone)}</p>
                   </div>
                 </div>
                 <button
@@ -22953,14 +22954,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs">
                             <span className="font-mono font-semibold text-text-primary text-xs flex items-center gap-1 bg-surface px-2 py-0.5 rounded border border-border/60">
                               <Phone className="w-3 h-3 text-text-muted" />
-                              {selectedCustomer.phone}
+                              {formatDisplayPhone(selectedCustomer.phone)}
                             </span>
                             
                             {/* Call Action */}
                             <a
                               href={`tel:${formatDialablePhone(selectedCustomer.phone)}`}
                               className="px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[11px] font-medium rounded border border-sky-200 dark:border-sky-800 transition-colors inline-flex items-center gap-1 cursor-pointer"
-                              title={`Call ${selectedCustomer.phone}`}
+                              title={`Call ${formatDisplayPhone(selectedCustomer.phone)}`}
                             >
                               <PhoneCall className="w-3 h-3 text-sky-600 stroke-[2]" />
                               <span>Call</span>
@@ -22984,7 +22985,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             <button
                               type="button"
                               onClick={() => {
-                                const clean = selectedCustomer.phone?.trim() || '';
+                                const clean = formatDisplayPhone(selectedCustomer.phone).trim();
                                 if (typeof window !== 'undefined' && navigator.clipboard) {
                                   navigator.clipboard.writeText(clean);
                                 }
@@ -23683,7 +23684,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <label className="text-[10px] text-text-muted block mb-1 font-medium">Link to Customer (optional)</label>
                   <select value={addTaskCustomerId} onChange={e => setAddTaskCustomerId(e.target.value)} className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent text-xs">
                     <option value="">— No customer linked —</option>
-                    {customers.map(c => (<option key={c.id} value={c.id}>{c.name} ({c.phone})</option>))}
+                    {customers.map(c => (<option key={c.id} value={c.id}>{c.name} ({formatDisplayPhone(c.phone)})</option>))}
                   </select>
                 </div>
                 <div className="border-t border-border pt-3 space-y-2">
@@ -23726,7 +23727,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   >
                     <option value="">— Choose Customer —</option>
                     {customers.map(c => (
-                      <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>
+                      <option key={c.id} value={c.id}>{c.name} ({formatDisplayPhone(c.phone)})</option>
                     ))}
                   </select>
                 </div>
