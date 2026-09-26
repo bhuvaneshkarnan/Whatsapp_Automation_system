@@ -208,6 +208,7 @@ def telegram_structlog_processor(logger, method_name, event_dict):
             or "google_oauth_callback" in lower_full
             or "oauth state" in lower_full
             or "missing_or_malformed_state" in lower_full
+            or "meta_template_status_fetch" in lower_full
         ):
             return event_dict
 

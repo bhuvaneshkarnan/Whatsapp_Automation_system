@@ -2,6 +2,7 @@ import os
 import re
 import json
 import uuid
+import time
 import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List, Union
@@ -17,6 +18,9 @@ from utils import expand_template_body, KNOWN_TEMPLATES_EXPANSION
 
 router = APIRouter()
 logger = structlog.get_logger('crm-api-marketing')
+
+_META_TEMPLATES_CACHE: Dict[str, dict] = {}
+_META_TEMPLATES_CACHE_TTL = 180.0  # 3 minutes cache to prevent rate-limiting and redundant external queries
 
 # ── Full Multi-Tenant Marketing, Automated Re-engagement Triggers & Analytics ───
 
@@ -1503,9 +1507,15 @@ async def get_meta_templates_status(tenant_id: str = Depends(get_tenant_id)):
             "summary": {"total": len(required_specs), "approved": 0, "pending": 0, "missing": len(required_specs)}
         }
 
+    now_ts = time.monotonic()
+    cached = _META_TEMPLATES_CACHE.get(tenant_id)
+    if cached and (now_ts - cached["ts"]) < _META_TEMPLATES_CACHE_TTL:
+        return cached["data"]
+
     meta_templates_map = {}
+    fetch_error = None
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             res = await client.get(
                 f"https://graph.facebook.com/v21.0/{meta_waba_id}/message_templates?limit=100",
                 headers={"Authorization": f"Bearer {meta_token}"}
@@ -1514,9 +1524,29 @@ async def get_meta_templates_status(tenant_id: str = Depends(get_tenant_id)):
                 for t in res.json().get("data", []):
                     meta_templates_map[t.get("name")] = t
             else:
-                logger.warning("meta_template_status_fetch_warn", status=res.status_code, text=res.text)
+                logger.warning("meta_template_status_fetch_warn", tenant_id=tenant_id, status=res.status_code, text=res.text[:200])
     except Exception as e:
-        logger.error("meta_template_status_fetch_error", error=str(e))
+        fetch_error = str(e) or type(e).__name__
+        # Attempt 1 quick retry after brief pause in case of transient socket reset
+        try:
+            await asyncio.sleep(1.0)
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                res = await client.get(
+                    f"https://graph.facebook.com/v21.0/{meta_waba_id}/message_templates?limit=100",
+                    headers={"Authorization": f"Bearer {meta_token}"}
+                )
+                if res.status_code == 200:
+                    for t in res.json().get("data", []):
+                        meta_templates_map[t.get("name")] = t
+                    fetch_error = None
+        except Exception as retry_err:
+            fetch_error = str(retry_err) or type(retry_err).__name__
+
+    if fetch_error:
+        logger.warning("meta_template_status_fetch_warn", tenant_id=tenant_id, error=fetch_error)
+        if cached:
+            # Fall back to existing cached data seamlessly
+            return cached["data"]
 
     templates_result = []
     approved_count = 0
@@ -1592,7 +1622,7 @@ async def get_meta_templates_status(tenant_id: str = Depends(get_tenant_id)):
                 "language": found.get("language", "en"),
             })
 
-    return {
+    response_payload = {
         "success": True,
         "industry": industry,
         "waba_id": meta_waba_id,
@@ -1604,6 +1634,8 @@ async def get_meta_templates_status(tenant_id: str = Depends(get_tenant_id)):
         },
         "templates": templates_result
     }
+    _META_TEMPLATES_CACHE[tenant_id] = {"ts": now_ts, "data": response_payload}
+    return response_payload
 
 
 def check_template_component_diff(existing_components: list, spec_components: list) -> tuple[bool, str]:
