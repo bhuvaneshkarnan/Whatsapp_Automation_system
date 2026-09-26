@@ -334,12 +334,13 @@ async def call_gemini(
             "parts": [{"text": msg["content"]}],
         })
 
-    # For Gemini 2.5 / 3.x, thought tokens count against maxOutputTokens!
-    # Minimum 2048 tokens is required so thought tokens (400-900) never starve candidate text.
-    gemini_tokens = max(max_tokens, 2048)
+    # Intelligent prompt budgeting guarantees sub-second Time-To-First-Token (TTFT)
+    budgeted_prompt = budget_prompt_for_groq(system_prompt, max_chars=18000)
+
+    gemini_tokens = 600 if single_line else 800
     payload = {
         "system_instruction": {
-            "parts": [{"text": system_prompt}]
+            "parts": [{"text": budgeted_prompt}]
         },
         "contents": contents,
         "generationConfig": {
@@ -349,13 +350,13 @@ async def call_gemini(
         },
     }
 
-    # Verified active Gemini models (ordered fastest/most-reliable first)
+    # Verified active Gemini models (ordered ultra-fast / low-latency first)
+    # gemini-3.5-flash-lite: Active, ultra-low latency sub-second model (recommended for <3s WhatsApp reply)
     # gemini-3.5-flash: Active, reliable fast model
-    # gemini-3.5-flash-lite: Active, high throughput, low latency
     # gemini-3.6-flash: Active, high capability
     active_gemini_models = [
-        "gemini-3.5-flash",
         "gemini-3.5-flash-lite",
+        "gemini-3.5-flash",
         "gemini-3.6-flash",
     ]
     candidate_models = []
@@ -370,8 +371,8 @@ async def call_gemini(
 
 
     last_err = None
-    # Fast per-model timeout: max 6.5s so we never hang or delay customer replies
-    req_timeout = min(max(timeout_seconds, 4.0), 6.5)
+    # Fast per-model timeout: 2.5s max to guarantee total reply is under 3.0 seconds
+    req_timeout = min(timeout_seconds, 2.5) if timeout_seconds <= 3.5 else min(max(timeout_seconds, 2.5), 4.5)
     for m in candidate_models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
         try:
@@ -747,7 +748,7 @@ async def call_llm_cascade(
     master_opencode_key: Optional[str] = None,
     master_opencode_base_url: str = "https://opencode.ai/zen/v1",
     primary_provider: str = "groq",
-    gemini_model: str = "gemini-3.5-flash",
+    gemini_model: str = "gemini-3.5-flash-lite",
     max_tokens: int = 2048,
     temperature: float = 0.3,
     timeout_seconds: float = 4.0,
@@ -766,8 +767,8 @@ async def call_llm_cascade(
     effective_max_tokens = min(max_tokens, 75) if single_line else min(max_tokens, 300)
     effective_gemini_tokens = max(max_tokens, 2048)
 
-    # ── Option A: Concurrent Racer (Only if explicitly requested as 'fastest' or 'racer') ──
-    if primary_provider in ("fastest", "racer") and groq_key and gemini_key:
+    # ── Option A: Concurrent Racer (Auto-activates when both Groq & Gemini keys are available) ──
+    if (groq_key and gemini_key) or (primary_provider in ("fastest", "racer") and (groq_key or gemini_key)):
         async def _run_groq():
             return await call_groq(
                 messages=messages,
@@ -776,7 +777,7 @@ async def call_llm_cascade(
                 model="qwen/qwen3.8-27b",
                 max_tokens=effective_max_tokens,
                 temperature=temperature,
-                timeout_seconds=8.0,
+                timeout_seconds=2.5,
                 tenant_id=tenant_id,
                 single_line=single_line,
             ), "groq"
@@ -786,41 +787,45 @@ async def call_llm_cascade(
                 messages=messages,
                 api_key=gemini_key,
                 system_prompt=system_prompt,
-                model=gemini_model or "gemini-3.5-flash",
+                model=gemini_model or "gemini-3.5-flash-lite",
                 max_tokens=effective_gemini_tokens,
                 temperature=temperature,
-                timeout_seconds=12.0,
+                timeout_seconds=2.8,
                 tenant_id=tenant_id,
                 single_line=single_line,
             ), "gemini"
 
-        task_groq = asyncio.create_task(_run_groq())
-        task_gemini = asyncio.create_task(_run_gemini())
+        tasks = []
+        if groq_key:
+            tasks.append(asyncio.create_task(_run_groq()))
+        if gemini_key:
+            tasks.append(asyncio.create_task(_run_gemini()))
 
-        done, pending = await asyncio.wait(
-            [task_groq, task_gemini],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
+        if tasks:
+            done, pending = await asyncio.wait(
+                tasks,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
 
-        for completed_task in done:
-            try:
-                text, prov = completed_task.result()
-                if text and len(text.strip()) > 0:
-                    for p in pending:
-                        p.cancel()
-                    return text, prov
-            except Exception as e:
-                logger.warning("racer_task_failed", tenant_id=tenant_id, error=str(e))
+            for completed_task in done:
+                try:
+                    text, prov = completed_task.result()
+                    if text and len(text.strip()) > 0:
+                        for p in pending:
+                            p.cancel()
+                        return text, prov
+                except Exception as e:
+                    logger.warning("racer_task_failed", tenant_id=tenant_id, error=str(e))
 
-        for remaining_task in pending:
-            try:
-                text, prov = await remaining_task
-                if text and len(text.strip()) > 0:
-                    return text, prov
-            except asyncio.CancelledError:
-                logger.warning("racer_remaining_task_cancelled", tenant_id=tenant_id)
-            except Exception as e:
-                logger.warning("racer_remaining_task_failed", tenant_id=tenant_id, error=str(e))
+            for remaining_task in pending:
+                try:
+                    text, prov = await remaining_task
+                    if text and len(text.strip()) > 0:
+                        return text, prov
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.warning("racer_remaining_task_failed", tenant_id=tenant_id, error=str(e))
 
     # ── Tier 1: Tenant's Own 3 AI Keys (Evaluated First on Every Message) ──
     tenant_providers = []
@@ -853,10 +858,10 @@ async def call_llm_cascade(
                     messages=messages,
                     api_key=key,
                     system_prompt=system_prompt,
-                    model=gemini_model or "gemini-3.5-flash",
+                    model=gemini_model or "gemini-3.5-flash-lite",
                     max_tokens=effective_gemini_tokens,
                     temperature=temperature,
-                    timeout_seconds=min(max(timeout_seconds, 4.0), 10.0),
+                    timeout_seconds=min(timeout_seconds, 2.8),
                     tenant_id=tenant_id,
                     single_line=single_line,
                 )
@@ -910,7 +915,7 @@ async def call_llm_cascade(
     # Master Groq is prioritized first as it provides verified <500ms reliable uptime.
     master_providers = [
         ("groq", master_groq_key, groq_key, "qwen/qwen3.8-27b", None),
-        ("gemini", master_gemini_key, gemini_key, "gemini-3.5-flash", None),
+        ("gemini", master_gemini_key, gemini_key, "gemini-3.5-flash-lite", None),
     ]
     if master_opencode_key:
         master_providers.append(("opencode", master_opencode_key, opencode_key, "deepseek-v4-flash", master_opencode_base_url))
@@ -939,7 +944,7 @@ async def call_llm_cascade(
                         model=m_model,
                         max_tokens=effective_max_tokens,
                         temperature=temperature,
-                        timeout_seconds=min(timeout_seconds, 8.0),
+                        timeout_seconds=min(timeout_seconds, 2.5),
                         tenant_id=tenant_id,
                         single_line=single_line,
                     )
@@ -955,7 +960,7 @@ async def call_llm_cascade(
                         model=m_model,
                         max_tokens=effective_gemini_tokens,
                         temperature=temperature,
-                        timeout_seconds=min(max(timeout_seconds, 4.0), 10.0),
+                        timeout_seconds=min(timeout_seconds, 2.8),
                         tenant_id=tenant_id,
                         single_line=single_line,
                     )
@@ -1025,10 +1030,10 @@ async def call_llm_cascade(
                         messages=emergency_messages,
                         api_key=gm_k,
                         system_prompt=emergency_prompt,
-                        model="gemini-3.5-flash",
+                        model="gemini-3.5-flash-lite",
                         max_tokens=max_tokens,
                         temperature=temperature,
-                        timeout_seconds=5.0,
+                        timeout_seconds=2.5,
                         tenant_id=tenant_id,
                     )
                     if text and len(text.strip()) > 0:

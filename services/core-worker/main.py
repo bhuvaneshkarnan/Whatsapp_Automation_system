@@ -1055,8 +1055,8 @@ class CoreWorker:
         _chat_lock_key = f"lock:chat:{tenant_id}:{_customer_phone}"
         _chat_lock_value = stream_msg_id          # unique per message — used to safely release ONLY our lock
         _chat_lock_acquired = False
-        _LOCK_TTL_MS = 12000                       # 12-second TTL: auto-expires even if worker dies mid-flight
-        _LOCK_WAIT_S  = 8.0                        # wait up to 8 s before giving up and processing anyway
+        _LOCK_TTL_MS = 8000                        # 8-second TTL: auto-expires even if worker dies mid-flight
+        _LOCK_WAIT_S  = 1.5                        # wait at most 1.5s to prevent stalling responses
         if self.redis and tenant_id and _customer_phone:
             _lock_deadline = time.monotonic() + _LOCK_WAIT_S
             while time.monotonic() < _lock_deadline:
@@ -1446,7 +1446,7 @@ end
         if not hasattr(self, "_gcal_cache"):
             self._gcal_cache = {}
         cached_entry = self._gcal_cache.get(cache_key)
-        if cached_entry and (time.monotonic() - cached_entry["ts"]) < 60.0:
+        if cached_entry and (time.monotonic() - cached_entry["ts"]) < 300.0:
             return cached_entry["slots"], cached_entry["connected"]
 
         now_dt = datetime.datetime.now(tenant_tz)
@@ -1543,7 +1543,7 @@ end
                         }).execute()
                         return fb_res.get("calendars", {}).get(cal_id, {}).get("busy", [])
 
-                    gcal_busy = await asyncio.wait_for(asyncio.to_thread(fetch_gcal_freebusy), timeout=6.0)
+                    gcal_busy = await asyncio.wait_for(asyncio.to_thread(fetch_gcal_freebusy), timeout=1.8)
                     gcal_connected = True
                     for b in gcal_busy:
                         try:
@@ -3270,10 +3270,10 @@ end
             master_opencode_key=master_keys.get("opencode_key"),
             master_opencode_base_url=master_keys.get("opencode_base_url"),
             primary_provider=primary_provider,
-            gemini_model=ai_cfg.get("model") or "gemini-2.5-flash",
+            gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
             max_tokens=2048,
             temperature=0.3,
-            timeout_seconds=12.0,
+            timeout_seconds=2.8,
             tenant_id=tenant_id,
             single_line=False,
         )
@@ -3631,34 +3631,15 @@ end
             if creds and creds.get("phone_number_id") and creds.get("access_token"):
                 try:
                     if b_idx == 0:
-                        # Ensure the native "typing..." animation is visible on WhatsApp for at least 2.2s to 3.2s!
-                        now = time.monotonic()
-                        elapsed = (now - typing_started_at) if typing_started_at else 0.0
-                        char_count = len(bubble or "")
-                        target_delay = max(2.2, min(char_count * 0.03, 3.5))
-                        needed = target_delay - elapsed
-                        typing_delay = max(0.05, needed)
+                        # Instant dispatch: WhatsApp native typing indicator was already displayed
+                        # while LLM was processing. Send immediately without artificial delay!
+                        typing_delay = 0.0
                     else:
-                        # Inter-bubble pause for 2nd message:
-                        # Await typing indicator so Meta accepts it, ensuring user sees "typing..." between Bubble 1 and Bubble 2!
-                        if inbound_wa_message_id:
-                            try:
-                                await send_typing_indicator(creds["phone_number_id"], creds["access_token"], inbound_wa_message_id)
-                            except Exception as e:
-                                logger.warning("second_bubble_typing_indicator_failed", error=str(e))
-                        # Allow 1.5s to 2.0s so the animated typing indicator is prominently seen on the user's phone
-                        char_count = len(bubble or "")
-                        typing_delay = max(1.5, min(char_count * 0.02, 2.0))
+                        # Minimal 150ms pause between multi-bubble replies to preserve bubble delivery order on WhatsApp
+                        typing_delay = 0.15
 
-                    logger.info(
-                        "simulating_human_typing_delay",
-                        tenant_id=tenant_id,
-                        bubble_idx=b_idx + 1,
-                        total_bubbles=len(bubbles),
-                        delay_seconds=round(typing_delay, 2),
-                        chars=len(bubble or ""),
-                    )
-                    await asyncio.sleep(typing_delay)
+                    if typing_delay > 0:
+                        await asyncio.sleep(typing_delay)
 
                     wa_id = await send_text(
                         phone_number_id=creds["phone_number_id"],

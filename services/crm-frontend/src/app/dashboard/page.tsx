@@ -3651,35 +3651,82 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   }, [addedTeams, selectedDepartment]);
 
   // Categorized staff options for Customer directory, Repeat Clients, Followups, Bookings, and Modals
-  // Focuses exclusively on Doctor Presets (configured doctor presets & customer assigned doctors)
+  // Unifies created team accounts, configured doctor presets, bookings, and customer assigned staff
   const categorizedStaffOptions = useMemo(() => {
     const predefinedDoctors: { value: string; label: string }[] = [];
+    const teamDoctors: { value: string; label: string; id?: string }[] = [];
+    const sales: { value: string; label: string; id?: string }[] = [];
     const seenValues = new Set<string>();
 
-    // 1. From configured doctor presets (names without login credentials)
-    (configuredDoctors || []).forEach((doc) => {
-      const trimmed = (doc || '').trim();
-      if (!trimmed || seenValues.has(trimmed.toLowerCase())) return;
-      seenValues.add(trimmed.toLowerCase());
-      predefinedDoctors.push({ value: trimmed, label: trimmed });
+    const addOption = (rawName: string, id?: string, isDoc?: boolean, isSale?: boolean) => {
+      const trimmed = (rawName || '').trim();
+      if (!trimmed) return;
+      const lower = trimmed.toLowerCase();
+      if (!seenValues.has(lower)) {
+        seenValues.add(lower);
+        predefinedDoctors.push({ value: trimmed, label: trimmed });
+      }
+      if (isDoc && !teamDoctors.some((t) => t.value.toLowerCase() === lower)) {
+        teamDoctors.push({ value: trimmed, label: trimmed, id });
+      }
+      if (isSale && !sales.some((s) => s.value.toLowerCase() === lower)) {
+        sales.push({ value: trimmed, label: trimmed, id });
+      }
+    };
+
+    // 1. From created Team Members & Staff (login credentials in users table)
+    (teamList || []).forEach((m) => {
+      if (m.is_active === false) return;
+      const name = (m.display_name || m.email || '').trim();
+      const isDoc = m.role === 'doctor' || m.role === 'admin' || m.role === 'super_admin';
+      const isSale = m.role === 'sales' || m.role === 'marketing';
+      addOption(name, m.id, isDoc, isSale);
+
+      // Also add un-prefixed name if display_name starts with Dr./Doctor
+      const cleanDoc = name.replace(/^dr\.?\s*/i, '').trim();
+      if (cleanDoc && cleanDoc.toLowerCase() !== name.toLowerCase()) {
+        addOption(cleanDoc, m.id, isDoc, isSale);
+      }
     });
 
-    // 2. Custom assigned doctor from existing customers
-    (customers || []).forEach((c) => {
-      const doc = (c.preferred_doctor || '').trim();
-      if (!doc || seenValues.has(doc.toLowerCase())) return;
-      seenValues.add(doc.toLowerCase());
-      predefinedDoctors.push({ value: doc, label: doc });
+    // 2. From configured doctor presets in tenant taxonomy / settings
+    (configuredDoctors || []).forEach((doc) => {
+      addOption(doc, undefined, true, false);
+      const cleanDoc = (doc || '').replace(/^dr\.?\s*/i, '').trim();
+      if (cleanDoc && cleanDoc.toLowerCase() !== (doc || '').toLowerCase()) {
+        addOption(cleanDoc, undefined, true, false);
+      }
     });
+
+    // 3. Custom assigned staff/doctors from existing customer records
+    (customers || []).forEach((c) => {
+      if (c && c.preferred_doctor) {
+        addOption(c.preferred_doctor);
+      }
+    });
+
+    // 4. Assigned staff from existing bookings
+    (bookings || []).forEach((b: any) => {
+      if (b && b.staff_member) {
+        addOption(b.staff_member);
+      }
+    });
+
+    // Special clinical alias convenience for Mind Body Recovery (Sam <-> Sameer <-> Dr. Sameer)
+    if (seenValues.has('sameer') || seenValues.has('dr. sameer')) {
+      if (!seenValues.has('sam')) addOption('Sam');
+      if (!seenValues.has('sameer')) addOption('Sameer');
+      if (!seenValues.has('dr. sameer')) addOption('Dr. Sameer');
+    }
 
     return {
-      teamDoctors: [] as { value: string; label: string; id?: string }[],
-      sales: [] as { value: string; label: string; id?: string }[],
+      teamDoctors,
+      sales,
       predefinedDoctors,
       other: [] as { value: string; label: string; id?: string }[],
       all: predefinedDoctors,
     };
-  }, [configuredDoctors, customers]);
+  }, [teamList, configuredDoctors, customers, bookings]);
 
   const reviewStats = useMemo(() => {
     const total = customerReviews.length;
@@ -3710,7 +3757,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       <>
         <option value="">{placeholder}</option>
         {categorizedStaffOptions.predefinedDoctors.length > 0 && (
-          <optgroup label={`${presetRoleSingular} Presets`}>
+          <optgroup label={`${presetRoleSingular} & Staff`}>
             {categorizedStaffOptions.predefinedDoctors.map((s) => (
               <option key={s.value} value={s.value}>{s.label}</option>
             ))}
@@ -3731,11 +3778,40 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       };
     }
     const clean = nameOrId.trim().toLowerCase();
+    const cleanNoDr = clean.replace(/^dr\.?\s*/i, '').trim();
+
+    // Check teamList first (by ID or by name/email)
+    const teamMember = (teamList || []).find((m) => {
+      if (m.id === nameOrId) return true;
+      const disp = (m.display_name || '').trim().toLowerCase();
+      const dispNoDr = disp.replace(/^dr\.?\s*/i, '').trim();
+      const em = (m.email || '').trim().toLowerCase();
+      return disp === clean || dispNoDr === cleanNoDr || em === clean ||
+             (cleanNoDr === 'sam' && dispNoDr === 'sameer') ||
+             (cleanNoDr === 'sameer' && dispNoDr === 'sameer');
+    });
+
+    if (teamMember) {
+      const isDoc = teamMember.role === 'doctor';
+      const isAdmin = teamMember.role === 'admin' || teamMember.role === 'super_admin';
+      return {
+        role: isDoc ? ('team_doctor' as const) : ('sales' as const),
+        label: teamMember.display_name || teamMember.email,
+        badge: isAdmin ? 'Admin / Staff' : isDoc ? presetRoleSingular : (teamMember.role.charAt(0).toUpperCase() + teamMember.role.slice(1)),
+        colorClass: 'border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70',
+        icon: User,
+      };
+    }
 
     // Check predefinedDoctors
-    const presetDoc = categorizedStaffOptions.predefinedDoctors.find(
-      (p) => p.value.toLowerCase() === clean
-    );
+    const presetDoc = categorizedStaffOptions.predefinedDoctors.find((p) => {
+      const pLow = p.value.toLowerCase();
+      const pNoDr = pLow.replace(/^dr\.?\s*/i, '').trim();
+      return pLow === clean || pNoDr === cleanNoDr ||
+             (cleanNoDr === 'sam' && pNoDr === 'sameer') ||
+             (cleanNoDr === 'sameer' && pNoDr === 'sam');
+    });
+
     if (presetDoc) {
       return {
         role: 'preset_doctor' as const,
@@ -6970,12 +7046,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       }
     } else if (option.type === 'preset') {
       const docName = option.name!;
-      const matchingTeam = (teamList || []).find(
-        (m) =>
-          m.is_active !== false &&
-          ((m.display_name || '').trim().toLowerCase() === docName.toLowerCase() ||
-           (m.email || '').trim().toLowerCase() === docName.toLowerCase())
-      );
+      const cleanDoc = docName.toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+      const matchingTeam = (teamList || []).find((m) => {
+        if (m.is_active === false) return false;
+        const disp = (m.display_name || '').trim().toLowerCase();
+        const cleanDisp = disp.replace(/^dr\.?\s*/i, '').trim();
+        const em = (m.email || '').trim().toLowerCase();
+        return disp === docName.toLowerCase() ||
+               cleanDisp === cleanDoc ||
+               em === docName.toLowerCase() ||
+               (cleanDoc === 'sam' && cleanDisp === 'sameer') ||
+               (cleanDoc === 'sameer' && cleanDisp === 'sameer');
+      });
 
       if (matchingTeam) {
         await handleAssignChatStaff({ type: 'team', id: matchingTeam.id, name: matchingTeam.display_name || matchingTeam.email });
