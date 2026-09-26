@@ -917,8 +917,17 @@ export function ModernCustomerView({
       if (staffFilter !== 'all') {
         if (staffFilter === 'unassigned') {
           if (c.preferred_doctor) return false;
-        } else if (c.preferred_doctor !== staffFilter) {
-          return false;
+        } else {
+          const filterLower = staffFilter.toLowerCase();
+          const cleanFilter = filterLower.replace(/^dr\.?\s*/i, '').trim();
+          const docLower = (c.preferred_doctor || '').toLowerCase();
+          const cleanDoc = docLower.replace(/^dr\.?\s*/i, '').trim();
+          const isMatch = docLower === filterLower ||
+                          cleanDoc === cleanFilter ||
+                          (cleanFilter === 'sameer' && (cleanDoc === 'sameer' || cleanDoc === 'sam')) ||
+                          (cleanFilter === 'sam' && (cleanDoc === 'sameer' || cleanDoc === 'sam')) ||
+                          (cleanFilter === 'dr. sameer' && (cleanDoc === 'sameer' || cleanDoc === 'sam'));
+          if (!isMatch) return false;
         }
       }
 
@@ -1653,6 +1662,21 @@ export function ModernCustomerView({
             <option value="hot">Hot Intent</option>
             <option value="warm">Warm Intent</option>
             <option value="cold">Cold Intent</option>
+          </select>
+
+          <select
+            value={staffFilter}
+            onChange={(e) => setStaffFilter(e.target.value)}
+            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8 max-w-[130px] truncate"
+            title="Filter by assigned staff or doctor"
+          >
+            <option value="all">All Staff</option>
+            <option value="unassigned">Unassigned</option>
+            {staffList.map((st) => (
+              <option key={st.value} value={st.value}>
+                {st.label}
+              </option>
+            ))}
           </select>
 
           {openDropdownOptionsModal && (

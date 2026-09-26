@@ -13554,6 +13554,56 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       );
                                     })()}
 
+                                    {/* Team Accounts (Created Staff) */}
+                                    {(() => {
+                                      const q = assignSearchQuery.trim().toLowerCase();
+                                      const list = (teamList || []).filter(
+                                        (m) =>
+                                          m.is_active !== false &&
+                                          (!q ||
+                                            (m.display_name || '').toLowerCase().includes(q) ||
+                                            (m.email || '').toLowerCase().includes(q) ||
+                                            (m.role || '').toLowerCase().includes(q))
+                                      );
+                                      if (list.length === 0) return null;
+                                      const currentAssignedId = selectedConv.assigned_to;
+                                      return (
+                                        <div className="py-1">
+                                          <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
+                                            Created Staff & Team ({list.length})
+                                          </div>
+                                          {list.map((member) => {
+                                            const staffName = member.display_name || member.email;
+                                            const isActive = currentAssignedId === member.id;
+                                            return (
+                                              <button
+                                                key={member.id}
+                                                type="button"
+                                                onClick={() => handleAssignChatStaff({ type: 'team', id: member.id, name: staffName })}
+                                                className={`w-full text-left px-2.5 py-1.5 flex items-center justify-between text-xs hover:bg-surface-subtle transition-colors cursor-pointer ${
+                                                  isActive ? 'text-accent font-semibold bg-accent/5' : 'text-text-primary'
+                                                }`}
+                                              >
+                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                  <User className="w-3.5 h-3.5 text-accent shrink-0" />
+                                                  <div className="flex flex-col min-w-0 truncate">
+                                                    <span className="truncate text-[11px] font-medium">{staffName}</span>
+                                                    <span className="truncate text-[9.5px] text-text-muted">{member.email}</span>
+                                                  </div>
+                                                </div>
+                                                <div className="flex items-center gap-1 shrink-0 ml-1">
+                                                  <span className="text-[9px] px-1 py-0.2 rounded bg-accent/10 text-accent font-medium capitalize">
+                                                    {member.role}
+                                                  </span>
+                                                  {isActive && <Check className="w-3 h-3 text-accent shrink-0" />}
+                                                </div>
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    })()}
+
                                     {/* Presets */}
                                     {(() => {
                                       const q = assignSearchQuery.trim().toLowerCase();
@@ -13563,7 +13613,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       return (
                                         <div className="py-1">
                                           <div className="px-2.5 py-0.5 text-[9px] font-bold text-text-muted uppercase tracking-wider">
-                                            {presetRolePlural.toUpperCase()} (PRESETS)
+                                            {presetRolePlural.toUpperCase()} & PRESETS
                                           </div>
                                           {list.map((preset) => {
                                             const isActive = currentDoc === preset.value.toLowerCase();
@@ -13592,10 +13642,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     })()}
 
                                     {/* Empty state */}
-                                    {assignSearchQuery && !categorizedStaffOptions.predefinedDoctors.some((p) => p.value.toLowerCase().includes(assignSearchQuery.trim().toLowerCase())) && (
-                                      <div className="py-4 text-center text-text-muted text-[11px]">
-                                        No {presetRolePlural.toLowerCase()} found matching &ldquo;{assignSearchQuery}&rdquo;
-                                      </div>
+                                    {assignSearchQuery &&
+                                      !categorizedStaffOptions.predefinedDoctors.some((p) => p.value.toLowerCase().includes(assignSearchQuery.trim().toLowerCase())) &&
+                                      !(teamList || []).some((m) => (m.display_name || m.email || '').toLowerCase().includes(assignSearchQuery.trim().toLowerCase())) && (
+                                        <div className="py-4 text-center text-text-muted text-[11px]">
+                                          No staff or {presetRolePlural.toLowerCase()} found matching &ldquo;{assignSearchQuery}&rdquo;
+                                        </div>
                                     )}
                                   </div>
 
