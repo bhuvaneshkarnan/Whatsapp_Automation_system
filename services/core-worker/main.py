@@ -2839,10 +2839,12 @@ end
             "cancel", "cancell", "canceling", "cancelling", "cancel it", "cancell it",
             "cancel booking", "cancell booking", "cancel appointment", "cancell appointment",
             "cancel my booking", "cancel my appointment", "cancel demo", "cancel the demo",
-            "want to cancel", "want to cancell", "please cancel", "pls cancel",
+            "want to cancel", "want to cancell", "please cancel", "pls cancel", "kindly cancel",
             "dont want appointment", "don't want appointment", "drop my appointment",
-            "cant make it", "can't make it", "wont make it", "won't make it",
-            "cancel that", "cancell that", "cancel my slot", "cancel slot"
+            "cant make it", "can't make it", "wont make it", "won't make it", "cannot make it",
+            "not coming", "not coming today", "cannot come", "can't come", "won't come",
+            "unable to attend", "won't be able to come", "wont be able to come", "won't be able to attend",
+            "cancel that", "cancell that", "cancel my slot", "cancel slot", "drop the booking"
         ])
 
         is_reschedule_intent = any(p in inbound_clean for p in [
@@ -3418,12 +3420,12 @@ end
             action_cancel_found = bool(re.search(r'\[ACTION:CANCEL(?:_BOOKING|_APPOINTMENT)?(?::\s*\{.*?\})?\]', response_text, re.I))
             cancellation_detected = (
                 action_cancel_found
+                or (inbound_cancel_intent and (has_upcoming or is_cancel_confirmation or is_cancellation_intent))
                 or bool(re.search(r'\b(?:has\s+been|is|have\s+been|was)\s+cancell?ed\b', response_text, re.I))
                 or bool(re.search(r'\bcancell?ed\s+(?:your|the|that|this)\b', response_text, re.I))
                 or bool(re.search(r'\b(?:have|i\'ve|we\'ve)\s+cancell?ed\b', response_text, re.I))
                 or bool(re.search(r'\bcancell?ation\s+(?:is\s+confirmed|has\s+been\s+confirmed|successful)\b', response_text, re.I))
                 or bool(re.search(r'\bsuccessfully\s+cancell?ed\b', response_text, re.I))
-                or (is_cancellation_intent and has_upcoming and is_cancel_confirmation)
                 or any(phrase in response_text.lower() for phrase in [
                     "cancelled your booking", "have cancelled your", "booking has been cancelled",
                     "appointment is cancelled", "appointment has been cancelled", "cancelled your appointment",
@@ -3433,6 +3435,9 @@ end
             )
             # Guard against negative / question phrasing: e.g. "is not cancelled", "cannot be cancelled"
             if re.search(r'\b(?:not|never|neither|cannot|can\'t)\s+cancell?ed\b', response_text, re.I):
+                cancellation_detected = False
+            # Guard against asking for confirmation (e.g. "do you want me to cancel?")
+            if any(q in response_text.lower() for q in ["would you like to cancel", "do you want to cancel", "confirm if you want to cancel", "shall i cancel"]):
                 cancellation_detected = False
 
             if cancellation_detected:
@@ -4870,7 +4875,8 @@ end
                     except Exception:
                         pass
 
-            # Find booking to cancel (prioritizes active/upcoming, but matches any recent booking even if previously no_show or uncancelled)
+            # Find booking to cancel (prioritizes active/upcoming, supports CRM and web form bookings via metadata)
+            clean_cp10 = re.sub(r'[^0-9]', '', str(contact_phone or ""))[-10:]
             booking = await self.db_pool.fetchrow(
                 """SELECT b.id, b.service, b.start_time, b.google_event_id, b.status
                    FROM bookings b
@@ -4880,14 +4886,18 @@ end
                        (b.contact_id IS NOT NULL AND b.contact_id = $2::uuid)
                        OR b.conversation_id = $3::uuid 
                        OR c.phone = $4 
-                       OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE($4, '[^0-9]', '', 'g'), 10)
+                       OR RIGHT(REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 10) = $5
+                       OR RIGHT(REGEXP_REPLACE(COALESCE(b.metadata->>'customer_phone', ''), '[^0-9]', '', 'g'), 10) = $5
+                       OR RIGHT(REGEXP_REPLACE(COALESCE(b.metadata->>'phone', ''), '[^0-9]', '', 'g'), 10) = $5
                      )
                    ORDER BY 
-                     CASE WHEN b.status NOT IN ('cancelled', 'completed') THEN 0 ELSE 1 END,
+                     CASE WHEN b.status IN ('confirmed', 'rescheduled', 'pending') THEN 0 
+                          WHEN b.status NOT IN ('cancelled', 'completed') THEN 1 
+                          ELSE 2 END,
                      CASE WHEN b.start_time >= (now() - INTERVAL '12 hours') THEN 0 ELSE 1 END,
                      b.start_time DESC
                    LIMIT 1""",
-                tenant_id, contact_id, conv_id, contact_phone
+                tenant_id, contact_id, conv_id, contact_phone, clean_cp10
             )
             if not booking:
                 logger.info("no_booking_found_to_cancel", contact_id=contact_id, conv_id=conv_id, phone=contact_phone)
@@ -5046,7 +5056,25 @@ end
                     )
                     await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
                 except Exception as e:
-                    logger.warning("cancellation_template_send_failed", error=str(e))
+                    logger.warning("cancellation_template_send_failed_trying_text", error=str(e), template=template_name)
+                    try:
+                        c_text = f"Hello {name},\n\nYour {service_name} appointment on {formatted_date} at {formatted_time} has been cancelled as requested.\n\nWhenever you would like to book again, just message us here."
+                        txt_wa_id = await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=contact_phone,
+                            body=c_text
+                        )
+                        conf_msg_id = str(uuid.uuid4())
+                        await self.db_pool.execute(
+                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
+                            conf_msg_id, conv_id, tenant_id, c_text, txt_wa_id
+                        )
+                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                        logger.info("cancellation_text_fallback_sent_to_customer", to=contact_phone)
+                    except Exception as txt_err:
+                        logger.error("cancellation_text_fallback_failed", error=str(txt_err))
 
                 # 4. Send Admin Cancellation Alert to Admin WhatsApp Number
                 admin_phone = (creds.get("admin_whatsapp_number") or "").strip()
@@ -5524,6 +5552,20 @@ end
                         """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
                            VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
                         tenant_id, booking_id, reminder_time
+                    )
+                # Re-time or insert admin_reminder (30 minutes before appointment)
+                admin_reminder_time = st_dt - datetime.timedelta(minutes=30)
+                res_adm = await self.db_pool.execute(
+                    """UPDATE scheduled_jobs
+                       SET scheduled_at = $1, status = 'pending'
+                       WHERE booking_id = $2::uuid AND tenant_id = $3::uuid AND job_type = 'admin_reminder'""",
+                    admin_reminder_time, booking_id, tenant_id
+                )
+                if res_adm == "UPDATE 0":
+                    await self.db_pool.execute(
+                        """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                           VALUES (gen_random_uuid(), $1::uuid, 'admin_reminder', $2::uuid, $3, 'pending', now())""",
+                        tenant_id, booking_id, admin_reminder_time
                     )
             except Exception as e_rem:
                 logger.warning("reminder_job_reschedule_failed", error=str(e_rem))

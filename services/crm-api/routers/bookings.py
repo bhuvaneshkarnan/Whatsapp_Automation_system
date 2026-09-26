@@ -456,6 +456,16 @@ async def create_booking(
                             template_sent = True
                             template_wamid = res.json().get("messages", [{}])[0].get("id")
                             logger.info("manual_booking_wa_template_dispatched", template=tpl_name, phone=clean_wa_phone, wa_id=template_wamid)
+                        elif "expected number of params" in res.text:
+                            m_p = re.search(r'expected number of params \((\d+)\)', res.text)
+                            if m_p:
+                                exp_cnt = int(m_p.group(1))
+                                payload_tpl["template"]["components"][0]["parameters"] = payload_tpl["template"]["components"][0]["parameters"][:exp_cnt]
+                                res_retry_param = await client.post(url, headers=headers, json=payload_tpl)
+                                if res_retry_param.status_code in (200, 201):
+                                    template_sent = True
+                                    template_wamid = res_retry_param.json().get("messages", [{}])[0].get("id")
+                                    logger.info("manual_booking_wa_template_param_retry_succeeded", template=tpl_name, phone=clean_wa_phone, wa_id=template_wamid)
                         elif "132000" in res.text or "132001" in res.text or "does not exist in" in res.text:
                             # Try language retry en_US
                             payload_tpl["template"]["language"] = {"code": "en_US"}
@@ -464,11 +474,35 @@ async def create_booking(
                                 template_sent = True
                                 template_wamid = res_retry.json().get("messages", [{}])[0].get("id")
                                 logger.info("manual_booking_wa_template_retry_succeeded", template=tpl_name, phone=clean_wa_phone, wa_id=template_wamid)
+                            elif "expected number of params" in res_retry.text:
+                                m_p = re.search(r'expected number of params \((\d+)\)', res_retry.text)
+                                if m_p:
+                                    exp_cnt = int(m_p.group(1))
+                                    payload_tpl["template"]["components"][0]["parameters"] = payload_tpl["template"]["components"][0]["parameters"][:exp_cnt]
+                                    res_retry_p = await client.post(url, headers=headers, json=payload_tpl)
+                                    if res_retry_p.status_code in (200, 201):
+                                        template_sent = True
+                                        template_wamid = res_retry_p.json().get("messages", [{}])[0].get("id")
+                                        logger.info("manual_booking_wa_template_param_retry_succeeded", template=tpl_name, phone=clean_wa_phone, wa_id=template_wamid)
                 except Exception as e:
                     logger.error("manual_booking_wa_template_error", error=str(e))
 
-                # 2. Text fallback is strictly suppressed for message templates
-                if not template_sent:
+                # 2. Text fallback if template failed and recipient is inside 24h window
+                if not template_sent and is_inside_24h:
+                    try:
+                        async with httpx.AsyncClient(timeout=10.0) as client:
+                            res_fallback = await client.post(
+                                url,
+                                headers=headers,
+                                json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_wa_phone, "type": "text", "text": {"body": confirmation_msg}}
+                            )
+                            if res_fallback.status_code in (200, 201):
+                                template_sent = True
+                                template_wamid = res_fallback.json().get("messages", [{}])[0].get("id")
+                                logger.info("manual_booking_wa_text_fallback_dispatched_inside_24h", phone=clean_wa_phone)
+                    except Exception as e_fb:
+                        logger.error("manual_booking_wa_text_fallback_error", error=str(e_fb))
+                elif not template_sent:
                     logger.info("manual_booking_wa_text_fallback_suppressed", template=tpl_name, phone=clean_wa_phone)
 
             # Record confirmation message in DB if template was sent

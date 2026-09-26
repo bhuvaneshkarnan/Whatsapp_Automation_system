@@ -129,6 +129,18 @@ async def dispatch_whatsapp_message(
                 logger.info("dispatch_whatsapp_message_success", tenant_id=tenant_id, phone=clean_phone)
                 return resp.json()
 
+            # Retry with adapted parameter count if Meta reports param count mismatch
+            if template_name and "expected number of params" in resp.text:
+                m_c = re.search(r'expected number of params \((\d+)\)', resp.text)
+                if m_c and payload.get("template", {}).get("components"):
+                    exp_count = int(m_c.group(1))
+                    curr_p = payload["template"]["components"][0].get("parameters", [])
+                    payload["template"]["components"][0]["parameters"] = curr_p[:exp_count]
+                    resp_retry_param = await client.post(url, headers=headers, json=payload)
+                    if resp_retry_param.status_code in (200, 201):
+                        logger.info("dispatch_whatsapp_message_retry_param_success", tenant_id=tenant_id, phone=clean_phone)
+                        return resp_retry_param.json()
+
             # Retry with en_US if en returns template not found
             if template_name and ("132000" in resp.text or "132001" in resp.text or "does not exist in" in resp.text):
                 payload["template"]["language"] = {"code": "en_US"}
@@ -264,6 +276,17 @@ async def dispatch_automated_status_whatsapp(
                                 template_sent = True
                                 dispatched_wamid = res.json().get("messages", [{}])[0].get("id")
                                 logger.info("automated_status_template_dispatched", template=template_name, phone=clean_phone, wa_id=dispatched_wamid)
+                            elif "expected number of params" in res.text:
+                                # Adapt parameter count dynamically if mismatch
+                                m_count = re.search(r'expected number of params \((\d+)\)', res.text)
+                                if m_count:
+                                    exp_c = int(m_count.group(1))
+                                    payload["template"]["components"][0]["parameters"] = components[0]["parameters"][:exp_c]
+                                    res_retry = await client.post(url, headers=headers, json=payload)
+                                    if res_retry.status_code in (200, 201):
+                                        template_sent = True
+                                        dispatched_wamid = res_retry.json().get("messages", [{}])[0].get("id")
+                                        logger.info("automated_status_template_param_retry_succeeded", template=template_name, phone=clean_phone, wa_id=dispatched_wamid)
                             elif "132000" in res.text or "132001" in res.text or "does not exist in" in res.text:
                                 # Try with en_US if en fails
                                 payload["template"]["language"] = {"code": "en_US"}
@@ -273,12 +296,10 @@ async def dispatch_automated_status_whatsapp(
                                     template_sent = True
                                     dispatched_wamid = res_retry_lang.json().get("messages", [{}])[0].get("id")
                                     logger.info("automated_status_template_retry_lang_succeeded", template=template_name, phone=clean_phone, wa_id=dispatched_wamid)
-                                else:
-                                    # Adapt parameter count dynamically if mismatch
-                                    m_count = re.search(r'expected number of params \((\d+)\)', res.text) or re.search(r'expected number of params \((\d+)\)', res_retry_lang.text)
+                                elif "expected number of params" in res_retry_lang.text:
+                                    m_count = re.search(r'expected number of params \((\d+)\)', res_retry_lang.text)
                                     if m_count:
                                         exp_c = int(m_count.group(1))
-                                        payload["template"]["language"] = {"code": "en"}
                                         payload["template"]["components"][0]["parameters"] = components[0]["parameters"][:exp_c]
                                         res_retry = await client.post(url, headers=headers, json=payload)
                                         if res_retry.status_code in (200, 201):
@@ -288,9 +309,9 @@ async def dispatch_automated_status_whatsapp(
                     except Exception as e:
                         logger.warning("template_dispatch_failed", error=str(e), template=template_name)
 
-                # 2. Strict policy: Do NOT fallback to text when a template is used
+                # 2. If template failed and text fallback is permitted, send direct text message
                 if not template_sent:
-                    if not template_name and allow_text_fallback and text:
+                    if (not template_name or allow_text_fallback) and text:
                         try:
                             async with httpx.AsyncClient(timeout=10.0) as client:
                                 res_txt = await client.post(

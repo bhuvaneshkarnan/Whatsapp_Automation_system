@@ -2645,7 +2645,7 @@ async def reschedule_public_web_booking(slug: str, payload: PublicRescheduleRequ
         # 1. Update booking
         await conn.execute(
             """UPDATE bookings 
-               SET start_time = $1, end_time = $2, status = 'rescheduled', service = $3, updated_at = now()
+               SET start_time = $1, end_time = $2, status = 'rescheduled', service = $3, reminder_sent_at = NULL, updated_at = now()
                WHERE id = $4::uuid AND tenant_id = $5::uuid""",
             st_dt, et_dt, service_name, booking_id, tenant_id
         )
@@ -2654,20 +2654,32 @@ async def reschedule_public_web_booking(slug: str, payload: PublicRescheduleRequ
         now_dt = datetime.now(st_dt.tzinfo)
         new_remind_2h = st_dt - timedelta(hours=2)
         if new_remind_2h > now_dt:
-            await conn.execute(
+            res_job = await conn.execute(
                 """UPDATE scheduled_jobs
                    SET scheduled_at = $1, status = 'pending'
                    WHERE booking_id = $2::uuid AND tenant_id = $3::uuid AND job_type = 'reminder'""",
                 new_remind_2h, booking_id, tenant_id
             )
+            if res_job == "UPDATE 0":
+                await conn.execute(
+                    """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                       VALUES (gen_random_uuid(), $1::uuid, 'reminder', $2::uuid, $3, 'pending', now())""",
+                    tenant_id, booking_id, new_remind_2h
+                )
         new_adm_remind = st_dt - timedelta(minutes=30)
         if new_adm_remind > now_dt:
-            await conn.execute(
+            res_adm = await conn.execute(
                 """UPDATE scheduled_jobs
                    SET scheduled_at = $1, status = 'pending'
                    WHERE booking_id = $2::uuid AND tenant_id = $3::uuid AND job_type = 'admin_reminder'""",
                 new_adm_remind, booking_id, tenant_id
             )
+            if res_adm == "UPDATE 0":
+                await conn.execute(
+                    """INSERT INTO scheduled_jobs (id, tenant_id, job_type, booking_id, scheduled_at, status, created_at)
+                       VALUES (gen_random_uuid(), $1::uuid, 'admin_reminder', $2::uuid, $3, 'pending', now())""",
+                    tenant_id, booking_id, new_adm_remind
+                )
 
         # 3. WhatsApp notification to customer (booking_reschedule_confirmation template)
         wa_phone = f"+91{clean_phone[-10:]}" if len(clean_phone) == 10 else f"+{clean_phone}"

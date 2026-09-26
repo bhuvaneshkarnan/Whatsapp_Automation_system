@@ -114,7 +114,7 @@ async def send_template(
             except Exception:
                 payload["template"]["language"] = {"code": language_code}
 
-        if "132000" in err_str and "expected number of params" in err_str:
+        if ("132000" in err_str or "100" in err_str or "Param count mismatch" in err_str or "param" in err_str.lower()) and "expected number of params" in err_str:
             m = re.search(r'expected number of params \((\d+)\)', err_str)
             if m:
                 expected_count = int(m.group(1))
