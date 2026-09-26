@@ -2816,8 +2816,11 @@ end
         ])
 
         is_bot_question = any(p in inbound_clean for p in [
-            "are you ai", "are you a bot", "are you bot", "are you robot", "am i talking to a bot",
-            "is this ai", "is this automated", "who is this", "am i speaking to a real person", "are you real person"
+            "are you ai", "are you an ai", "are you a bot", "are you bot", "are you robot", "are you a robot",
+            "am i talking to a bot", "am i talking to ai", "am i talking to an ai", "is this ai", "is this an ai",
+            "is this automated", "is this a bot", "who is this", "am i speaking to a real person", "are you real person",
+            "are you a real person", "is it ai", "are u ai", "are u bot", "are u a bot", "ai ah", "bot ah",
+            "neenga ai ya", "neenga bot ah", "ai ya neenga", "are you computer"
         ])
 
         # Check if previous assistant message asked for cancellation confirmation
@@ -3128,6 +3131,7 @@ end
             "- ONE QUESTION AT A TIME: Never stack multiple questions. Ask at most ONE diagnostic or booking question per reply.",
             "- NO REPEATED GREETINGS OR RE-INTRODUCTIONS: NEVER say 'Hi', 'Hello', 'I am [Name]', or 'How can I help you?'. Pick up directly from the prior conversation thread." if is_ongoing_conversation else "- GREETING: Greet warmly in sentence 1.",
             f"- LANGUAGE & IDENTITY: Strictly match customer's language ({style_profile['label']}). Ground answers exclusively in this tenant's details above.",
+            "- AI HONESTY: If the customer asks 'Are you AI?' or 'Are you a bot?', directly, warmly, and honestly confirm: 'Yes, I am the AI assistant for this business on WhatsApp!' and ask how you can assist them today. Never deny being AI, never pretend to be a human, and never dodge.",
             "- NO REPEATED BOOKING CONFIRMATIONS: If an appointment slot was already agreed earlier in the chat, do NOT append 'your slot is booked' or re-propose times on unrelated inquiries; simply answer their question directly.",
         ]
         if is_voice_note:
