@@ -184,50 +184,11 @@ def clean_llm_response(text: str, single_line: bool = False) -> str:
             else:
                 cleaned = " ".join(words[:24]) + "?"
     else:
-        # Connect short conversational openers that have artificial double newlines (e.g. "Great!\n\nWould you..." -> "Great! Would you...")
-        def _join_opener(m):
-            opener = m.group(1).rstrip()
-            next_char = m.group(2)
-            if opener.endswith(('!', '.', '?')):
-                return f"{opener} {next_char}"
-            return f"{opener}, {next_char}"
-
-        cleaned = re.sub(
-            r'^([A-Za-z\s]{1,25}[.!?]?)\s*\n+([A-Za-z0-9])',
-            lambda m: _join_opener(m) if len(m.group(1).split()) <= 4 else f"{m.group(1)}\n\n{m.group(2)}",
-            cleaned
-        )
-
+        # Preserve natural paragraphs and clean up excessive newlines
+        cleaned = re.sub(r'\r\n', '\n', cleaned)
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
         lines = [l.strip() for l in cleaned.split("\n") if l.strip()]
-        
-        # Sentence cap: allow up to 3 sentences to support the 3-Beat Consultative Sales Formula
-        # (1. Direct Answer, 2. Value/Diagnostic hook, 3. Binary closing question) without dropping the middle explanation.
-        raw_sentences = _split_into_sentences(cleaned)
-        if len(raw_sentences) > 3:
-            # If the last sentence is a closing question, keep first 2 sentences + the question
-            if raw_sentences[-1].endswith('?'):
-                selected_sentences = [raw_sentences[0], raw_sentences[1], raw_sentences[-1]]
-            else:
-                selected_sentences = raw_sentences[:3]
-            
-            rebuilt = []
-            for l in lines:
-                l_sents = _split_into_sentences(l)
-                kept = [s for s in l_sents if s in selected_sentences]
-                if kept:
-                    rebuilt.append(" ".join(kept))
-            lines = rebuilt if rebuilt else [" ".join(selected_sentences)]
-
-        # If lines == 2, only keep double newline if both lines are substantial
-        if len(lines) == 2:
-            if len(lines[0].split()) <= 5 or len(lines[0]) <= 30 or len(" ".join(lines).split()) <= 25:
-                cleaned = f"{lines[0]} {lines[1]}"
-            else:
-                cleaned = "\n\n".join(lines)
-        elif len(lines) > 2:
-            cleaned = "\n\n".join(lines[:3])
-        else:
-            cleaned = "\n".join(lines)
+        cleaned = "\n\n".join(lines) if len(lines) > 1 else (lines[0] if lines else "")
 
     # Re-attach action tags on their own line at the very end
     if action_tags:
@@ -334,13 +295,12 @@ async def call_gemini(
             "parts": [{"text": msg["content"]}],
         })
 
-    # Intelligent prompt budgeting guarantees sub-second Time-To-First-Token (TTFT)
-    budgeted_prompt = budget_prompt_for_groq(system_prompt, max_chars=18000)
-
-    gemini_tokens = 600 if single_line else 800
+    # For Gemini 2.5 / 3.x, thought tokens count against maxOutputTokens!
+    # Minimum 2048 tokens is required so thought tokens (400-900) never starve candidate text.
+    gemini_tokens = max(max_tokens, 2048)
     payload = {
         "system_instruction": {
-            "parts": [{"text": budgeted_prompt}]
+            "parts": [{"text": system_prompt}]
         },
         "contents": contents,
         "generationConfig": {
@@ -352,12 +312,12 @@ async def call_gemini(
 
     # Verified active Gemini models (ordered ultra-fast / low-latency first)
     # gemini-3.5-flash-lite: Active, ultra-low latency sub-second model (recommended for <3s WhatsApp reply)
-    # gemini-3.5-flash: Active, reliable fast model
     # gemini-3.6-flash: Active, high capability
+    # gemini-3.5-flash: Active, reliable fast model
     active_gemini_models = [
         "gemini-3.5-flash-lite",
-        "gemini-3.5-flash",
         "gemini-3.6-flash",
+        "gemini-3.5-flash",
     ]
     candidate_models = []
     # Strip known-dead/retired model aliases (gemini-2.5-flash returns 404)
@@ -371,8 +331,8 @@ async def call_gemini(
 
 
     last_err = None
-    # Fast per-model timeout: 2.5s max to guarantee total reply is under 3.0 seconds
-    req_timeout = min(timeout_seconds, 2.5) if timeout_seconds <= 3.5 else min(max(timeout_seconds, 2.5), 4.5)
+    # Sufficient per-model timeout so Gemini reads the full context and responds thoroughly
+    req_timeout = min(max(timeout_seconds, 4.0), 5.5)
     for m in candidate_models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
         try:
@@ -767,8 +727,8 @@ async def call_llm_cascade(
     effective_max_tokens = min(max_tokens, 75) if single_line else min(max_tokens, 300)
     effective_gemini_tokens = max(max_tokens, 2048)
 
-    # ── Option A: Concurrent Racer (Auto-activates when both Groq & Gemini keys are available) ──
-    if (groq_key and gemini_key) or (primary_provider in ("fastest", "racer") and (groq_key or gemini_key)):
+    # ── Option A: Concurrent Racer (Only if explicitly requested as 'fastest' or 'racer') ──
+    if primary_provider in ("fastest", "racer") and groq_key and gemini_key:
         async def _run_groq():
             return await call_groq(
                 messages=messages,
@@ -861,7 +821,7 @@ async def call_llm_cascade(
                     model=gemini_model or "gemini-3.5-flash-lite",
                     max_tokens=effective_gemini_tokens,
                     temperature=temperature,
-                    timeout_seconds=min(timeout_seconds, 2.8),
+                    timeout_seconds=min(max(timeout_seconds, 4.0), 5.5),
                     tenant_id=tenant_id,
                     single_line=single_line,
                 )

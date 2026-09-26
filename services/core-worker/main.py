@@ -2134,7 +2134,7 @@ end
         groq_key = await self._get_tenant_groq_key(tenant_id)
         opencode_key, opencode_base = await self._get_tenant_opencode_creds(tenant_id)
         master_keys = self._get_master_ai_keys()
-        primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("fastest" if (groq_key and gemini_key) else ("groq" if groq_key else "gemini"))
+        primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("gemini" if gemini_key else ("groq" if groq_key else "gemini"))
         response_style = (ai_cfg.get("response_style") or "short").strip()
         is_single_line = bool(
             response_style and any(
@@ -3273,7 +3273,7 @@ end
             gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
             max_tokens=2048,
             temperature=0.3,
-            timeout_seconds=2.8,
+            timeout_seconds=4.5,
             tenant_id=tenant_id,
             single_line=False,
         )
