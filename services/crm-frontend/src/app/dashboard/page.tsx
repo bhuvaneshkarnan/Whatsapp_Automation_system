@@ -35,6 +35,7 @@ import {
   WhatsAppCredentialsUpdate,
   TenantOnboardingStatus,
   OnboardingStep,
+  formatDialablePhone,
 } from '@/lib/api';
 import { ModernCustomerView } from '@/components/dashboard/ModernCustomerView';
 import { MergeCustomersModal } from '@/components/dashboard/MergeCustomersModal';
@@ -8714,7 +8715,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               <div className="flex items-center gap-1">
                 <Phone className="w-2.5 h-2.5 text-text-muted shrink-0" />
                 <a
-                  href={`tel:${selectedCustomer.phone}`}
+                  href={`tel:${formatDialablePhone(selectedCustomer.phone)}`}
                   className="hover:text-accent hover:underline cursor-pointer font-semibold text-text-primary text-[10.5px]"
                   title={`Click to call ${selectedCustomer.phone}`}
                 >
@@ -8759,7 +8760,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 )}
                 {selectedCustomer.phone && (
                   <a
-                    href={`tel:${selectedCustomer.phone}`}
+                    href={`tel:${formatDialablePhone(selectedCustomer.phone)}`}
                     className="ml-1 px-2 py-0.5 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[10px] font-semibold rounded border border-sky-200 dark:border-sky-800 transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
                     title={`Click to call ${selectedCustomer.phone}`}
                   >
@@ -13363,7 +13364,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   <div className="flex items-center gap-1 shrink-0">
                                     <Phone className="w-2.5 h-2.5 text-text-muted shrink-0" />
                                     <a
-                                      href={`tel:${phoneNum}`}
+                                      href={`tel:${formatDialablePhone(phoneNum)}`}
                                       className="text-text-primary hover:text-accent font-semibold hover:underline cursor-pointer"
                                       title={`Click to call ${phoneNum}`}
                                     >
@@ -13404,7 +13405,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       )}
                                     </button>
                                     <a
-                                      href={`tel:${phoneNum}`}
+                                      href={`tel:${formatDialablePhone(phoneNum)}`}
                                       className="ml-0.5 px-1.5 py-0.2 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[9px] font-semibold rounded border border-sky-200 dark:border-sky-800 transition-colors inline-flex items-center gap-0.5 cursor-pointer shadow-2xs font-sans"
                                       title={`Click to call ${phoneNum}`}
                                     >
@@ -14773,7 +14774,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                           <div className="pt-0.5 flex justify-start">
                                             {cust.phone ? (
                                               <a
-                                                href={`tel:${(cust.phone || '').replace(/[^0-9+]/g, '')}`}
+                                                href={`tel:${formatDialablePhone(cust.phone)}`}
                                                 onClick={(e) => e.stopPropagation()}
                                                 className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[10.5px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/80 shadow-2xs transition-all cursor-pointer group hover:border-emerald-400"
                                                 title={`Call ${cust.name || 'Patient'}: ${cust.phone}`}
@@ -16731,7 +16732,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                       <div className="absolute right-3 top-full mt-1 w-44 bg-surface border border-border rounded-md shadow-xl py-1 z-30 text-left">
                                         {cust.phone && (
                                           <a
-                                            href={`tel:${cust.phone}`}
+                                            href={`tel:${formatDialablePhone(cust.phone)}`}
                                             onClick={() => setActiveRepeatActionMenuId(null)}
                                             className="flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-surface-subtle transition-colors"
                                           >
@@ -18400,7 +18401,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                         </p>
                                         {rev.customer_phone && (
                                           <a
-                                            href={`tel:${rev.customer_phone}`}
+                                            href={`tel:${formatDialablePhone(rev.customer_phone)}`}
                                             className="text-[10px] font-mono text-text-muted hover:text-accent flex items-center gap-1 transition-colors"
                                             title="Click to call customer"
                                           >
@@ -18577,7 +18578,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                     </p>
                                     {rev.customer_phone && (
                                       <a
-                                        href={`tel:${rev.customer_phone}`}
+                                        href={`tel:${formatDialablePhone(rev.customer_phone)}`}
                                         className="text-[10px] font-mono text-text-muted hover:text-accent flex items-center gap-1 transition-colors"
                                         title="Click to call customer"
                                       >
@@ -22957,7 +22958,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             
                             {/* Call Action */}
                             <a
-                              href={`tel:${selectedCustomer.phone}`}
+                              href={`tel:${formatDialablePhone(selectedCustomer.phone)}`}
                               className="px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 text-[11px] font-medium rounded border border-sky-200 dark:border-sky-800 transition-colors inline-flex items-center gap-1 cursor-pointer"
                               title={`Call ${selectedCustomer.phone}`}
                             >

@@ -2543,6 +2543,31 @@ export const publicBooking = {
     }),
 };
 
+/**
+ * Normalizes phone numbers for device dialers (tel: links).
+ * - For Indian numbers (12 digits starting with '91', or 11 digits starting with '0'):
+ *   Strips the prefix to yield the clean 10-digit mobile number so SIM / native dialers
+ *   (Android, iOS, Truecaller) place the call immediately without carrier/country code errors.
+ * - For standard 10-digit numbers: returns as is.
+ * - For international numbers: ensures leading '+' is present so dialers recognize international dialing.
+ */
+export function formatDialablePhone(phone?: string | null): string {
+  if (!phone) return '';
+  const trimmed = phone.trim();
+  const digits = trimmed.replace(/\D/g, '');
+
+  if (digits.length === 12 && digits.startsWith('91')) {
+    return digits.slice(2);
+  }
+  if (digits.length === 11 && digits.startsWith('0')) {
+    return digits.slice(1);
+  }
+  if (digits.length === 10) {
+    return digits;
+  }
+  return trimmed.startsWith('+') ? trimmed : `+${digits}`;
+}
+
 
 
 
