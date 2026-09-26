@@ -116,7 +116,7 @@ async def google_oauth_callback(
     """Exchange authorization code for refresh token and save to tenant credentials."""
     # Strict verification of cryptographic state signature, nonce, and expiry
     if not state or "." not in state:
-        logger.error("google_oauth_callback_missing_or_malformed_state", state=state)
+        logger.warning("google_oauth_callback_missing_or_malformed_state", state=state)
         raise HTTPException(status_code=400, detail="Invalid or missing OAuth state parameter.")
 
     try:
@@ -124,7 +124,7 @@ async def google_oauth_callback(
         state_b64, state_sig = parts[0], parts[1]
         expected_sig = hmac.new(JWT_SECRET.encode("utf-8"), state_b64.encode("utf-8"), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected_sig, state_sig):
-            logger.error("google_oauth_callback_state_signature_mismatch", state=state)
+            logger.warning("google_oauth_callback_state_signature_mismatch", state=state)
             raise HTTPException(status_code=400, detail="OAuth state signature verification failed.")
 
         padded_b64 = state_b64 + "=" * ((4 - len(state_b64) % 4) % 4)
@@ -133,7 +133,7 @@ async def google_oauth_callback(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("google_oauth_callback_state_decode_error", error=str(e), state=state)
+        logger.warning("google_oauth_callback_state_decode_error", error=str(e), state=state)
         raise HTTPException(status_code=400, detail="Corrupt or invalid OAuth state parameter.")
 
     if not state_data.get("nonce"):
@@ -164,7 +164,7 @@ async def google_oauth_callback(
         t_param = f"&tenant_id={tenant_id}" if is_admin else ""
 
         if error or not code:
-            logger.error("google_oauth_callback_error", error=error, state=state)
+            logger.warning("google_oauth_callback_error", error=error, state=state)
             if is_shareable:
                 return RedirectResponse(f"https://crm.goboldlabs.com/calendar-connected?error={error or 'missing_code'}")
             return RedirectResponse(f"{base_redir}?gcal_error={error or 'missing_code'}{t_param}")

@@ -199,9 +199,16 @@ def telegram_structlog_processor(logger, method_name, event_dict):
         if error_detail and error_detail != event_name:
             full_msg += f": {error_detail}"
 
-        # Suppress transient polling and network hiccups that auto-recover in background loops
+        # Suppress transient polling and network hiccups that auto-recover in background loops,
+        # as well as external bot/crawler probe noise on OAuth callback endpoints
         lower_full = full_msg.lower()
-        if "timeout reading from redis" in lower_full or "connection closed by server" in lower_full:
+        if (
+            "timeout reading from redis" in lower_full
+            or "connection closed by server" in lower_full
+            or "google_oauth_callback" in lower_full
+            or "oauth state" in lower_full
+            or "missing_or_malformed_state" in lower_full
+        ):
             return event_dict
 
         metadata = {
