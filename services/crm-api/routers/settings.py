@@ -942,35 +942,49 @@ async def optimize_ai_prompt(
         raise HTTPException(status_code=503, detail="No AI API key configured. Please add an API key in AI Settings.")
 
     meta_system_prompt = (
-        "You are an expert Master Business Knowledge Base Architect for an enterprise WhatsApp CRM platform. "
-        "Your task is to structure raw business knowledge into a strictly valid JSON object matching the 7 requested fields. "
+        "You are the Master Enterprise WhatsApp AI Knowledge Base Architect. "
+        "Your task is to take raw business details, FAQs, documents, and directives, and compile them into ONE cohesive, "
+        "production-grade Master Knowledge Base for a WhatsApp AI assistant. "
         "CRITICAL INSTRUCTIONS:\n"
         "1. Output ONLY a valid JSON object. No Markdown code fences, no backticks, no introductory or concluding text.\n"
-        "2. ZERO INFORMATION LOSS: Retain 100% of all facts, services, prices, doctor credentials, operating hours, and policies.\n"
-        "3. Exactly 7 keys are required: assistant_name, ai_prompt, services_text, bot_goal, strict_rules, objection_handling, response_style."
+        "2. ZERO INFORMATION LOSS: Retain 100% of all facts, service names, prices, doctor credentials, operating hours, and clinical policies.\n"
+        "3. Standardize prices in numbers with currency (e.g. ₹1499 or Rs. 1499). Standardize hours with AM/PM.\n"
+        "4. Output the keys: assistant_name, unified_knowledge_base, services_text, strict_rules, bot_goal, objection_handling, response_style, summary."
     )
 
-    meta_user_prompt = f"""Structure the following business information into 7 configuration fields for a WhatsApp AI assistant:
+    meta_user_prompt = f"""Compile the following business information into a single Master Unified Knowledge Base for a WhatsApp AI assistant:
 
 MANDATORY DIRECTIVES — ZERO INFORMATION LOSS:
-- Retain all details, services, prices, packages, clinic hours, doctor credentials, disclaimers, and FAQs.
-- Format ai_prompt neatly with Markdown headers (### Business Overview, ### Doctors & Specialists, ### Treatments, ### Timings & Location, ### Policies, ### FAQs, etc.).
-- Format services_text with category headers and bullet points: ### Category\\n• Service Name — Description — Price
-- Format strict_rules as bullet points.
-- Format response_style as Easy Indian English: 'Warm, friendly, and empathetic. Sounds like an authentic, caring clinic coordinator texting on WhatsApp in Easy Indian English. 2 to 3 short sentences (25 to 45 words max), no corporate jargon, no robotic filler, no marketing essays.'
+- In "unified_knowledge_base", compile a clean, high-density Markdown document with these 5 explicit sections:
+  ### 1. BUSINESS IDENTITY & CONTACT GROUND TRUTH
+  - Name, exact address/landmark, official daily operating hours, doctors/staff names & specialties, official website/links.
+  ### 2. VERIFIED SERVICES, TREATMENTS & PRICING CATALOG
+  - Every single service, treatment, duration, and price in digits with currency (e.g. Full Body Ayurvedic Massage (60 mins): ₹1499).
+  ### 3. CLINICAL DIRECTIVES, SAFETY & BUSINESS POLICIES
+  - Gender matching rules (e.g. female therapists strictly for female clients), advance notice, cancellation/rescheduling terms, medical disclaimers.
+  ### 4. WHATSAPP CONVERSATIONAL RULES & STYLE
+  - Warm, caring, humanized front-desk tone.
+  - Strictly match customer language (English, Tanglish, Tamil, Hindi).
+  - ZERO hyphens (-), dashes (--), bullets (•), asterisks (*), or emojis in responses.
+  - Direct answers to direct questions (price, time, location) in 1-2 sentences.
+  ### 5. AUTOMATED ACTION PROTOCOLS
+  - [ACTION:CREATE_BOOKING: date="YYYY-MM-DD", time="HH:MM", service="Service Name", customer_name="Name"]
+  - [ACTION:CANCEL_BOOKING]
+  - [ACTION:RESCHEDULE: date="YYYY-MM-DD", time="HH:MM"]
 
 REQUIRED JSON KEYS:
 {{
   "assistant_name": "String. Assistant first name",
-  "ai_prompt": "String. Complete comprehensive business knowledge base with all markdown sections",
-  "services_text": "String. Complete services & pricing catalog",
+  "unified_knowledge_base": "String. The complete Unified Master Knowledge Base in the 5 structured sections above",
+  "services_text": "String. Extracted services & pricing catalog",
   "bot_goal": "String. 2-3 clear sentences on what the AI must achieve",
-  "strict_rules": "String. Hard business rules and restrictions, one per bullet",
+  "strict_rules": "String. Key hard business rules and restrictions",
   "objection_handling": "String. Playbook for patient objections and hesitations",
-  "response_style": "String. Easy Indian English texting style"
+  "response_style": "String. WhatsApp conversational texting style",
+  "summary": "String. 2-3 lines summarizing the extracted services, pricing, and operating hours"
 }}
 
---- BUSINESS INFORMATION DUMP ---
+--- RAW BUSINESS INFORMATION DUMP ---
 {raw_dump}
 """
 
@@ -979,11 +993,11 @@ REQUIRED JSON KEYS:
 
     # ── 1. Gemini Cascade ──────────────────────────────────────────────────────────
     if gem_key:
-        gemini_models = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash"]
+        gemini_models = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.5-flash"]
         for g_model in gemini_models:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={gem_key}"
             try:
-                async with httpx.AsyncClient(timeout=35.0) as client:
+                async with httpx.AsyncClient(timeout=45.0) as client:
                     res = await client.post(
                         url,
                         headers={"Content-Type": "application/json"},
@@ -1139,8 +1153,8 @@ REQUIRED JSON KEYS:
         structured = {}
 
     expected_keys = [
-        "assistant_name", "ai_prompt", "services_text", "bot_goal",
-        "strict_rules", "objection_handling", "response_style"
+        "assistant_name", "unified_knowledge_base", "ai_prompt", "services_text", "bot_goal",
+        "strict_rules", "objection_handling", "response_style", "summary"
     ]
     for key in expected_keys:
         if not structured.get(key):
@@ -1154,15 +1168,20 @@ REQUIRED JSON KEYS:
             else:
                 structured[key] = ""
 
-    # Stage 4: Ultimate markdown preservation fallback if raw text was returned
-    if not structured.get("ai_prompt") and len(result_text) > 100:
-        structured["ai_prompt"] = result_text
+    # Synchronize unified_knowledge_base and ai_prompt
+    master_kb = structured.get("unified_knowledge_base") or structured.get("ai_prompt") or ""
+    if not master_kb and len(result_text) > 100:
+        master_kb = result_text
+
+    structured["unified_knowledge_base"] = master_kb
+    structured["ai_prompt"] = master_kb
+
     if not structured.get("assistant_name"):
         structured["assistant_name"] = "Assistant"
     if not structured.get("response_style"):
         structured["response_style"] = (
-            "Warm, friendly, and empathetic. Sounds like an authentic, caring clinic coordinator texting on WhatsApp in Easy Indian English. "
-            "2 to 3 short sentences (25 to 45 words max), no corporate jargon, no robotic filler, no marketing essays."
+            "Warm, friendly, and empathetic. Sounds like an authentic, caring clinic coordinator texting on WhatsApp. "
+            "2 to 3 short sentences, zero hyphens, zero emojis, direct answers to prices and hours."
         )
 
     return {
@@ -1170,12 +1189,14 @@ REQUIRED JSON KEYS:
         "provider": provider_used,
         "optimized": {
             "assistant_name": str(structured.get("assistant_name", "")).strip(),
+            "unified_knowledge_base": str(structured.get("unified_knowledge_base", "")).strip(),
             "ai_prompt": str(structured.get("ai_prompt", "")).strip(),
             "services_text": str(structured.get("services_text", "")).strip(),
             "bot_goal": str(structured.get("bot_goal", "")).strip(),
             "strict_rules": str(structured.get("strict_rules", "")).strip(),
             "objection_handling": str(structured.get("objection_handling", "")).strip(),
             "response_style": str(structured.get("response_style", "")).strip(),
+            "summary": str(structured.get("summary", "")).strip(),
         }
     }
 

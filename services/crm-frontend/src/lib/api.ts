@@ -1001,12 +1001,14 @@ export const crm = {
       success: boolean;
       optimized: {
         assistant_name: string;
+        unified_knowledge_base?: string;
         ai_prompt: string;
         services_text: string;
         bot_goal: string;
         strict_rules: string;
         objection_handling: string;
         response_style: string;
+        summary?: string;
       };
     }>('/api/v1/crm/settings/optimize-prompt', {
       method: 'POST',
@@ -2154,12 +2156,14 @@ export const admin = {
       success: boolean;
       optimized: {
         assistant_name: string;
+        unified_knowledge_base?: string;
         ai_prompt: string;
         services_text: string;
         bot_goal: string;
         strict_rules: string;
         objection_handling: string;
         response_style: string;
+        summary?: string;
       };
     }>(`/api/v1/crm/settings/optimize-prompt${qs}`, {
       method: 'POST',
