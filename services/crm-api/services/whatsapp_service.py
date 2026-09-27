@@ -60,7 +60,8 @@ async def dispatch_whatsapp_message(
     to_phone: str,
     text: Optional[str] = None,
     template_name: Optional[str] = None,
-    template_params: Optional[list] = None
+    template_params: Optional[list] = None,
+    suppress_admin_alert: bool = False
 ) -> Optional[dict]:
     """Helper to dispatch WhatsApp text message or approved Meta template to any destination phone."""
     clean_phone = "".join(filter(str.isdigit, to_phone))
@@ -152,46 +153,48 @@ async def dispatch_whatsapp_message(
             logger.warning("dispatch_whatsapp_message_status_error", status_code=resp.status_code, body=resp.text, phone=clean_phone)
 
             # Proactive Alert: notify Super Admin of dispatch failure with tenant name
-            try:
-                from services.alert_service import send_super_admin_alert
-                err_data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
-                err_obj = err_data.get("error", {})
-                err_msg = err_obj.get("message") or f"Meta returned HTTP {resp.status_code}: {resp.text}"
-                err_code = err_obj.get("code")
-                err_details = err_obj.get("error_data", {}).get("details")
-                if err_details:
-                    err_msg = f"{err_msg} ({err_details})"
-                asyncio.create_task(send_super_admin_alert(
-                    title="WhatsApp Outbound Dispatch Failed",
-                    error_message=err_msg,
-                    tenant_id=tenant_id,
-                    source="WhatsApp Outbound Dispatch",
-                    severity="ERROR",
-                    metadata={
-                        "phone": clean_phone,
-                        "status_code": resp.status_code,
-                        "error_code": err_code,
-                        "template_name": template_name
-                    }
-                ))
-            except Exception as _al_err:
-                logger.debug("alert_dispatch_trigger_failed", error=str(_al_err))
+            if not suppress_admin_alert:
+                try:
+                    from services.alert_service import send_super_admin_alert
+                    err_data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+                    err_obj = err_data.get("error", {})
+                    err_msg = err_obj.get("message") or f"Meta returned HTTP {resp.status_code}: {resp.text}"
+                    err_code = err_obj.get("code")
+                    err_details = err_obj.get("error_data", {}).get("details")
+                    if err_details:
+                        err_msg = f"{err_msg} ({err_details})"
+                    asyncio.create_task(send_super_admin_alert(
+                        title="WhatsApp Outbound Dispatch Failed",
+                        error_message=err_msg,
+                        tenant_id=tenant_id,
+                        source="WhatsApp Outbound Dispatch",
+                        severity="ERROR",
+                        metadata={
+                            "phone": clean_phone,
+                            "status_code": resp.status_code,
+                            "error_code": err_code,
+                            "template_name": template_name
+                        }
+                    ))
+                except Exception as _al_err:
+                    logger.debug("alert_dispatch_trigger_failed", error=str(_al_err))
 
             return None
     except Exception as e:
         logger.warning("dispatch_whatsapp_message_failed", error=str(e), phone=clean_phone)
-        try:
-            from services.alert_service import send_super_admin_alert
-            asyncio.create_task(send_super_admin_alert(
-                title="WhatsApp Dispatch Exception",
-                error_message=str(e),
-                tenant_id=tenant_id,
-                source="WhatsApp Outbound Dispatch",
-                severity="ERROR",
-                metadata={"phone": clean_phone}
-            ))
-        except Exception:
-            pass
+        if not suppress_admin_alert:
+            try:
+                from services.alert_service import send_super_admin_alert
+                asyncio.create_task(send_super_admin_alert(
+                    title="WhatsApp Dispatch Exception",
+                    error_message=str(e),
+                    tenant_id=tenant_id,
+                    source="WhatsApp Outbound Dispatch",
+                    severity="ERROR",
+                    metadata={"phone": clean_phone}
+                ))
+            except Exception:
+                pass
         return None
 
 # ── Gmail Direct Dispatch & Email Builders ─────────────────────────────────────

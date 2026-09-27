@@ -44,6 +44,17 @@ def _check_missed_call_rate_limit(tenant_slug: str, caller_ip: str) -> bool:
     return True
 
 
+def _extract_note(entity: Any, key: str) -> Optional[str]:
+    """Safely extract a note from a Razorpay webhook entity without crashing on empty lists or non-dict values."""
+    if not isinstance(entity, dict):
+        return None
+    notes = entity.get("notes")
+    if isinstance(notes, dict):
+        val = notes.get(key)
+        return str(val).strip() if val else None
+    return None
+
+
 @router.post("/webhooks/razorpay")
 async def handle_razorpay_webhook(
     request: Request,
@@ -71,10 +82,11 @@ async def handle_razorpay_webhook(
     logger.info("razorpay_webhook_received", webhook_event=event_type)
 
     payload = event_data.get("payload", {})
-    sub_entity = payload.get("subscription", {}).get("entity", {})
-    payment_entity = payload.get("payment", {}).get("entity", {})
-    invoice_entity = payload.get("invoice", {}).get("entity", {})
-    plink_entity = payload.get("payment_link", {}).get("entity", {})
+    sub_entity = payload.get("subscription", {}).get("entity", {}) if isinstance(payload.get("subscription"), dict) else {}
+    payment_entity = payload.get("payment", {}).get("entity", {}) if isinstance(payload.get("payment"), dict) else {}
+    invoice_entity = payload.get("invoice", {}).get("entity", {}) if isinstance(payload.get("invoice"), dict) else {}
+    plink_entity = payload.get("payment_link", {}).get("entity", {}) if isinstance(payload.get("payment_link"), dict) else {}
+    order_entity = payload.get("order", {}).get("entity", {}) if isinstance(payload.get("order"), dict) else {}
 
     sub_id = (
         plink_entity.get("id")
@@ -86,12 +98,13 @@ async def handle_razorpay_webhook(
     async with database.db_pool.acquire() as conn:
         tenant = None
         
-        # 1. Match by tenant_id note
+        # 1. Match by tenant_id note (safely handles dict, list, None)
         t_id_note = (
-            sub_entity.get("notes", {}).get("tenant_id")
-            or plink_entity.get("notes", {}).get("tenant_id")
-            or payment_entity.get("notes", {}).get("tenant_id")
-            or invoice_entity.get("notes", {}).get("tenant_id")
+            _extract_note(sub_entity, "tenant_id")
+            or _extract_note(plink_entity, "tenant_id")
+            or _extract_note(payment_entity, "tenant_id")
+            or _extract_note(invoice_entity, "tenant_id")
+            or _extract_note(order_entity, "tenant_id")
         )
         if t_id_note:
             try:
@@ -109,13 +122,14 @@ async def handle_razorpay_webhook(
                 sub_id
             )
         
-        # 3. Match by org_slug in notes
+        # 3. Match by org_slug in notes (safely handles dict, list, None)
         if not tenant:
             org_slug = (
-                plink_entity.get("notes", {}).get("org_slug")
-                or payment_entity.get("notes", {}).get("org_slug")
-                or sub_entity.get("notes", {}).get("org_slug")
-                or invoice_entity.get("notes", {}).get("org_slug")
+                _extract_note(plink_entity, "org_slug")
+                or _extract_note(payment_entity, "org_slug")
+                or _extract_note(sub_entity, "org_slug")
+                or _extract_note(invoice_entity, "org_slug")
+                or _extract_note(order_entity, "org_slug")
             )
             if org_slug:
                 tenant = await conn.fetchrow("SELECT id, name, slug, org_lifecycle_stage, subscription_status, razorpay_short_url, settings FROM tenants WHERE slug = $1", org_slug)
@@ -252,7 +266,7 @@ async def handle_razorpay_webhook(
                     clean_phone = "".join(filter(str.isdigit, target_phone))
                     if clean_phone:
                         wa_msg = f"Payment Confirmed! 🎉 Hello {t_name}, your payment of ₹{int(amount):,} has been received. Your WhatsApp Automation workspace is now 100% active. Access your CRM dashboard anytime: {dash_url}"
-                        await dispatch_whatsapp_message(tenant_id, clean_phone, text=wa_msg)
+                        await dispatch_whatsapp_message(tenant_id, clean_phone, text=wa_msg, suppress_admin_alert=True)
                         logger.info("payment_activation_whatsapp_sent", tenant_id=tenant_id, phone=clean_phone)
 
             except Exception as notify_err:
@@ -331,7 +345,7 @@ async def handle_razorpay_webhook(
                     clean_phone = "".join(filter(str.isdigit, target_phone))
                     if clean_phone:
                         wa_msg = f"Subscription Renewal Confirmed! 🎉 Hello {t_name}, your monthly subscription payment of ₹{int(amount):,} has been successfully auto-debited. Your WhatsApp Automation workspace continues 100% active: {dash_url}"
-                        await dispatch_whatsapp_message(tenant_id, clean_phone, text=wa_msg)
+                        await dispatch_whatsapp_message(tenant_id, clean_phone, text=wa_msg, suppress_admin_alert=True)
                         logger.info("subscription_renewal_whatsapp_sent", tenant_id=tenant_id, phone=clean_phone)
             except Exception as notify_err:
                 logger.warning("subscription_renewal_notification_failed", tenant_id=tenant_id, error=str(notify_err))
@@ -423,7 +437,7 @@ async def handle_razorpay_webhook(
                             f"Please retry your payment now to avoid interruption"
                             + (f": {payment_link}" if payment_link else ".")
                         )
-                        await dispatch_whatsapp_message(tenant_id, clean_phone, text=wa_msg)
+                        await dispatch_whatsapp_message(tenant_id, clean_phone, text=wa_msg, suppress_admin_alert=True)
             except Exception as pf_err:
                 logger.warning("payment_failed_notification_error", tenant_id=tenant_id, error=str(pf_err))
             background_tasks.add_task(dispatch_push_notification, tenant_id, 2, short_url)
