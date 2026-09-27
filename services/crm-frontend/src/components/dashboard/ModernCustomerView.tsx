@@ -1651,15 +1651,15 @@ export function ModernCustomerView({
       </div>
 
       {/* ── 2. UNIFIED COMPACT TOOLBAR (Live Search, View Switcher & Actions) ── */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 bg-surface border border-border rounded-md p-1.5 shadow-2xs shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-1.5 bg-surface border border-border rounded-md p-1.5 shadow-2xs shrink-0">
         {/* Left: View Modes & LIVE SEARCH BAR */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {!hideViewSwitcher && (
             <div className="flex items-center gap-0.5 bg-surface-subtle border border-border rounded-md p-0.5 shrink-0">
               <button
                 type="button"
                 onClick={() => setViewMode('table')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
                   viewMode === 'table'
                     ? 'bg-surface text-text-primary border border-border shadow-2xs'
                     : 'text-text-secondary hover:text-text-primary'
@@ -1672,7 +1672,7 @@ export function ModernCustomerView({
               <button
                 type="button"
                 onClick={() => setViewMode('kanban')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
                   viewMode === 'kanban'
                     ? 'bg-surface text-text-primary border border-border shadow-2xs'
                     : 'text-text-secondary hover:text-text-primary'
@@ -1685,7 +1685,7 @@ export function ModernCustomerView({
                 <button
                   type="button"
                   onClick={() => setViewMode('tasks')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+                  className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
                     viewMode === 'tasks'
                       ? 'bg-surface text-text-primary border border-border shadow-2xs'
                       : 'text-text-secondary hover:text-text-primary'
@@ -1701,16 +1701,16 @@ export function ModernCustomerView({
             </div>
           )}
 
-          {/* Live Search Input */}
-          <div className="relative flex-1 max-w-md">
+          {/* Live Search Input with STABLE width */}
+          <div className="relative w-40 sm:w-48 md:w-56 shrink-0">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none stroke-[1.8]" />
             <input
               type="text"
               autoComplete="off"
-              placeholder="Search by name, phone, notes, service, staff..."
+              placeholder="Search contacts..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-8 transition-colors"
+              className="w-full pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-7.5 transition-colors"
             />
             {searchQuery && (
               <button
@@ -1723,20 +1723,14 @@ export function ModernCustomerView({
               </button>
             )}
           </div>
-
-          {searchQuery && (
-            <span className="text-[11px] text-text-muted font-medium shrink-0 hidden lg:inline">
-              {filteredCustomers.length} of {customers.length} contacts
-            </span>
-          )}
         </div>
 
         {/* Right: Filters & Action Buttons */}
-        <div className="flex items-center gap-1.5 flex-wrap justify-end shrink-0">
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
           <select
             value={stageFilter}
             onChange={(e) => setStageFilter(e.target.value)}
-            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8 max-w-[155px] truncate"
+            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[130px] truncate shadow-2xs"
             title="Filter by stage or outcome"
           >
             <option value="all">All Stages & Outcomes</option>
@@ -1760,7 +1754,7 @@ export function ModernCustomerView({
           <select
             value={serviceFilter}
             onChange={(e) => setServiceFilter(e.target.value)}
-            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8 max-w-[135px] truncate"
+            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[110px] truncate shadow-2xs"
             title="Filter by service / inquiry"
           >
             <option value="all">All Services</option>
@@ -1772,7 +1766,7 @@ export function ModernCustomerView({
           <select
             value={actionFilter}
             onChange={(e) => setActionFilter(e.target.value)}
-            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8 max-w-[130px] truncate"
+            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[105px] truncate shadow-2xs"
             title="Filter by next action"
           >
             <option value="all">All Actions</option>
@@ -1784,7 +1778,7 @@ export function ModernCustomerView({
           <select
             value={warmthFilter}
             onChange={(e) => setWarmthFilter(e.target.value)}
-            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8"
+            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[95px] shadow-2xs"
             title="Filter by buying intent"
           >
             <option value="all">All Intent</option>
@@ -1796,7 +1790,7 @@ export function ModernCustomerView({
           <select
             value={staffFilter}
             onChange={(e) => setStaffFilter(e.target.value)}
-            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8 max-w-[130px] truncate"
+            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[105px] truncate shadow-2xs"
             title="Filter by assigned staff or doctor"
           >
             <option value="all">All Staff</option>
@@ -1812,29 +1806,17 @@ export function ModernCustomerView({
             <button
               type="button"
               onClick={openDropdownOptionsModal}
-              className="p-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm transition-colors cursor-pointer h-8 w-8 flex items-center justify-center"
-              title="Customize CRM stages and options"
+              className="h-7.5 w-7.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
+              title="Customize CRM dropdown options"
             >
               <Sliders className="w-3.5 h-3.5 stroke-[1.8]" />
             </button>
           )}
 
-          <div className="h-4 w-px bg-border/80 mx-0.5" />
-
-          <button
-            type="button"
-            onClick={onExportCsv}
-            className="flex items-center gap-1 px-2.5 py-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-sm transition-colors cursor-pointer h-8"
-            title="Export contacts to CSV"
-          >
-            <Download className="w-3.5 h-3.5 stroke-[1.8]" />
-            <span className="hidden sm:inline">Export</span>
-          </button>
-
           <button
             type="button"
             onClick={onRefresh}
-            className="p-1.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm transition-colors cursor-pointer h-8 w-8 flex items-center justify-center"
+            className="h-7.5 w-7.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
             title="Refresh contacts"
           >
             <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loading ? 'animate-spin' : ''}`} />
@@ -1843,7 +1825,7 @@ export function ModernCustomerView({
           <button
             type="button"
             onClick={onAddCustomer}
-            className="flex items-center gap-1.5 px-3 py-1 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-all shadow-2xs hover:shadow-xs cursor-pointer h-8"
+            className="h-7.5 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-2xs hover:shadow-xs cursor-pointer shrink-0"
           >
             <UserPlus className="w-3.5 h-3.5 stroke-[2]" />
             <span>+ Add {taxonomy?.client_label || 'Contact'}</span>

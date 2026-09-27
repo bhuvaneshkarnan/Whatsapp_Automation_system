@@ -14355,17 +14355,6 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         )}
                       </div>
 
-                      {/* Export CSV Button */}
-                      <button
-                        type="button"
-                        onClick={exportCustomersToCsv}
-                        className="h-7.5 flex items-center gap-1 px-2 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
-                        title="Export customer records to CSV"
-                      >
-                        <Download className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span className="hidden sm:inline">Export CSV</span>
-                      </button>
-
                       {/* + Add Customer / Client Button */}
                       <button
                         type="button"
