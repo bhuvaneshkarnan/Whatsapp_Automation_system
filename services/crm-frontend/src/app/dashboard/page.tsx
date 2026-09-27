@@ -15674,6 +15674,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   <div className="flex-1 flex flex-col overflow-hidden">
                     <ModernCustomerView
                       initialViewMode="kanban"
+                      hideViewSwitcher={true}
                       customers={customers}
                       selectedCustomer={selectedCustomer}
                       onSelectCustomer={handleSelectCustomer}

@@ -705,6 +705,7 @@ const STAGES: { id: Customer['status']; label: string; bg: string; text: string;
 interface ModernCustomerViewProps {
   initialViewMode?: 'table' | 'kanban' | 'tasks' | 'notes';
   onViewModeChange?: (mode: 'table' | 'kanban' | 'tasks' | 'notes') => void;
+  hideViewSwitcher?: boolean;
   customers: Customer[];
   selectedCustomer: Customer | null;
   onSelectCustomer: (customer: Customer) => void;
@@ -743,6 +744,7 @@ interface ModernCustomerViewProps {
 export function ModernCustomerView({
   initialViewMode = 'table',
   onViewModeChange,
+  hideViewSwitcher = false,
   customers,
   selectedCustomer,
   onSelectCustomer,
@@ -1661,50 +1663,52 @@ export function ModernCustomerView({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 bg-surface border border-border rounded-md p-1.5 shadow-2xs shrink-0">
         {/* Left: View Modes & LIVE SEARCH BAR */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1 min-w-0">
-          <div className="flex items-center gap-0.5 bg-surface-subtle border border-border rounded-md p-0.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => setViewMode('table')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
-                viewMode === 'table'
-                  ? 'bg-surface text-text-primary border border-border shadow-2xs'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              <List className="w-3.5 h-3.5 stroke-[2]" />
-              <span>Table</span>
-              <span className="text-[10px] text-text-muted font-mono ml-0.5">({filteredCustomers.length})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('kanban')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
-                viewMode === 'kanban'
-                  ? 'bg-surface text-text-primary border border-border shadow-2xs'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              <LayoutGrid className="w-3.5 h-3.5 stroke-[2]" />
-              <span>Pipeline</span>
-            </button>
-            {safeTasks.length > 0 && (
+          {!hideViewSwitcher && (
+            <div className="flex items-center gap-0.5 bg-surface-subtle border border-border rounded-md p-0.5 shrink-0">
               <button
                 type="button"
-                onClick={() => setViewMode('tasks')}
+                onClick={() => setViewMode('table')}
                 className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
-                  viewMode === 'tasks'
+                  viewMode === 'table'
                     ? 'bg-surface text-text-primary border border-border shadow-2xs'
                     : 'text-text-secondary hover:text-text-primary'
                 }`}
               >
-                <CalendarCheck className="w-3.5 h-3.5 stroke-[2]" />
-                <span>Tasks</span>
-                <span className="text-[10px] text-text-muted font-mono ml-0.5">
-                  ({safeTasks.filter((t) => !t.completed).length})
-                </span>
+                <List className="w-3.5 h-3.5 stroke-[2]" />
+                <span>Table</span>
+                <span className="text-[10px] text-text-muted font-mono ml-0.5">({filteredCustomers.length})</span>
               </button>
-            )}
-          </div>
+              <button
+                type="button"
+                onClick={() => setViewMode('kanban')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+                  viewMode === 'kanban'
+                    ? 'bg-surface text-text-primary border border-border shadow-2xs'
+                    : 'text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5 stroke-[2]" />
+                <span>Pipeline</span>
+              </button>
+              {safeTasks.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setViewMode('tasks')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+                    viewMode === 'tasks'
+                      ? 'bg-surface text-text-primary border border-border shadow-2xs'
+                      : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  <CalendarCheck className="w-3.5 h-3.5 stroke-[2]" />
+                  <span>Tasks</span>
+                  <span className="text-[10px] text-text-muted font-mono ml-0.5">
+                    ({safeTasks.filter((t) => !t.completed).length})
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Live Search Input */}
           <div className="relative flex-1 max-w-md">
