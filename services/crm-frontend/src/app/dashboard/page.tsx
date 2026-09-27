@@ -123,6 +123,7 @@ import {
   CheckSquare,
   Square,
   Activity,
+  Filter,
   FileSpreadsheet,
   Download,
   Database,
@@ -11641,19 +11642,52 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
             {/* ── VIEW 1: BOOKINGS LIST & ATTENDANCE ───────────────────────────── */}
             {activeNav === 'bookings' && (
               <div className="flex-1 flex flex-col overflow-hidden space-y-4 bg-surface border border-border shadow-sm rounded-xl p-4 sm:p-5">
-                {/* Breadcrumb & Action Toolbar */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
-                  <div className="flex items-center gap-2 text-xs text-text-muted">
-                    <span>Home</span>
-                    <ChevronRight className="w-3 h-3 text-text-muted stroke-[1.5]" />
-                    <span>Bookings</span>
-                    <ChevronRight className="w-3 h-3 text-text-muted stroke-[1.5]" />
-                    <span className="text-text-primary font-medium">Schedule</span>
+                {/* Compact, Clean Action Toolbar (matching 2-tier design language) */}
+                <div className="flex flex-col gap-2 bg-surface border border-border rounded-lg p-2.5 shadow-2xs shrink-0">
+                  {/* ROW 1: Section Title, Calendar Switcher & Primary Action */}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 shrink-0">
+                      <CalendarDays className="w-4 h-4 text-accent stroke-[1.8]" />
+                      <h3 className="font-bold text-sm text-text-primary">Appointments & Bookings</h3>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Switch to Calendar Schedule Button */}
+                      <button
+                        type="button"
+                        onClick={() => navigateTo('calendar')}
+                        className="h-8 px-3 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary font-medium text-xs rounded-md transition-colors border border-border cursor-pointer shadow-2xs flex items-center gap-1.5 shrink-0"
+                        title="Switch to Calendar Schedule view"
+                      >
+                        <Calendar className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
+                        <span>{currentTaxonomy.tab_calendar_label || 'Calendar Schedule'}</span>
+                      </button>
+
+                      {/* Refresh Button */}
+                      <button
+                        type="button"
+                        onClick={() => loadBookings()}
+                        className="h-8 w-8 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
+                        title="Refresh bookings"
+                      >
+                        <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loadingBookings ? 'animate-spin' : ''}`} />
+                      </button>
+
+                      {/* Clean Primary Add Booking Button */}
+                      <button
+                        type="button"
+                        onClick={() => setIsAddBookingOpen(true)}
+                        className="h-8 flex items-center gap-1.5 px-3.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs hover:shadow cursor-pointer shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>{(currentTaxonomy.booking_cta || 'Book Appointment').replace(/^\+\s*/, '')}</span>
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                    {/* Status Filter Segmented Control (Upcoming, Rescheduled, Completed, No-Show, Cancelled, All) */}
-                    <div className="flex overflow-x-auto no-scrollbar gap-0.5 bg-surface-subtle p-0.5 rounded-md border border-border shrink-0 max-w-full">
+                  {/* ROW 2: Status Filter Segmented Control & Live Count */}
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60 overflow-x-auto no-scrollbar">
+                    <div className="flex items-center gap-1 bg-surface-subtle p-0.5 rounded-md border border-border shrink-0 max-w-full overflow-x-auto no-scrollbar">
                       {[
                         { id: 'upcoming', label: 'Upcoming' },
                         { id: 'rescheduled', label: 'Rescheduled' },
@@ -11682,10 +11716,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         return (
                           <button
                             key={st.id}
+                            type="button"
                             onClick={() => setBookingFilter(st.id)}
-                            className={`px-3 py-1 text-xs rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                            className={`px-2.5 py-1 text-xs rounded-sm transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
                               bookingFilter === st.id
-                                ? 'bg-surface text-text-primary font-semibold border border-border shadow-subtle'
+                                ? 'bg-surface text-text-primary font-semibold border border-border shadow-2xs'
                                 : 'text-text-secondary hover:text-text-primary font-medium'
                             }`}
                           >
@@ -11704,24 +11739,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       })}
                     </div>
 
-                    {/* Switch to Calendar Schedule Button */}
-                    <button
-                      onClick={() => navigateTo('calendar')}
-                      className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 border border-border cursor-pointer shadow-xs whitespace-nowrap shrink-0"
-                      title="Switch to Calendar Schedule view"
-                    >
-                      <CalendarDays className="w-3.5 h-3.5 text-accent stroke-[1.5]" />
-                      <span>{currentTaxonomy.tab_calendar_label || 'Calendar Schedule'}</span>
-                    </button>
-
-                    {/* Add Booking Button */}
-                    <button
-                      onClick={() => setIsAddBookingOpen(true)}
-                      className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-                    >
-                      <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>{currentTaxonomy.booking_cta || '+ Add booking'}</span>
-                    </button>
+                    {/* Right: Total Appointments Count */}
+                    <div className="text-xs text-text-muted font-medium shrink-0 ml-auto pl-2 flex items-center gap-1">
+                      <span>Total</span>
+                      <span className="font-semibold text-text-primary">{bookings?.length || 0}</span>
+                      <span>appointments</span>
+                    </div>
                   </div>
                 </div>
 
@@ -16462,67 +16485,55 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   const vipCount = allRepeat.filter(c => (c.completed_bookings_count ?? 0) >= 3).length;
 
                   return (
-                    <div className="bg-surface border border-border rounded-sm p-2 flex flex-col gap-2 shrink-0">
-                      {/* Toolbar Line 1: Title, Slim Metric Inline Strip & Main CTAs */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-1.5">
-                        <div className="flex items-center gap-2.5 flex-wrap">
-                          <h3 className="font-semibold text-xs text-text-primary flex items-center gap-1.5 shrink-0">
-                            <UserCheck className="w-3.5 h-3.5 text-amber-500 stroke-[1.8]" />
+                    <div className="flex flex-col gap-2 bg-surface border border-border rounded-lg p-2.5 shadow-2xs shrink-0">
+                      {/* ROW 1: Title, Search Bar & Primary Actions */}
+                      <div className="flex items-center justify-between gap-3">
+                        {/* Left: Title + Live Search */}
+                        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                          <h3 className="font-bold text-sm text-text-primary flex items-center gap-2 shrink-0">
+                            <UserCheck className="w-4 h-4 text-amber-500 stroke-[1.8]" />
                             <span>Repeat & Retained {currentTaxonomy.client_plural || 'Clients'}</span>
                           </h3>
 
-                          {/* Slim Inline KPI Strip */}
-                          <div className="flex items-center gap-1.5 text-[11px] bg-surface-subtle border border-border px-2 py-0.5 rounded-sm font-medium shrink-0">
-                            <span className="text-text-secondary">Total: <strong className="text-text-primary">{allRepeat.length}</strong></span>
-                            <span className="text-text-muted">•</span>
-                            <span className="text-emerald-700 dark:text-emerald-400">Active: <strong>{activeCount}</strong></span>
-                            <span className="text-text-muted">•</span>
-                            <span className="text-amber-700 dark:text-amber-400">Due: <strong>{dueCount}</strong></span>
-                            <span className="text-text-muted">•</span>
-                            <span className="text-rose-700 dark:text-rose-400 cursor-pointer" onClick={() => setRepeatHealthFilter('lapsed')} title="Filter at-risk clients">At-Risk: <strong>{lapsedCount}</strong></span>
-                            <span className="text-text-muted">•</span>
-                            <span className="text-purple-700 dark:text-purple-400">VIPs: <strong>{vipCount}</strong></span>
+                          {/* Live Search Input - Stable, responsive */}
+                          <div className="relative flex-1 max-w-sm min-w-[180px]">
+                            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none stroke-[1.8]" />
+                            <input
+                              type="text"
+                              autoComplete="off"
+                              placeholder="Search repeat clients..."
+                              value={repeatSearch}
+                              onChange={(e) => setRepeatSearch(e.target.value)}
+                              className="w-full pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-8 transition-colors"
+                            />
+                            {repeatSearch && (
+                              <button
+                                type="button"
+                                onClick={() => setRepeatSearch('')}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
+                                title="Clear search"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
 
-                        {/* Top Action CTAs */}
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {/* Export CSV */}
+                        {/* Right: Quick Tools & Clean Primary Action Button */}
+                        <div className="flex items-center gap-2 shrink-0">
                           <button
                             type="button"
                             onClick={() => {
-                              const repeatList = customers.filter(c => (c.completed_bookings_count ?? 0) > 0 || c.client_type === 'repeat');
-                              const headers = ['Name', 'Phone', 'Age', 'Location', 'Completed Visits', 'Total Bookings', 'Last Visit Date', 'Last Visit Service', 'Days Since Last Visit', 'Retention Status', 'Preferred Staff'];
-                              const rows = repeatList.map(c => [
-                                `"${(c.name || '').replace(/"/g, '""')}"`,
-                                `"${c.phone}"`,
-                                c.age || '',
-                                `"${(c.location || '').replace(/"/g, '""')}"`,
-                                c.completed_bookings_count || 0,
-                                c.total_bookings_count || 0,
-                                (c.last_visit_date || c.last_visited) ? new Date(c.last_visit_date || c.last_visited!).toLocaleDateString() : '',
-                                `"${(c.last_visit_service || '').replace(/"/g, '""')}"`,
-                                c.days_since_last_visit != null ? c.days_since_last_visit : '',
-                                c.retention_status || '',
-                                `"${(c.preferred_doctor || '').replace(/"/g, '""')}"`
-                              ]);
-                              const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-                              const encodedUri = encodeURI(csvContent);
-                              const link = document.createElement('a');
-                              link.setAttribute('href', encodedUri);
-                              link.setAttribute('download', `repeat_clients_${new Date().toISOString().split('T')[0]}.csv`);
-                              document.body.appendChild(link);
-                              link.click();
-                              document.body.removeChild(link);
+                              loadCustomers();
+                              loadBookings();
                             }}
-                            className="flex items-center gap-1 px-2 py-0.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-[11px] font-medium rounded-sm transition-colors cursor-pointer"
-                            title="Export repeat client records to CSV"
+                            className="h-8 w-8 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
+                            title="Refresh repeat clients"
                           >
-                            <Download className="w-3 h-3 stroke-[1.5]" />
-                            <span className="hidden sm:inline">Export CSV</span>
+                            <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loadingCustomers ? 'animate-spin' : ''}`} />
                           </button>
 
-                          {/* Schedule Booking */}
+                          {/* Clean, Elegant Primary Book Appointment Button */}
                           <button
                             type="button"
                             onClick={() => {
@@ -16542,60 +16553,51 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               });
                               setIsAddBookingOpen(true);
                             }}
-                            className="flex items-center gap-1 px-2 py-0.5 bg-accent hover:bg-accent-hover text-white text-[11px] font-medium rounded-sm transition-colors cursor-pointer shrink-0"
+                            className="h-8 flex items-center gap-1.5 px-3.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs hover:shadow cursor-pointer shrink-0"
                           >
-                            <CalendarClock className="w-3 h-3 stroke-[1.5]" />
-                            <span>{currentTaxonomy.booking_cta || 'Book Session'}</span>
-                          </button>
-
-                          {/* Refresh */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              loadCustomers();
-                              loadBookings();
-                            }}
-                            className="p-1 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-sm text-[11px] flex items-center transition-colors cursor-pointer"
-                            title="Refresh repeat clients"
-                          >
-                            <RotateCcw className={`w-3 h-3 ${loadingCustomers ? 'animate-spin' : ''}`} />
+                            <CalendarClock className="w-3.5 h-3.5 stroke-[2]" />
+                            <span>{(currentTaxonomy.booking_cta || 'Book Appointment').replace(/^\+\s*/, '')}</span>
                           </button>
                         </div>
                       </div>
 
-                      {/* Toolbar Line 2: Retention Filter Pills, Staff Filter, Sorting & Search */}
-                      <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
-                        {/* Retention Filter Pills */}
-                        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar touch-scroll max-w-full shrink-0">
+                      {/* ROW 2: Retention Filter Pills, Sort & Record Count */}
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60 overflow-x-auto no-scrollbar">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider shrink-0 flex items-center gap-1 mr-0.5">
+                            <Filter className="w-3 h-3 text-text-muted" />
+                            <span>Retention:</span>
+                          </span>
+
                           {[
-                            { key: 'all', label: 'All Repeat' },
-                            { key: 'active', label: 'Active (<30d)', dot: 'bg-emerald-500' },
-                            { key: 'due', label: 'Due (30-60d)', dot: 'bg-amber-500' },
-                            { key: 'lapsed', label: 'At-Risk (>60d)', dot: 'bg-rose-500' },
-                            { key: 'vip', label: 'VIPs (3+)', dot: 'bg-purple-500' },
+                            { key: 'all', label: 'All Repeat', count: allRepeat.length },
+                            { key: 'active', label: 'Active (<30d)', count: activeCount, dot: 'bg-emerald-500' },
+                            { key: 'due', label: 'Due (30-60d)', count: dueCount, dot: 'bg-amber-500' },
+                            { key: 'lapsed', label: 'At-Risk (>60d)', count: lapsedCount, dot: 'bg-rose-500' },
+                            { key: 'vip', label: 'VIPs (3+)', count: vipCount, dot: 'bg-purple-500' },
                           ].map((st) => (
                             <button
                               key={st.key}
                               type="button"
                               onClick={() => setRepeatHealthFilter(st.key as any)}
-                              className={`px-2 py-0.5 text-[11px] rounded-sm border transition-colors cursor-pointer shrink-0 flex items-center gap-1 ${
+                              className={`px-2.5 py-1 text-xs rounded-md border transition-all cursor-pointer shrink-0 flex items-center gap-1.5 shadow-2xs ${
                                 repeatHealthFilter === st.key
-                                  ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
-                                  : 'bg-surface border-border text-text-secondary hover:text-text-primary hover:bg-surface-subtle'
+                                  ? 'bg-surface text-text-primary border-border font-semibold shadow-xs'
+                                  : 'bg-surface-subtle border-border text-text-secondary hover:text-text-primary hover:bg-surface'
                               }`}
                             >
                               {st.dot && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${st.dot}`} />}
                               <span>{st.label}</span>
+                              <span className="text-[10px] text-text-muted font-mono">({st.count})</span>
                             </button>
                           ))}
-                        </div>
 
-                        {/* Dropdowns & Search */}
-                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
+                          <div className="h-4 w-px bg-border/80 mx-1 shrink-0 hidden sm:block" />
+
                           <select
                             value={repeatSortBy}
                             onChange={(e) => setRepeatSortBy(e.target.value as any)}
-                            className="px-1.5 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent cursor-pointer"
+                            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 shadow-2xs"
                             title="Sort repeat clients"
                           >
                             <option value="most_visits">Most Visits</option>
@@ -16607,7 +16609,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <select
                             value={repeatDoctorFilter}
                             onChange={(e) => setRepeatDoctorFilter(e.target.value)}
-                            className="px-1.5 py-0.5 text-[11px] bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent max-w-[130px]"
+                            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[130px] truncate shadow-2xs"
                           >
                             <option value="all">All {presetRolePlural}</option>
                             <option value="unassigned">Unassigned</option>
@@ -16620,25 +16622,58 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             )}
                           </select>
 
-                          <div className="relative">
-                            <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" />
-                            <input
-                              type="text"
-                              placeholder="Search..."
-                              value={repeatSearch}
-                              onChange={(e) => setRepeatSearch(e.target.value)}
-                              className="pl-6 pr-5 py-0.5 bg-surface-subtle border border-border rounded-sm text-[11px] text-text-primary focus:outline-none focus:border-accent w-36"
-                            />
-                            {repeatSearch && (
-                              <button
-                                type="button"
-                                onClick={() => setRepeatSearch('')}
-                                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
+                          {(repeatHealthFilter !== 'all' || repeatDoctorFilter !== 'all' || repeatSearch.trim()) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRepeatHealthFilter('all');
+                                setRepeatDoctorFilter('all');
+                                setRepeatSearch('');
+                              }}
+                              className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 px-2 py-1 rounded-md font-medium flex items-center gap-1 cursor-pointer transition-colors"
+                              title="Clear repeat filters"
+                            >
+                              <X className="w-3 h-3" />
+                              <span>Reset</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Right: Record count */}
+                        <div className="text-xs text-text-muted font-medium shrink-0 ml-auto pl-2 flex items-center gap-1">
+                          <span>Showing</span>
+                          <span className="font-semibold text-text-primary">{
+                            allRepeat.filter((c) => {
+                              if (repeatSearch) {
+                                const q = repeatSearch.toLowerCase();
+                                const matches =
+                                  (c.name || '').toLowerCase().includes(q) ||
+                                  (c.phone || '').toLowerCase().includes(q) ||
+                                  (c.health_concern || '').toLowerCase().includes(q) ||
+                                  (c.last_visit_service || '').toLowerCase().includes(q) ||
+                                  (c.preferred_doctor || '').toLowerCase().includes(q);
+                                if (!matches) return false;
+                              }
+                              if (repeatDoctorFilter !== 'all') {
+                                if (repeatDoctorFilter === 'unassigned') {
+                                  if (c.preferred_doctor) return false;
+                                } else if (c.preferred_doctor !== repeatDoctorFilter) {
+                                  return false;
+                                }
+                              }
+                              if (repeatHealthFilter !== 'all') {
+                                if (repeatHealthFilter === 'vip') {
+                                  if ((c.completed_bookings_count ?? 0) < 3) return false;
+                                } else if (c.retention_status !== repeatHealthFilter) {
+                                  return false;
+                                }
+                              }
+                              return true;
+                            }).length
+                          }</span>
+                          <span>of</span>
+                          <span className="font-semibold text-text-primary">{allRepeat.length}</span>
+                          <span>clients</span>
                         </div>
                       </div>
                     </div>
