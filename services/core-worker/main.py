@@ -1596,15 +1596,27 @@ end
 
         now_dt = datetime.datetime.now(tenant_tz)
 
-        def _parse_hm(t_str: str, default_h: int, default_m: int):
+        def _parse_hm(t_str: str, default_h: int, default_m: int, is_closing: bool = False):
             try:
-                parts = str(t_str).split(":")
-                return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
+                s = str(t_str).strip()
+                is_pm = "pm" in s.lower()
+                is_am = "am" in s.lower()
+                s_clean = re.sub(r'[^\d:]', '', s)
+                parts = s_clean.split(":")
+                h = int(parts[0])
+                m = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+                if is_pm and h < 12:
+                    h += 12
+                elif is_am and h == 12:
+                    h = 0
+                elif not is_pm and not is_am and is_closing and h < 12:
+                    h += 12
+                return h, m
             except Exception:
                 return default_h, default_m
 
-        op_h, op_m = _parse_hm(opening_time_str, 9, 0)
-        cl_h, cl_m = _parse_hm(closing_time_str, 20, 0)
+        op_h, op_m = _parse_hm(opening_time_str, 9, 0, is_closing=False)
+        cl_h, cl_m = _parse_hm(closing_time_str, 20, 0, is_closing=True)
 
         # Parse lunch break once
         lb_start_h = lb_start_m = lb_end_h = lb_end_m = None
@@ -1660,8 +1672,8 @@ end
                         days_off = [d_off.strip() for d_off in (doc.get("days_off") or [])]
                         if day_name_str in days_off:
                             continue
-                        doc_h_start, doc_m_start = _parse_hm(doc.get("start", opening_time_str), op_h, op_m)
-                        doc_h_end, doc_m_end = _parse_hm(doc.get("end", closing_time_str), cl_h, cl_m)
+                        doc_h_start, doc_m_start = _parse_hm(doc.get("start", opening_time_str), op_h, op_m, is_closing=False)
+                        doc_h_end, doc_m_end = _parse_hm(doc.get("end", closing_time_str), cl_h, cl_m, is_closing=True)
                         doc_start_dt = datetime.datetime.combine(day_date, datetime.time(doc_h_start, doc_m_start), tzinfo=tenant_tz)
                         doc_end_dt = datetime.datetime.combine(day_date, datetime.time(doc_h_end, doc_m_end), tzinfo=tenant_tz)
                         if cur >= doc_start_dt and slot_end <= doc_end_dt:
@@ -2540,17 +2552,29 @@ end
                     closing_time_raw = str(tenant_st_row.get(k)).strip()
                     break
 
-        def _fmt_ampm(t_str: str, default_val: str) -> str:
+        def _fmt_ampm(t_str: str, default_val: str, is_closing: bool = False) -> str:
             try:
-                parts = t_str.split(":")
+                s = str(t_str).strip()
+                is_pm = "pm" in s.lower()
+                is_am = "am" in s.lower()
+                s_clean = re.sub(r'[^\d:]', '', s)
+                parts = s_clean.split(":")
                 h = int(parts[0])
-                m = int(parts[1]) if len(parts) > 1 else 0
+                m = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+                if is_pm and h < 12:
+                    h += 12
+                elif is_am and h == 12:
+                    h = 0
+                elif not is_pm and not is_am and is_closing and h < 12:
+                    h += 12
                 import datetime as dt_mod
                 return dt_mod.time(h, m).strftime("%I:%M %p")
             except Exception:
                 return default_val
 
-        op_hours_display = f"{_fmt_ampm(opening_time_raw, '07:00 AM' if is_mbr else '09:00 AM')} to {_fmt_ampm(closing_time_raw, '09:30 PM' if is_mbr else '08:00 PM')}"
+        fmt_open = _fmt_ampm(opening_time_raw, '07:00 AM' if is_mbr else '09:00 AM', is_closing=False)
+        fmt_close = _fmt_ampm(closing_time_raw, '09:30 PM' if is_mbr else '08:00 PM', is_closing=True)
+        op_hours_display = f"{fmt_open} to {fmt_close}"
 
         # Extract slot scheduling config from tenant settings
         slot_duration_mins = int(tenant_st_row.get("slot_duration_mins") or 30) if tenant_st_row else 30
@@ -2576,13 +2600,25 @@ end
             doctors=doctors,
         )
 
-        def _parse_hm_local(t_str: str, default_h: int, default_m: int):
+        def _parse_hm_local(t_str: str, default_h: int, default_m: int, is_closing: bool = False):
             try:
-                parts = str(t_str).split(":")
-                return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
+                s = str(t_str).strip()
+                is_pm = "pm" in s.lower()
+                is_am = "am" in s.lower()
+                s_clean = re.sub(r'[^\d:]', '', s)
+                parts = s_clean.split(":")
+                h = int(parts[0])
+                m = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+                if is_pm and h < 12:
+                    h += 12
+                elif is_am and h == 12:
+                    h = 0
+                elif not is_pm and not is_am and is_closing and h < 12:
+                    h += 12
+                return h, m
             except Exception:
                 return default_h, default_m
-        cl_h_val, cl_m_val = _parse_hm_local(closing_time_raw, 20, 0)
+        cl_h_val, cl_m_val = _parse_hm_local(closing_time_raw, 20, 0, is_closing=True)
 
         empty_slot_lines = []
         for day_label, slots in empty_slots_by_day.items():
@@ -2614,7 +2650,8 @@ end
         busy_slots_block = (
             f"### LIVE GOOGLE CALENDAR GROUND TRUTH & VERIFIED EMPTY SLOTS ({'GOOGLE CALENDAR LIVE SYNC ACTIVE' if gcal_connected else 'CRM LOCAL SCHEDULE'}):\n"
             f"- Live Integration Status: {'Google Calendar Connected & Verified (Ground Truth)' if gcal_connected else 'CRM Internal Schedule Active'}\n"
-            f"- Official Business Operating Hours: {op_hours_display} (Daily)\n"
+            f"- Official Business Operating Hours: {op_hours_display} (Daily Monday through Sunday)\n"
+            f"- MANDATORY TIME ACCURACY: Opening is {fmt_open} (Morning / காலை). Closing is {fmt_close} (Night / Evening / இரவு / 21:00). You must NEVER confuse AM and PM! Closing time is {fmt_close} (NIGHT/EVENING). You must NEVER write '09:00 AM' for closing time or night! 09:00 AM is morning, not night!\n"
             f"- NOTE ON SLOTS VS OPERATING HOURS: Operating hours are ALWAYS {op_hours_display} daily. The verified open slots below only reflect currently unbooked slots on calendar, NOT business operating hours. NEVER confuse slot ranges with business operating hours!\n\n"
             "VERIFIED EMPTY & AVAILABLE SLOTS (CHECKED IN REAL-TIME AGAINST GOOGLE CALENDAR):\n"
             "The following are the EXACT, VERIFIED OPEN SLOTS where no events exist on Google Calendar or the CRM:\n"
@@ -2625,7 +2662,8 @@ end
                 if busy_lines else "OCCUPIED / BUSY SLOTS: None. The calendar is completely clear.\n\n"
             )
             + "### STRICT DIRECTIVES FOR APPOINTMENT SCHEDULING & TIME SELECTION:\n"
-            + f"- BUSINESS HOURS VS SLOTS: The clinic / business operating hours are strictly {op_hours_display} daily. When asked about timings, ALWAYS reply with '{op_hours_display} daily'. Never say '10 AM to 9 PM' or infer business hours from slot samples.\n"
+            + f"- BUSINESS HOURS VS SLOTS: The clinic / business operating hours are strictly {op_hours_display} daily ({fmt_open} Morning to {fmt_close} Night). When asked about timings, ALWAYS reply with '{op_hours_display} daily'. Never say '10 AM to 9 PM' or infer business hours from slot samples.\n"
+            + f"- MANDATORY AM/PM & MULTILINGUAL TIMING RULE: Closing time is {fmt_close} (Night / Evening / இரவு). In Tamil, morning is {fmt_open} (காலை) and night is {fmt_close} (இரவு). NEVER write '09:00 AM' or 'AM' when referring to night or closing time!\n"
             + "- PROACTIVE & CUSTOMER-ALIGNED APPOINTMENT TIME SELECTION:\n"
             "  * If customer has not stated a time: Ask what day and convenient time works best for them within operating hours (e.g. 'What day and time suits you best within our clinic hours?').\n"
             "  * If customer already stated a preferred day or time: Respect and verify their preferred time immediately without overriding it!\n"
@@ -3209,6 +3247,14 @@ end
                 time_context,
                 tenant_isolation_boundary,
                 f"You are {assistant_name or 'the assistant'}, representing {tenant_name or 'this business'} directly on WhatsApp chat.",
+                # Official Operating Hours Ground Truth
+                (
+                    f"### OFFICIAL BUSINESS OPERATING HOURS (MANDATORY TIMINGS):\n"
+                    f"- Daily Operating Hours: {op_hours_display} (Daily Monday through Sunday)\n"
+                    f"- Opening Time: {fmt_open} (Morning / காலை)\n"
+                    f"- Closing Time: {fmt_close} (Night / Evening / இரவு / 21:00)\n"
+                    f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, working hours, opening/closing times, or when we are open, ALWAYS state: '{op_hours_display} daily'. NEVER guess or infer operating hours from empty calendar slots! Closing time is strictly {fmt_close} (Night / இரவு). You must NEVER write '09:00 AM' for closing time or night!"
+                ),
                 # Unified Master Knowledge Base (ground truth for business, hours, address, services, clinical rules, and tone)
                 custom_instructions.strip(),
                 # ── REAL-TIME DYNAMIC CONTEXT: CUSTOMER PROFILE & CHAT MEMORY ──
@@ -3304,9 +3350,11 @@ end
 
             # ── SECTION 1: BUSINESS OPERATING HOURS (TOP GROUND TRUTH FOR TIMINGS) ──
             prompt_blocks.append(
-                f"### OFFICIAL BUSINESS OPERATING HOURS:\n"
+                f"### OFFICIAL BUSINESS OPERATING HOURS (MANDATORY TIMINGS):\n"
                 f"- Daily Operating Hours: {op_hours_display} (Daily Monday through Sunday)\n"
-                f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, working hours, opening/closing times, or when we are open, ALWAYS state: '{op_hours_display} daily'. NEVER guess or infer operating hours from empty calendar slots! Calendar slots only show currently open appointment slots, NOT total business operating hours."
+                f"- Opening Time: {fmt_open} (Morning / காலை)\n"
+                f"- Closing Time: {fmt_close} (Night / Evening / இரவு / 21:00)\n"
+                f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, working hours, opening/closing times, or when we are open, ALWAYS state: '{op_hours_display} daily'. NEVER guess or infer operating hours from empty calendar slots! Closing time is strictly {fmt_close} (Night / இரவு). You must NEVER write '09:00 AM' for closing time or night!"
             )
 
             if objection_handling.strip():
@@ -3687,6 +3735,35 @@ end
                 else:
                     return f"{12 if hh == 0 else hh:02d}:{mm} AM"
             response_text = re.sub(r'\b([01]?\d|2[0-3]):([0-5]\d)(?!\s*(?:am|pm|AM|PM))\b', _repl_12hr, response_text)
+
+            # Multilingual time format sanitizer to correct token hallucination (e.g. "இரவு 09:00 AM" -> "இரவு 09:00 PM")
+            def _fix_night_time(m):
+                prefix = m.group(1)
+                h = int(m.group(2))
+                mm = m.group(3) if m.group(3) else '00'
+                return f"{prefix} {h:02d}:{mm} PM"
+
+            def _fix_morn_time(m):
+                prefix = m.group(1)
+                h = int(m.group(2))
+                mm = m.group(3) if m.group(3) else '00'
+                return f"{prefix} {h:02d}:{mm} AM"
+
+            response_text = re.sub(
+                r'(?i)(இரவு|மாலை|இராத்திரி|रात|शाम|night|evening)\s*(?:மணி\s*)?0?([4-9]|1[01])(?::([0-5]\d))?\s*AM\b',
+                _fix_night_time,
+                response_text,
+            )
+            response_text = re.sub(
+                r'(?i)(காலை|விடியற்காலை|सुबह|morning)\s*(?:மணி\s*)?0?([1-9]|1[01])(?::([0-5]\d))?\s*PM\b',
+                _fix_morn_time,
+                response_text,
+            )
+            if "PM" in fmt_close:
+                close_h = int(fmt_close.split(":")[0])
+                close_m = fmt_close.split(":")[1].split()[0]
+                pat_close = re.compile(rf'(?i)(முதல்|வரை|to|-)\s*0?{close_h}(?::{close_m})?\s*AM\b')
+                response_text = pat_close.sub(lambda m: f"{m.group(1)} {close_h:02d}:{close_m} PM", response_text)
             if is_ongoing_conversation:
                 response_text = strip_repetitive_greetings(response_text)
             # Global strict tenant isolation firewall check
