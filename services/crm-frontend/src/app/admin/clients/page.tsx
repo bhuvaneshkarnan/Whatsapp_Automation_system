@@ -426,11 +426,13 @@ export default function SuperAdminClients() {
   // ── AI PROMPT OPTIMIZER STATE ──────────────────────────────────
   const [showOptimizerModal, setShowOptimizerModal] = useState(false);
   const [optimizerDump, setOptimizerDump] = useState('');
+  const [optimizerCustomPrompt, setOptimizerCustomPrompt] = useState('');
   const [optimizerLoading, setOptimizerLoading] = useState(false);
   const [optimizerError, setOptimizerError] = useState('');
   const [optimizerPreview, setOptimizerPreview] = useState<{
     assistant_name: string;
     ai_prompt: string;
+    custom_prompt?: string;
     services_text: string;
     bot_goal: string;
     strict_rules: string;
@@ -1098,6 +1100,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     meta_app_secret: '',
     verify_token: '',
     ai_prompt: '',
+    custom_prompt: '',
     ai_model: 'gemini-3.1-flash-lite',
     primary_model_provider: 'groq',
     gemini_api_key: '',
@@ -5115,6 +5118,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                 type="button"
                                 onClick={() => {
                                   setOptimizerDump(configForm.ai_prompt || '');
+                                  setOptimizerCustomPrompt(configForm.custom_prompt || '');
                                   setOptimizerPreview(null);
                                   setOptimizerError('');
                                   setShowOptimizerModal(true);
@@ -5132,6 +5136,27 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                             placeholder="Provide everything your AI needs to know:&#10;&#10;1. About Your Business: What you do, who runs it.&#10;2. Services & Pricing: Services offered, exact pricing, consultation fees.&#10;3. Conversational Goal: How to greet, answer queries, handle objections, and guide customers to book.&#10;4. Tone: Friendly, natural, short WhatsApp texting style (1-2 lines)."
                             value={configForm.ai_prompt || ''}
                             onChange={(e) => setConfigForm({ ...configForm, ai_prompt: e.target.value })}
+                            className="w-full px-3.5 py-2.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans leading-relaxed resize-y transition-colors duration-150"
+                          />
+                        </div>
+
+                        {/* Custom Prompt / Priority Overrides Field */}
+                        <div className="p-4 bg-surface rounded-md border border-border space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-medium text-text-primary flex items-center gap-1.5">
+                              <span>Custom Prompt / Additional Instructions</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 font-semibold border border-emerald-500/20">Highest Priority Override</span>
+                            </label>
+                            <span className="text-[11px] text-text-muted">Always strictly followed</span>
+                          </div>
+                          <p className="text-[11px] text-text-muted">
+                            Special rules and directives (e.g. &quot;Only share the price when asked&quot;, &quot;Always book for today if requested&quot;). These instructions take precedence over all general defaults and are preserved during Smart Fill &amp; Organize.
+                          </p>
+                          <textarea
+                            rows={4}
+                            placeholder="Example:&#10;- Only share the price when explicitly asked by the customer.&#10;- When the customer asks for available services, describe the services without stating prices.&#10;- Always book for today if requested and within operating hours."
+                            value={configForm.custom_prompt || ''}
+                            onChange={(e) => setConfigForm({ ...configForm, custom_prompt: e.target.value })}
                             className="w-full px-3.5 py-2.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans leading-relaxed resize-y transition-colors duration-150"
                           />
                         </div>
@@ -5180,24 +5205,39 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                   <div className="space-y-3">
                                     <label className="block text-xs font-semibold text-text-primary">Paste everything about the business:</label>
                                     <textarea
-                                      rows={14}
+                                      rows={11}
                                       autoFocus
                                       placeholder={"Example:\n\nClinic: Dr. Priya's Skin & Hair Clinic, Coimbatore.\nFounder: Dr. Priya Shankar, MBBS, MD (12 yrs exp).\nTimings: Mon-Sat 10am-7pm.\nAddress: 42 West Club Road, RS Puram, Coimbatore.\n\nConsultations:\n- First consultation: Rs 600\n- Follow-up: Rs 300\n\nServices & Packages:\n- Acne treatment: Rs 800/session\n- Hair PRP: Rs 2,500/session (3-session pack Rs 6,500)\n- Laser hair removal: Upper lip Rs 800, Underarms Rs 1,500, Full body Rs 9,000\n\nRules: Free patch test mandatory 24h before laser. No prescriptions over WhatsApp. Rs 500 token for procedures above Rs 3,000.\n\nObjections: For cheap PRP comparisons, explain our FDA-certified double-spin kits yielding 5x higher platelet count."}
                                       value={optimizerDump}
                                       onChange={(e) => setOptimizerDump(e.target.value)}
                                       className="w-full px-3.5 py-2.5 bg-canvas border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans leading-relaxed resize-y transition-colors duration-150"
                                     />
+
+                                    <div className="space-y-1.5">
+                                      <label className="block text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                                        <span>Custom Instructions / Priority Directives (Optional):</span>
+                                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 font-semibold border border-emerald-500/20">Highest Priority</span>
+                                      </label>
+                                      <textarea
+                                        rows={3}
+                                        placeholder="Add any specific directives to enforce (e.g. Only share the price when explicitly asked by the customer, always book for today if requested)..."
+                                        value={optimizerCustomPrompt}
+                                        onChange={(e) => setOptimizerCustomPrompt(e.target.value)}
+                                        className="w-full px-3.5 py-2 bg-canvas border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans leading-relaxed resize-y transition-colors duration-150"
+                                      />
+                                    </div>
+
                                     {optimizerError && (
                                       <p className="text-xs text-status-error bg-status-error-bg border border-status-error-border rounded-sm px-3 py-2">{optimizerError}</p>
                                     )}
                                     <button
                                       type="button"
-                                      disabled={optimizerLoading || optimizerDump.trim().length < 30}
+                                      disabled={optimizerLoading || (optimizerDump.trim().length < 30 && optimizerCustomPrompt.trim().length < 10)}
                                       onClick={async () => {
                                         setOptimizerLoading(true);
                                         setOptimizerError('');
                                         try {
-                                          const res = await admin.optimizePrompt(optimizerDump, editingConfigTenant?.id);
+                                          const res = await admin.optimizePrompt(optimizerDump, editingConfigTenant?.id, optimizerCustomPrompt);
                                           if (res?.success && res?.optimized) {
                                             setOptimizerPreview(res.optimized);
                                           } else {
@@ -5227,7 +5267,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                 ) : (
                                   <div className="space-y-3">
                                     <div className="flex items-center justify-between">
-                                      <p className="text-xs font-semibold text-status-success">AI structured into 7 fields. Review before applying:</p>
+                                      <p className="text-xs font-semibold text-status-success">AI structured fields ready. Review before applying:</p>
                                       <button
                                         type="button"
                                         onClick={() => setOptimizerPreview(null)}
@@ -5239,6 +5279,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                     {(
                                       [
                                         { key: 'assistant_name', label: 'Assistant Name' },
+                                        { key: 'custom_prompt', label: 'Custom Instructions (Highest Priority Override)' },
                                         { key: 'ai_prompt', label: 'AI Instructions & Knowledge Base' },
                                         { key: 'services_text', label: 'Services & Pricing' },
                                         { key: 'bot_goal', label: 'Bot Goal' },
@@ -5263,7 +5304,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                               {/* Footer */}
                               {optimizerPreview && (
                                 <div className="px-5 py-3.5 border-t border-border bg-surface flex items-center justify-between shrink-0 gap-3">
-                                  <p className="text-[11px] text-text-muted">Overwrites current form values (not saved until you click Save Config).</p>
+                                  <p className="text-[11px] text-text-muted">Overwrites form values (not saved to database until you click Save Config).</p>
                                   <div className="flex items-center gap-2 shrink-0">
                                     <button
                                       type="button"
@@ -5280,6 +5321,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                           ...prev,
                                           ...(p.assistant_name ? { assistant_name: p.assistant_name } : {}),
                                           ...(p.ai_prompt ? { ai_prompt: p.ai_prompt } : {}),
+                                          custom_prompt: p.custom_prompt !== undefined ? p.custom_prompt : (optimizerCustomPrompt || prev.custom_prompt || ''),
                                           ...(p.services_text ? { services_text: p.services_text } : {}),
                                           ...(p.bot_goal ? { bot_goal: p.bot_goal } : {}),
                                           ...(p.strict_rules ? { strict_rules: p.strict_rules } : {}),

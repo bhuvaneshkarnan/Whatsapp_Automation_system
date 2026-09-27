@@ -191,6 +191,7 @@ async def get_tenant_settings(
         "bot_goal": ai_cfg.get("bot_goal", ""),
         "services_text": ai_cfg.get("services_text", ""),
         "ai_prompt": ai_cfg.get("system_prompt", ""),
+        "custom_prompt": ai_cfg.get("custom_prompt", "") or "",
         "response_style": ai_cfg.get("response_style", "short"),
         "methodology": ai_cfg.get("methodology", "dogfooding"),
         "strict_rules": ai_cfg.get("strict_rules", ""),
@@ -822,18 +823,17 @@ async def update_tenant_settings(
             else:
                 await conn.execute("INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'google_calendar', $3::jsonb, true)", g_id, tenant_id, json.dumps(g_data))
 
-        # 5. Update AI Config (modular fields & tone instructions) with non-destructive partial updates
-        ai_row = await conn.fetchrow("SELECT * FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
-        
-        cur_model = (ai_row["model"] if ai_row and ai_row["model"] else "gemini-3.5-flash-lite")
-        cur_prompt = (ai_row["system_prompt"] if ai_row and ai_row["system_prompt"] else "")
-        cur_name = (ai_row["assistant_name"] if ai_row and ai_row["assistant_name"] else "Assistant")
-        cur_goal = (ai_row["bot_goal"] if ai_row and ai_row["bot_goal"] else "")
-        cur_services = (ai_row["services_text"] if ai_row and ai_row["services_text"] else "")
-        cur_style = (ai_row["response_style"] if ai_row and ai_row["response_style"] else "short")
-        cur_meth = (ai_row["methodology"] if ai_row and ai_row["methodology"] else "dogfooding")
-        cur_rules = (ai_row["strict_rules"] if ai_row and ai_row["strict_rules"] else "")
-        cur_obj = (ai_row["objection_handling"] if ai_row and ai_row["objection_handling"] else "")
+        ai_dict = dict(ai_row) if ai_row else {}
+        cur_model = (ai_dict.get("model") or "gemini-3.5-flash-lite")
+        cur_prompt = (ai_dict.get("system_prompt") or "")
+        cur_name = (ai_dict.get("assistant_name") or "Assistant")
+        cur_goal = (ai_dict.get("bot_goal") or "")
+        cur_services = (ai_dict.get("services_text") or "")
+        cur_style = (ai_dict.get("response_style") or "short")
+        cur_meth = (ai_dict.get("methodology") or "dogfooding")
+        cur_rules = (ai_dict.get("strict_rules") or "")
+        cur_obj = (ai_dict.get("objection_handling") or "")
+        cur_custom_prompt = (ai_dict.get("custom_prompt") or "")
 
         assistant_name = payload.assistant_name if payload.assistant_name is not None else cur_name
         bot_goal = payload.bot_goal if payload.bot_goal is not None else cur_goal
@@ -844,6 +844,7 @@ async def update_tenant_settings(
         strict_rules = payload.strict_rules if payload.strict_rules is not None else cur_rules
         objection_handling = payload.objection_handling if payload.objection_handling is not None else cur_obj
         ai_model = payload.ai_model if payload.ai_model is not None else cur_model
+        custom_prompt = payload.custom_prompt if payload.custom_prompt is not None else cur_custom_prompt
 
         if ai_row:
             await conn.execute(
@@ -857,17 +858,18 @@ async def update_tenant_settings(
                      methodology = $7,
                      strict_rules = $8,
                      objection_handling = $9,
+                     custom_prompt = $10,
                      updated_at = now()
-                   WHERE tenant_id = $10::uuid""",
+                   WHERE tenant_id = $11::uuid""",
                 ai_model, custom_instructions, assistant_name, bot_goal, services_text,
-                response_style, methodology, strict_rules, objection_handling, tenant_id
+                response_style, methodology, strict_rules, objection_handling, custom_prompt, tenant_id
             )
         else:
             await conn.execute(
-                """INSERT INTO ai_config (tenant_id, model, system_prompt, assistant_name, bot_goal, services_text, response_style, methodology, strict_rules, objection_handling, temperature, max_tokens)
-                   VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0.3, 2048)""",
+                """INSERT INTO ai_config (tenant_id, model, system_prompt, assistant_name, bot_goal, services_text, response_style, methodology, strict_rules, objection_handling, custom_prompt, temperature, max_tokens)
+                   VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0.3, 2048)""",
                 tenant_id, ai_model, custom_instructions, assistant_name, bot_goal, services_text,
-                response_style, methodology, strict_rules, objection_handling
+                response_style, methodology, strict_rules, objection_handling, custom_prompt
             )
 
     await invalidate_tenant_cache(tenant_id)
@@ -878,6 +880,7 @@ async def update_tenant_settings(
 
 class OptimizePromptRequest(BaseModel):
     raw_dump: str  # The free-form business brain-dump text
+    custom_prompt: Optional[str] = None  # Special user instructions / custom prompt to prioritize
 
 @router.post("/settings/optimize-prompt")
 @router.post("/api/v1/crm/settings/optimize-prompt")
@@ -891,7 +894,7 @@ async def optimize_ai_prompt(
     Admin-only: Convert a raw business brain-dump into structured ai_config fields.
     Uses multi-model cascade (Gemini 3.5 -> Groq GPT-OSS 120B / Qwen 3.8 -> OpenCode) to intelligently extract,
     structure, and categorize the content with ZERO information loss.
-    Returns the 7 prompt fields ready to preview and apply.
+    Returns the prompt fields ready to preview and apply.
     """
     caller_role = caller.get("role") if isinstance(caller, dict) else "agent"
     if caller_role not in ("admin", "super_admin", "owner"):
@@ -904,7 +907,8 @@ async def optimize_ai_prompt(
             raise HTTPException(400, "Invalid target_tenant_id. Must be a valid UUID.")
 
     raw_dump = (payload.raw_dump or "").strip()
-    if len(raw_dump) < 30:
+    custom_prompt_input = (payload.custom_prompt or "").strip()
+    if len(raw_dump) < 30 and len(custom_prompt_input) < 10:
         raise HTTPException(status_code=400, detail="Please provide more business details (at least 30 characters).")
 
     # Fetch tenant credentials or fall back to platform environment variables
@@ -941,6 +945,14 @@ async def optimize_ai_prompt(
     if not gem_key and not groq_key and not opencode_key:
         raise HTTPException(status_code=503, detail="No AI API key configured. Please add an API key in AI Settings.")
 
+    custom_prompt_section = ""
+    if custom_prompt_input:
+        custom_prompt_section = f"""
+### 6. CUSTOM TENANT DIRECTIVES / MANDATORY OVERRIDES (ABSOLUTE HIGHEST PRIORITY):
+{custom_prompt_input}
+* Note: The AI assistant MUST honor these custom directives above any other guidelines. Do not insert conflicting rules (e.g. if the custom directives say not to tell prices unless asked, DO NOT force prices in Beat 1).
+"""
+
     meta_system_prompt = (
         "You are the Master Enterprise WhatsApp AI Knowledge Base Architect. "
         "Your task is to take raw business details, FAQs, documents, and directives, and compile them into ONE cohesive, "
@@ -949,13 +961,13 @@ async def optimize_ai_prompt(
         "1. Output ONLY a valid JSON object. No Markdown code fences, no backticks, no introductory or concluding text.\n"
         "2. ZERO INFORMATION LOSS: Retain 100% of all facts, service names, prices, doctor credentials, operating hours, and clinical policies.\n"
         "3. Standardize prices in numbers with currency (e.g. ₹1499 or Rs. 1499). Standardize hours with AM/PM.\n"
-        "4. Output the keys: assistant_name, unified_knowledge_base, services_text, strict_rules, bot_goal, objection_handling, response_style, summary."
+        "4. Output the keys: assistant_name, unified_knowledge_base, services_text, strict_rules, bot_goal, objection_handling, response_style, summary, custom_prompt."
     )
 
     meta_user_prompt = f"""Compile the following business information into a single Master Unified Knowledge Base for a WhatsApp AI assistant:
 
 MANDATORY DIRECTIVES — ZERO INFORMATION LOSS:
-- In "unified_knowledge_base", compile a clean, high-density Markdown document with these 5 explicit sections:
+- In "unified_knowledge_base", compile a clean, high-density Markdown document with these explicit sections:
   ### 1. BUSINESS IDENTITY & CONTACT GROUND TRUTH
   - Name, exact address/landmark, official daily operating hours, doctors/staff names & specialties, official website/links.
   ### 2. VERIFIED SERVICES, TREATMENTS & PRICING CATALOG
@@ -969,7 +981,7 @@ MANDATORY DIRECTIVES — ZERO INFORMATION LOSS:
   - CONTEXT-AWARE 3-BEAT CONSULTATIVE SALES FLOW (USE ONLY WHEN RELEVANT):
     * For Casual messages ('Hi', 'Ok', 'Thanks') or quick admin inquiries (parking, hours, location): 1-2 friendly, helpful sentences. Do not force an aggressive sales pitch.
     * For Service, Treatment & Pricing Inquiries: Follow the 3-beat consultative flow:
-      - Beat 1 (Direct Answer): Warmly answer their specific question with verified details and prices in digits (e.g. ₹1399).
+      - Beat 1 (Direct Answer): Warmly answer their specific question. If they explicitly asked for price/cost/fees, share the verified price in digits (e.g. ₹1399). If they only asked about services/treatments without asking for prices, explain the services warmly WITHOUT blurting out prices, unless business directives explicitly instruct to share prices upfront.
       - Beat 2 (Caring Diagnostic Question): Ask ONE gentle, empathetic question to understand their specific need or wellness goal (e.g. 'Are you looking for relief from body pain or complete relaxation?').
       - Beat 3 (Assumptive Invitation): Warmly invite them to book or suggest a convenient appointment time (e.g. 'Would morning or evening suit you best?').
   - AI HONESTY & TRANSPARENCY: If the customer asks 'Are you AI?', 'Are you a bot?', or asks if they are speaking to a real person, directly, warmly, and honestly confirm that you are the AI assistant for this business on WhatsApp helping with inquiries and appointments. Never deny being AI, never pretend to be a human, and never dodge the question.
@@ -980,16 +992,18 @@ MANDATORY DIRECTIVES — ZERO INFORMATION LOSS:
   - [ACTION:CREATE_BOOKING: date="YYYY-MM-DD", time="HH:MM", service="Service Name", customer_name="Name"]
   - [ACTION:CANCEL_BOOKING]
   - [ACTION:RESCHEDULE: date="YYYY-MM-DD", time="HH:MM"]
+{custom_prompt_section}
 
 REQUIRED JSON KEYS:
 {{
   "assistant_name": "String. Assistant first name",
-  "unified_knowledge_base": "String. The complete Unified Master Knowledge Base in the 5 structured sections above",
+  "unified_knowledge_base": "String. The complete Unified Master Knowledge Base in the structured sections above",
   "services_text": "String. Extracted services & pricing catalog",
   "bot_goal": "String. 2-3 clear sentences on what the AI must achieve",
   "strict_rules": "String. Key hard business rules and restrictions",
   "objection_handling": "String. Playbook for patient objections and hesitations",
   "response_style": "String. WhatsApp conversational texting style",
+  "custom_prompt": "String. The user's custom prompt instructions preserved and formatted cleanly",
   "summary": "String. 2-3 lines summarizing the extracted services, pricing, and operating hours"
 }}
 
@@ -1163,7 +1177,7 @@ REQUIRED JSON KEYS:
 
     expected_keys = [
         "assistant_name", "unified_knowledge_base", "ai_prompt", "services_text", "bot_goal",
-        "strict_rules", "objection_handling", "response_style", "summary"
+        "strict_rules", "objection_handling", "response_style", "summary", "custom_prompt"
     ]
     for key in expected_keys:
         if not structured.get(key):
@@ -1206,6 +1220,7 @@ REQUIRED JSON KEYS:
             "objection_handling": str(structured.get("objection_handling", "")).strip(),
             "response_style": str(structured.get("response_style", "")).strip(),
             "summary": str(structured.get("summary", "")).strip(),
+            "custom_prompt": custom_prompt_input or str(structured.get("custom_prompt", "")).strip(),
         }
     }
 

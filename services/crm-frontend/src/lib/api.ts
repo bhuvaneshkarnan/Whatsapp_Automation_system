@@ -996,7 +996,7 @@ export const crm = {
     });
   },
 
-  optimizePrompt: (rawDump: string) =>
+  optimizePrompt: (rawDump: string, customPrompt?: string) =>
     request<{
       success: boolean;
       optimized: {
@@ -1009,10 +1009,11 @@ export const crm = {
         objection_handling: string;
         response_style: string;
         summary?: string;
+        custom_prompt?: string;
       };
     }>('/api/v1/crm/settings/optimize-prompt', {
       method: 'POST',
-      body: JSON.stringify({ raw_dump: rawDump }),
+      body: JSON.stringify({ raw_dump: rawDump, custom_prompt: customPrompt }),
     }),
 
   initGoogleOAuth: (data?: { client_id?: string; client_secret?: string }) =>
@@ -1543,6 +1544,7 @@ export interface TenantSettingsResponse {
   bot_goal?: string;
   services_text?: string;
   ai_prompt?: string;
+  custom_prompt?: string;
   response_style?: string;
   methodology?: string;
   strict_rules?: string;
@@ -2150,7 +2152,7 @@ export const admin = {
       }
     );
   },
-  optimizePrompt: (rawDump: string, targetTenantId?: string) => {
+  optimizePrompt: (rawDump: string, targetTenantId?: string, customPrompt?: string) => {
     const qs = targetTenantId ? `?target_tenant_id=${encodeURIComponent(targetTenantId)}` : '';
     return request<{
       success: boolean;
@@ -2164,10 +2166,11 @@ export const admin = {
         objection_handling: string;
         response_style: string;
         summary?: string;
+        custom_prompt?: string;
       };
     }>(`/api/v1/crm/settings/optimize-prompt${qs}`, {
       method: 'POST',
-      body: JSON.stringify({ raw_dump: rawDump }),
+      body: JSON.stringify({ raw_dump: rawDump, custom_prompt: customPrompt }),
     });
   },
   testMissedCallWebhook: (slug: string, token: string, callerPhone: string) =>

@@ -1732,7 +1732,7 @@ export function ModernCustomerView({
                 <thead className="bg-surface-subtle/80 border-b border-border text-text-secondary font-semibold text-[10.5px] uppercase tracking-wider sticky top-0 z-10 select-none">
                   <tr>
                     <th className="py-2.5 pl-3 pr-2 min-w-[170px]">Client / Contact</th>
-                    <th className="py-2.5 px-2 min-w-[160px] max-w-[240px]">Notes & Chat Summary</th>
+                    <th className="py-2.5 px-2 min-w-[140px] max-w-[220px]">Notes</th>
                     <th className="py-2.5 px-2 min-w-[130px]">Status</th>
                     <th className="py-2.5 px-2 min-w-[110px]">Service / Inquiry</th>
                     <th className="py-2.5 px-2 min-w-[100px]">Assigned To</th>
@@ -1895,98 +1895,49 @@ export function ModernCustomerView({
                             </div>
                           </td>
 
-                          {/* 2. Notes & Chat Summary (2-Section Cell Divided by Line) */}
-                          <td className="py-2 px-2 min-w-[160px] max-w-[240px]" onClick={(e) => e.stopPropagation()}>
-                            <div className="space-y-1.5">
-                              {/* ── TOP SECTION: Manual Admin / Staff Note ── */}
-                              <div>
-                                {cust.latest_note ? (
-                                  <div
-                                    onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
-                                    className="group/note flex items-start gap-1 p-1 px-1.5 rounded bg-amber-50/90 hover:bg-amber-100/90 border border-amber-200/90 cursor-pointer transition-all text-[10px] text-amber-950 shadow-2xs"
-                                    title="Manual staff note (Click to edit)"
-                                  >
-                                    <StickyNote className="w-2.5 h-2.5 text-amber-600 mt-0.5 shrink-0 stroke-[1.8]" />
-                                    <div className="min-w-0 flex-1">
-                                      <p className="line-clamp-2 italic font-normal leading-snug break-words">
-                                        "{cust.latest_note}"
-                                      </p>
-                                    </div>
-                                    {onDeleteLatestNote && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onDeleteLatestNote(cust);
-                                        }}
-                                        className="opacity-0 group-hover/note:opacity-100 text-text-muted hover:text-rose-600 p-0.5 transition-opacity shrink-0 cursor-pointer"
-                                        title="Delete note"
-                                      >
-                                        <Trash2 className="w-2.5 h-2.5" />
-                                      </button>
-                                    )}
+                          {/* 2. Manual Staff Notes */}
+                          <td className="py-2 px-2 min-w-[140px] max-w-[220px]" onClick={(e) => e.stopPropagation()}>
+                            <div>
+                              {cust.latest_note ? (
+                                <div
+                                  onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
+                                  className="group/note flex items-start gap-1 p-1 px-1.5 rounded bg-amber-50/90 hover:bg-amber-100/90 border border-amber-200/90 cursor-pointer transition-all text-[10px] text-amber-950 shadow-2xs"
+                                  title="Manual staff note (Click to edit)"
+                                >
+                                  <StickyNote className="w-2.5 h-2.5 text-amber-600 mt-0.5 shrink-0 stroke-[1.8]" />
+                                  <div className="min-w-0 flex-1">
+                                    <p className="line-clamp-2 italic font-normal leading-snug break-words">
+                                      "{cust.latest_note}"
+                                    </p>
                                   </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
-                                    className="w-full py-0.5 px-1.5 rounded border border-dashed border-border/80 hover:border-amber-400 text-[10px] text-text-muted hover:text-amber-700 hover:bg-amber-50/40 transition-colors flex items-center justify-between cursor-pointer"
-                                    title="Add manual staff note"
-                                  >
-                                    <span className="flex items-center gap-1 font-medium">
-                                      <StickyNote className="w-2.5 h-2.5 text-amber-500" />
-                                      <span>Staff note</span>
-                                    </span>
-                                    <Plus className="w-2.5 h-2.5 opacity-60" />
-                                  </button>
-                                )}
-                              </div>
-
-                              {/* ── DIVIDER LINE ── */}
-                              <div className="border-t border-border/70" />
-
-                              {/* ── BOTTOM SECTION: Auto WhatsApp Chat Summary / Recent Chat ── */}
-                              <div>
-                                {(() => {
-                                  const chatSnippet = (cust.ai_summary && cust.ai_summary.trim())
-                                    ? cust.ai_summary.trim()
-                                    : (cust.last_message && cust.last_message.trim())
-                                      ? cust.last_message.trim()
-                                      : null;
-
-                                  if (chatSnippet) {
-                                    return (
-                                      <div
-                                        onClick={() => (onOpenChat ? onOpenChat(cust) : onOpenDetails(cust))}
-                                        className="group/chat flex items-start gap-1 p-1 px-1.5 rounded bg-blue-50/80 hover:bg-blue-100/90 border border-blue-200/80 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-200 cursor-pointer transition-all text-[10px] text-blue-950 shadow-2xs"
-                                        title="WhatsApp Chat (Click to open chat)"
-                                      >
-                                        <MessageSquare className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0 stroke-[1.8]" />
-                                        <div className="min-w-0 flex-1">
-                                          <p className="line-clamp-2 italic leading-snug font-normal">
-                                            "{chatSnippet}"
-                                          </p>
-                                        </div>
-                                      </div>
-                                    );
-                                  }
-
-                                  return (
-                                    <div
-                                      onClick={() => (onOpenChat ? onOpenChat(cust) : onOpenDetails(cust))}
-                                      className="px-1.5 py-0.5 text-[9.5px] text-text-muted/80 flex items-center gap-1 cursor-pointer hover:text-text-primary transition-colors"
-                                      title="Click to open WhatsApp chat"
+                                  {onDeleteLatestNote && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onDeleteLatestNote(cust);
+                                      }}
+                                      className="opacity-0 group-hover/note:opacity-100 text-text-muted hover:text-rose-600 p-0.5 transition-opacity shrink-0 cursor-pointer"
+                                      title="Delete note"
                                     >
-                                      <MessageSquare className="w-2.5 h-2.5 opacity-40 shrink-0" />
-                                      <span className="truncate italic">
-                                        {cust.health_concern && cust.health_concern !== 'General Consultation'
-                                          ? `Inquiry: ${cust.health_concern}`
-                                          : 'Awaiting chat...'}
-                                      </span>
-                                    </div>
-                                  );
-                                })()}
-                              </div>
+                                      <Trash2 className="w-2.5 h-2.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => (onOpenQuickNote ? onOpenQuickNote(cust) : onOpenDetails(cust))}
+                                  className="w-full py-0.5 px-1.5 rounded border border-dashed border-border/80 hover:border-amber-400 text-[10px] text-text-muted hover:text-amber-700 hover:bg-amber-50/40 transition-colors flex items-center justify-between cursor-pointer"
+                                  title="Add manual staff note"
+                                >
+                                  <span className="flex items-center gap-1 font-medium">
+                                    <StickyNote className="w-2.5 h-2.5 text-amber-500" />
+                                    <span>Staff note</span>
+                                  </span>
+                                  <Plus className="w-2.5 h-2.5 opacity-60" />
+                                </button>
+                              )}
                             </div>
                           </td>
 
@@ -2461,25 +2412,12 @@ export function ModernCustomerView({
                               </p>
                             )}
 
-                            {/* Inline Note or Inquiry Snippet */}
-                            {(() => {
-                              const inq = getCustomerInquiryNote(cust);
-                              if (cust.latest_note) {
-                                return (
-                                  <div className="px-1.5 py-1 rounded-xs bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 text-amber-950 dark:text-amber-200 text-[9.5px] leading-snug line-clamp-2 italic">
-                                    "{cust.latest_note}"
-                                  </div>
-                                );
-                              }
-                              if (inq && inq !== cust.health_concern && inq !== cust.last_visit_service) {
-                                return (
-                                  <div className="px-1.5 py-1 rounded-xs bg-surface-subtle border border-border/60 text-text-secondary text-[9px] leading-snug line-clamp-2">
-                                    <span className="font-semibold text-text-primary">Note:</span> {inq}
-                                  </div>
-                                );
-                              }
-                              return null;
-                            })()}
+                            {/* Inline Note Snippet */}
+                            {cust.latest_note ? (
+                              <div className="px-1.5 py-1 rounded-xs bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 text-amber-950 dark:text-amber-200 text-[9.5px] leading-snug line-clamp-2 italic">
+                                "{cust.latest_note}"
+                              </div>
+                            ) : null}
 
                             {/* Card Footer: Follow-up & Chat Button */}
                             <div

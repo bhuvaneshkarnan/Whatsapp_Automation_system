@@ -156,6 +156,7 @@ class TenantSettingsUpdate(BaseModel):
     bot_goal: Optional[str] = None
     services_text: Optional[str] = None
     ai_prompt: Optional[str] = None
+    custom_prompt: Optional[str] = None
     ai_model: Optional[str] = None
     response_style: Optional[str] = None
     methodology: Optional[str] = None
@@ -253,6 +254,7 @@ class TenantCreate(BaseModel):
     meta_app_secret: Optional[str] = ""
     verify_token: Optional[str] = ""
     ai_prompt: Optional[str] = ""
+    custom_prompt: Optional[str] = ""
     ai_model: Optional[str] = "gemini-1.5-flash"
     primary_model_provider: Optional[str] = "gemini"
     gemini_api_key: Optional[str] = ""
@@ -307,6 +309,7 @@ class TenantUpdate(BaseModel):
     template_reschedule_confirmation: Optional[str] = None
     template_admin_reschedule_notice: Optional[str] = None
     ai_prompt: Optional[str] = None
+    custom_prompt: Optional[str] = None
     meta_phone_id: Optional[str] = None
     meta_access_token: Optional[str] = None
     meta_app_secret: Optional[str] = None

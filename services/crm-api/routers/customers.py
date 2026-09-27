@@ -739,11 +739,11 @@ async def list_customers(
             LEFT JOIN LATERAL (
                 SELECT 
                     COUNT(*) AS notes_count,
-                    (SELECT cn2.id FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note_id,
-                    (SELECT cn2.note_text FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note,
-                    (SELECT COALESCE(cn2.color, 'slate') FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note_color
+                    (SELECT cn2.id FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id AND (cn2.author IS NULL OR cn2.author != 'AI Chat Summary') ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note_id,
+                    (SELECT cn2.note_text FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id AND (cn2.author IS NULL OR cn2.author != 'AI Chat Summary') ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note,
+                    (SELECT COALESCE(cn2.color, 'slate') FROM customer_notes cn2 WHERE cn2.customer_id = c.id AND cn2.tenant_id = c.tenant_id AND (cn2.author IS NULL OR cn2.author != 'AI Chat Summary') ORDER BY cn2.created_at DESC LIMIT 1) AS latest_note_color
                 FROM customer_notes cn
-                WHERE cn.customer_id = c.id AND cn.tenant_id = c.tenant_id
+                WHERE cn.customer_id = c.id AND cn.tenant_id = c.tenant_id AND (cn.author IS NULL OR cn.author != 'AI Chat Summary')
             ) notes_info ON true
             LEFT JOIN LATERAL (
                 SELECT cv.id AS conversation_id, cv.unread_count
@@ -1980,7 +1980,7 @@ async def list_all_customer_notes(
 ):
     """List all customer notes across the tenant with customer context for the Overall Notes tab."""
     async with database.db_pool.acquire() as conn:
-        conditions = ["n.tenant_id = $1::uuid"]
+        conditions = ["n.tenant_id = $1::uuid", "(n.author IS NULL OR n.author != 'AI Chat Summary')"]
         params: List[Any] = [tenant_id]
         idx = 2
 
@@ -2035,7 +2035,7 @@ async def list_customer_notes(
         rows = await conn.fetch(
             """SELECT id, customer_id, author, note_text, COALESCE(color, 'slate') AS color, created_at
                FROM customer_notes
-               WHERE customer_id = $1::uuid AND tenant_id = $2::uuid
+               WHERE customer_id = $1::uuid AND tenant_id = $2::uuid AND (author IS NULL OR author != 'AI Chat Summary')
                ORDER BY created_at DESC""",
             customer_id, tenant_id
         )
@@ -2179,7 +2179,7 @@ async def delete_customer_latest_note(
     """Delete the most recent note for a customer."""
     async with database.db_pool.acquire() as conn:
         latest_id = await conn.fetchval(
-            "SELECT id FROM customer_notes WHERE customer_id = $1::uuid AND tenant_id = $2::uuid ORDER BY created_at DESC LIMIT 1",
+            "SELECT id FROM customer_notes WHERE customer_id = $1::uuid AND tenant_id = $2::uuid AND (author IS NULL OR author != 'AI Chat Summary') ORDER BY created_at DESC LIMIT 1",
             customer_id, tenant_id
         )
         if latest_id:
@@ -2334,15 +2334,7 @@ async def summarize_customer_chat(
             summary, customer_id, tenant_id
         )
 
-        # Record in customer_notes
-        note_id = str(uuid.uuid4())
-        await conn.execute(
-            """INSERT INTO customer_notes (id, tenant_id, customer_id, author, note_text, color, created_at)
-               VALUES ($1::uuid, $2::uuid, $3::uuid, 'AI Chat Summary', $4, 'blue', now())""",
-            note_id, tenant_id, customer_id, summary
-        )
-
-        return {"status": "ok", "summary": summary, "note_id": note_id}
+        return {"status": "ok", "summary": summary}
 
 
 @router.get("/customers/{customer_id}/chat")

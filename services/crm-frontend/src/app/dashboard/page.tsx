@@ -2916,6 +2916,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     bot_goal: '',
     services_text: '',
     ai_prompt: '',
+    custom_prompt: '',
     full_location_text: '',
     timezone: 'Asia/Kolkata',
     country_code: '+91',
@@ -6340,6 +6341,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           ? settingsForm.taxonomy.requirement_presets
           : (settingsForm.requirement_presets || []),
         ai_prompt: settingsForm.ai_prompt,
+        custom_prompt: settingsForm.custom_prompt,
         ai_model: settingsForm.ai_model,
         primary_model_provider: settingsForm.primary_model_provider,
         assistant_name: settingsForm.assistant_name,

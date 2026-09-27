@@ -2226,8 +2226,9 @@ end
             "   - Always write appointment times using digits with AM/PM (e.g. 10:00 AM or 6:30 PM). NEVER spell out times in words like 'ten morning' or 'six thirty evening'.\n"
             "   - The restriction on numbered lists only forbids listicle formatting (like '1. Item \n 2. Item'); numbers for prices, times, dates, and phone numbers MUST ALWAYS be written as normal digits.\n"
             "4. COMPLETE SERVICE DETAILS FIRST & FACTUAL PRICING:\n"
-            "   - When customer asks what you do, what treatments or services you offer, how it works, website, or background, give a direct, informative answer using THIS business's verified knowledge base and pricing catalog below.\n"
-            "   - When customer specifically asks for price or cost, quote the exact verified pricing from knowledge base warmly and directly.\n"
+            "   - When customer asks what you do, what treatments or services you offer, how it works, website, or background, give a direct, informative answer explaining the treatments and services.\n"
+            "   - When customer specifically asks for price or cost (e.g. 'how much', 'price', 'cost', 'fee', 'charges', 'evlo', 'kitna'), quote the exact verified pricing from knowledge base warmly and directly in digits.\n"
+            "   - If customer asks what services or treatments are available WITHOUT asking for price, describe the services without blurting out prices, unless business rules or custom prompt instruct to share prices upfront.\n"
             "   - Never say 'I don't have this in my records' or give a generic response when the facts exist in the knowledge base below.\n"
             "5. NATURAL CONVERSATION FLOW (NO RIGID TEMPLATES OR IDENTICAL REPLIES):\n"
             "   - Respond organically with the flow of the conversation instead of following strict templates or giving identical repetitive message structures.\n"
@@ -2508,6 +2509,8 @@ end
                 "   - Then and only then guide them through booking an additional session and append [ACTION:CREATE_BOOKING: ...] tag once confirmed.\n"
                 "4. CHECKING APPOINTMENT STATUS:\n"
                 "   - If they ask 'when is my appointment', 'what time is my booking', or similar status queries, confirm their upcoming appointment details clearly and reassure them.\n"
+                "5. CASUAL ACKNOWLEDGEMENTS & PINGS:\n"
+                "   - If the customer replies with simple casual words or acknowledgements (e.g. 'ok', 'mm', 'sure', 'thank you', 'thanks', 'nice', 'great'), DO NOT repeat their full appointment date, time, doctor, and service details again! Just acknowledge warmly in 1 friendly line (e.g. 'You are welcome! See you then.').\n"
             )
         else:
             upcoming_booking_block = (
@@ -2602,6 +2605,8 @@ end
             for s in busy_slots[:8]
         ]
 
+        today_date_str = now.strftime('%Y-%m-%d')
+        today_day_str = now.strftime('%A, %d %b %Y')
         tomorrow_dt = now + datetime.timedelta(days=1)
         tomorrow_date_str = tomorrow_dt.strftime('%Y-%m-%d')
         tomorrow_day_str = tomorrow_dt.strftime('%A, %d %b %Y')
@@ -2624,13 +2629,18 @@ end
             + "- PROACTIVE & CUSTOMER-ALIGNED APPOINTMENT TIME SELECTION:\n"
             "  * If customer has not stated a time: Ask what day and convenient time works best for them within operating hours (e.g. 'What day and time suits you best within our clinic hours?').\n"
             "  * If customer already stated a preferred day or time: Respect and verify their preferred time immediately without overriding it!\n"
-            f"  * RELATIVE TIME & PAST TIME RESOLUTION: When a customer gives a time (e.g. '3 pm', 'at 11') without a date: If that time has already passed today (relative to current time {now.strftime('%I:%M %p')}), OR if today's business operating hours have already closed, the time AUTOMATICALLY refers to TOMORROW ({tomorrow_day_str})! NEVER say 'today is fully booked' or reject them. Immediately confirm for tomorrow at that time and append [ACTION:CREATE_BOOKING: {{\"service\": \"...\", \"date\": \"{tomorrow_date_str}\", \"time\": \"...\", \"name\": \"...\"}}].\n"
+            f"  * TODAY VS TOMORROW RESOLUTION (CRITICAL ACCURACY):\n"
+            f"    - Current date is TODAY: {today_day_str} ({today_date_str}). Current local time is {now.strftime('%I:%M %p')}.\n"
+            f"    - Tomorrow is: {tomorrow_day_str} ({tomorrow_date_str}).\n"
+            f"    - SAME DAY REQUESTS: If customer asks for TODAY (e.g. 'today', 'today evening', 'today 4', '4 pm today', 'inniku', 'aaj', 'today afternoon'): If that time is still upcoming today within operating hours ({op_hours_display}) and available, you MUST book for TODAY ({today_date_str})! NEVER suggest or book tomorrow when they asked for today and the time is still open today!\n"
+            f"    - SINGLE DIGIT NUMBERS: Single number times without AM/PM (e.g. '4', '5', '6', '7', '8') given during daytime operating hours refer to that hour in the afternoon/evening (PM) TODAY (e.g. '4' means 4:00 PM today, NOT 4:00 AM in the middle of the night that already passed!).\n"
+            f"    - PAST TIME RESOLUTION: When a customer gives a time (e.g. '10 am', 'at 11') without a date: Only if that time has already passed today (relative to current time {now.strftime('%I:%M %p')}), OR if today's business operating hours have already closed, does the time refer to TOMORROW ({tomorrow_day_str})! Never say 'today is fully booked' or reject them. Confirm for tomorrow at that time.\n"
             "  * ABSOLUTELY NEVER FORCE 2 ARBITRARY SLOTS: NEVER offer a rigid pair of arbitrary times (e.g. do NOT say 'tomorrow at 10:00 AM or 4:30 PM' or 'morning or evening'). Always invite the customer to choose their own preferred day and convenient time within operating hours.\n"
             "  * NO REPEATING SLOTS ON UNRELATED QUESTIONS: If an appointment slot was already agreed or discussed earlier in the conversation, do NOT append 'your slot is booked for tomorrow at 11:00 AM' on unrelated questions (such as asking about pricing, facilities, or what to bring); answer the question directly.\n"
             "- WHEN CUSTOMER STATES THEIR PREFERRED TIME: When the customer mentions their preferred day or time (e.g., '3 pm', 'Tomorrow at 2 PM', 'Can I come today at 4:30?', 'Monday 11:00 AM'):\n"
-            f"  1. If the requested time has passed today or today is closed, resolve the date to TOMORROW ({tomorrow_date_str}).\n"
+            f"  1. Determine date accurately: If requested for today or upcoming today, date is TODAY ({today_date_str}). If requested time has already passed today or today is closed, resolve date to TOMORROW ({tomorrow_date_str}).\n"
             f"  2. Verify the time falls within operating hours ({op_hours_display}) and is available in the verified calendar above.\n"
-            f"  3. If available: Immediately confirm that exact requested time with warmth, and output the booking action tag: [ACTION:CREATE_BOOKING: {{\"service\": \"...\", \"date\": \"{tomorrow_date_str}\", \"time\": \"HH:MM\", \"name\": \"...\"}}].\n"
+            f"  3. If available: Immediately confirm that exact requested time with warmth, and output the booking action tag: [ACTION:CREATE_BOOKING: {{\"service\": \"...\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"...\"}}] (using date=\"{today_date_str}\" if today, or date=\"{tomorrow_date_str}\" if tomorrow).\n"
             "  4. If the requested slot is busy / occupied: Politely let them know that exact slot is already taken, and ask what other time suits them, or mention 1 or 2 nearby available openings.\n"
             "- WHEN CUSTOMER EXPLICITLY ASKS FOR OPTIONS (e.g., 'What slots are available?', 'Can I come today?'): Check the verified empty slots list above for that day, confirm operating hours, and share 2 to 3 available open times from the list.\n"
             "- ZERO FALSE 'FULLY BOOKED' CLAIMS: NEVER state, claim, or imply that today or any day is 'fully booked' if it has open slots in the verified empty list above.\n"
@@ -2935,7 +2945,7 @@ end
             stage_directive = (
                 "The customer wants to schedule or check availability for an appointment, demo, or call. "
                 "1. If the customer has NOT stated a time: Warmly accept their request (e.g. for a demo, describe what they will see in 1 line), and ask what day and convenient time suits them best within operating hours (if outside hours or late at night, invite them for tomorrow). "
-                f"2. If the customer HAS stated a time (e.g. '3 pm', 'at 11', 'tomorrow at 2'): If that time has passed today or today is closed/full, it AUTOMATICALLY refers to TOMORROW ({tomorrow_date_str}). Immediately confirm that slot for tomorrow with warmth, and MANDATORY append [ACTION:CREATE_BOOKING: {{\"service\": \"Demo / Consultation\", \"date\": \"{tomorrow_date_str}\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]. "
+                f"2. If the customer HAS stated a time (e.g. '3 pm', 'at 4', 'today at 5', 'tomorrow at 2'): If the requested time is still upcoming today within operating hours ({op_hours_display}) and available, book for TODAY ({today_date_str})! If that time has already passed today or today is closed/full, it refers to TOMORROW ({tomorrow_date_str}). Immediately confirm that slot with warmth, and MANDATORY append [ACTION:CREATE_BOOKING: {{\"service\": \"Demo / Consultation\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}] (using date=\"{today_date_str}\" for today or date=\"{tomorrow_date_str}\" for tomorrow). "
                 "NEVER offer a rigid pair of arbitrary times. NEVER claim today is fully booked if outside operating hours. NEVER reject customer's time."
             )
         elif any(w in inbound_clean for w in ["expensive", "costly", "think about it", "let you know", "discount", "deal", "offer", "not tech", "hard to setup", "painful", "afraid"]):
@@ -3121,7 +3131,7 @@ end
             "- CONTEXT-AWARE 3-BEAT CONSULTATIVE SALES FLOW (USED ONLY WHEN RELEVANT):",
             "  * CASUAL OR ADMIN QUERIES (greetings, 'ok', 'thanks', parking, address, exact hours): Reply in 1 to 2 warm, helpful sentences. Do NOT force a sales pitch.",
             "  * SERVICE, TREATMENT & PRICING INQUIRIES: Follow the natural 3-beat consultative flow:",
-            "    - Beat 1 (Direct Answer): Warmly answer their specific question with verified details and pricing in digits (e.g. ₹1399).",
+            "    - Beat 1 (Direct Answer): Warmly answer their specific question. If they explicitly asked for price or cost, provide verified pricing in digits (e.g. ₹1399). If they only asked about services/treatments without asking for prices, describe the services without giving prices, unless business rules or custom prompt instruct to share prices upfront.",
             "    - Beat 2 (Caring Diagnostic Question): Ask ONE gentle, caring question to understand their wellness need or concern (e.g. 'Are you looking for relief from body pain or complete relaxation?').",
             "    - Beat 3 (Assumptive Invitation): Warmly invite them to book or suggest a convenient appointment time.",
             f"- OPERATING HOURS INTEGRITY: If asked about clinic / business timings or hours, directly state '{op_hours_display} daily'. Never guess from calendar slot lists.",
@@ -3304,6 +3314,16 @@ end
             prompt_blocks.append(reinforcement_rule)
             prompt_blocks.append(untrusted_input_directive)
             prompt_blocks.append(action_tag_directives)
+
+        # ── SECTION 5: CUSTOM TENANT DIRECTIVES / MANDATORY OVERRIDES (ABSOLUTE HIGHEST PRIORITY) ──
+        custom_prompt_text = (ai_cfg.get("custom_prompt") or "").strip()
+        if custom_prompt_text:
+            prompt_blocks.append(
+                "### SPECIAL CUSTOM DIRECTIVES & HIGHEST PRIORITY OVERRIDES (ABSOLUTE AUTHORITY):\n"
+                f"{custom_prompt_text}\n\n"
+                "- ABSOLUTE PRIORITY OVERRIDE: The custom instructions above are defined directly by the business owner and have the ABSOLUTE HIGHEST PRIORITY over all other prompt blocks, general instructions, or templates.\n"
+                "- If there is any conflict between the custom instructions above and any default rules (such as pricing disclosure, tone, or booking rules), YOU MUST STRICTLY FOLLOW THESE CUSTOM INSTRUCTIONS ABOVE WITHOUT EXCEPTION."
+            )
 
         active_system_prompt = "\n\n".join(prompt_blocks)
 
@@ -3708,8 +3728,8 @@ end
                     wa_sends.labels(tenant=tenant_id, status="success").inc()
                 except WhatsAppSendError as e:
                     await self.db_pool.execute(
-                        "UPDATE messages SET status = 'failed', error_message = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid",
-                        str(e), str(out_msg_id), tenant_id
+                        "UPDATE messages SET status = 'failed', error_code = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                        str(e)[:50], str(out_msg_id), tenant_id
                     )
                     wa_sends.labels(tenant=tenant_id, status="failed").inc()
                     logger.error("wa_send_failed", error=str(e), tenant_id=tenant_id)
@@ -4622,43 +4642,10 @@ end
                         extracted_concern = candidate
                         break
 
-            # 3. Follow-up Date & Time Calculation
+            # 3. Follow-up Date & Time (Only cleared if booked/converted, never auto-assigned)
+            # Follow-up dates are set manually by staff in CRM, not auto-generated for incoming messages.
             followup_date = None
             followup_time = None
-            import datetime
-            if "next week" in full_text:
-                followup_date = datetime.date.today() + datetime.timedelta(days=7)
-                followup_time = "10:00 AM"
-            elif "after 2 days" in full_text or "in 2 days" in full_text:
-                followup_date = datetime.date.today() + datetime.timedelta(days=2)
-                followup_time = "10:00 AM"
-            elif "after 3 days" in full_text or "in 3 days" in full_text:
-                followup_date = datetime.date.today() + datetime.timedelta(days=3)
-                followup_time = "10:00 AM"
-            elif "next month" in full_text:
-                followup_date = datetime.date.today() + datetime.timedelta(days=30)
-                followup_time = "10:00 AM"
-            elif status != "converted":
-                # Schedule 2-hour incomplete conversation recovery follow-up
-                tenant_tz_str = "Asia/Kolkata"
-                try:
-                    import zoneinfo
-                    tz = zoneinfo.ZoneInfo(tenant_tz_str)
-                except Exception:
-                    tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-                now_local = datetime.datetime.now(tz)
-                target_fu = now_local + datetime.timedelta(hours=2)
-                if target_fu.hour >= 22 or target_fu.hour < 9:
-                    # Past evening cutoff (10 PM) or early morning: schedule for next day at 10:00 AM
-                    if target_fu.hour >= 22 or now_local.hour >= 20:
-                        fu_day = now_local.date() + datetime.timedelta(days=1)
-                    else:
-                        fu_day = now_local.date()
-                    followup_date = fu_day
-                    followup_time = "10:00 AM"
-                else:
-                    followup_date = target_fu.date()
-                    followup_time = target_fu.strftime("%I:%M %p")
 
             # 4. Update customer record in database
             # Build params: $1=lead_prob, then dynamic optional params, then tenant_id and phone at the end
@@ -4671,8 +4658,9 @@ end
             dynamic_params = [lead_prob]
             idx = 2
 
+            is_converted_or_booked = (status == "converted" or bool(booking_action))
             if status:
-                if status == "converted":
+                if status == "converted" or is_converted_or_booked:
                     updates.append("status = 'converted'")
                     updates.append("converted = true")
                 elif status == "lost":
@@ -4692,16 +4680,9 @@ end
                 dynamic_params.append(extracted_concern)
                 idx += 1
 
-            if followup_date:
-                updates.append(f"followup_date = COALESCE(customers.followup_date, ${idx})")
-                f_date_val = followup_date if isinstance(followup_date, datetime.date) else datetime.date.fromisoformat(str(followup_date)[:10])
-                dynamic_params.append(f_date_val)
-                idx += 1
-
-            if followup_time:
-                updates.append(f"followup_time = COALESCE(customers.followup_time, ${idx})")
-                dynamic_params.append(followup_time)
-                idx += 1
+            if is_converted_or_booked:
+                updates.append("followup_date = NULL")
+                updates.append("followup_time = NULL")
 
             # 3b. Synthesize Clean, Natural Customer Chat Note
             ai_snapshot = None
@@ -4756,36 +4737,7 @@ end
             await self.db_pool.execute(query, *params)
             logger.info("lead_analyzed_and_updated", phone=phone, lead_prob=lead_prob, status=status, concern=extracted_concern, ai_note=ai_snapshot)
 
-            # 3d. Store clean AI chat summary into customer_notes (debounced to once every 30 mins)
-            if ai_snapshot:
-                try:
-                    recent_note = await self.db_pool.fetchval(
-                        """SELECT id FROM customer_notes
-                           WHERE tenant_id = $1::uuid
-                             AND customer_id = (
-                                 SELECT id FROM customers WHERE tenant_id = $1::uuid AND (
-                                     phone = $2 OR phone = ('+' || $2) OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $3
-                                 ) LIMIT 1
-                             )
-                             AND author = 'AI Chat Summary'
-                             AND created_at > (NOW() - INTERVAL '30 minutes')
-                           LIMIT 1""",
-                        tenant_id, phone, last10
-                    )
-                    if not recent_note:
-                        await self.db_pool.execute(
-                            """INSERT INTO customer_notes (id, tenant_id, customer_id, author, note_text, color, created_at)
-                               SELECT gen_random_uuid(), $1::uuid, c.id, 'AI Chat Summary', $4, 'blue', now()
-                               FROM customers c
-                               WHERE c.tenant_id = $1::uuid
-                                 AND (
-                                     c.phone = $2 OR c.phone = ('+' || $2) OR RIGHT(REGEXP_REPLACE(c.phone, '[^0-9]', '', 'g'), 10) = $3
-                                 )
-                               LIMIT 1""",
-                            tenant_id, phone, last10, ai_snapshot
-                        )
-                except Exception as e_note:
-                    logger.warning("ai_chat_note_insert_failed", error=str(e_note))
+            # 3d. AI chat summary stored exclusively in customers.ai_summary, not as manual customer_notes
 
             if extracted_concern:
                 try:
@@ -6073,7 +6025,7 @@ end
                 pass
 
         row = await self.db_pool.fetchrow(
-            "SELECT model, temperature, max_tokens, timeout_ms, system_prompt, assistant_name, bot_goal, services_text, response_style, methodology, strict_rules, objection_handling FROM ai_config WHERE tenant_id = $1::uuid",
+            "SELECT model, temperature, max_tokens, timeout_ms, system_prompt, assistant_name, bot_goal, services_text, response_style, methodology, strict_rules, objection_handling, custom_prompt FROM ai_config WHERE tenant_id = $1::uuid",
             tenant_id,
         )
         result = dict(row) if row else {
@@ -6082,7 +6034,8 @@ end
             "max_tokens": 2048,
             "timeout_ms": 8000,
             "response_style": "short",
-            "methodology": "dogfooding"
+            "methodology": "dogfooding",
+            "custom_prompt": ""
         }
         if self.redis:
             try: await self.redis.setex(cache_key, 60, json.dumps(result))
@@ -7013,13 +6966,30 @@ end
                       WHERE m.conversation_id = c.id AND m.tenant_id = c.tenant_id AND m.body IS NOT NULL
                       ORDER BY m.created_at DESC LIMIT 1
                   ) = 'outbound'
-                  -- Customer must NOT have any upcoming active booking or recent booking today
+                  -- Customer must NOT have any upcoming active booking or recent booking
                   AND NOT EXISTS (
                       SELECT 1 FROM bookings b 
+                      JOIN contacts bct ON bct.id = b.contact_id AND bct.tenant_id = b.tenant_id
                       WHERE b.tenant_id = c.tenant_id 
-                        AND b.contact_id = c.contact_id 
-                        AND b.status IN ('confirmed', 'pending') 
-                        AND b.start_time >= (NOW() - INTERVAL '4 hours')
+                        AND (
+                            b.contact_id = c.contact_id 
+                            OR RIGHT(REGEXP_REPLACE(bct.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10)
+                        )
+                        AND b.status IN ('confirmed', 'pending', 'reminded', 'rescheduled', 'completed', 'attended', 'review_sent') 
+                        AND b.start_time >= (NOW() - INTERVAL '14 days')
+                  )
+                  -- Customer must NOT be marked as converted, booked, patient, or completed in customers table
+                  AND NOT EXISTS (
+                      SELECT 1 FROM customers cu
+                      WHERE cu.tenant_id = c.tenant_id
+                        AND (
+                            cu.phone = ct.phone
+                            OR RIGHT(REGEXP_REPLACE(cu.phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10)
+                        )
+                        AND (
+                            cu.status IN ('converted', 'booked', 'patient', 'completed')
+                            OR cu.converted = true
+                        )
                   )
                   -- Exclude tenant admin phone number from automated lead recovery nudges
                   AND RIGHT(REGEXP_REPLACE(ct.phone, '[^0-9]', '', 'g'), 10) NOT IN (
@@ -7532,12 +7502,10 @@ end
                         await self.db_pool.execute(
                             """UPDATE customers
                                SET last_messaged_at = NOW(),
-                                   followup_date = CURRENT_DATE,
-                                   followup_time = $3,
                                    updated_at = NOW()
                                WHERE tenant_id = $1::uuid 
-                                 AND (phone = $2 OR phone = ('+' || $2) OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $4)""",
-                            tenant_id, contact_phone, time_str, cust_last10
+                                 AND (phone = $2 OR phone = ('+' || $2) OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $3)""",
+                            tenant_id, contact_phone, cust_last10
                         )
                     except Exception as cust_up_err:
                         logger.warning("incomplete_followup_customer_update_failed", error=str(cust_up_err))
