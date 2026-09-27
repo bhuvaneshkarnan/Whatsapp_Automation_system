@@ -2839,6 +2839,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     price: 500,
     notes: '',
     send_whatsapp_confirmation: true,
+    payment_mode: 'pay_at_clinic',
   });
 
   // Right Drawer & Sticky Notes State
@@ -2884,6 +2885,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   const [showCustomLinkInput, setShowCustomLinkInput] = useState(false);
   const [customPaymentUrlInput, setCustomPaymentUrlInput] = useState('');
   const [savingCustomLink, setSavingCustomLink] = useState(false);
+  const [copiedBookingWebhookUrl, setCopiedBookingWebhookUrl] = useState(false);
+  const [showRazorpayKeySecret, setShowRazorpayKeySecret] = useState(false);
+  const [showRazorpayWebhookSecret, setShowRazorpayWebhookSecret] = useState(false);
 
   const [settingsForm, setSettingsForm] = useState<TenantSettingsUpdate & {
     webhook_url?: string;
@@ -5258,10 +5262,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         price: Number(newBookingForm.price) || 0,
         notes: newBookingForm.notes.trim(),
         send_whatsapp_confirmation: newBookingForm.send_whatsapp_confirmation,
+        payment_mode: (newBookingForm as any).payment_mode || 'pay_at_clinic',
+        collect_payment: (newBookingForm as any).payment_mode === 'online',
       });
-      const successMsg = newBookingForm.send_whatsapp_confirmation
-        ? 'Booking created successfully! WhatsApp confirmation & calendar sync triggered.'
-        : 'Booking created successfully for internal calendar (WhatsApp confirmation skipped).';
+      const successMsg = (newBookingForm as any).payment_mode === 'online'
+        ? 'Booking created & Razorpay payment link dispatched to customer on WhatsApp!'
+        : newBookingForm.send_whatsapp_confirmation
+          ? 'Booking created successfully! WhatsApp confirmation & calendar sync triggered.'
+          : 'Booking created successfully for internal calendar (WhatsApp confirmation skipped).';
       setBookingCreateSuccess(successMsg);
       loadBookings();
       loadConversations();
@@ -6416,6 +6424,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
       if (settingsForm.groq_api_key) payload.groq_api_key = settingsForm.groq_api_key;
       if (settingsForm.opencode_api_key) payload.opencode_api_key = settingsForm.opencode_api_key;
       if (settingsForm.opencode_base_url) payload.opencode_base_url = settingsForm.opencode_base_url;
+      if (settingsForm.razorpay_key_id !== undefined) payload.razorpay_key_id = settingsForm.razorpay_key_id;
+      if (settingsForm.razorpay_key_secret !== undefined) payload.razorpay_key_secret = settingsForm.razorpay_key_secret;
+      if (settingsForm.razorpay_webhook_secret !== undefined) payload.razorpay_webhook_secret = settingsForm.razorpay_webhook_secret;
+      if (settingsForm.booking_payment_policy !== undefined) payload.booking_payment_policy = settingsForm.booking_payment_policy;
+      if (settingsForm.booking_fee_amount !== undefined) payload.booking_fee_amount = Number(settingsForm.booking_fee_amount);
+      if (settingsForm.booking_fee_description !== undefined) payload.booking_fee_description = settingsForm.booking_fee_description;
 
       const updated = await crm.updateSettings(payload);
       if (payload.admin_name) {
@@ -19527,6 +19541,315 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             )}
                           </div>
                         </div>
+
+                        {/* ── 0.2 PATIENT & CLIENT BOOKING PAYMENT GATEWAY ───────── */}
+                        <div className="p-5 rounded-lg border border-border bg-surface space-y-5">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
+                            <div>
+                              <h4 className="font-bold text-sm text-text-primary flex items-center gap-2">
+                                <CreditCard className="w-4 h-4 text-emerald-600" />
+                                <span>Client Booking Payment Gateway & Policies</span>
+                              </h4>
+                              <p className="text-xs text-text-muted mt-0.5">
+                                Configure how your patients/customers pay for appointments (with or without payment), and attach your own Razorpay account for 100% direct bank settlement.
+                              </p>
+                            </div>
+                            <span className="px-2.5 py-1 rounded-sm text-xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 flex items-center gap-1.5 self-start sm:self-auto">
+                              <CheckCircle2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                              <span>Direct Bank Settlement</span>
+                            </span>
+                          </div>
+
+                          {/* Option to Choose: Booking Payment Policy */}
+                          <div className="space-y-3">
+                            <label className="block text-xs font-bold text-text-primary">
+                              Choose Booking Payment Option
+                            </label>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              {/* Option 1: Pay at Clinic */}
+                              <div
+                                onClick={() => setSettingsForm({ ...settingsForm, booking_payment_policy: 'pay_at_clinic' })}
+                                className={`p-3.5 rounded-md border cursor-pointer transition-all flex flex-col justify-between ${
+                                  (settingsForm.booking_payment_policy || 'pay_at_clinic') === 'pay_at_clinic'
+                                    ? 'bg-amber-500/10 border-amber-500/40 shadow-xs'
+                                    : 'bg-surface-subtle hover:bg-surface border-border'
+                                }`}
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <span className="text-xs font-bold text-text-primary">
+                                      Pay at Clinic / Free
+                                    </span>
+                                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                                      (settingsForm.booking_payment_policy || 'pay_at_clinic') === 'pay_at_clinic'
+                                        ? 'border-amber-600 bg-amber-600'
+                                        : 'border-border'
+                                    }`}>
+                                      {(settingsForm.booking_payment_policy || 'pay_at_clinic') === 'pay_at_clinic' && (
+                                        <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                                      )}
+                                    </div>
+                                  </div>
+                                  <p className="text-[11px] text-text-secondary leading-relaxed">
+                                    No online advance payment required. Appointments are confirmed immediately upon choosing a time slot, and patients pay in person upon arrival.
+                                  </p>
+                                </div>
+                                <span className="mt-3 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                                  ✓ Zero friction booking
+                                </span>
+                              </div>
+
+                              {/* Option 2: Customer Choice (Hybrid) */}
+                              <div
+                                onClick={() => setSettingsForm({ ...settingsForm, booking_payment_policy: 'customer_choice' })}
+                                className={`p-3.5 rounded-md border cursor-pointer transition-all flex flex-col justify-between ${
+                                  settingsForm.booking_payment_policy === 'customer_choice'
+                                    ? 'bg-blue-500/10 border-blue-500/40 shadow-xs'
+                                    : 'bg-surface-subtle hover:bg-surface border-border'
+                                }`}
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <span className="text-xs font-bold text-text-primary">
+                                      Customer Choice (Hybrid)
+                                    </span>
+                                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                                      settingsForm.booking_payment_policy === 'customer_choice'
+                                        ? 'border-blue-600 bg-blue-600'
+                                        : 'border-border'
+                                    }`}>
+                                      {settingsForm.booking_payment_policy === 'customer_choice' && (
+                                        <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                                      )}
+                                    </div>
+                                  </div>
+                                  <p className="text-[11px] text-text-secondary leading-relaxed">
+                                    The WhatsApp AI asks the customer: <em>"Would you prefer to pay online now via UPI/Card, or pay at the clinic during your visit?"</em>
+                                  </p>
+                                </div>
+                                <span className="mt-3 text-[10px] font-semibold text-blue-700 dark:text-blue-300">
+                                  ✓ Maximum flexibility for patients
+                                </span>
+                              </div>
+
+                              {/* Option 3: Mandatory Online Payment */}
+                              <div
+                                onClick={() => setSettingsForm({ ...settingsForm, booking_payment_policy: 'mandatory' })}
+                                className={`p-3.5 rounded-md border cursor-pointer transition-all flex flex-col justify-between ${
+                                  settingsForm.booking_payment_policy === 'mandatory'
+                                    ? 'bg-emerald-500/10 border-emerald-500/40 shadow-xs'
+                                    : 'bg-surface-subtle hover:bg-surface border-border'
+                                }`}
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <span className="text-xs font-bold text-text-primary">
+                                      Mandatory Online Payment
+                                    </span>
+                                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                                      settingsForm.booking_payment_policy === 'mandatory'
+                                        ? 'border-emerald-600 bg-emerald-600'
+                                        : 'border-border'
+                                    }`}>
+                                      {settingsForm.booking_payment_policy === 'mandatory' && (
+                                        <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                                      )}
+                                    </div>
+                                  </div>
+                                  <p className="text-[11px] text-text-secondary leading-relaxed">
+                                    Patients must complete online payment via your Razorpay link before the slot is confirmed. Prevents no-shows and locks in consultation fees.
+                                  </p>
+                                </div>
+                                <span className="mt-3 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                                  ✓ Guaranteed paid appointments
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Default Consultation Fee */}
+                          <div className="p-4 bg-surface-subtle/70 rounded-md border border-border grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-bold text-text-primary mb-1">
+                                Default Consultation / Booking Fee ({settingsForm.currency_symbol || '₹'})
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="50"
+                                placeholder="500"
+                                value={settingsForm.booking_fee_amount ?? ''}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, booking_fee_amount: Number(e.target.value) || 0 })}
+                                className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono tabular-nums text-text-primary focus:bg-white focus:border-accent"
+                              />
+                              <p className="text-[10px] text-text-muted mt-1">
+                                Default fee requested when patients book via WhatsApp AI (set 0 for free consultations).
+                              </p>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-text-primary mb-1">
+                                Fee Label / Description on Payment Page
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="Doctor Consultation Fee"
+                                value={settingsForm.booking_fee_description || ''}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, booking_fee_description: e.target.value })}
+                                className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans"
+                              />
+                              <p className="text-[10px] text-text-muted mt-1">
+                                Shown to the patient on the Razorpay checkout screen (e.g. "Doctor Consultation Fee").
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Client's Own Razorpay Credentials */}
+                          <div className="p-4 bg-surface rounded-md border border-border space-y-3.5">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h5 className="text-xs font-bold text-text-primary flex items-center gap-1.5">
+                                  <Building2 className="w-3.5 h-3.5 text-accent" />
+                                  <span>Your Razorpay API Credentials (Client BYOK)</span>
+                                </h5>
+                                <p className="text-[11px] text-text-muted mt-0.5">
+                                  Generate these in your <a href="https://dashboard.razorpay.com/app/keys" target="_blank" rel="noopener noreferrer" className="text-accent underline font-semibold">Razorpay Dashboard &rarr; Settings &rarr; API Keys</a>. All customer money settles 100% directly to your bank account.
+                                </p>
+                              </div>
+                              {settingsForm.has_razorpay ? (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 shrink-0">
+                                  Credentials Active
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-600 border border-amber-500/20 shrink-0">
+                                  Not Configured (Pay at Clinic active)
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                              <div>
+                                <label className="block text-[11px] font-semibold text-text-primary mb-1">
+                                  Razorpay Key ID
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="rzp_live_xxxxxxxxxxxxxxxx"
+                                  value={settingsForm.razorpay_key_id || ''}
+                                  onChange={(e) => setSettingsForm({ ...settingsForm, razorpay_key_id: e.target.value })}
+                                  className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent"
+                                />
+                              </div>
+
+                              <div>
+                                <div className="flex items-center justify-between mb-1">
+                                  <label className="text-[11px] font-semibold text-text-primary">
+                                    Razorpay Key Secret
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowRazorpayKeySecret(!showRazorpayKeySecret)}
+                                    className="text-[10px] text-accent hover:underline font-medium cursor-pointer"
+                                  >
+                                    {showRazorpayKeySecret ? 'Hide' : 'Reveal'}
+                                  </button>
+                                </div>
+                                <input
+                                  type={showRazorpayKeySecret ? 'text' : 'password'}
+                                  placeholder="••••••••••••••••"
+                                  value={settingsForm.razorpay_key_secret || ''}
+                                  onChange={(e) => setSettingsForm({ ...settingsForm, razorpay_key_secret: e.target.value })}
+                                  className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-[11px] font-semibold text-text-primary">
+                                  Webhook Secret (Optional / Recommended)
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowRazorpayWebhookSecret(!showRazorpayWebhookSecret)}
+                                  className="text-[10px] text-accent hover:underline font-medium cursor-pointer"
+                                >
+                                  {showRazorpayWebhookSecret ? 'Hide' : 'Reveal'}
+                                </button>
+                              </div>
+                              <input
+                                type={showRazorpayWebhookSecret ? 'text' : 'password'}
+                                placeholder="Secret configured in Razorpay Webhooks tab"
+                                value={settingsForm.razorpay_webhook_secret || ''}
+                                onChange={(e) => setSettingsForm({ ...settingsForm, razorpay_webhook_secret: e.target.value })}
+                                className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent"
+                              />
+                            </div>
+
+                            {/* Dedicated Webhook URL to copy */}
+                            <div className="pt-2 border-t border-border space-y-1.5">
+                              <label className="block text-[11px] font-bold text-text-primary">
+                                Your Dedicated Booking Webhook URL
+                              </label>
+                              <p className="text-[11px] text-text-muted">
+                                Add this URL in your <a href="https://dashboard.razorpay.com/app/webhooks" target="_blank" rel="noopener noreferrer" className="text-accent underline font-semibold">Razorpay Dashboard &rarr; Settings &rarr; Webhooks</a> with active event <code className="px-1 py-0.5 bg-surface-subtle border rounded text-[10px] font-mono text-text-primary">payment_link.paid</code>:
+                              </p>
+                              <div className="flex items-center gap-2 p-2 rounded bg-surface-subtle border border-border text-xs font-mono">
+                                <span className="truncate flex-1 text-accent font-semibold select-all">
+                                  {settingsForm.razorpay_booking_webhook_url || `https://crm.goboldlabs.com/api/v1/crm/webhooks/razorpay/booking/${settingsForm.tenant_id || ''}`}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const url = settingsForm.razorpay_booking_webhook_url || `https://crm.goboldlabs.com/api/v1/crm/webhooks/razorpay/booking/${settingsForm.tenant_id || ''}`;
+                                    navigator.clipboard.writeText(url);
+                                    setCopiedBookingWebhookUrl(true);
+                                    setTimeout(() => setCopiedBookingWebhookUrl(false), 2000);
+                                  }}
+                                  className="px-2.5 py-1 bg-surface hover:bg-surface-subtle border border-border text-text-primary text-xs font-semibold rounded flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                                >
+                                  {copiedBookingWebhookUrl ? (
+                                    <>
+                                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                      <span className="text-emerald-500 font-bold">Copied!</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3.5 h-3.5 text-text-muted" />
+                                      <span>Copy URL</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="pt-2 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={(e) => handleSaveSettings(e)}
+                                disabled={settingsSaving}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-md shadow-2xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                              >
+                                {settingsSaving ? (
+                                  <>
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Saving Payment Settings...</span>
+                                  </>
+                                ) : settingsSaved ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 text-emerald-200" />
+                                    <span>Saved!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Save Booking Payment Settings</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     );
                   })()}
@@ -22468,6 +22791,45 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       onChange={(e) => setNewBookingForm({ ...newBookingForm, price: Number(e.target.value) })}
                       className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs font-mono tabular-nums text-text-primary focus:bg-white focus:border-accent transition-colors duration-150"
                     />
+                  </div>
+                </div>
+
+                {/* Payment Collection Option */}
+                <div>
+                  <label className="block text-xs font-medium text-text-primary mb-1.5">
+                    Payment Mode
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setNewBookingForm({ ...newBookingForm, payment_mode: 'pay_at_clinic' })}
+                      className={`px-3 py-2 rounded-sm text-xs font-medium border text-left flex items-center justify-between transition-colors cursor-pointer ${
+                        newBookingForm.payment_mode === 'pay_at_clinic'
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300 font-semibold'
+                          : 'bg-surface border-border text-text-secondary hover:bg-surface-subtle'
+                      }`}
+                    >
+                      <div className="flex flex-col">
+                        <span>Pay at Clinic / Counter</span>
+                        <span className="text-[10px] text-text-muted">No advance payment</span>
+                      </div>
+                      {newBookingForm.payment_mode === 'pay_at_clinic' && <Check className="w-3.5 h-3.5 text-amber-600 shrink-0" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewBookingForm({ ...newBookingForm, payment_mode: 'online' })}
+                      className={`px-3 py-2 rounded-sm text-xs font-medium border text-left flex items-center justify-between transition-colors cursor-pointer ${
+                        newBookingForm.payment_mode === 'online'
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300 font-semibold'
+                          : 'bg-surface border-border text-text-secondary hover:bg-surface-subtle'
+                      }`}
+                    >
+                      <div className="flex flex-col">
+                        <span>Online (Razorpay Link)</span>
+                        <span className="text-[10px] text-text-muted">Dispatches link via WhatsApp</span>
+                      </div>
+                      {newBookingForm.payment_mode === 'online' && <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
+                    </button>
                   </div>
                 </div>
 

@@ -451,6 +451,13 @@ export interface Booking {
   customer_name?: string;
   staff_member?: string;
   created_at?: string;
+  payment_status?: 'paid' | 'unpaid' | 'pending' | 'pay_at_clinic' | 'failed' | 'waived' | string;
+  payment_mode?: 'pay_at_clinic' | 'online' | 'free' | string;
+  razorpay_payment_link_id?: string;
+  razorpay_payment_link_url?: string;
+  razorpay_payment_id?: string;
+  amount_paid?: number;
+  payment_collected_at?: string;
 }
 
 export interface Customer {
@@ -684,6 +691,9 @@ export const crm = {
     staff_member?: string;
     doctor_name?: string;
     send_whatsapp_confirmation?: boolean;
+    payment_mode?: string;
+    payment_status?: string;
+    collect_payment?: boolean;
   }) =>
     request<{
       status: string;
@@ -692,9 +702,26 @@ export const crm = {
       start_time: string;
       end_time: string;
       price: number;
+      payment_mode?: string;
+      payment_status?: string;
+      payment_link_url?: string;
+      razorpay_payment_link_id?: string;
     }>('/api/v1/crm/bookings', {
       method: 'POST',
       body: JSON.stringify(data),
+    }),
+
+  createBookingPaymentLink: (bookingId: string, payload?: { amount?: number; description?: string }) =>
+    request<{
+      booking_id: string;
+      payment_link_id: string;
+      payment_link_url: string;
+      amount: number;
+      currency: string;
+      status: string;
+    }>(`/api/v1/crm/bookings/${bookingId}/payment-link`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
     }),
 
   updateBookingStatus: (bookingId: string, status: string, start_time?: string, end_time?: string, send_review?: boolean) =>
@@ -1644,6 +1671,17 @@ export interface TenantSettingsResponse {
   missed_call_webhook_token?: string;
   missed_call_token?: string;
   template_missed_call?: string;
+
+  // Tenant's Own Razorpay Integration & Booking Payment Policy
+  razorpay_key_id?: string;
+  razorpay_key_secret?: string;
+  razorpay_webhook_secret?: string;
+  has_razorpay?: boolean;
+  razorpay_booking_webhook_url?: string;
+  booking_payment_policy?: 'pay_at_clinic' | 'mandatory' | 'customer_choice' | string;
+  booking_fee_amount?: number;
+  booking_fee_currency?: string;
+  booking_fee_description?: string;
 }
 
 export interface WhatsAppHealthStatus {
