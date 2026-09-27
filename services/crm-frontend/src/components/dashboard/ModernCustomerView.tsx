@@ -14,6 +14,7 @@ import {
   Plus,
   X,
   ChevronDown,
+  Filter,
   Download,
   RotateCcw,
   MessageSquare,
@@ -1651,185 +1652,227 @@ export function ModernCustomerView({
       </div>
 
       {/* ── 2. UNIFIED COMPACT TOOLBAR (Live Search, View Switcher & Actions) ── */}
-      <div className="flex flex-wrap items-center justify-between gap-1.5 bg-surface border border-border rounded-md p-1.5 shadow-2xs shrink-0">
-        {/* Left: View Modes & LIVE SEARCH BAR */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {!hideViewSwitcher && (
-            <div className="flex items-center gap-0.5 bg-surface-subtle border border-border rounded-md p-0.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => setViewMode('table')}
-                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
-                  viewMode === 'table'
-                    ? 'bg-surface text-text-primary border border-border shadow-2xs'
-                    : 'text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                <List className="w-3.5 h-3.5 stroke-[2]" />
-                <span>Table</span>
-                <span className="text-[10px] text-text-muted font-mono ml-0.5">({filteredCustomers.length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('kanban')}
-                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
-                  viewMode === 'kanban'
-                    ? 'bg-surface text-text-primary border border-border shadow-2xs'
-                    : 'text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                <LayoutGrid className="w-3.5 h-3.5 stroke-[2]" />
-                <span>Pipeline</span>
-              </button>
-              {safeTasks.length > 0 && (
+      <div className="flex flex-col gap-2 bg-surface border border-border rounded-lg p-2.5 shadow-2xs shrink-0">
+        {/* ROW 1: Navigation Tabs, Search Bar & Primary Actions */}
+        <div className="flex items-center justify-between gap-3">
+          {/* Left: View Modes + Live Search */}
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {!hideViewSwitcher && (
+              <div className="flex items-center gap-0.5 bg-surface-subtle border border-border rounded-md p-0.5 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setViewMode('tasks')}
-                  className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
-                    viewMode === 'tasks'
+                  onClick={() => setViewMode('table')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+                    viewMode === 'table'
                       ? 'bg-surface text-text-primary border border-border shadow-2xs'
                       : 'text-text-secondary hover:text-text-primary'
                   }`}
                 >
-                  <CalendarCheck className="w-3.5 h-3.5 stroke-[2]" />
-                  <span>Tasks</span>
-                  <span className="text-[10px] text-text-muted font-mono ml-0.5">
-                    ({safeTasks.filter((t) => !t.completed).length})
-                  </span>
+                  <List className="w-3.5 h-3.5 stroke-[2]" />
+                  <span>Table</span>
+                  <span className="text-[10px] text-text-muted font-mono ml-0.5">({filteredCustomers.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('kanban')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+                    viewMode === 'kanban'
+                      ? 'bg-surface text-text-primary border border-border shadow-2xs'
+                      : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5 stroke-[2]" />
+                  <span>Pipeline</span>
+                </button>
+                {safeTasks.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('tasks')}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+                      viewMode === 'tasks'
+                        ? 'bg-surface text-text-primary border border-border shadow-2xs'
+                        : 'text-text-secondary hover:text-text-primary'
+                    }`}
+                  >
+                    <CalendarCheck className="w-3.5 h-3.5 stroke-[2]" />
+                    <span>Tasks</span>
+                    <span className="text-[10px] text-text-muted font-mono ml-0.5">
+                      ({safeTasks.filter((t) => !t.completed).length})
+                    </span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Live Search Input - Stable, responsive width */}
+            <div className="relative flex-1 max-w-sm min-w-[180px]">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none stroke-[1.8]" />
+              <input
+                type="text"
+                autoComplete="off"
+                placeholder="Search by name, phone, notes, service..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-8 transition-colors"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
+                  title="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
-          )}
+          </div>
 
-          {/* Live Search Input with STABLE width */}
-          <div className="relative w-40 sm:w-48 md:w-56 shrink-0">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none stroke-[1.8]" />
-            <input
-              type="text"
-              autoComplete="off"
-              placeholder="Search contacts..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-7.5 transition-colors"
-            />
-            {searchQuery && (
+          {/* Right: Tools & Clean, Professional Add Customer Button */}
+          <div className="flex items-center gap-2 shrink-0">
+            {openDropdownOptionsModal && (
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
-                title="Clear search"
+                onClick={openDropdownOptionsModal}
+                className="h-8 w-8 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
+                title="Customize CRM dropdown options"
               >
-                <X className="w-3.5 h-3.5" />
+                <Sliders className="w-3.5 h-3.5 stroke-[1.8]" />
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="h-8 w-8 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
+              title="Refresh contacts"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loading ? 'animate-spin' : ''}`} />
+            </button>
+
+            {/* Clean, Elegant, Primary CTA Button */}
+            <button
+              type="button"
+              onClick={onAddCustomer}
+              className="h-8 flex items-center gap-1.5 px-3.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs hover:shadow cursor-pointer shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Add {taxonomy?.client_label || 'Customer'}</span>
+            </button>
           </div>
         </div>
 
-        {/* Right: Filters & Action Buttons */}
-        <div className="flex items-center gap-1.5 flex-wrap justify-end">
-          <select
-            value={stageFilter}
-            onChange={(e) => setStageFilter(e.target.value)}
-            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[130px] truncate shadow-2xs"
-            title="Filter by stage or outcome"
-          >
-            <option value="all">All Stages & Outcomes</option>
-            {outcomeStatuses.length > 0 && (
-              <optgroup label="Outcome Statuses">
-                {outcomeStatuses.map((st) => (
-                  <option key={st} value={st}>{st}</option>
-                ))}
-              </optgroup>
-            )}
-            <optgroup label="Pipeline Stages">
-              <option value="new">New Inquiry</option>
-              <option value="contacted">Contacted / In Progress</option>
-              <option value="follow-up">Follow-up Due</option>
-              <option value="converted">Booked / Converted</option>
-              <option value="lost">Lost / Inactive</option>
-              <option value="action_due">Follow-up Due (Date)</option>
-            </optgroup>
-          </select>
+        {/* ROW 2: Filter Pills Strip with Full Width Utilization */}
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider shrink-0 flex items-center gap-1 mr-0.5">
+              <Filter className="w-3 h-3 text-text-muted" />
+              <span>Filter:</span>
+            </span>
 
-          <select
-            value={serviceFilter}
-            onChange={(e) => setServiceFilter(e.target.value)}
-            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[110px] truncate shadow-2xs"
-            title="Filter by service / inquiry"
-          >
-            <option value="all">All Services</option>
-            {servicesList.map((svc) => (
-              <option key={svc} value={svc}>{svc}</option>
-            ))}
-          </select>
-
-          <select
-            value={actionFilter}
-            onChange={(e) => setActionFilter(e.target.value)}
-            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[105px] truncate shadow-2xs"
-            title="Filter by next action"
-          >
-            <option value="all">All Actions</option>
-            {nextActions.map((act) => (
-              <option key={act} value={act}>{act}</option>
-            ))}
-          </select>
-
-          <select
-            value={warmthFilter}
-            onChange={(e) => setWarmthFilter(e.target.value)}
-            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[95px] shadow-2xs"
-            title="Filter by buying intent"
-          >
-            <option value="all">All Intent</option>
-            <option value="hot">Hot Intent</option>
-            <option value="warm">Warm Intent</option>
-            <option value="cold">Cold Intent</option>
-          </select>
-
-          <select
-            value={staffFilter}
-            onChange={(e) => setStaffFilter(e.target.value)}
-            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[105px] truncate shadow-2xs"
-            title="Filter by assigned staff or doctor"
-          >
-            <option value="all">All Staff</option>
-            <option value="unassigned">Unassigned</option>
-            {staffList.map((st) => (
-              <option key={st.value} value={st.value}>
-                {st.label}
-              </option>
-            ))}
-          </select>
-
-          {openDropdownOptionsModal && (
-            <button
-              type="button"
-              onClick={openDropdownOptionsModal}
-              className="h-7.5 w-7.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
-              title="Customize CRM dropdown options"
+            <select
+              value={stageFilter}
+              onChange={(e) => setStageFilter(e.target.value)}
+              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[155px] truncate shadow-2xs"
+              title="Filter by stage or outcome"
             >
-              <Sliders className="w-3.5 h-3.5 stroke-[1.8]" />
-            </button>
-          )}
+              <option value="all">All Stages & Outcomes</option>
+              {outcomeStatuses.length > 0 && (
+                <optgroup label="Outcome Statuses">
+                  {outcomeStatuses.map((st) => (
+                    <option key={st} value={st}>{st}</option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Pipeline Stages">
+                <option value="new">New Inquiry</option>
+                <option value="contacted">Contacted / In Progress</option>
+                <option value="follow-up">Follow-up Due</option>
+                <option value="converted">Booked / Converted</option>
+                <option value="lost">Lost / Inactive</option>
+                <option value="action_due">Follow-up Due (Date)</option>
+              </optgroup>
+            </select>
 
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="h-7.5 w-7.5 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
-            title="Refresh contacts"
-          >
-            <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loading ? 'animate-spin' : ''}`} />
-          </button>
+            <select
+              value={serviceFilter}
+              onChange={(e) => setServiceFilter(e.target.value)}
+              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[135px] truncate shadow-2xs"
+              title="Filter by service / inquiry"
+            >
+              <option value="all">All Services</option>
+              {servicesList.map((svc) => (
+                <option key={svc} value={svc}>{svc}</option>
+              ))}
+            </select>
 
-          <button
-            type="button"
-            onClick={onAddCustomer}
-            className="h-7.5 flex items-center gap-1.5 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-2xs hover:shadow-xs cursor-pointer shrink-0"
-          >
-            <UserPlus className="w-3.5 h-3.5 stroke-[2]" />
-            <span>+ Add {taxonomy?.client_label || 'Contact'}</span>
-          </button>
+            <select
+              value={actionFilter}
+              onChange={(e) => setActionFilter(e.target.value)}
+              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[130px] truncate shadow-2xs"
+              title="Filter by next action"
+            >
+              <option value="all">All Actions</option>
+              {nextActions.map((act) => (
+                <option key={act} value={act}>{act}</option>
+              ))}
+            </select>
+
+            <select
+              value={warmthFilter}
+              onChange={(e) => setWarmthFilter(e.target.value)}
+              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[100px] shadow-2xs"
+              title="Filter by buying intent"
+            >
+              <option value="all">All Intent</option>
+              <option value="hot">Hot Intent</option>
+              <option value="warm">Warm Intent</option>
+              <option value="cold">Cold Intent</option>
+            </select>
+
+            <select
+              value={staffFilter}
+              onChange={(e) => setStaffFilter(e.target.value)}
+              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[125px] truncate shadow-2xs"
+              title="Filter by assigned staff or doctor"
+            >
+              <option value="all">All Staff</option>
+              <option value="unassigned">Unassigned</option>
+              {staffList.map((st) => (
+                <option key={st.value} value={st.value}>
+                  {st.label}
+                </option>
+              ))}
+            </select>
+
+            {(warmthFilter !== 'all' || stageFilter !== 'all' || staffFilter !== 'all' || serviceFilter !== 'all' || actionFilter !== 'all' || searchQuery.trim()) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setWarmthFilter('all');
+                  setStageFilter('all');
+                  setStaffFilter('all');
+                  setServiceFilter('all');
+                  setActionFilter('all');
+                  setSearchQuery('');
+                }}
+                className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 px-2 py-1 rounded-md font-medium flex items-center gap-1 cursor-pointer transition-colors"
+                title="Clear all filters and search"
+              >
+                <X className="w-3 h-3" />
+                <span>Reset</span>
+              </button>
+            )}
+          </div>
+
+          {/* Right: Record count */}
+          <div className="text-xs text-text-muted font-medium shrink-0 ml-auto pl-2 flex items-center gap-1">
+            <span>Showing</span>
+            <span className="font-semibold text-text-primary">{filteredCustomers.length}</span>
+            <span>of</span>
+            <span className="font-semibold text-text-primary">{customers.length}</span>
+            <span>contacts</span>
+          </div>
         </div>
       </div>
 
