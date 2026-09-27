@@ -703,6 +703,8 @@ const STAGES: { id: Customer['status']; label: string; bg: string; text: string;
 ];
 
 interface ModernCustomerViewProps {
+  initialViewMode?: 'table' | 'kanban' | 'tasks' | 'notes';
+  onViewModeChange?: (mode: 'table' | 'kanban' | 'tasks' | 'notes') => void;
   customers: Customer[];
   selectedCustomer: Customer | null;
   onSelectCustomer: (customer: Customer) => void;
@@ -739,6 +741,8 @@ interface ModernCustomerViewProps {
 }
 
 export function ModernCustomerView({
+  initialViewMode = 'table',
+  onViewModeChange,
   customers,
   selectedCustomer,
   onSelectCustomer,
@@ -766,7 +770,18 @@ export function ModernCustomerView({
   onDeleteLatestNote,
   onOpenMergeModal,
 }: ModernCustomerViewProps) {
-  const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'tasks' | 'notes'>('table');
+  const [viewMode, setViewModeState] = useState<'table' | 'kanban' | 'tasks' | 'notes'>(initialViewMode);
+
+  useEffect(() => {
+    if (initialViewMode) {
+      setViewModeState(initialViewMode);
+    }
+  }, [initialViewMode]);
+
+  const setViewMode = (mode: 'table' | 'kanban' | 'tasks' | 'notes') => {
+    setViewModeState(mode);
+    onViewModeChange?.(mode);
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<string>('all');
   const [serviceFilter, setServiceFilter] = useState<string>('all');

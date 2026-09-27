@@ -1922,11 +1922,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
   };
 
   // Customer Follow-up & Task Calendar State
-  const [followupView, setFollowupView] = useState<'list' | 'database' | 'tasks' | 'notes'>(() => {
+  const [followupView, setFollowupView] = useState<'list' | 'pipeline' | 'database' | 'tasks' | 'notes'>(() => {
     if (typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('whatsapp_crm_followup_view');
-        if (saved && ['list', 'database', 'tasks', 'notes'].includes(saved)) {
+        if (saved && ['list', 'pipeline', 'database', 'tasks', 'notes'].includes(saved)) {
           return saved as any;
         }
       } catch {}
@@ -14273,7 +14273,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </button>
                       <button
                         type="button"
-                        onClick={() => setFollowupView('tasks')}
+                        onClick={() => {
+                          setFollowupView('pipeline');
+                          try { localStorage.setItem('whatsapp_crm_followup_view', 'pipeline'); } catch {}
+                        }}
+                        className={`flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                          followupView === 'pipeline'
+                            ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
+                            : 'text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        <LayoutGrid className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span>Pipeline</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFollowupView('tasks');
+                          try { localStorage.setItem('whatsapp_crm_followup_view', 'tasks'); } catch {}
+                        }}
                         className={`flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
                           followupView === 'tasks'
                             ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
@@ -14288,6 +14306,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         type="button"
                         onClick={() => {
                           setFollowupView('notes');
+                          try { localStorage.setItem('whatsapp_crm_followup_view', 'notes'); } catch {}
                           setLoadingAllNotes(true);
                           crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
                         }}
@@ -14304,85 +14323,87 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {/* Compact Search Bar */}
-                    <div className="relative flex-1 sm:flex-initial w-full sm:w-44 md:w-52 lg:w-56 min-w-[150px]">
-                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-                      <input
-                        type="text"
-                        placeholder={`Search ${(currentTaxonomy.client_plural || 'customers').toLowerCase()}, phone, staff...`}
-                        value={followupSearchInput}
-                        onChange={(e) => setFollowupSearchInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            setFollowupSearch(followupSearchInput);
+                  {followupView !== 'pipeline' && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {/* Compact Search Bar */}
+                      <div className="relative flex-1 sm:flex-initial w-full sm:w-44 md:w-52 lg:w-56 min-w-[150px]">
+                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+                        <input
+                          type="text"
+                          placeholder={`Search ${(currentTaxonomy.client_plural || 'customers').toLowerCase()}, phone, staff...`}
+                          value={followupSearchInput}
+                          onChange={(e) => setFollowupSearchInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              setFollowupSearch(followupSearchInput);
+                            }
+                          }}
+                          className="w-full pl-8 pr-7 h-7.5 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface transition-colors shadow-2xs"
+                        />
+                        {followupSearchInput && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFollowupSearchInput('');
+                              setFollowupSearch('');
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 rounded cursor-pointer"
+                            title="Clear search"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Export CSV Button */}
+                      <button
+                        type="button"
+                        onClick={exportCustomersToCsv}
+                        className="h-7.5 flex items-center gap-1 px-2 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                        title="Export customer records to CSV"
+                      >
+                        <Download className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span className="hidden sm:inline">Export CSV</span>
+                      </button>
+
+                      {/* + Add Customer / Client Button */}
+                      <button
+                        type="button"
+                        onClick={() => setShowAddCustomerModal(true)}
+                        className="h-7.5 flex items-center gap-1 px-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                      >
+                        <UserPlus className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <span>Add {currentTaxonomy.client_label || 'Customer'}</span>
+                      </button>
+
+                      {/* Subtle Dropdown Options Icon Button */}
+                      <button
+                        type="button"
+                        onClick={openDropdownOptionsModal}
+                        className="h-7.5 w-7.5 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                        title="Customize CRM dropdown options"
+                      >
+                        <Sliders className="w-3.5 h-3.5 stroke-[1.5]" />
+                      </button>
+
+                      {/* Refresh Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          loadCustomers();
+                          loadTasks();
+                          if (followupView === 'notes') {
+                            setLoadingAllNotes(true);
+                            crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
                           }
                         }}
-                        className="w-full pl-8 pr-7 h-7.5 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface transition-colors shadow-2xs"
-                      />
-                      {followupSearchInput && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFollowupSearchInput('');
-                            setFollowupSearch('');
-                          }}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 rounded cursor-pointer"
-                          title="Clear search"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                        className="h-7.5 w-7.5 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
+                        title="Refresh customer data"
+                      >
+                        <RotateCcw className={`w-3.5 h-3.5 ${loadingCustomers || loadingTasks || loadingAllNotes ? 'animate-spin' : ''}`} />
+                      </button>
                     </div>
-
-                    {/* Export CSV Button */}
-                    <button
-                      type="button"
-                      onClick={exportCustomersToCsv}
-                      className="h-7.5 flex items-center gap-1 px-2 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
-                      title="Export customer records to CSV"
-                    >
-                      <Download className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span className="hidden sm:inline">Export CSV</span>
-                    </button>
-
-                    {/* + Add Customer / Client Button */}
-                    <button
-                      type="button"
-                      onClick={() => setShowAddCustomerModal(true)}
-                      className="h-7.5 flex items-center gap-1 px-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
-                    >
-                      <UserPlus className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>Add {currentTaxonomy.client_label || 'Customer'}</span>
-                    </button>
-
-                    {/* Subtle Dropdown Options Icon Button */}
-                    <button
-                      type="button"
-                      onClick={openDropdownOptionsModal}
-                      className="h-7.5 w-7.5 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
-                      title="Customize CRM dropdown options"
-                    >
-                      <Sliders className="w-3.5 h-3.5 stroke-[1.5]" />
-                    </button>
-
-                    {/* Refresh Button */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        loadCustomers();
-                        loadTasks();
-                        if (followupView === 'notes') {
-                          setLoadingAllNotes(true);
-                          crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
-                        }
-                      }}
-                      className="h-7.5 w-7.5 flex items-center justify-center bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs"
-                      title="Refresh customer data"
-                    >
-                      <RotateCcw className={`w-3.5 h-3.5 ${loadingCustomers || loadingTasks || loadingAllNotes ? 'animate-spin' : ''}`} />
-                    </button>
-                  </div>
+                  )}
                 </div>
 
                 {/* ── SUB-VIEW A: FOLLOW-UP PIPELINE ──────────────────────────────── */}
@@ -15645,6 +15666,81 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         })
                       )}
                     </div>
+                  </div>
+                )}
+
+                {/* ── SUB-VIEW E: PIPELINE (KANBAN FUNNEL) ─────────────────────────── */}
+                {followupView === 'pipeline' && (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    <ModernCustomerView
+                      initialViewMode="kanban"
+                      customers={customers}
+                      selectedCustomer={selectedCustomer}
+                      onSelectCustomer={handleSelectCustomer}
+                      onUpdateCustomer={handleUpdateCustomer}
+                      onOpenChat={(cust) => {
+                        handleSelectCustomer(cust);
+                        setDrawerActiveTab('chat');
+                      }}
+                      onOpenDetails={(cust) => {
+                        handleSelectCustomer(cust);
+                        setDrawerActiveTab('profile');
+                      }}
+                      onAddCustomer={() => setShowAddCustomerModal(true)}
+                      onExportCsv={exportCustomersToCsv}
+                      onRefresh={() => {
+                        loadCustomers();
+                        loadTasks();
+                        setLoadingAllNotes(true);
+                        crm.getAllNotes().then((n) => {
+                          setAllNotes(Array.isArray(n) ? n : []);
+                          setLoadingAllNotes(false);
+                        }).catch(() => setLoadingAllNotes(false));
+                      }}
+                      loading={loadingCustomers}
+                      tasks={tasks}
+                      allNotes={allNotes}
+                      taxonomy={currentTaxonomy}
+                      renderDrawer={renderCustomerDetailDrawer}
+                      categorizedStaffOptions={categorizedStaffOptions}
+                      crmDropdowns={crmDropdowns}
+                      openDropdownOptionsModal={openDropdownOptionsModal}
+                      loadingTasks={loadingTasks}
+                      loadingNotes={loadingAllNotes}
+                      onDeleteNote={handleDeleteNote}
+                      onAddTask={() => setShowAddTaskModal(true)}
+                      onToggleTask={handleToggleTask}
+                      onDeleteTask={handleDeleteTask}
+                      onOpenQuickNote={(cust: any) => {
+                        setQuickNoteCustomer({
+                          customerId: cust.id,
+                          name: cust.name || 'Customer',
+                          phone: cust.phone || null,
+                          noteId: cust.latest_note_id || null,
+                          ai_summary: cust.ai_summary || null,
+                          health_concern: cust.health_concern || null,
+                        });
+                        setQuickNoteText(cust.latest_note || '');
+                        setQuickNoteColor((cust.latest_note_color || 'slate').toLowerCase());
+                      }}
+                      onDeleteLatestNote={handleDeleteCustomerLatestNote}
+                      onOpenMergeModal={(cust, secId) => {
+                        setMergeModalCustomer(cust);
+                        setMergeModalSecondaryId(secId || null);
+                      }}
+                      onViewModeChange={(mode) => {
+                        if (mode === 'table') {
+                          setFollowupView('list');
+                          try { localStorage.setItem('whatsapp_crm_followup_view', 'list'); } catch {}
+                        } else if (mode === 'tasks') {
+                          setFollowupView('tasks');
+                          try { localStorage.setItem('whatsapp_crm_followup_view', 'tasks'); } catch {}
+                        } else if (mode === 'notes') {
+                          setFollowupView('notes');
+                          try { localStorage.setItem('whatsapp_crm_followup_view', 'notes'); } catch {}
+                        }
+                      }}
+                    />
                   </div>
                 )}
               </div>
