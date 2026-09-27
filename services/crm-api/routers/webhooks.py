@@ -78,15 +78,31 @@ async def handle_razorpay_webhook(
         logger.warning("webhook_json_decode_failed", error=str(e))
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
+    if not isinstance(event_data, dict):
+        logger.warning("webhook_payload_not_dict", payload_type=type(event_data).__name__)
+        raise HTTPException(status_code=400, detail="Invalid JSON object")
+
     event_type = event_data.get("event")
     logger.info("razorpay_webhook_received", webhook_event=event_type)
 
-    payload = event_data.get("payload", {})
-    sub_entity = payload.get("subscription", {}).get("entity", {}) if isinstance(payload.get("subscription"), dict) else {}
-    payment_entity = payload.get("payment", {}).get("entity", {}) if isinstance(payload.get("payment"), dict) else {}
-    invoice_entity = payload.get("invoice", {}).get("entity", {}) if isinstance(payload.get("invoice"), dict) else {}
-    plink_entity = payload.get("payment_link", {}).get("entity", {}) if isinstance(payload.get("payment_link"), dict) else {}
-    order_entity = payload.get("order", {}).get("entity", {}) if isinstance(payload.get("order"), dict) else {}
+    payload = event_data.get("payload")
+    if not isinstance(payload, dict):
+        payload = {}
+
+    sub_raw = payload.get("subscription")
+    sub_entity = sub_raw.get("entity", {}) if isinstance(sub_raw, dict) and isinstance(sub_raw.get("entity"), dict) else {}
+
+    payment_raw = payload.get("payment")
+    payment_entity = payment_raw.get("entity", {}) if isinstance(payment_raw, dict) and isinstance(payment_raw.get("entity"), dict) else {}
+
+    invoice_raw = payload.get("invoice")
+    invoice_entity = invoice_raw.get("entity", {}) if isinstance(invoice_raw, dict) and isinstance(invoice_raw.get("entity"), dict) else {}
+
+    plink_raw = payload.get("payment_link")
+    plink_entity = plink_raw.get("entity", {}) if isinstance(plink_raw, dict) and isinstance(plink_raw.get("entity"), dict) else {}
+
+    order_raw = payload.get("order")
+    order_entity = order_raw.get("entity", {}) if isinstance(order_raw, dict) and isinstance(order_raw.get("entity"), dict) else {}
 
     sub_id = (
         plink_entity.get("id")
@@ -143,8 +159,10 @@ async def handle_razorpay_webhook(
 
         if event_type in ("payment_link.paid", "payment.captured", "order.paid"):
             pay_id = payment_entity.get("id")
-            if not pay_id and plink_entity.get("payments"):
-                pay_id = plink_entity["payments"][0].get("payment_id")
+            if not pay_id and isinstance(plink_entity.get("payments"), list) and len(plink_entity["payments"]) > 0:
+                first_pay = plink_entity["payments"][0]
+                if isinstance(first_pay, dict):
+                    pay_id = first_pay.get("payment_id")
             
             amount_val = plink_entity.get("amount_paid") or payment_entity.get("amount") or 263000
             amount = float(amount_val) / 100.0 if float(amount_val) > 10000 else float(amount_val)

@@ -750,11 +750,11 @@ async def update_booking_status(
     async with database.db_pool.acquire() as conn:
         # Fetch booking with contact, tenant & conversation details
         booking = await conn.fetchrow(
-            """SELECT b.id, b.service, b.status, b.start_time, b.conversation_id, b.google_event_id,
+            """SELECT b.id, b.service, b.status, b.start_time, b.conversation_id, b.google_event_id, b.review_sent_at,
                       COALESCE(c.id, b.contact_id) as contact_id,
                       COALESCE(c.name, b.metadata->>'customer_name', 'Customer') as name,
                       COALESCE(c.phone, b.metadata->>'customer_phone', '') as phone,
-                      t.name as tenant_name, t.settings as tenant_settings
+                      t.name as tenant_name, t.slug as tenant_slug, t.settings as tenant_settings
                FROM bookings b
                LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
                LEFT JOIN tenants t ON t.id = b.tenant_id
@@ -1100,12 +1100,10 @@ async def update_booking_status(
         dispatch_params = []
 
         google_review_link = (t_settings_dict.get("google_review_link") or t_settings_dict.get("gmb_review_url") or wa_data.get("google_review_link") or "").strip()
-        if not google_review_link:
-            google_review_link = f"https://search.google.com/local/writereview?placeid={tenant_name.replace(' ', '+')}"
 
         # Build smart CRM review URL with customer details pre-filled
         from urllib.parse import quote as _url_quote
-        _tenant_slug = t_settings_dict.get("slug", "")
+        _tenant_slug = (booking.get("tenant_slug") or t_settings_dict.get("slug") or "").strip()
         _customer_phone_raw = (booking.get("phone") or "").strip()
         _custom_domain = (t_settings_dict.get("custom_domain") or "").strip()
         if not _custom_domain and t_settings_dict.get("partner_name"):
@@ -1121,16 +1119,26 @@ async def update_booking_status(
             _encoded_name = _url_quote(patient_name or "", safe="")
             _encoded_phone = _url_quote(_customer_phone_raw or "", safe="")
             smart_review_url = f"{_crm_origin}/{_tenant_slug}/review?name={_encoded_name}&phone={_encoded_phone}"
-        else:
+        elif google_review_link and "placeid=" not in google_review_link and "search.google.com" not in google_review_link:
             smart_review_url = google_review_link
+        else:
+            smart_review_url = f"{_crm_origin}/review"
 
         if payload.status in ["completed", "attended"]:
             auto_review_enabled = t_settings_dict.get("enable_auto_review", True) if t_settings_dict.get("enable_auto_review") is not None else True
             # Check if caller explicitly opted out (send_review=False) or if tenant settings disabled auto-reviews
-            if payload.send_review is False or (payload.send_review is None and not auto_review_enabled):
+            if payload.send_review is False:
                 dispatch_template = None
                 automated_text = None
-                logger.info("review_request_suppressed_by_caller_or_settings", tenant_id=tenant_id, booking_id=booking_id, send_review=payload.send_review, auto_review_enabled=auto_review_enabled)
+                logger.info("review_request_suppressed_by_caller", tenant_id=tenant_id, booking_id=booking_id)
+                await conn.execute(
+                    "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND job_type = 'review_request' AND status = 'pending'",
+                    booking_id, tenant_id
+                )
+            elif payload.send_review is None and not auto_review_enabled:
+                dispatch_template = None
+                automated_text = None
+                logger.info("review_request_suppressed_by_settings", tenant_id=tenant_id, booking_id=booking_id)
                 await conn.execute(
                     "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND job_type = 'review_request' AND status = 'pending'",
                     booking_id, tenant_id
@@ -1140,25 +1148,25 @@ async def update_booking_status(
                     t_settings_dict.get("template_review_request") or
                     t_settings_dict.get("template_post_service_review") or
                     wa_data.get("template_review_request") or
-                    wa_data.get("template_post_service_review")
+                    wa_data.get("template_post_service_review") or
+                    "review_request"
                 )
                 # 1. If explicitly empty, none, or disabled: DO NOT SEND REVIEW REQUEST AT ALL
                 if not t_review_tpl or str(t_review_tpl).strip().lower() in ("", "none", "disabled", "off", "false"):
                     dispatch_template = None
                     automated_text = None
-                    logger.info("review_request_disabled_or_empty_skipping", tenant_id=tenant_id, booking_id=booking_id)
-                    # Cancel any pending review_request scheduled jobs for this booking
+                    logger.info("review_request_disabled_skipping", tenant_id=tenant_id, booking_id=booking_id)
                     await conn.execute(
                         "UPDATE scheduled_jobs SET status = 'cancelled' WHERE booking_id = $1::uuid AND tenant_id = $2::uuid AND job_type = 'review_request' AND status = 'pending'",
                         booking_id, tenant_id
                     )
-                # 2. If review has ALREADY been sent for this booking (review_sent_at is not null), DO NOT SEND AGAIN
-                elif booking.get("review_sent_at") is not None:
+                # 2. If review has ALREADY been sent for this booking and caller did not explicitly request re-sending:
+                elif payload.send_review is not True and booking.get("review_sent_at") is not None:
                     dispatch_template = None
                     automated_text = None
                     logger.info("review_request_already_sent_skipping_duplicate", tenant_id=tenant_id, booking_id=booking_id)
                 else:
-                    delay_seconds = 10
+                    delay_seconds = 5
                     review_link_block = f"\n\nTap the link below to share your experience:\n{smart_review_url}"
                     automated_text = (
                         f"Hi {patient_name}, thank you for attending your {service_name} session with {tenant_name} today.\n\n"
@@ -1167,7 +1175,7 @@ async def update_booking_status(
                     )
                     dispatch_template = str(t_review_tpl).strip()
                     dispatch_params = [patient_name or "Valued Customer", service_name or "Appointment", smart_review_url]
-                    # Update review_sent_at timestamp immediately to avoid race conditions
+                    # Update review_sent_at timestamp immediately
                     await conn.execute("UPDATE bookings SET review_sent_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", booking_id, tenant_id)
 
                     # Cancel any pending scheduled_jobs for review_request for this booking since we are sending it now

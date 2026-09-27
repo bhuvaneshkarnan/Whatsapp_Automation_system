@@ -200,6 +200,22 @@ async def dispatch_whatsapp_message(
 # ── Gmail Direct Dispatch & Email Builders ─────────────────────────────────────
 
 
+def clean_meta_param(val: Any, default: str = "—", max_len: int = 500) -> str:
+    """Sanitize parameter for Meta WhatsApp API to prevent 400 Invalid Parameter errors."""
+    if val is None:
+        return default
+    s = str(val).strip()
+    if not s:
+        return default
+    # Replace newlines, carriage returns, and tabs with a single space
+    s = re.sub(r'[\r\n\t]+', ' ', s)
+    # Collapse multiple consecutive spaces
+    s = re.sub(r' {2,}', ' ', s).strip()
+    if not s:
+        return default
+    return s[:max_len]
+
+
 async def dispatch_automated_status_whatsapp(
     tenant_id: str,
     conv_id: str,
@@ -237,12 +253,25 @@ async def dispatch_automated_status_whatsapp(
                     except: d = {}
                 creds = dict(d)
 
+            t_st_val = await conn.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+            t_st = {}
+            if t_st_val:
+                try: t_st = json.loads(t_st_val) if isinstance(t_st_val, str) else dict(t_st_val)
+                except: t_st = {}
+
             if creds.get("allow_text_fallback") is False or creds.get("disable_template_text_fallback") is True:
                 allow_text_fallback = False
 
             clean_phone = re.sub(r'[^0-9]', '', str(phone))
+            if clean_phone.startswith('0') and len(clean_phone) == 11:
+                clean_phone = clean_phone[1:]
             if len(clean_phone) == 10:
                 clean_phone = f"91{clean_phone}"
+
+            waba_display_phone = re.sub(r'[^0-9]', '', str(creds.get("display_phone_number") or ""))
+            if clean_phone and waba_display_phone and clean_phone[-10:] == waba_display_phone[-10:]:
+                logger.info("cannot_send_wa_to_own_bot_number_skipping", phone=clean_phone)
+                return
 
             # Dispatch via Meta Graph API
             template_sent = False
@@ -254,10 +283,11 @@ async def dispatch_automated_status_whatsapp(
 
                 # 1. Try Meta Approved Template first
                 if template_name and template_params:
+                    cleaned_params = [clean_meta_param(p) for p in template_params]
                     components = [
                         {
                             "type": "body",
-                            "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in template_params]
+                            "parameters": [{"type": "text", "text": p} for p in cleaned_params]
                         }
                     ]
                     payload = {
@@ -309,6 +339,53 @@ async def dispatch_automated_status_whatsapp(
                                             template_sent = True
                                             dispatched_wamid = res_retry.json().get("messages", [{}])[0].get("id")
                                             logger.info("automated_status_template_param_retry_succeeded", template=template_name, phone=clean_phone, wa_id=dispatched_wamid)
+
+                            # 1c. If primary template failed (e.g. marketing limit, rejected parameter), attempt utility_general_update fallback
+                            if not template_sent:
+                                utility_tpl = creds.get("template_utility_general_update") or t_st.get("template_utility_general_update") or "utility_general_update"
+                                t_name_val = clean_meta_param(creds.get("name") or t_st.get("name") or "our team", "our team")
+                                p_name_val = clean_meta_param(template_params[0] if template_params else "Valued Customer", "Valued Customer")
+                                
+                                fallback_msg = None
+                                if template_name in ("reschedule_nudge", "nudge_reschedule"):
+                                    srv = clean_meta_param(template_params[1] if len(template_params) > 1 else "appointment", "appointment")
+                                    fallback_msg = f"{srv} appointment today. We noticed you could not make it. Please reply here anytime to update your schedule."
+                                elif template_name in ("review_request", "template_post_service_review", "post_service_review"):
+                                    link_val = str(template_params[2] if len(template_params) > 2 else "").strip()
+                                    srv = clean_meta_param(template_params[1] if len(template_params) > 1 else "visit", "visit")
+                                    fallback_msg = f"{srv} visit. We would really appreciate your review: {link_val}" if link_val else f"{srv} visit. We would love your feedback!"
+                                
+                                if fallback_msg:
+                                    u_components = [
+                                        {
+                                            "type": "body",
+                                            "parameters": [
+                                                {"type": "text", "text": p_name_val},
+                                                {"type": "text", "text": t_name_val},
+                                                {"type": "text", "text": clean_meta_param(fallback_msg, max_len=500)}
+                                            ]
+                                        }
+                                    ]
+                                    u_payload = {
+                                        "messaging_product": "whatsapp",
+                                        "recipient_type": "individual",
+                                        "to": clean_phone,
+                                        "type": "template",
+                                        "template": {
+                                            "name": utility_tpl,
+                                            "language": {"code": "en"},
+                                            "components": u_components
+                                        }
+                                    }
+                                    try:
+                                        res_u = await client.post(url, headers=headers, json=u_payload)
+                                        logger.info("utility_general_update_fallback_response", status=res_u.status_code, text=res_u.text)
+                                        if res_u.status_code in (200, 201):
+                                            template_sent = True
+                                            dispatched_wamid = res_u.json().get("messages", [{}])[0].get("id")
+                                            logger.info("automated_status_utility_fallback_dispatched", template=utility_tpl, phone=clean_phone, wa_id=dispatched_wamid)
+                                    except Exception as e_u:
+                                        logger.warning("utility_fallback_dispatch_failed", error=str(e_u))
                     except Exception as e:
                         logger.warning("template_dispatch_failed", error=str(e), template=template_name)
 
@@ -441,16 +518,29 @@ async def dispatch_admin_reschedule_whatsapp(
         if not (creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test")):
             return
 
-        clean_admin_phone = re.sub(r'[^0-9+]', '', admin_phone)
-        if not clean_admin_phone.startswith("+"):
-            clean_admin_phone = f"+91{clean_admin_phone}" if len(clean_admin_phone) == 10 else f"+{clean_admin_phone}"
+        clean_admin_phone = re.sub(r'[^0-9]', '', str(admin_phone))
+        if clean_admin_phone.startswith('0') and len(clean_admin_phone) == 11:
+            clean_admin_phone = clean_admin_phone[1:]
+        if len(clean_admin_phone) == 10:
+            clean_admin_phone = f"91{clean_admin_phone}"
+
+        waba_display_phone = re.sub(r'[^0-9]', '', str(creds.get("display_phone_number") or ""))
+        if clean_admin_phone and waba_display_phone and clean_admin_phone[-10:] == waba_display_phone[-10:]:
+            logger.info("admin_phone_is_own_bot_number_skipping_admin_wa", phone=clean_admin_phone)
+            return
 
         tpl_name = (
             creds.get("template_admin_reschedule_notice") or
             t_st.get("template_admin_reschedule_notice") or
             "admin_reschedule_notice"
         )
-        tpl_params = [customer_name or "Client", customer_phone, service_name or "Appointment", formatted_date or "Rescheduled Date", formatted_time or "Rescheduled Time"]
+        tpl_params = [
+            clean_meta_param(customer_name, "Client"),
+            clean_meta_param(customer_phone, "—"),
+            clean_meta_param(service_name, "Appointment"),
+            clean_meta_param(formatted_date, "Rescheduled Date"),
+            clean_meta_param(formatted_time, "Rescheduled Time"),
+        ]
 
         import httpx
         headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
@@ -459,7 +549,7 @@ async def dispatch_admin_reschedule_whatsapp(
         # 1. Try admin reschedule template
         admin_payload_tpl = {
             "messaging_product": "whatsapp",
-            "to": clean_admin_phone.replace("+", ""),
+            "to": clean_admin_phone,
             "type": "template",
             "template": {
                 "name": tpl_name,
@@ -467,7 +557,7 @@ async def dispatch_admin_reschedule_whatsapp(
                 "components": [
                     {
                         "type": "body",
-                        "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in tpl_params]
+                        "parameters": [{"type": "text", "text": p} for p in tpl_params]
                     }
                 ]
             }
@@ -538,16 +628,29 @@ async def dispatch_admin_cancellation_whatsapp(
         if not (creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test")):
             return
 
-        clean_admin_phone = re.sub(r'[^0-9+]', '', admin_phone)
-        if not clean_admin_phone.startswith("+"):
-            clean_admin_phone = f"+91{clean_admin_phone}" if len(clean_admin_phone) == 10 else f"+{clean_admin_phone}"
+        clean_admin_phone = re.sub(r'[^0-9]', '', str(admin_phone))
+        if clean_admin_phone.startswith('0') and len(clean_admin_phone) == 11:
+            clean_admin_phone = clean_admin_phone[1:]
+        if len(clean_admin_phone) == 10:
+            clean_admin_phone = f"91{clean_admin_phone}"
+
+        waba_display_phone = re.sub(r'[^0-9]', '', str(creds.get("display_phone_number") or ""))
+        if clean_admin_phone and waba_display_phone and clean_admin_phone[-10:] == waba_display_phone[-10:]:
+            logger.info("admin_phone_is_own_bot_number_skipping_admin_wa", phone=clean_admin_phone)
+            return
 
         tpl_name = (
             creds.get("template_admin_cancellation_notice") or
             t_st.get("template_admin_cancellation_notice") or
             "admin_cancellation_notice"
         )
-        tpl_params = [customer_name or "Client", customer_phone, service_name or "Appointment", formatted_date or "Scheduled Date", formatted_time or "Scheduled Time"]
+        tpl_params = [
+            clean_meta_param(customer_name, "Client"),
+            clean_meta_param(customer_phone, "—"),
+            clean_meta_param(service_name, "Appointment"),
+            clean_meta_param(formatted_date, "Scheduled Date"),
+            clean_meta_param(formatted_time, "Scheduled Time"),
+        ]
 
         import httpx
         headers = {"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"}
@@ -555,7 +658,7 @@ async def dispatch_admin_cancellation_whatsapp(
 
         admin_payload_tpl = {
             "messaging_product": "whatsapp",
-            "to": clean_admin_phone.replace("+", ""),
+            "to": clean_admin_phone,
             "type": "template",
             "template": {
                 "name": tpl_name,
@@ -563,7 +666,7 @@ async def dispatch_admin_cancellation_whatsapp(
                 "components": [
                     {
                         "type": "body",
-                        "parameters": [{"type": "text", "text": str(p) if str(p).strip() else "—"} for p in tpl_params]
+                        "parameters": [{"type": "text", "text": p} for p in tpl_params]
                     }
                 ]
             }

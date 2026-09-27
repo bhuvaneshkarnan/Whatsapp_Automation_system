@@ -6418,6 +6418,7 @@ end
                       b.contact_id, b.service, b.start_time, b.end_time, b.notes, b.reminder_sent_at,
                       c.phone, c.name as contact_name,
                       tc.credential_data as wa_creds,
+                      t.name as tenant_name, t.slug as tenant_slug,
                       t.settings as tenant_settings
                FROM scheduled_jobs sj
                JOIN bookings b ON b.id = sj.booking_id AND b.tenant_id = sj.tenant_id
@@ -6654,7 +6655,18 @@ end
                             await self.db_pool.execute("UPDATE scheduled_jobs SET status = 'cancelled' WHERE id = $1 AND tenant_id = $2::uuid", job["id"], job["tenant_id"])
                             continue
 
-                    review_link = (t_st.get("google_review_link") or creds.get("google_review_link") or "").strip() or "https://g.page"
+                    t_slug = (job.get("tenant_slug") or t_st.get("slug") or "").strip()
+                    _c_phone = re.sub(r'[^0-9]', '', str(job.get("phone") or job.get("contact_phone") or ""))
+                    if t_slug:
+                        import urllib.parse
+                        enc_name = urllib.parse.quote(name or "", safe="")
+                        enc_ph = urllib.parse.quote(_c_phone or "", safe="")
+                        review_link = f"https://crm.goboldlabs.com/{t_slug}/review?name={enc_name}&phone={enc_ph}"
+                    else:
+                        review_link = (t_st.get("google_review_link") or creds.get("google_review_link") or "").strip()
+                        if not review_link or "placeid=" in review_link or "search.google.com" in review_link:
+                            review_link = "https://crm.goboldlabs.com/review"
+
                     template_name = str(raw_tpl).strip()
                     components = [
                         {
@@ -6678,7 +6690,29 @@ end
                         sent_via_template = True
                         logger.info("scheduled_review_template_sent", template=template_name, to=job["phone"], wa_id=sent_wa_id)
                     except Exception as te:
-                        logger.warning("scheduled_review_template_failed_skip_text_fallback", error=str(te))
+                        logger.warning("scheduled_review_template_failed_trying_utility_fallback", error=str(te))
+                        try:
+                            t_disp = t_st.get("name") or job.get("tenant_name") or "our team"
+                            u_tpl = creds.get("template_utility_general_update") or t_st.get("template_utility_general_update") or "utility_general_update"
+                            sent_wa_id = await send_template(
+                                phone_number_id=creds["phone_number_id"],
+                                access_token=creds["access_token"],
+                                to=job["phone"],
+                                template_name=u_tpl,
+                                language_code="en",
+                                components=[{
+                                    "type": "body",
+                                    "parameters": [
+                                        {"type": "text", "text": name},
+                                        {"type": "text", "text": t_disp},
+                                        {"type": "text", "text": f"{service} visit. We would really appreciate your review: {review_link}"}
+                                    ]
+                                }]
+                            )
+                            sent_via_template = True
+                            logger.info("scheduled_review_utility_fallback_sent", to=job["phone"], wa_id=sent_wa_id)
+                        except Exception as fb_err:
+                            logger.warning("scheduled_review_utility_fallback_failed", error=str(fb_err))
 
                 # 2b. Post-Treatment Followup job: Send approved post_treatment_followup template
                 elif job_type == "post_treatment_followup" and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
@@ -6740,7 +6774,29 @@ end
                         sent_via_template = True
                         logger.info("scheduled_reschedule_nudge_template_sent", template=template_name, to=job["phone"], wa_id=sent_wa_id)
                     except Exception as te:
-                        logger.warning("scheduled_reschedule_nudge_template_failed_fallback_text", error=str(te))
+                        logger.warning("scheduled_reschedule_nudge_template_failed_trying_utility_fallback", error=str(te))
+                        try:
+                            t_disp = t_st.get("name") or job.get("tenant_name") or "our team"
+                            u_tpl = creds.get("template_utility_general_update") or t_st.get("template_utility_general_update") or "utility_general_update"
+                            sent_wa_id = await send_template(
+                                phone_number_id=creds["phone_number_id"],
+                                access_token=creds["access_token"],
+                                to=job["phone"],
+                                template_name=u_tpl,
+                                language_code="en",
+                                components=[{
+                                    "type": "body",
+                                    "parameters": [
+                                        {"type": "text", "text": name},
+                                        {"type": "text", "text": t_disp},
+                                        {"type": "text", "text": f"{service} appointment today. We noticed you could not make it. Please reply here anytime to update your schedule."}
+                                    ]
+                                }]
+                            )
+                            sent_via_template = True
+                            logger.info("scheduled_reschedule_nudge_utility_fallback_sent", to=job["phone"], wa_id=sent_wa_id)
+                        except Exception as fb_err:
+                            logger.warning("scheduled_reschedule_nudge_utility_fallback_failed", error=str(fb_err))
 
                 # 4. Strict policy: Never fallback to freeform text for scheduled template jobs
                 if not sent_via_template:

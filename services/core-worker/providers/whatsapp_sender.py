@@ -75,8 +75,27 @@ async def send_template(
     Automatically adapts parameter count if Meta template expects 2, 3, or 4 parameters.
     """
     clean_to = re.sub(r'[^0-9]', '', str(to))
+    if clean_to.startswith('0') and len(clean_to) == 11:
+        clean_to = clean_to[1:]
     if len(clean_to) == 10:
         clean_to = f"91{clean_to}"
+
+    # Sanitize component text parameters to avoid Meta 400 Invalid Parameter
+    cleaned_components = []
+    for comp in (components or []):
+        c_copy = dict(comp)
+        if "parameters" in c_copy and isinstance(c_copy["parameters"], list):
+            p_list = []
+            for p in c_copy["parameters"]:
+                if isinstance(p, dict) and p.get("type") == "text":
+                    raw_t = str(p.get("text", "")).strip()
+                    raw_t = re.sub(r'[\r\n\t]+', ' ', raw_t)
+                    raw_t = re.sub(r' {2,}', ' ', raw_t).strip()
+                    p_list.append({"type": "text", "text": raw_t if raw_t else "—"})
+                else:
+                    p_list.append(p)
+            c_copy["parameters"] = p_list
+        cleaned_components.append(c_copy)
 
     active_template = template_name
 
@@ -87,7 +106,7 @@ async def send_template(
         "template": {
             "name": active_template,
             "language": {"code": language_code},
-            "components": components,
+            "components": cleaned_components,
         },
     }
 

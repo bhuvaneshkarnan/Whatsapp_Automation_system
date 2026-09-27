@@ -22744,11 +22744,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
               </div>
 
               <div className="p-3 bg-surface-subtle border border-border rounded-sm text-xs text-text-body space-y-1.5 leading-relaxed">
-                <p className="font-medium text-text-primary">
-                  Would you like to send the post-service Google Review request to this client?
+                <p className="font-semibold text-text-primary flex items-center gap-1.5">
+                  <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                  <span>Send Post-Service Review Request to Client?</span>
                 </p>
                 <p className="text-[11px] text-text-muted">
-                  Sending the review template invites the client to leave public feedback. If you prefer not to message them right now, select &quot;Mark Attended Only&quot;.
+                  Marking as Attended records this completed appointment and sends the automated WhatsApp review request with your smart review link to <strong className="text-text-primary">{pendingAttendedBooking.customer_name}</strong>.
                 </p>
               </div>
 
@@ -22768,9 +22769,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     setPendingAttendedBooking(null);
                     await handleUpdateBookingStatus(b.id, 'completed', undefined, false);
                   }}
-                  className="w-full sm:w-auto px-3 py-1.5 text-xs font-medium text-text-body hover:bg-surface-subtle rounded-sm border border-border bg-surface transition-colors cursor-pointer"
+                  className="w-full sm:w-auto px-3 py-1.5 text-xs font-medium text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-sm border border-border bg-surface transition-colors cursor-pointer"
+                  title="Mark client as attended without sending any WhatsApp review message"
                 >
-                  Mark Attended Only
+                  Mark Attended (Skip Review)
                 </button>
                 <button
                   type="button"
@@ -22780,9 +22782,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     setPendingAttendedBooking(null);
                     await handleUpdateBookingStatus(b.id, 'completed', undefined, true);
                   }}
-                  className="w-full sm:w-auto px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-sm shadow-2xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                  className="w-full sm:w-auto px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-sm shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                  title="Mark attended and immediately dispatch WhatsApp review template"
                 >
-                  <Star className="w-3.5 h-3.5 fill-white/20" />
+                  <Star className="w-3.5 h-3.5 fill-white/30" />
                   <span>Mark Attended &amp; Send Review</span>
                 </button>
               </div>

@@ -823,6 +823,7 @@ async def update_tenant_settings(
             else:
                 await conn.execute("INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'google_calendar', $3::jsonb, true)", g_id, tenant_id, json.dumps(g_data))
 
+        ai_row = await conn.fetchrow("SELECT * FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
         ai_dict = dict(ai_row) if ai_row else {}
         cur_model = (ai_dict.get("model") or "gemini-3.5-flash-lite")
         cur_prompt = (ai_dict.get("system_prompt") or "")
