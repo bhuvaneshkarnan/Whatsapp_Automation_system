@@ -88,8 +88,10 @@ async def handle_razorpay_webhook(
         
         # 1. Match by tenant_id note
         t_id_note = (
-            plink_entity.get("notes", {}).get("tenant_id")
+            sub_entity.get("notes", {}).get("tenant_id")
+            or plink_entity.get("notes", {}).get("tenant_id")
             or payment_entity.get("notes", {}).get("tenant_id")
+            or invoice_entity.get("notes", {}).get("tenant_id")
         )
         if t_id_note:
             try:
@@ -258,46 +260,51 @@ async def handle_razorpay_webhook(
 
 
         elif event_type in ("subscription.authenticated", "subscription.activated"):
+            cust_id_from_sub = sub_entity.get("customer_id")
             await conn.execute(
                 """
                 UPDATE tenants
-
                 SET subscription_status = 'active',
                     org_lifecycle_stage = 'billing_active',
+                    razorpay_customer_id = COALESCE($1, razorpay_customer_id),
                     last_payment_status = 'authenticated',
+                    is_active = true,
                     updated_at = now()
-                WHERE id = $1::uuid
+                WHERE id = $2::uuid
                 """,
-                tenant_id
+                cust_id_from_sub, tenant_id
             )
 
         elif event_type == "subscription.charged":
             current_end = sub_entity.get("current_end")
             next_charge = datetime.fromtimestamp(current_end, tz=timezone.utc) if current_end else None
+            cust_id_from_sub = sub_entity.get("customer_id")
             
             await conn.execute(
                 """
                 UPDATE tenants
                 SET subscription_status = 'active',
                     org_lifecycle_stage = 'billing_active',
+                    razorpay_customer_id = COALESCE($1, razorpay_customer_id),
                     last_charge_at = now(),
-                    next_charge_at = COALESCE($1, now() + INTERVAL '30 days'),
+                    next_charge_at = COALESCE($2, now() + INTERVAL '30 days'),
                     last_payment_status = 'success',
                     reminder_stage = 0,
                     is_active = true,
                     payment_failed_at = NULL,
                     grace_period_until = NULL,
                     updated_at = now()
-                WHERE id = $2::uuid
+                WHERE id = $3::uuid
                 """,
-                next_charge, tenant_id
+                cust_id_from_sub, next_charge, tenant_id
             )
 
             inv_id = invoice_entity.get("id") or f"inv_sub_{sub_id}_{int(time.time())}"
-            amount = float(sub_entity.get("plan_id", {}).get("amount", 263000) if isinstance(sub_entity.get("plan_id"), dict) else 2630.0)
-            if amount > 10000: amount = amount / 100.0
+            amount_val = invoice_entity.get("amount") or payment_entity.get("amount") or (sub_entity.get("plan_id", {}).get("amount") if isinstance(sub_entity.get("plan_id"), dict) else 263000)
+            amount = float(amount_val) / 100.0 if float(amount_val) > 10000 else float(amount_val)
             
             pay_id = payment_entity.get("id")
+            inv_pdf = invoice_entity.get("short_url") or invoice_entity.get("invoice_pdf") or short_url
             await conn.execute(
                 """
                 INSERT INTO invoices (id, tenant_id, razorpay_invoice_id, razorpay_payment_id, razorpay_subscription_id, amount, currency, status, invoice_pdf_url, paid_at, created_at)
@@ -307,8 +314,27 @@ async def handle_razorpay_webhook(
                     razorpay_payment_id = COALESCE(EXCLUDED.razorpay_payment_id, invoices.razorpay_payment_id),
                     paid_at = now()
                 """,
-                tenant_id, inv_id, pay_id, sub_id, amount, invoice_entity.get("short_url") or invoice_entity.get("invoice_pdf")
+                tenant_id, inv_id, pay_id, sub_id, amount, inv_pdf
             )
+            logger.info("razorpay_subscription_charged_recorded", tenant_id=tenant_id, pay_id=pay_id, amount=amount)
+
+            # Send automated WhatsApp confirmation to client for monthly auto-debit renewal
+            try:
+                t_cfg = safe_json_loads(tenant.get("settings"))
+                target_phone = t_cfg.get("admin_whatsapp_number", "")
+                t_name = tenant.get("name", "Client Organization")
+                t_custom_dom = (t_cfg.get("custom_domain") or "").strip()
+                dom_base = f"https://{t_custom_dom}" if t_custom_dom else "https://crm.goboldlabs.com"
+                dash_url = f"{dom_base}/{tenant.get('slug')}"
+
+                if target_phone:
+                    clean_phone = "".join(filter(str.isdigit, target_phone))
+                    if clean_phone:
+                        wa_msg = f"Subscription Renewal Confirmed! 🎉 Hello {t_name}, your monthly subscription payment of ₹{int(amount):,} has been successfully auto-debited. Your WhatsApp Automation workspace continues 100% active: {dash_url}"
+                        await dispatch_whatsapp_message(tenant_id, clean_phone, text=wa_msg)
+                        logger.info("subscription_renewal_whatsapp_sent", tenant_id=tenant_id, phone=clean_phone)
+            except Exception as notify_err:
+                logger.warning("subscription_renewal_notification_failed", tenant_id=tenant_id, error=str(notify_err))
 
         elif event_type == "subscription.pending":
             await conn.execute(

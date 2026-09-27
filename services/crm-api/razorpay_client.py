@@ -10,11 +10,11 @@ import structlog
 logger = structlog.get_logger("razorpay-client")
 
 def is_valid_subscription_id(sub_id: Optional[str]) -> bool:
-    """Validates Razorpay subscription ID format: starts with sub_, alphanumeric, <= 18 chars."""
+    """Validates Razorpay subscription ID format: starts with sub_, alphanumeric, <= 40 chars."""
     if not sub_id or not isinstance(sub_id, str):
         return False
     clean = sub_id.strip()
-    return len(clean) <= 18 and bool(re.match(r"^sub_[A-Za-z0-9]+$", clean))
+    return len(clean) <= 40 and bool(re.match(r"^sub_[A-Za-z0-9]+$", clean))
 
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
@@ -90,22 +90,30 @@ async def create_customer(name: str, email: Optional[str] = None, contact: Optio
 
 async def create_subscription(
     plan_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
     customer_id: Optional[str] = None,
     org_slug: str = "org",
     total_count: int = 120,
 ) -> Dict[str, Any]:
-    """Create recurring subscription for an organization."""
+    """
+    Create recurring subscription for an organization with Autopay enabled.
+    Note: Do not attach customer_id to hosted subscriptions, as Razorpay disables
+    the hosted checkout page ("Hosted page is not available") when customer_id is bound upfront.
+    The customer enters/verifies their details directly on the hosted checkout page.
+    """
     p_id = plan_id or RAZORPAY_PLAN_ID
+    notes: Dict[str, Any] = {
+        "org_slug": org_slug,
+    }
+    if tenant_id:
+        notes["tenant_id"] = str(tenant_id)
+
     payload: Dict[str, Any] = {
         "plan_id": p_id,
         "customer_notify": 1,
         "total_count": total_count,
-        "notes": {
-            "org_slug": org_slug
-        }
+        "notes": notes
     }
-    if customer_id:
-        payload["customer_id"] = customer_id
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         res = await client.post(
@@ -149,6 +157,40 @@ async def fetch_invoices_for_subscription(subscription_id: str) -> List[Dict[str
         data = res.json()
         return data.get("items", [])
 
+async def get_or_create_plan(
+    amount: int,
+    name: str = "WhatsApp Automation & CRM Plan",
+    period: str = "monthly"
+) -> str:
+    """Find an existing plan matching amount and period, or create one dynamically."""
+    if not is_configured():
+        return RAZORPAY_PLAN_ID
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            res = await client.get(f"{BASE_URL}/plans", auth=get_auth())
+            if res.status_code == 200:
+                for p in res.json().get("items", []):
+                    if p.get("period") == period and p.get("item", {}).get("amount") == amount:
+                        return p.get("id")
+
+            payload = {
+                "period": period,
+                "interval": 1,
+                "item": {
+                    "name": name,
+                    "amount": amount,
+                    "currency": "INR",
+                    "description": f"{name} ({period})"
+                }
+            }
+            res2 = await client.post(f"{BASE_URL}/plans", json=payload, auth=get_auth())
+            if res2.status_code in (200, 201):
+                return res2.json().get("id")
+        except Exception as e:
+            logger.warning("get_or_create_plan_error", error=str(e))
+    return RAZORPAY_PLAN_ID
+
+
 async def create_payment_link(
     amount: int = 263000,  # in paise: 263000 = ₹2,630 (net ~₹2,500 after Razorpay fees)
     currency: str = "INR",
@@ -158,6 +200,7 @@ async def create_payment_link(
     description: str = "Boldlabs CRM Platform Subscription (₹2,499/month)",
     org_slug: str = "boldlabs",
     tenant_id: Optional[str] = None,
+    callback_url: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Create a standard Razorpay Payment Link (checkout page) for an organization."""
     if not is_configured():
@@ -178,6 +221,10 @@ async def create_payment_link(
             "type": "monthly_subscription"
         }
     }
+    if callback_url:
+        payload["callback_url"] = callback_url
+        payload["callback_method"] = "get"
+
     cust: Dict[str, str] = {}
     if customer_name:
         cust["name"] = customer_name
@@ -212,4 +259,5 @@ async def fetch_payment_link(payment_link_id: str) -> Dict[str, Any]:
             logger.error("razorpay_payment_link_fetch_failed", plink_id=payment_link_id, status=res.status_code, body=res.text)
             raise Exception(f"Razorpay payment link fetch failed: {res.text}")
         return res.json()
+
 

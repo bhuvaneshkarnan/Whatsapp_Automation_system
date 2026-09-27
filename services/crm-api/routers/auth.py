@@ -1182,8 +1182,8 @@ async def activate_tenant_billing(
         existing_sub_id = tenant.get("razorpay_subscription_id") or ""
         existing_short_url = tenant.get("razorpay_short_url") or ""
         
-        # If already has a valid working payment link (plink_...) and short_url, and not forced, return it
-        if not force_new and existing_sub_id.startswith("plink_") and existing_short_url:
+        # If already has a valid working recurring subscription (sub_...) and short_url, and not forced, return it
+        if not force_new and existing_sub_id.startswith("sub_") and existing_short_url:
             return {
                 "status": "ready_to_activate",
                 "tenant_id": tenant_id,
@@ -1191,7 +1191,7 @@ async def activate_tenant_billing(
                 "short_url": existing_short_url,
                 "org_lifecycle_stage": tenant.get("org_lifecycle_stage") or "ready_to_activate",
                 "subscription_status": tenant.get("subscription_status") or "not_started",
-                "message": "Payment link already active"
+                "message": "Recurring subscription already active"
             }
 
         admin_contact = await conn.fetchrow(
@@ -1223,38 +1223,51 @@ async def activate_tenant_billing(
         customer_email = admin_contact["email"] if admin_contact else f"{tenant['slug']}@boldlabs.ai"
         monthly_price = float(cfg.get("monthly_price", 2630.0))
         amount_paisa = int(monthly_price * 100)
-        
-        cust_id = None
-        try:
-            cust_res = await razorpay_client.create_customer(customer_name, customer_email, admin_phone)
-            cust_id = cust_res.get("id")
-        except Exception as ce:
-            logger.warning("razorpay_cust_create_warning", error=str(ce))
-            
-        plink_res = await razorpay_client.create_payment_link(
+
+        # 1. Resolve or create dynamic plan in Razorpay matching the client's monthly price
+        target_plan = await razorpay_client.get_or_create_plan(
             amount=amount_paisa,
-            customer_name=customer_name,
-            customer_email=customer_email,
-            customer_contact=admin_phone,
-            description=f"{customer_name} - Platform Subscription (₹{int(monthly_price):,}/mo)",
-            org_slug=tenant["slug"],
-            tenant_id=tenant_id
+            name=f"{customer_name} - Platform Plan (₹{int(monthly_price):,}/mo)"
         )
-        sub_id = plink_res.get("id")
-        short_url = plink_res.get("short_url")
+
+        # 2. Create recurring subscription with tenant_id in notes for strict isolation & webhook attribution
+        try:
+            sub_res = await razorpay_client.create_subscription(
+                plan_id=target_plan,
+                tenant_id=tenant_id,
+                org_slug=tenant["slug"]
+            )
+            sub_id = sub_res.get("id")
+            short_url = sub_res.get("short_url")
+        except Exception as e:
+            logger.error("recurring_subscription_creation_failed_fallback_plink", tenant_id=tenant_id, error=str(e))
+            t_custom_dom = (cfg.get("custom_domain") or "").strip()
+            dom_base = f"https://{t_custom_dom}" if t_custom_dom else "https://crm.goboldlabs.com"
+            callback_url = f"{dom_base}/{tenant['slug']}?payment=success"
+            plink_res = await razorpay_client.create_payment_link(
+                amount=amount_paisa,
+                customer_name=customer_name,
+                customer_email=customer_email,
+                customer_contact=admin_phone,
+                description=f"{customer_name} - Platform Subscription (₹{int(monthly_price):,}/mo)",
+                org_slug=tenant["slug"],
+                tenant_id=tenant_id,
+                callback_url=callback_url
+            )
+            sub_id = plink_res.get("id")
+            short_url = plink_res.get("short_url")
 
         await conn.execute(
             """
             UPDATE tenants 
-            SET razorpay_customer_id = COALESCE($1, razorpay_customer_id),
-                razorpay_subscription_id = $2,
-                razorpay_short_url = $3,
+            SET razorpay_subscription_id = $1,
+                razorpay_short_url = $2,
                 org_lifecycle_stage = 'ready_to_activate',
                 subscription_status = 'not_started',
                 updated_at = now()
-            WHERE id = $4::uuid
+            WHERE id = $3::uuid
             """,
-            cust_id, sub_id, short_url, tenant_id
+            sub_id, short_url, tenant_id
         )
 
         if custom_phone and custom_phone.strip():
@@ -1349,7 +1362,7 @@ async def sync_tenant_billing(tenant_id: str, admin_user: dict = Depends(verify_
                 "next_charge_at": None,
                 "invoices_synced": synced_invoices_count
             }
-        elif sub_id.startswith("sub_") and len(sub_id) <= 18 and re.match(r"^sub_[A-Za-z0-9]+$", sub_id):
+        elif sub_id.startswith("sub_") and len(sub_id) <= 40 and re.match(r"^sub_[A-Za-z0-9]+$", sub_id):
             sub_data = await razorpay_client.fetch_subscription(sub_id)
             rzp_status = sub_data.get("status", "")
             status_map = {

@@ -39,7 +39,7 @@ async def get_client_billing_invoices(
         sub_id = (tenant.get("razorpay_subscription_id") or "").strip()
 
         # If tenant has a real Razorpay subscription (sub_...), sync latest invoices from Razorpay
-        if sub_id and sub_id.startswith("sub_") and len(sub_id) <= 18 and re.match(r"^sub_[A-Za-z0-9]+$", sub_id):
+        if sub_id and razorpay_client.is_valid_subscription_id(sub_id):
             try:
                 rzp_invoices = await razorpay_client.fetch_invoices_for_subscription(sub_id)
                 for rzp_inv in rzp_invoices:
@@ -106,11 +106,13 @@ async def get_client_billing_invoices(
 @router.post("/tenant/billing/initiate-payment")
 async def initiate_tenant_payment(
     force_new: bool = Query(False),
+    prefer_recurring: bool = Query(True),
     tenant_id: str = Depends(get_tenant_id)
 ):
     """
-    Dynamically generates or fetches an authentic Razorpay Payment Link for the authenticated tenant.
+    Dynamically generates or fetches an authentic Razorpay Recurring Subscription for the authenticated tenant.
     Strictly tenant-scoped: only accesses and updates the authenticated tenant's record.
+    Enables UPI Autopay & Card recurring debit so subsequent months auto-debit automatically.
     """
     async with database.db_pool.acquire() as conn:
         tenant = await conn.fetchrow(
@@ -127,15 +129,15 @@ async def initiate_tenant_payment(
         existing_sub_id = tenant.get("razorpay_subscription_id") or ""
         existing_short_url = tenant.get("razorpay_short_url") or ""
 
-        # If already has a genuine active payment link and not forced, return it
-        if not force_new and existing_short_url and "boldlabs-crm" not in existing_short_url and (existing_short_url.startswith("https://rzp.io/") or existing_short_url.startswith("https://pages.razorpay.com/")):
+        # If already has a genuine active recurring subscription and not forced, return it
+        if not force_new and existing_short_url and existing_sub_id.startswith("sub_") and existing_short_url.startswith("https://rzp.io/"):
             return {
                 "status": "active",
                 "short_url": existing_short_url,
                 "subscription_id": existing_sub_id,
                 "tenant_id": tenant_id,
                 "tenant_slug": tenant["slug"],
-                "message": "Existing payment link is active"
+                "message": "Existing recurring subscription is active"
             }
 
         cfg = tenant.get("settings") or {}
@@ -152,16 +154,59 @@ async def initiate_tenant_payment(
         if not k_id or not k_sec:
             raise HTTPException(
                 status_code=400,
-                detail="Razorpay API credentials (RAZORPAY_KEY_ID & RAZORPAY_KEY_SECRET) are not configured on the server. Please set them in server .env or paste your custom Razorpay link directly."
+                detail="Razorpay API credentials (RAZORPAY_KEY_ID & RAZORPAY_KEY_SECRET) are not configured on the server."
             )
+
+        customer_name = tenant["name"] or "CRM Client"
+
+        if prefer_recurring:
+            try:
+                target_plan = await razorpay_client.get_or_create_plan(
+                    amount=amount_paisa,
+                    name=f"{customer_name} - Platform Plan (₹{int(monthly_price):,}/mo)"
+                )
+                sub_res = await razorpay_client.create_subscription(
+                    plan_id=target_plan,
+                    tenant_id=tenant_id,
+                    org_slug=tenant["slug"]
+                )
+                sub_id = sub_res.get("id")
+                short_url = sub_res.get("short_url")
+
+                await conn.execute(
+                    """
+                    UPDATE tenants
+                    SET razorpay_subscription_id = $1,
+                        razorpay_short_url = $2,
+                        updated_at = now()
+                    WHERE id = $3::uuid
+                    """,
+                    sub_id, short_url, tenant_id
+                )
+
+                logger.info("tenant_recurring_subscription_initiated", tenant_id=tenant_id, sub_id=sub_id, short_url=short_url)
+                return {
+                    "status": "created",
+                    "short_url": short_url,
+                    "subscription_id": sub_id,
+                    "tenant_id": tenant_id,
+                    "tenant_slug": tenant["slug"],
+                    "amount": monthly_price,
+                    "message": "Recurring subscription created successfully for auto-debit"
+                }
+            except Exception as e:
+                logger.warning("recurring_subscription_initiate_failed_fallback_plink", tenant_id=tenant_id, error=str(e))
 
         admin_contact = await conn.fetchrow(
             "SELECT email, display_name FROM users WHERE tenant_id = $1::uuid AND role IN ('admin', 'owner', 'super_admin') ORDER BY created_at ASC LIMIT 1",
             tenant_id
         )
         customer_email = admin_contact["email"] if admin_contact else f"{tenant['slug']}@boldlabs.ai"
-        customer_name = tenant["name"] or "CRM Client"
         admin_phone = cfg.get("admin_whatsapp_number", "")
+
+        t_custom_dom = (cfg.get("custom_domain") or "").strip()
+        dom_base = f"https://{t_custom_dom}" if t_custom_dom else "https://crm.goboldlabs.com"
+        callback_url = f"{dom_base}/{tenant['slug']}?payment=success"
 
         try:
             plink_res = await razorpay_client.create_payment_link(
@@ -172,7 +217,8 @@ async def initiate_tenant_payment(
                 customer_contact=admin_phone,
                 description=f"{customer_name} - Platform Subscription (₹{int(monthly_price):,}/mo)",
                 org_slug=tenant["slug"],
-                tenant_id=tenant_id
+                tenant_id=tenant_id,
+                callback_url=callback_url
             )
         except Exception as e:
             logger.error("tenant_payment_link_generation_error", tenant_id=tenant_id, error=str(e))
@@ -241,13 +287,29 @@ async def create_tenant_subscription(
                 "message": "Existing recurring subscription is active"
             }
 
-        target_plan = plan_id or os.getenv("RAZORPAY_PLAN_ID", "plan_TeICRz2cZId1i2")
-        customer_id = tenant.get("razorpay_customer_id")
+        cfg = tenant.get("settings") or {}
+        if isinstance(cfg, str):
+            try: cfg = json.loads(cfg)
+            except: cfg = {}
+
+        monthly_price = float(cfg.get("monthly_price", 2630.0))
+        amount_paisa = int(monthly_price * 100)
+
+        target_plan = plan_id
+        if not target_plan:
+            try:
+                target_plan = await razorpay_client.get_or_create_plan(
+                    amount=amount_paisa,
+                    name=f"WhatsApp Automation CRM - ₹{int(monthly_price):,} Plan"
+                )
+            except Exception as pe:
+                logger.warning("get_or_create_plan_failed_fallback", error=str(pe))
+                target_plan = os.getenv("RAZORPAY_PLAN_ID", "plan_TeIaa7OueqVKIK")
 
         try:
             sub_res = await razorpay_client.create_subscription(
                 plan_id=target_plan,
-                customer_id=customer_id,
+                tenant_id=tenant_id,
                 org_slug=tenant["slug"]
             )
         except Exception as e:
