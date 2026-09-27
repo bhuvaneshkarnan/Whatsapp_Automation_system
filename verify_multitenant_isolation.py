@@ -141,6 +141,7 @@ def test_cache_invalidation_coverage():
     assert "tenant_creds:{tenant_id}:opencode" in content
     assert "tenant_creds:{tenant_id}:google_calendar" in content
     assert "tenant_creds:{tenant_id}:google_business" in content
+    assert "tenant_creds:{tenant_id}:razorpay" in content
     assert "kb:{tenant_id}:*" in content
     print("[PASS] Test 6: Cache invalidation thoroughly clears all tenant credentials, ai_config, and knowledge base.")
 

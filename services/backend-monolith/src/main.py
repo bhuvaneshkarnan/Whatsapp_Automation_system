@@ -130,6 +130,27 @@ async def startup():
                       )
                 )
                 ON CONFLICT (tenant_id, phone) DO NOTHING;
+
+                -- Booking Payment Tracking and Tenant-Specific Razorpay Integration
+                ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'unpaid';
+                ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payment_mode TEXT DEFAULT 'pay_at_clinic';
+                ALTER TABLE bookings ADD COLUMN IF NOT EXISTS razorpay_payment_link_id TEXT;
+                ALTER TABLE bookings ADD COLUMN IF NOT EXISTS razorpay_payment_link_url TEXT;
+                ALTER TABLE bookings ADD COLUMN IF NOT EXISTS razorpay_payment_id TEXT;
+                ALTER TABLE bookings ADD COLUMN IF NOT EXISTS amount_paid NUMERIC(10, 2) DEFAULT 0.0;
+                ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payment_collected_at TIMESTAMPTZ;
+
+                CREATE INDEX IF NOT EXISTS idx_bookings_tenant_payment_link ON bookings(tenant_id, razorpay_payment_link_id);
+                CREATE INDEX IF NOT EXISTS idx_bookings_tenant_payment_status ON bookings(tenant_id, payment_status);
+
+                DO $tc_prov$
+                BEGIN
+                    ALTER TABLE tenant_credentials DROP CONSTRAINT IF EXISTS tenant_credentials_provider_check;
+                    ALTER TABLE tenant_credentials ADD CONSTRAINT tenant_credentials_provider_check 
+                        CHECK (provider IN ('whatsapp', 'gemini', 'groq', 'opencode', 'google_calendar', 'razorpay'));
+                EXCEPTION
+                    WHEN others THEN NULL;
+                END $tc_prov$;
             """)
             logger.info("monolith_startup", message="Customer contact auto-sync executed")
     except Exception as e:

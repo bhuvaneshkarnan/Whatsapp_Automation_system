@@ -141,6 +141,7 @@ async def invalidate_tenant_cache(tenant_id: str):
             f"tenant_creds:{tenant_id}:opencode",
             f"tenant_creds:{tenant_id}:google_calendar",
             f"tenant_creds:{tenant_id}:google_business",
+            f"tenant_creds:{tenant_id}:razorpay",
         ]
         # Invalidate any tenant-namespaced knowledge base cache keys (kb:{tenant_id}:*)
         try:

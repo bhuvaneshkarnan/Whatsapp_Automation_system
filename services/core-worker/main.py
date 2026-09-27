@@ -3059,10 +3059,39 @@ end
             )
 
         # Action Tag Protocols (Executed by backend tools when appointments or details are confirmed)
+        booking_pay_policy = "pay_at_clinic"
+        booking_fee_amt = 0.0
+        booking_fee_curr = "INR"
+        if tenant_st_row and isinstance(tenant_st_row, dict):
+            booking_pay_policy = (tenant_st_row.get("booking_payment_policy") or "pay_at_clinic").strip().lower()
+            booking_fee_amt = float(tenant_st_row.get("booking_fee_amount") or 0.0)
+            booking_fee_curr = (tenant_st_row.get("booking_fee_currency") or "INR").strip().upper()
+
+        if booking_pay_policy == "mandatory":
+            pay_directive = (
+                f"- BOOKING PAYMENT POLICY (MANDATORY ADVANCE ONLINE PAYMENT):\n"
+                f"  This business requires advance online payment of {booking_fee_curr} {booking_fee_amt:g} to confirm a booking slot.\n"
+                f"  When the customer chooses an appointment time, inform them warmly that a secure payment link will be sent to complete their booking reservation.\n"
+                f"  In the action tag, include \"payment_mode\": \"online\".\n"
+            )
+        elif booking_pay_policy == "customer_choice":
+            pay_directive = (
+                f"- BOOKING PAYMENT POLICY (CUSTOMER CHOICE - ONLINE OR PAY AT CLINIC):\n"
+                f"  Customers can choose to pay online in advance ({booking_fee_curr} {booking_fee_amt:g}) or pay upon arrival at the clinic/location.\n"
+                f"  If the customer requests or chooses to pay online, set \"payment_mode\": \"online\" in the action tag.\n"
+                f"  If they prefer to pay at the clinic or do not specify online payment, set \"payment_mode\": \"pay_at_clinic\" in the action tag.\n"
+            )
+        else:
+            pay_directive = (
+                "- BOOKING PAYMENT POLICY (PAY AT CLINIC):\n"
+                "  No advance payment is required to book; customers pay directly at the location upon arrival.\n"
+                "  Set \"payment_mode\": \"pay_at_clinic\" in the action tag.\n"
+            )
+
         action_tag_directives = (
             "### ACTION TAG PROTOCOLS (Executed by system when appointments or contact details are confirmed):\n"
             f"- BOOKING CONFIRMATION: Once customer confirms Date, Time, Name, and Email, append at end:\n"
-            f"  [ACTION:CREATE_BOOKING: {{\"service\": \"<Service Name>\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"<Notes>\"}}]\n"
+            f"  [ACTION:CREATE_BOOKING: {{\"service\": \"<Service Name>\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"<Notes>\", \"payment_mode\": \"online\" | \"pay_at_clinic\"}}]\n"
             f"- RESCHEDULE CONFIRMATION: When customer reschedules to a new Date & Time, append at end:\n"
             f"  [ACTION:RESCHEDULE_BOOKING: {{\"service\": \"<Service Name>\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"<Customer Name>\", \"email\": \"<Customer Email>\", \"notes\": \"Rescheduled\"}}]\n"
             "- CANCELLATION: When explicitly asking to cancel, append: [ACTION:CANCEL_BOOKING]\n"
@@ -3070,7 +3099,8 @@ end
             "- CUSTOMER DETAIL & INTENT EXTRACTION:\n"
             "  When customer shares contact info, health concern, doctor, age, or location, append:\n"
             "  [ACTION:CUSTOMER_INFO: {\"name\": \"<Name or null>\", \"health_concern\": \"<Concern or null>\", \"preferred_doctor\": \"<Doctor or null>\", \"age\": <age or null>, \"location\": \"<City or null>\", \"lead_probability\": \"hot\" | \"warm\" | \"cold\"}]\n"
-            "  Scoring: 'hot' (booking/payment/call requested), 'warm' (asking pricing/services/questions), 'cold' (disengaged/declining)."
+            "  Scoring: 'hot' (booking/payment/call requested), 'warm' (asking pricing/services/questions), 'cold' (disengaged/declining).\n"
+            f"{pay_directive}"
         )
 
         # full_location: creds is WhatsApp API keys only — never has full_location_text.
@@ -4228,12 +4258,34 @@ end
                      AND start_time <= $4""",
                 tenant_id, contact_id, window_start, window_end
             )
+            booking_pay_policy = (tenant_st_row.get("booking_payment_policy") or "pay_at_clinic").strip().lower() if isinstance(tenant_st_row, dict) else "pay_at_clinic"
+            default_fee = float(tenant_st_row.get("booking_fee_amount") or 0.0) if isinstance(tenant_st_row, dict) else 0.0
+            fee_curr = (tenant_st_row.get("booking_fee_currency") or "INR").strip().upper() if isinstance(tenant_st_row, dict) else "INR"
+            fee_desc = (tenant_st_row.get("booking_fee_description") or f"Appointment Booking: {service_name}").strip() if isinstance(tenant_st_row, dict) else f"Appointment Booking: {service_name}"
+
+            raw_mode = booking_data.get("payment_mode")
+            if raw_mode:
+                eff_mode = str(raw_mode).strip().lower()
+            elif booking_pay_policy == "mandatory":
+                eff_mode = "online"
+            else:
+                eff_mode = "pay_at_clinic"
+
+            eff_price = float(booking_data.get("price") or default_fee or 0.0)
+
+            if eff_mode == "online":
+                initial_booking_status = "pending" if booking_pay_policy == "mandatory" else "confirmed"
+                initial_payment_status = "pending"
+            else:
+                initial_booking_status = "confirmed"
+                initial_payment_status = "unpaid" if eff_price > 0 else "waived"
+
             if existing_contact_booking:
                 booking_id = str(existing_contact_booking["id"])
                 await self.db_pool.execute(
-                    """UPDATE bookings SET service = $1, start_time = $2, end_time = $3, notes = $4, updated_at = NOW()
-                       WHERE id = $5::uuid AND tenant_id = $6::uuid""",
-                    service_name, st_dt, et_dt, notes, booking_id, tenant_id
+                    """UPDATE bookings SET service = $1, start_time = $2, end_time = $3, notes = $4, price = $5, payment_mode = $6, payment_status = $7, updated_at = NOW()
+                       WHERE id = $8::uuid AND tenant_id = $9::uuid""",
+                    service_name, st_dt, et_dt, notes, eff_price, eff_mode, initial_payment_status, booking_id, tenant_id
                 )
                 logger.info("ai_booking_updated_existing", booking_id=booking_id, service=service_name, start_time=str(st_dt))
             else:
@@ -4246,11 +4298,65 @@ end
                     "source": "whatsapp_ai"
                 })
                 await self.db_pool.execute(
-                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, metadata)
-                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, 0, 'INR', $9::jsonb)""",
-                    booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, notes, booking_meta
+                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, metadata, payment_status, payment_mode)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14)""",
+                    booking_id, tenant_id, contact_id, conv_id, service_name, st_dt, et_dt, initial_booking_status, notes, eff_price, fee_curr, booking_meta, initial_payment_status, eff_mode
                 )
                 logger.info("ai_booking_created", booking_id=booking_id, service=service_name, start_time=str(st_dt))
+
+            # If online payment requested, generate dynamic payment link using tenant's Razorpay credentials
+            payment_link_res = None
+            if eff_mode == "online" and eff_price > 0:
+                try:
+                    try:
+                        from services.tenant_payment_service import create_booking_payment_link
+                    except ImportError:
+                        try:
+                            from crm_api.services.tenant_payment_service import create_booking_payment_link
+                        except ImportError:
+                            import sys
+                            from pathlib import Path
+                            _crm_path = str(Path(__file__).resolve().parent.parent / "crm-api")
+                            if _crm_path not in sys.path:
+                                sys.path.insert(0, _crm_path)
+                            from services.tenant_payment_service import create_booking_payment_link
+                    payment_link_res = await create_booking_payment_link(
+                        tenant_id=tenant_id,
+                        booking_id=booking_id,
+                        amount=eff_price,
+                        customer_name=name,
+                        customer_phone=contact_phone,
+                        customer_email=customer_email,
+                        description=fee_desc,
+                        currency=fee_curr,
+                        db=self.db_pool,
+                    )
+                except Exception as e_plink:
+                    logger.warning("ai_booking_create_payment_link_failed", tenant_id=tenant_id, booking_id=booking_id, error=str(e_plink))
+
+                if payment_link_res and payment_link_res.get("payment_link_url") and creds and creds.get("phone_number_id") and creds.get("access_token"):
+                    plink_url = payment_link_res["payment_link_url"]
+                    pay_text = (
+                        f"💳 *Complete Your Appointment Booking:*\n\n"
+                        f"Please complete your payment of {fee_curr} {eff_price:g} using this secure link:\n{plink_url}\n\n"
+                        f"Your slot will be locked in once payment is completed."
+                    )
+                    try:
+                        p_wamid = await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=contact_phone,
+                            body=pay_text,
+                        )
+                        pay_msg_id = str(uuid.uuid4())
+                        await self.db_pool.execute(
+                            """INSERT INTO messages (id, conversation_id, tenant_id, direction, content_type, body, status, wa_message_id, ai_used_fallback)
+                               VALUES ($1::uuid, $2::uuid, $3::uuid, 'outbound', 'text', $4, 'sent', $5, false)""",
+                            pay_msg_id, conv_id, tenant_id, pay_text, p_wamid
+                        )
+                        await self.db_pool.execute("UPDATE conversations SET last_message_at = now() WHERE id = $1::uuid AND tenant_id = $2::uuid", conv_id, tenant_id)
+                    except Exception as e_p_wa:
+                        logger.warning("ai_booking_send_payment_link_text_failed", error=str(e_p_wa))
 
             # Dispatch Real Web Push Notification for New Booking
             try:
@@ -4273,6 +4379,45 @@ end
             # 1. Send Meta WhatsApp Template (booking_confirmationn) and record in messages table
             if not creds:
                 creds = await self._get_tenant_whatsapp_creds(tenant_id)
+
+            if initial_booking_status != "confirmed":
+                # Slot is held in pending status awaiting customer online payment
+                admin_phone = (creds.get("admin_whatsapp_number") or "").strip() if creds else ""
+                if not admin_phone:
+                    tenant_st_data = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                    if tenant_st_data:
+                        if isinstance(tenant_st_data, str):
+                            try: tenant_st_data = json.loads(tenant_st_data)
+                            except: tenant_st_data = {}
+                        admin_phone = (tenant_st_data.get("admin_whatsapp_number") or "").strip()
+
+                if admin_phone and creds and creds.get("phone_number_id") and creds.get("access_token"):
+                    clean_admin_phone = re.sub(r'[^0-9]', '', admin_phone)
+                    if len(clean_admin_phone) == 10:
+                        clean_admin_phone = f"91{clean_admin_phone}"
+
+                    formatted_date = st_dt.strftime("%d-%m-%Y")
+                    formatted_time = st_dt.strftime("%I:%M %p")
+                    admin_pending_text = (
+                        f"⏳ *New Booking Request (Payment Pending)* 📅\n\n"
+                        f"• *Customer:* {name}\n"
+                        f"• *Phone:* {contact_phone}\n"
+                        f"• *Service:* {service_name}\n"
+                        f"• *Date & Time:* {formatted_date} at {formatted_time}\n"
+                        f"• *Amount Due:* {fee_curr} {eff_price:g}\n\n"
+                        f"Payment link sent to customer. Booking will auto-confirm once paid."
+                    )
+                    try:
+                        await send_text(
+                            phone_number_id=creds["phone_number_id"],
+                            access_token=creds["access_token"],
+                            to=clean_admin_phone,
+                            body=admin_pending_text,
+                        )
+                        logger.info("ai_booking_admin_pending_alert_sent", to=clean_admin_phone, booking_id=booking_id)
+                    except Exception as e_adm:
+                        logger.warning("ai_booking_admin_pending_alert_failed", error=str(e_adm))
+                return
 
             if creds and creds.get("phone_number_id") and creds.get("access_token") and not str(creds.get("access_token", "")).startswith("EAAB_test"):
                 template_name = (

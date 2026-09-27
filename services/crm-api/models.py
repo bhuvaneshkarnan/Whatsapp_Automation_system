@@ -102,6 +102,23 @@ class BookingCreatePayload(BaseModel):
     staff_member: Optional[str] = None
     doctor_name: Optional[str] = None
     send_whatsapp_confirmation: Optional[bool] = True
+    payment_mode: Optional[str] = None  # 'pay_at_clinic', 'online', 'free'
+    payment_status: Optional[str] = None  # 'unpaid', 'pending', 'paid'
+    collect_payment: Optional[bool] = None
+
+
+class GeneratePaymentLinkPayload(BaseModel):
+    amount: Optional[float] = None
+    description: Optional[str] = None
+
+
+class BookingPaymentLinkResponse(BaseModel):
+    booking_id: str
+    payment_link_id: str
+    payment_link_url: str
+    amount: float
+    currency: str
+    status: str
 
 
 class BookingPricePayload(BaseModel):
@@ -223,6 +240,17 @@ class TenantSettingsUpdate(BaseModel):
     partner_name: Optional[str] = None
     partner_share_pct: Optional[float] = None
     owner_share_pct: Optional[float] = None
+
+    # Tenant's Own Razorpay Credentials (Client's Razorpay Account)
+    razorpay_key_id: Optional[str] = None
+    razorpay_key_secret: Optional[str] = None
+    razorpay_webhook_secret: Optional[str] = None
+
+    # Booking Payment Policy & Fees
+    booking_payment_policy: Optional[str] = None  # 'pay_at_clinic', 'mandatory', 'customer_choice'
+    booking_fee_amount: Optional[float] = None
+    booking_fee_currency: Optional[str] = None
+    booking_fee_description: Optional[str] = None
 
     model_config = {"extra": "allow"}
 

@@ -760,3 +760,312 @@ async def handle_missed_call_webhook(
         }
 
 
+@router.post("/webhooks/razorpay/booking/{tenant_id}")
+@router.post("/api/v1/crm/webhooks/razorpay/booking/{tenant_id}")
+async def handle_tenant_booking_razorpay_webhook(
+    tenant_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Dedicated webhook route for tenant booking payments.
+    Strictly isolated: Verifies signature with THIS tenant's own secret from tenant_credentials.
+    NEVER touches or uses central platform Razorpay credentials.
+    Updates the booking to 'paid' & 'confirmed', and dispatches customer & admin notifications.
+    """
+    tenant_clean = tenant_id.strip()
+    tenant_uuid = None
+    try:
+        tenant_uuid = str(uuid.UUID(tenant_clean))
+    except ValueError:
+        pass
+
+    async with database.db_pool.acquire() as conn:
+        if tenant_uuid:
+            tenant_row = await conn.fetchrow(
+                "SELECT id, name, slug, settings FROM tenants WHERE id = $1::uuid AND is_active = true",
+                tenant_uuid
+            )
+        else:
+            tenant_row = await conn.fetchrow(
+                "SELECT id, name, slug, settings FROM tenants WHERE slug = $1 AND is_active = true",
+                tenant_clean
+            )
+
+        if not tenant_row:
+            logger.warning("tenant_booking_webhook_tenant_not_found", tenant_id=tenant_clean)
+            raise HTTPException(404, "Tenant not found or inactive")
+
+        tenant_uuid = str(tenant_row["id"])
+        tenant_name = tenant_row["name"] or "our team"
+        t_settings = safe_json_loads(tenant_row.get("settings"), {})
+
+        cred_row = await conn.fetchrow(
+            """SELECT credential_data FROM tenant_credentials
+               WHERE tenant_id = $1::uuid AND provider = 'razorpay' AND is_active = true""",
+            tenant_uuid
+        )
+
+    if not cred_row or not cred_row["credential_data"]:
+        logger.warning("tenant_booking_webhook_no_credentials", tenant_id=tenant_uuid)
+        raise HTTPException(404, "Tenant Razorpay credentials not configured")
+
+    d = cred_row["credential_data"]
+    if isinstance(d, str):
+        try: d = json.loads(d)
+        except Exception: d = {}
+
+    from services.tenant_payment_service import verify_tenant_webhook_signature
+    wh_secret = (d.get("webhook_secret") or "").strip()
+    key_secret = (d.get("key_secret") or "").strip()
+    effective_secret = wh_secret or key_secret
+
+    if not effective_secret:
+        raise HTTPException(400, "Tenant Razorpay webhook secret or key secret is not configured")
+
+    raw_body = await request.body()
+    signature = request.headers.get("x-razorpay-signature", "").strip()
+
+    if not signature:
+        logger.warning("tenant_booking_webhook_missing_signature", tenant_id=tenant_uuid)
+        raise HTTPException(400, "Missing x-razorpay-signature header")
+
+    verified = verify_tenant_webhook_signature(raw_body, signature, effective_secret)
+    if not verified:
+        logger.warning("tenant_booking_webhook_signature_mismatch", tenant_id=tenant_uuid)
+        raise HTTPException(400, "Invalid webhook signature")
+
+    try:
+        event_data = json.loads(raw_body.decode("utf-8"))
+    except Exception as e:
+        logger.warning("tenant_booking_webhook_bad_json", error=str(e))
+        raise HTTPException(400, "Invalid JSON payload")
+
+    event_type = event_data.get("event", "")
+    logger.info("tenant_booking_webhook_received", tenant_id=tenant_uuid, event=event_type)
+
+    payload = event_data.get("payload", {})
+    if not isinstance(payload, dict):
+        payload = {}
+
+    payment_link_entity = payload.get("payment_link", {}).get("entity", {}) if isinstance(payload.get("payment_link"), dict) else {}
+    payment_entity = payload.get("payment", {}).get("entity", {}) if isinstance(payload.get("payment"), dict) else {}
+    order_entity = payload.get("order", {}).get("entity", {}) if isinstance(payload.get("order"), dict) else {}
+
+    # Extract payment identifiers
+    plink_id = payment_link_entity.get("id") or _extract_note(payment_entity, "payment_link_id")
+    pay_id = payment_entity.get("id") or payment_link_entity.get("payment_id") or ""
+    amount_subunits = payment_entity.get("amount") or payment_link_entity.get("amount_paid") or payment_link_entity.get("amount") or 0
+    amount_paid = float(amount_subunits) / 100.0 if amount_subunits > 0 else 0.0
+
+    booking_id = (
+        _extract_note(payment_link_entity, "booking_id")
+        or _extract_note(payment_entity, "booking_id")
+        or _extract_note(order_entity, "booking_id")
+    )
+
+    # Multi-tenant isolated Redis deduplication check
+    event_id = event_data.get("id") or f"{event_type}:{pay_id or plink_id}"
+    dedup_key = f"rzp_booking_wh:{tenant_uuid}:{event_id}"
+    try:
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+        is_new = await r.set(dedup_key, "1", ex=86400, nx=True)
+        await r.close()
+        if not is_new:
+            logger.info("tenant_booking_webhook_duplicate_ignored", tenant_id=tenant_uuid, dedup_key=dedup_key)
+            return {"status": "ok", "message": "Duplicate event ignored"}
+    except Exception as e_red:
+        logger.warning("tenant_booking_webhook_redis_dedup_warning", error=str(e_red))
+
+    async with database.db_pool.acquire() as conn:
+        b_row = None
+        if booking_id:
+            try:
+                b_uuid = str(uuid.UUID(booking_id.strip()))
+                b_row = await conn.fetchrow(
+                    """SELECT id, contact_id, conversation_id, service, start_time, end_time, status, notes, staff_member, price, currency, payment_status, razorpay_payment_id
+                       FROM bookings WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                    b_uuid, tenant_uuid
+                )
+            except Exception:
+                b_row = None
+
+        if not b_row and plink_id:
+            b_row = await conn.fetchrow(
+                """SELECT id, contact_id, conversation_id, service, start_time, end_time, status, notes, staff_member, price, currency, payment_status, razorpay_payment_id
+                   FROM bookings WHERE razorpay_payment_link_id = $1 AND tenant_id = $2::uuid""",
+                str(plink_id).strip(), tenant_uuid
+            )
+
+        if not b_row:
+            logger.warning("tenant_booking_webhook_booking_not_found", tenant_id=tenant_uuid, booking_id=booking_id, plink_id=plink_id)
+            return {"status": "ok", "message": "Booking not found or not belonging to tenant"}
+
+        eff_booking_id = str(b_row["id"])
+        contact_id = str(b_row["contact_id"]) if b_row.get("contact_id") else None
+        service_name = b_row.get("service") or "Appointment"
+        st_dt = b_row.get("start_time")
+        et_dt = b_row.get("end_time")
+
+        # Handle non-successful events properly without confirming the booking
+        if event_type in ("payment.failed",):
+            logger.warning("tenant_booking_payment_failed_event", tenant_id=tenant_uuid, booking_id=eff_booking_id)
+            await conn.execute(
+                """UPDATE bookings SET payment_status = 'failed', updated_at = NOW()
+                   WHERE id = $1::uuid AND tenant_id = $2::uuid AND payment_status != 'paid'""",
+                eff_booking_id, tenant_uuid
+            )
+            return {"status": "ok", "message": "Payment failure recorded", "booking_id": eff_booking_id}
+
+        if event_type in ("payment_link.cancelled", "payment_link.expired"):
+            new_st = "cancelled" if "cancelled" in event_type else "expired"
+            await conn.execute(
+                """UPDATE bookings SET payment_status = $1, updated_at = NOW()
+                   WHERE id = $2::uuid AND tenant_id = $3::uuid AND payment_status != 'paid'""",
+                new_st, eff_booking_id, tenant_uuid
+            )
+            return {"status": "ok", "message": f"Payment link {new_st} recorded", "booking_id": eff_booking_id}
+
+        # Ignore informational non-payment events (e.g. payment_link.created)
+        if event_type not in ("payment_link.paid", "payment.captured", "order.paid"):
+            logger.info("tenant_booking_webhook_unhandled_event", event=event_type, booking_id=eff_booking_id)
+            return {"status": "ok", "message": f"Event {event_type} ignored"}
+
+        # Idempotency check: If booking is already paid, do not re-send confirmations or duplicate calendar sync
+        if b_row.get("payment_status") == "paid":
+            logger.info("tenant_booking_already_paid", tenant_id=tenant_uuid, booking_id=eff_booking_id)
+            return {"status": "ok", "message": "Booking already marked as paid", "booking_id": eff_booking_id}
+
+        # Update booking to paid & confirmed in PostgreSQL
+        await conn.execute(
+            """
+            UPDATE bookings
+            SET payment_status = 'paid',
+                payment_mode = 'online',
+                razorpay_payment_id = COALESCE(NULLIF($1, ''), razorpay_payment_id),
+                amount_paid = CASE WHEN $2::numeric > 0 THEN $2::numeric ELSE price END,
+                payment_collected_at = NOW(),
+                status = CASE WHEN status = 'pending' THEN 'confirmed' ELSE status END,
+                updated_at = NOW()
+            WHERE id = $3::uuid AND tenant_id = $4::uuid
+            """,
+            pay_id, amount_paid, eff_booking_id, tenant_uuid
+        )
+
+        logger.info(
+            "tenant_booking_payment_confirmed",
+            tenant_id=tenant_uuid,
+            booking_id=eff_booking_id,
+            payment_id=pay_id,
+            amount_paid=amount_paid
+        )
+
+        admin_wa_phone = (t_settings.get("admin_whatsapp_number") or "").strip()
+
+        contact_row = None
+        if contact_id:
+            contact_row = await conn.fetchrow(
+                "SELECT name, phone FROM contacts WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                contact_id, tenant_uuid
+            )
+        clean_cust_name = (contact_row.get("name") if contact_row else None) or "Valued Customer"
+        clean_cust_phone = (contact_row.get("phone") if contact_row else None) or ""
+
+        # Format date & time
+        tz_name = (t_settings.get("timezone") or "Asia/Kolkata").strip()
+        try:
+            import zoneinfo
+            tenant_tz = zoneinfo.ZoneInfo(tz_name)
+        except Exception:
+            tenant_tz = timezone(timedelta(hours=5, minutes=30))
+
+        st_loc = st_dt.astimezone(tenant_tz) if hasattr(st_dt, "astimezone") else st_dt
+        d_str = st_loc.strftime("%d %b %Y") if st_loc else ""
+        t_str = st_loc.strftime("%I:%M %p") if st_loc else ""
+
+        # Dispatch real web push notification for dashboard
+        try:
+            background_tasks.add_task(
+                dispatch_push_notification,
+                pool=database.db_pool,
+                tenant_id=tenant_uuid,
+                title=f"💳 Payment Received: {clean_cust_name}",
+                body=f"₹{amount_paid:g} received for {service_name} on {d_str} at {t_str}",
+                notif_type="booking_payment",
+                url="/dashboard#bookings",
+                data={"booking_id": eff_booking_id, "payment_id": pay_id}
+            )
+        except Exception as e_push:
+            logger.warning("tenant_booking_push_failed", error=str(e_push))
+
+        # Send WhatsApp payment confirmation to customer
+        if clean_cust_phone:
+            wa_confirm_msg = (
+                f"✅ *Payment Confirmed!*\n\n"
+                f"Thank you, {clean_cust_name}! We have received your payment of ₹{amount_paid:g} "
+                f"for *{service_name}* on *{d_str}* at *{t_str}*.\n\n"
+                f"Your appointment is locked in and confirmed with {tenant_name}. We look forward to seeing you!"
+            )
+            try:
+                background_tasks.add_task(
+                    dispatch_whatsapp_message,
+                    tenant_id=tenant_uuid,
+                    to_phone=clean_cust_phone,
+                    text=wa_confirm_msg
+                )
+            except Exception as e_wa:
+                logger.warning("tenant_booking_wa_confirm_failed", error=str(e_wa))
+
+        # Send WhatsApp alert to Admin
+        if admin_wa_phone:
+            admin_msg = (
+                f"💰 *Booking Payment Collected!*\n\n"
+                f"• *Customer:* {clean_cust_name} ({clean_cust_phone})\n"
+                f"• *Service:* {service_name}\n"
+                f"• *Amount Paid:* ₹{amount_paid:g}\n"
+                f"• *Date & Time:* {d_str} at {t_str}\n"
+                f"• *Payment ID:* {pay_id}\n"
+                f"• *Booking ID:* {eff_booking_id[:8]}"
+            )
+            try:
+                background_tasks.add_task(
+                    dispatch_whatsapp_message,
+                    tenant_id=tenant_uuid,
+                    to_phone=admin_wa_phone,
+                    text=admin_msg
+                )
+            except Exception as e_adm_wa:
+                logger.warning("tenant_booking_admin_wa_failed", error=str(e_adm_wa))
+
+        # Google Calendar Sync (using database.db_pool so connection is safe after request lifecycle)
+        try:
+            from services.crm_service import create_google_calendar_event
+            background_tasks.add_task(
+                create_google_calendar_event,
+                conn=database.db_pool,
+                tenant_id=tenant_uuid,
+                booking_id=eff_booking_id,
+                service_name=service_name,
+                clean_name=clean_cust_name,
+                clean_phone=clean_cust_phone,
+                notes=b_row.get("notes") or "",
+                st_dt=st_dt,
+                et_dt=et_dt,
+                source="Online Payment",
+                date_str=d_str,
+                clock_str=t_str,
+                full_location=(t_settings.get("full_location_text") or "").strip()
+            )
+        except Exception as e_gcal:
+            logger.warning("tenant_booking_gcal_sync_failed", error=str(e_gcal))
+
+    return {
+        "status": "success",
+        "booking_id": eff_booking_id,
+        "payment_status": "paid",
+        "amount_paid": amount_paid
+    }
+
+
+

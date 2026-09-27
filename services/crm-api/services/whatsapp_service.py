@@ -61,9 +61,12 @@ async def dispatch_whatsapp_message(
     text: Optional[str] = None,
     template_name: Optional[str] = None,
     template_params: Optional[list] = None,
-    suppress_admin_alert: bool = False
+    suppress_admin_alert: bool = False,
+    message_text: Optional[str] = None,
 ) -> Optional[dict]:
     """Helper to dispatch WhatsApp text message or approved Meta template to any destination phone."""
+    if not text and message_text:
+        text = message_text
     clean_phone = "".join(filter(str.isdigit, to_phone))
     if not clean_phone:
         return None

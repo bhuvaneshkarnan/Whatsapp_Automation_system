@@ -115,6 +115,18 @@ async def get_tenant_settings(
                 except: d = {}
             gcal_data = dict(d)
 
+        rzp_row = await conn.fetchrow(
+            "SELECT credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'razorpay' AND is_active = true",
+            tenant_id
+        )
+        rzp_data = {}
+        if rzp_row and rzp_row["credential_data"]:
+            d = rzp_row["credential_data"]
+            if isinstance(d, str):
+                try: d = json.loads(d)
+                except: d = {}
+            rzp_data = dict(d)
+
         ai_cfg_row = await conn.fetchrow("SELECT * FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
         ai_cfg = dict(ai_cfg_row) if ai_cfg_row else {}
 
@@ -143,6 +155,10 @@ async def get_tenant_settings(
     res_opencode_key = opencode_key if is_privileged else mask_secret(opencode_key)
     res_google_client_secret = gcal_data.get("client_secret", "") if is_privileged else mask_secret(gcal_data.get("client_secret", ""))
     res_google_refresh_token = gcal_data.get("refresh_token", "") if is_privileged else mask_secret(gcal_data.get("refresh_token", ""))
+    res_rzp_key_id = rzp_data.get("key_id", "")
+    res_rzp_key_secret = rzp_data.get("key_secret", "") if is_privileged else mask_secret(rzp_data.get("key_secret", ""))
+    res_rzp_webhook_secret = rzp_data.get("webhook_secret", "") if is_privileged else mask_secret(rzp_data.get("webhook_secret", ""))
+    has_rzp_creds = bool(rzp_data.get("key_id") and rzp_data.get("key_secret"))
 
     taxonomy_val = tenant_settings.get("taxonomy") if isinstance(tenant_settings.get("taxonomy"), dict) else {}
     if not taxonomy_val:
@@ -306,6 +322,17 @@ async def get_tenant_settings(
             or hashlib.sha256(f"{tenant_id}:{os.environ.get('JWT_SECRET', '')}:missed-call".encode()).hexdigest()[:16]
         ),
         "template_missed_call": tenant_settings.get("template_missed_call", "missed_call_followup"),
+
+        # Tenant's Own Razorpay Integration & Booking Payment Policy
+        "razorpay_key_id": res_rzp_key_id,
+        "razorpay_key_secret": res_rzp_key_secret,
+        "razorpay_webhook_secret": res_rzp_webhook_secret,
+        "has_razorpay": has_rzp_creds,
+        "razorpay_booking_webhook_url": f"{APP_BASE_URL}/api/v1/crm/webhooks/razorpay/booking/{tenant['id']}",
+        "booking_payment_policy": tenant_settings.get("booking_payment_policy", "pay_at_clinic"),
+        "booking_fee_amount": float(tenant_settings.get("booking_fee_amount", 0.0)) if tenant_settings.get("booking_fee_amount") is not None else 0.0,
+        "booking_fee_currency": tenant_settings.get("booking_fee_currency", "INR"),
+        "booking_fee_description": tenant_settings.get("booking_fee_description", "Appointment Booking Fee"),
     }
 
 
@@ -719,6 +746,16 @@ async def update_tenant_settings(
         if getattr(payload, "owner_share_pct", None) is not None:
             cur_settings["owner_share_pct"] = float(payload.owner_share_pct)
 
+        # Booking payment policy & fees
+        if getattr(payload, "booking_payment_policy", None) is not None:
+            cur_settings["booking_payment_policy"] = payload.booking_payment_policy.strip().lower()
+        if getattr(payload, "booking_fee_amount", None) is not None:
+            cur_settings["booking_fee_amount"] = float(payload.booking_fee_amount)
+        if getattr(payload, "booking_fee_currency", None) is not None:
+            cur_settings["booking_fee_currency"] = payload.booking_fee_currency.strip().upper()
+        if getattr(payload, "booking_fee_description", None) is not None:
+            cur_settings["booking_fee_description"] = payload.booking_fee_description.strip()
+
         await conn.execute(
             "UPDATE tenants SET settings = $1::jsonb WHERE id = $2::uuid",
             json.dumps(cur_settings), tenant_id
@@ -822,6 +859,50 @@ async def update_tenant_settings(
                 await conn.execute("UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true WHERE id = $2::uuid AND tenant_id = $3::uuid", json.dumps(g_data), g_id, tenant_id)
             else:
                 await conn.execute("INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'google_calendar', $3::jsonb, true)", g_id, tenant_id, json.dumps(g_data))
+
+        # 5. Update Tenant's Own Razorpay Credentials
+        if (
+            getattr(payload, "razorpay_key_id", None) is not None
+            or getattr(payload, "razorpay_key_secret", None) is not None
+            or getattr(payload, "razorpay_webhook_secret", None) is not None
+        ):
+            rz_row = await conn.fetchrow(
+                "SELECT id, credential_data FROM tenant_credentials WHERE tenant_id = $1::uuid AND provider = 'razorpay'",
+                tenant_id
+            )
+            rz_data = {}
+            rz_id = str(rz_row["id"]) if rz_row else str(uuid.uuid4())
+            if rz_row and rz_row["credential_data"]:
+                d = rz_row["credential_data"]
+                if isinstance(d, str):
+                    try: d = json.loads(d)
+                    except: d = {}
+                rz_data = dict(d)
+
+            if payload.razorpay_key_id is not None:
+                rz_data["key_id"] = payload.razorpay_key_id.strip()
+
+            # Prevent overwriting real secret with masked asterisks (••••••••xxxx)
+            if payload.razorpay_key_secret is not None:
+                sec_val = payload.razorpay_key_secret.strip()
+                if sec_val and not sec_val.startswith("••••") and "••" not in sec_val:
+                    rz_data["key_secret"] = sec_val
+
+            if payload.razorpay_webhook_secret is not None:
+                wh_val = payload.razorpay_webhook_secret.strip()
+                if wh_val and not wh_val.startswith("••••") and "••" not in wh_val:
+                    rz_data["webhook_secret"] = wh_val
+
+            if rz_row:
+                await conn.execute(
+                    "UPDATE tenant_credentials SET credential_data = $1::jsonb, is_active = true, updated_at = NOW() WHERE id = $2::uuid AND tenant_id = $3::uuid",
+                    json.dumps(rz_data), rz_id, tenant_id
+                )
+            else:
+                await conn.execute(
+                    "INSERT INTO tenant_credentials (id, tenant_id, provider, credential_data, is_active) VALUES ($1::uuid, $2::uuid, 'razorpay', $3::jsonb, true)",
+                    rz_id, tenant_id, json.dumps(rz_data)
+                )
 
         ai_row = await conn.fetchrow("SELECT * FROM ai_config WHERE tenant_id = $1::uuid", tenant_id)
         ai_dict = dict(ai_row) if ai_row else {}

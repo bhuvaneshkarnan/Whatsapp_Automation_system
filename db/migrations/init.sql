@@ -58,7 +58,7 @@ CREATE INDEX IF NOT EXISTS idx_tenants_sub_id ON tenants(razorpay_subscription_i
 CREATE TABLE IF NOT EXISTS tenant_credentials (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id        UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  provider         TEXT NOT NULL CHECK (provider IN ('whatsapp', 'gemini', 'google_calendar')),
+  provider         TEXT NOT NULL CHECK (provider IN ('whatsapp', 'gemini', 'groq', 'opencode', 'google_calendar', 'razorpay')),
   -- WhatsApp fields (stored as JSONB for flexibility)
   -- { phone_number_id, access_token, waba_id, verify_token, phone_number }
   -- Gemini fields: { api_key, model }
@@ -169,9 +169,19 @@ CREATE TABLE IF NOT EXISTS bookings (
   cancellation_reason   TEXT,
   rescheduled_from      UUID REFERENCES bookings(id),
   metadata              JSONB DEFAULT '{}',
+  payment_status        TEXT DEFAULT 'unpaid',
+  payment_mode          TEXT DEFAULT 'pay_at_clinic',
+  razorpay_payment_link_id TEXT,
+  razorpay_payment_link_url TEXT,
+  razorpay_payment_id   TEXT,
+  amount_paid           NUMERIC(10, 2) DEFAULT 0.0,
+  payment_collected_at  TIMESTAMPTZ,
   created_at            TIMESTAMPTZ DEFAULT now(),
   updated_at            TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS idx_bookings_tenant_payment_link ON bookings(tenant_id, razorpay_payment_link_id);
+CREATE INDEX IF NOT EXISTS idx_bookings_tenant_payment_status ON bookings(tenant_id, payment_status);
 
 -- ── AI / Rule Config per tenant ────────────────────────────
 CREATE TABLE IF NOT EXISTS ai_config (

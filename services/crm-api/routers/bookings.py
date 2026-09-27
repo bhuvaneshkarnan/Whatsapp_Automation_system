@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any, Union
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Body
 import database
-from models import BookingCreatePayload, BookingStatusPayload, BookingPricePayload
+from models import BookingCreatePayload, BookingStatusPayload, BookingPricePayload, GeneratePaymentLinkPayload
 from dependencies import get_tenant_id, get_caller_context
 from routers.auth import get_admin_tenant_settings
 import utils
@@ -54,6 +54,8 @@ async def list_bookings(
         query = """
             SELECT b.id, b.service, b.staff_member, b.start_time, b.end_time, b.status,
                    b.notes, b.price, b.currency, b.created_at,
+                   b.payment_status, b.payment_mode, b.razorpay_payment_link_id,
+                   b.razorpay_payment_link_url, b.razorpay_payment_id, b.amount_paid, b.payment_collected_at,
                    COALESCE(b.source, b.metadata->>'source', 'crm') AS source,
                    COALESCE(c.name, b.metadata->>'customer_name', b.metadata->>'name', 'Valued Customer') as contact_name,
                    COALESCE(c.phone, b.metadata->>'customer_phone', b.metadata->>'phone', '') as contact_phone,
@@ -97,6 +99,13 @@ async def list_bookings(
                 "notes": "Booked by another specialty team",
                 "price": 0.0,
                 "currency": r["currency"] or "INR",
+                "payment_status": r["payment_status"] or "unpaid",
+                "payment_mode": r["payment_mode"] or "pay_at_clinic",
+                "razorpay_payment_link_id": r["razorpay_payment_link_id"] or "",
+                "razorpay_payment_link_url": r["razorpay_payment_link_url"] or "",
+                "razorpay_payment_id": r["razorpay_payment_id"] or "",
+                "amount_paid": float(r["amount_paid"]) if r["amount_paid"] is not None else 0.0,
+                "payment_collected_at": r["payment_collected_at"].isoformat() if r["payment_collected_at"] else None,
                 "contact_name": "Occupied Slot",
                 "contact_phone": "",
                 "created_at": r["created_at"].isoformat() if r["created_at"] else "",
@@ -116,6 +125,13 @@ async def list_bookings(
                 "notes": r["notes"] or "",
                 "price": float(r["price"]) if r["price"] is not None else 0.0,
                 "currency": r["currency"] or "INR",
+                "payment_status": r["payment_status"] or "unpaid",
+                "payment_mode": r["payment_mode"] or "pay_at_clinic",
+                "razorpay_payment_link_id": r["razorpay_payment_link_id"] or "",
+                "razorpay_payment_link_url": r["razorpay_payment_link_url"] or "",
+                "razorpay_payment_id": r["razorpay_payment_id"] or "",
+                "amount_paid": float(r["amount_paid"]) if r["amount_paid"] is not None else 0.0,
+                "payment_collected_at": r["payment_collected_at"].isoformat() if r["payment_collected_at"] else None,
                 "contact_name": r["contact_name"] or "",
                 "contact_phone": r["contact_phone"] or "",
                 "created_at": r["created_at"].isoformat() if r["created_at"] else "",
@@ -223,6 +239,33 @@ async def create_booking(
         slot_booking_mode = s_data.get("slot_booking_mode", "single") if isinstance(s_data, dict) else "single"
         max_concurrent = int(s_data.get("max_concurrent_bookings", 1)) if isinstance(s_data, dict) else 1
 
+        # Booking payment policy & mode resolution
+        booking_payment_policy = (s_data.get("booking_payment_policy") or "pay_at_clinic").strip().lower() if isinstance(s_data, dict) else "pay_at_clinic"
+        default_fee = float(s_data.get("booking_fee_amount") or 0.0) if isinstance(s_data, dict) else 0.0
+        fee_currency = (s_data.get("booking_fee_currency") or "INR").strip().upper() if isinstance(s_data, dict) else "INR"
+        fee_desc = (s_data.get("booking_fee_description") or f"Appointment Booking: {payload.service.strip()}").strip() if isinstance(s_data, dict) else f"Appointment Booking: {payload.service.strip()}"
+
+        eff_mode = payload.payment_mode
+        if not eff_mode:
+            if payload.collect_payment:
+                eff_mode = "online"
+            elif booking_payment_policy == "mandatory":
+                eff_mode = "online"
+            else:
+                eff_mode = "pay_at_clinic"
+        eff_mode = eff_mode.strip().lower()
+
+        eff_price = float(payload.price or 0.0)
+        if eff_price <= 0 and default_fee > 0:
+            eff_price = default_fee
+
+        if eff_mode == "online":
+            initial_booking_status = "pending" if booking_payment_policy == "mandatory" else "confirmed"
+            initial_payment_status = "pending"
+        else:
+            initial_booking_status = "confirmed"
+            initial_payment_status = "unpaid" if eff_price > 0 else "waived"
+
         send_wa = payload.send_whatsapp_confirmation is not False
         initial_reminder_sent = datetime.now(timezone.utc) if not send_wa else None
         initial_review_sent = datetime.now(timezone.utc) if not send_wa else None
@@ -276,15 +319,15 @@ async def create_booking(
                 await conn.execute(
                     """UPDATE bookings
                        SET service = $1, start_time = $2, end_time = $3, notes = $4, price = $5,
-                           staff_member = $6, updated_at = NOW()
-                       WHERE id = $7::uuid AND tenant_id = $8::uuid""",
-                    payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0), staff, booking_id, tenant_id
+                           staff_member = $6, payment_mode = $7, payment_status = $8, updated_at = NOW()
+                       WHERE id = $9::uuid AND tenant_id = $10::uuid""",
+                    payload.service.strip(), st_dt, et_dt, payload.notes or "", eff_price, staff, eff_mode, initial_payment_status, booking_id, tenant_id
                 )
             else:
                 await conn.execute(
-                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member, reminder_sent_at, review_sent_at, metadata)
-                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'confirmed', $8, $9, 'INR', $10, $11, $12, $13::jsonb)""",
-                    booking_id, tenant_id, contact_id, conv_id, payload.service.strip(), st_dt, et_dt, payload.notes or "", float(payload.price or 0.0), staff, initial_reminder_sent, initial_review_sent, initial_metadata
+                    """INSERT INTO bookings (id, tenant_id, contact_id, conversation_id, service, start_time, end_time, status, notes, price, currency, staff_member, reminder_sent_at, review_sent_at, metadata, payment_status, payment_mode)
+                       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17)""",
+                    booking_id, tenant_id, contact_id, conv_id, payload.service.strip(), st_dt, et_dt, initial_booking_status, payload.notes or "", eff_price, fee_currency, staff, initial_reminder_sent, initial_review_sent, initial_metadata, initial_payment_status, eff_mode
                 )
 
         # 2b. Auto-link/upsert customer in CRM by phone so booking history is visible on customer profile
@@ -360,9 +403,9 @@ async def create_booking(
         clock_str = st_local.strftime("%I:%M %p")
         time_str = st_local.strftime("%d %b %Y at %I:%M %p")
 
-        # 4. Push Approved WhatsApp Confirmation Template to customer (if enabled)
+        # 4. Push Approved WhatsApp Confirmation Template to customer (if enabled and confirmed)
         template_sent = False
-        if send_wa:
+        if send_wa and initial_booking_status == "confirmed":
             tpl_name = (
                 tenant_settings.get("template_booking_confirmation") or
                 creds.get("template_booking_confirmation") or
@@ -645,26 +688,27 @@ async def create_booking(
             except: contact_meta = {}
         cust_email = contact_meta.get("email") if isinstance(contact_meta, dict) else None
 
-        await create_google_calendar_event(
-            conn=conn,
-            tenant_id=tenant_id,
-            booking_id=booking_id,
-            service_name=payload.service.strip(),
-            clean_name=clean_name,
-            clean_phone=clean_phone,
-            notes=payload.notes or "",
-            st_dt=st_dt,
-            et_dt=et_dt,
-            customer_email=cust_email,
-            source="CRM",
-            date_str=date_str,
-            clock_str=clock_str,
-            full_location=full_location if send_wa else ""
-        )
+        if initial_booking_status == "confirmed":
+            await create_google_calendar_event(
+                conn=conn,
+                tenant_id=tenant_id,
+                booking_id=booking_id,
+                service_name=payload.service.strip(),
+                clean_name=clean_name,
+                clean_phone=clean_phone,
+                notes=payload.notes or "",
+                st_dt=st_dt,
+                et_dt=et_dt,
+                customer_email=cust_email,
+                source="CRM",
+                date_str=date_str,
+                clock_str=clock_str,
+                full_location=full_location if send_wa else ""
+            )
 
-        # Schedule automatic 2h reminder and 30m admin reminder (only if WhatsApp notifications enabled)
+        # Schedule automatic 2h reminder and 30m admin reminder (only if confirmed and WhatsApp notifications enabled)
         # Note: 24h reminder is omitted because Meta template 'appointment_ramainder' explicitly states 'coming up today'
-        if send_wa:
+        if send_wa and initial_booking_status == "confirmed":
             try:
                 now_dt = datetime.now(tenant_tz)
                 remind_2h = st_dt - timedelta(hours=2)
@@ -687,17 +731,117 @@ async def create_booking(
         else:
             logger.info("scheduled_reminder_jobs_skipped_internal_booking", booking_id=booking_id)
 
+    # Dynamic Razorpay Payment Link generation using tenant credentials if online payment requested
+    payment_link_data = None
+    if eff_mode == "online" and eff_price > 0:
+        try:
+            from services.tenant_payment_service import create_booking_payment_link
+            payment_link_data = await create_booking_payment_link(
+                tenant_id=tenant_id,
+                booking_id=booking_id,
+                amount=eff_price,
+                customer_name=clean_name,
+                customer_phone=clean_phone,
+                customer_email=cust_email,
+                description=fee_desc,
+                currency=fee_currency,
+                db=database.db_pool,
+            )
+            # If WhatsApp notifications are enabled, send payment link directly to customer
+            if payment_link_data and payment_link_data.get("payment_link_url") and send_wa and creds.get("phone_number_id") and creds.get("access_token"):
+                plink_url = payment_link_data["payment_link_url"]
+                plink_msg = f"💳 *Complete Your Appointment Booking:*\nPlease complete your online payment of {fee_currency} {eff_price:g} using this secure link:\n{plink_url}\n\nYour appointment will be confirmed once payment is complete."
+                try:
+                    import httpx
+                    async with httpx.AsyncClient(timeout=8.0) as client:
+                        await client.post(
+                            f"https://graph.facebook.com/v19.0/{creds['phone_number_id']}/messages",
+                            headers={"Authorization": f"Bearer {creds['access_token']}", "Content-Type": "application/json"},
+                            json={"messaging_product": "whatsapp", "recipient_type": "individual", "to": clean_phone, "type": "text", "text": {"body": plink_msg}}
+                        )
+                except Exception as e_plink_wa:
+                    logger.warning("failed_to_send_payment_link_wa", error=str(e_plink_wa))
+        except Exception as e_plink:
+            logger.warning("create_booking_online_payment_link_failed", tenant_id=tenant_id, booking_id=booking_id, error=str(e_plink))
+
     return {
-        "status": "created",
+        "status": initial_booking_status,
         "id": booking_id,
         "service": payload.service.strip(),
         "start_time": st_dt.isoformat(),
         "end_time": et_dt.isoformat(),
-        "price": float(payload.price or 0.0),
+        "price": eff_price,
+        "currency": fee_currency,
         "contact_name": clean_name,
         "contact_phone": clean_phone,
-        "whatsapp_confirmed": template_sent if send_wa else False
+        "whatsapp_confirmed": template_sent if send_wa else False,
+        "payment_mode": eff_mode,
+        "payment_status": initial_payment_status,
+        "payment_link_url": payment_link_data.get("payment_link_url") if payment_link_data else "",
+        "razorpay_payment_link_id": payment_link_data.get("payment_link_id") if payment_link_data else ""
     }
+
+
+@router.post("/bookings/{booking_id}/payment-link")
+@router.post("/api/v1/crm/bookings/{booking_id}/payment-link")
+async def generate_booking_payment_link(
+    booking_id: str,
+    payload: Optional[GeneratePaymentLinkPayload] = None,
+    tenant_id: str = Depends(get_tenant_id),
+    caller: dict = Depends(get_caller_context)
+):
+    """
+    Generate or regenerate a Razorpay Payment Link for an existing booking using the tenant's credentials.
+    Strictly isolated: Uses ONLY this tenant's credentials from tenant_credentials table.
+    """
+    async with database.db_pool.acquire() as conn:
+        booking = await conn.fetchrow(
+            """
+            SELECT b.id, b.service, b.price, b.currency, b.payment_status,
+                   b.razorpay_payment_link_url, b.razorpay_payment_link_id,
+                   COALESCE(c.name, b.metadata->>'customer_name', 'Valued Customer') as customer_name,
+                   COALESCE(c.phone, b.metadata->>'customer_phone', '') as customer_phone
+            FROM bookings b
+            LEFT JOIN contacts c ON c.id = b.contact_id AND c.tenant_id = b.tenant_id
+            WHERE b.id = $1::uuid AND b.tenant_id = $2::uuid
+            """,
+            booking_id, tenant_id
+        )
+        if not booking:
+            raise HTTPException(404, "Booking not found")
+
+        if booking["payment_status"] == "paid":
+            raise HTTPException(400, "Booking is already paid.")
+
+        # Determine amount: explicit payload amount > booking.price > tenant default fee
+        amt = float(payload.amount) if (payload and payload.amount and payload.amount > 0) else float(booking["price"] or 0.0)
+        if amt <= 0:
+            t_row = await conn.fetchrow("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+            if t_row and t_row["settings"]:
+                s = safe_json_loads(t_row["settings"])
+                if s.get("booking_fee_amount"):
+                    amt = float(s["booking_fee_amount"])
+
+        if amt <= 0:
+            raise HTTPException(400, "Booking price must be greater than zero to generate a payment link.")
+
+        currency = booking["currency"] or "INR"
+        desc = (payload.description if payload and payload.description else f"Appointment Payment: {booking['service']}").strip()
+
+        from services.tenant_payment_service import create_booking_payment_link
+        link_data = await create_booking_payment_link(
+            tenant_id=tenant_id,
+            booking_id=booking_id,
+            amount=amt,
+            customer_name=booking["customer_name"] or "Valued Customer",
+            customer_phone=booking["customer_phone"] or "",
+            description=desc,
+            currency=currency,
+            db=conn,
+        )
+
+        return link_data
+
 
 
 @router.patch("/bookings/{booking_id}/price")
