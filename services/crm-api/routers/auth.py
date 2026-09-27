@@ -274,10 +274,19 @@ async def list_admin_tenants(
         if isinstance(cfg, str):
             try: cfg = json.loads(cfg)
             except: cfg = {}
-        monthly_price = float(cfg.get("monthly_price", 999.0 if (r["plan"] or "").lower() == "starter" else (9999.0 if (r["plan"] or "").lower() == "enterprise" else 2630.0)))
+        PERSONAL_SLUGS = {"boldlabs", "mindbodyrecovery", "smaato-mobile", "bizpipe-demo"}
+        is_personal = bool(cfg.get("is_personal") or cfg.get("is_internal") or (r["slug"] or "").lower() in PERSONAL_SLUGS)
+        raw_price = cfg.get("monthly_price")
+        if is_personal or raw_price == 0 or raw_price == 0.0:
+            monthly_price = 0.0
+        elif raw_price is not None:
+            monthly_price = float(raw_price)
+        else:
+            monthly_price = 999.0 if (r["plan"] or "").lower() == "starter" else (9999.0 if (r["plan"] or "").lower() == "enterprise" else 2630.0)
+
         billing_day = int(cfg.get("billing_cycle_day", 1))
         razorpay_sub_id = r["razorpay_subscription_id"] or cfg.get("razorpay_subscription_id", "")
-        next_renewal = r["next_charge_at"].strftime("%d %b %Y") if r["next_charge_at"] else cfg.get("next_renewal_date", f"Day {billing_day} of every month")
+        next_renewal = "Personal / Internal" if is_personal else (r["next_charge_at"].strftime("%d %b %Y") if r["next_charge_at"] else cfg.get("next_renewal_date", f"Day {billing_day} of every month"))
         admin_phone = cfg.get("admin_whatsapp_number", "")
         sha_token = hashlib.sha256(f"{str(r['id'])}:{JWT_SECRET}:missed-call".encode()).hexdigest()[:32]
         m_token = cfg.get("missed_call_token") or sha_token
@@ -296,6 +305,7 @@ async def list_admin_tenants(
             "message_count": int(r["message_count"] or 0),
             "whatsapp_configured": bool(r["whatsapp_configured"]),
             "google_calendar_configured": bool(r["google_calendar_configured"]),
+            "is_personal": is_personal,
             "monthly_price": monthly_price,
             "billing_cycle_day": billing_day,
             "razorpay_customer_id": r["razorpay_customer_id"] or "",
@@ -1054,6 +1064,10 @@ async def update_tenant_billing_config(tenant_id: str, payload: TenantBillingUpd
             cur_settings["owner_share_pct"] = float(payload.owner_share_pct)
         if payload.plan is not None:
             cur_settings["plan"] = payload.plan.strip()
+        if payload.is_personal is not None:
+            cur_settings["is_personal"] = bool(payload.is_personal)
+            if payload.is_personal:
+                cur_settings["monthly_price"] = 0.0
             
         new_plan = payload.plan or t_row["plan"]
         await conn.execute(

@@ -210,6 +210,17 @@ const TIMEZONE_LIST = [
   { value: 'UTC', label: 'UTC - Coordinated Universal Time' },
 ];
 
+export const PERSONAL_SLUGS = new Set(['boldlabs', 'mindbodyrecovery', 'smaato-mobile', 'bizpipe-demo']);
+
+export function isPersonalTenant(t?: { slug?: string; is_personal?: boolean; monthly_price?: number; plan?: string } | null): boolean {
+  if (!t) return false;
+  if (t.is_personal === true) return true;
+  if (t.slug && PERSONAL_SLUGS.has(t.slug.toLowerCase().trim())) return true;
+  if (t.is_personal === false) return false;
+  if (t.monthly_price === 0) return true;
+  return false;
+}
+
 const PREBUILT_REQUIREMENTS_BY_INDUSTRY: Record<string, string[]> = {
   clinic: [
     'General Consultation',
@@ -1396,7 +1407,12 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
   // ── Open & Save Tenant Configuration ───────────────────────────────────────
   async function handleOpenConfig(tenant: ClientTenant, initialTab: 'ai' | 'whatsapp' | 'templates' | 'location' | 'calendar' | 'whitelabel' | 'billing' | 'team' = 'ai') {
-    setEditingConfigTenant(tenant);
+    const isPers = isPersonalTenant(tenant);
+    setEditingConfigTenant({
+      ...tenant,
+      is_personal: isPers,
+      monthly_price: isPers ? 0 : (tenant.monthly_price ?? 2630),
+    });
     setConfigTab(initialTab);
     setConfigLoading(true);
     setConfigError('');
@@ -1526,6 +1542,17 @@ Any missed call will now automatically get followed up on WhatsApp!`;
     try {
       const updated = await admin.updateTenantSettings(editingConfigTenant.id, configForm);
       setConfigForm(updated);
+
+      await admin.updateTenantBilling(editingConfigTenant.id, {
+        plan: editingConfigTenant.plan,
+        monthly_price: editingConfigTenant.is_personal ? 0 : Number(editingConfigTenant.monthly_price ?? 2630),
+        sales_channel: editingConfigTenant.sales_channel,
+        partner_name: editingConfigTenant.partner_name,
+        partner_share_pct: editingConfigTenant.partner_share_pct,
+        owner_share_pct: editingConfigTenant.owner_share_pct,
+        is_personal: Boolean(editingConfigTenant.is_personal),
+      });
+
       setConfigSavedNotice(true);
       setActionSuccessNotice(`Settings saved for "${editingConfigTenant.name}"`);
       setTimeout(() => {
@@ -1736,6 +1763,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
   const directMRR = directTenants.reduce((acc, t) => {
     if (t.status !== 'active') return acc;
+    if (isPersonalTenant(t)) return acc;
     if (t.monthly_price) return acc + t.monthly_price;
     const plan = (t.plan || 'pro').toLowerCase();
     if (plan === 'starter') return acc + 999;
@@ -1745,12 +1773,14 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
   const partnerGrossMRR = partnerTenants.reduce((acc, t) => {
     if (t.status !== 'active') return acc;
+    if (isPersonalTenant(t)) return acc;
     const price = t.monthly_price || ((t.plan || 'pro').toLowerCase() === 'starter' ? 999 : (t.plan || 'pro').toLowerCase() === 'enterprise' ? 9999 : 3499);
     return acc + price;
   }, 0);
 
   const partnerCommissionMRR = partnerTenants.reduce((acc, t) => {
     if (t.status !== 'active') return acc;
+    if (isPersonalTenant(t)) return acc;
     const price = t.monthly_price || ((t.plan || 'pro').toLowerCase() === 'starter' ? 999 : (t.plan || 'pro').toLowerCase() === 'enterprise' ? 9999 : 3499);
     const splitPct = t.partner_share_pct ?? 50;
     return acc + (price * (splitPct / 100));
@@ -1915,6 +1945,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
   const totalCalculatedMRR = tenants.reduce((acc, t) => {
     if (t.status !== 'active') return acc;
+    if (isPersonalTenant(t)) return acc;
     if (t.monthly_price) return acc + t.monthly_price;
     const plan = (t.plan || 'pro').toLowerCase();
     if (plan === 'starter') return acc + 999;
@@ -3432,24 +3463,42 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
                             {/* Plan & Rate */}
                             <td className="py-2.5 px-4 whitespace-nowrap">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded bg-surface-subtle text-text-secondary border border-border">
-                                  {t.plan || 'CUSTOM'}
-                                </span>
-                                <span className="text-xs font-mono font-semibold tabular-nums text-text-primary">
-                                  ₹{planFee.toLocaleString('en-IN')}<span className="text-[10px] font-normal text-text-muted">/mo</span>
-                                </span>
-                              </div>
-                              <div className="text-[10px] text-text-muted flex items-center gap-1 mt-0.5 whitespace-nowrap">
-                                <Calendar className="w-2.5 h-2.5 text-text-muted shrink-0" />
-                                <span>{t.next_renewal_date || 'Renews 1st of month'}</span>
-                              </div>
+                              {isPersonalTenant(t) ? (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded bg-surface-subtle text-text-secondary border border-border">
+                                    {t.plan || 'PERSONAL'}
+                                  </span>
+                                  <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                                    Personal
+                                  </span>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded bg-surface-subtle text-text-secondary border border-border">
+                                      {t.plan || 'CUSTOM'}
+                                    </span>
+                                    <span className="text-xs font-mono font-semibold tabular-nums text-text-primary">
+                                      ₹{(t.monthly_price != null ? t.monthly_price : planFee).toLocaleString('en-IN')}<span className="text-[10px] font-normal text-text-muted">/mo</span>
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] text-text-muted flex items-center gap-1 mt-0.5 whitespace-nowrap">
+                                    <Calendar className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                                    <span>{t.next_renewal_date || 'Renews 1st of month'}</span>
+                                  </div>
+                                </>
+                              )}
                             </td>
 
                             {/* Razorpay Subscription Lifecycle */}
                             <td className="py-2.5 px-4 whitespace-nowrap">
                               <div className="inline-flex items-center gap-1.5">
-                                {t.status !== 'active' ? (
+                                {isPersonalTenant(t) ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
+                                    <Check className="w-3 h-3 text-emerald-600" />
+                                    <span>Personal • Exempt</span>
+                                  </span>
+                                ) : t.status !== 'active' ? (
                                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
                                     <Pause className="w-2.5 h-2.5 fill-current" />
                                     <span>Workspace Paused</span>
@@ -3564,7 +3613,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                         </button>
 
                                         {/* Pay Link */}
-                                        {!t.razorpay_short_url ? (
+                                        {!isPersonalTenant(t) && (!t.razorpay_short_url ? (
                                           <button
                                             onClick={() => {
                                               setActionMenuTenantId(null);
@@ -3589,7 +3638,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                             <CreditCard className="w-3.5 h-3.5 text-purple-600" />
                                             <span>View Pay Link</span>
                                           </button>
-                                        )}
+                                        ))}
 
                                         <div className="my-1 border-t border-border" />
 
@@ -3763,14 +3812,25 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
                           <div>
                             <span className="text-[10px] text-text-muted block">Plan & Price</span>
-                            <div className="flex items-center gap-1 mt-0.5">
-                              <span className="text-[10px] font-mono font-semibold uppercase px-1 py-0.2 rounded bg-surface border border-border text-text-secondary">
-                                {t.plan || 'PRO'}
-                              </span>
-                              <span className="text-[11px] font-mono font-semibold text-text-primary">
-                                ₹{planFee.toLocaleString('en-IN')}<span className="text-[9px] font-normal text-text-muted">/m</span>
-                              </span>
-                            </div>
+                            {isPersonalTenant(t) ? (
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <span className="text-[10px] font-mono font-semibold uppercase px-1 py-0.2 rounded bg-surface border border-border text-text-secondary">
+                                  {t.plan || 'PERSONAL'}
+                                </span>
+                                <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.2 rounded-full">
+                                  Personal
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <span className="text-[10px] font-mono font-semibold uppercase px-1 py-0.2 rounded bg-surface border border-border text-text-secondary">
+                                  {t.plan || 'PRO'}
+                                </span>
+                                <span className="text-[11px] font-mono font-semibold text-text-primary">
+                                  ₹{(t.monthly_price != null ? t.monthly_price : planFee).toLocaleString('en-IN')}<span className="text-[9px] font-normal text-text-muted">/m</span>
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -3778,7 +3838,12 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                         <div className="flex items-center justify-between text-xs">
                           <div className="flex items-center gap-1">
                             <span className="text-[11px] text-text-muted">Billing:</span>
-                            {t.subscription_status === 'active' ? (
+                            {isPersonalTenant(t) ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
+                                <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                <span>Personal • Exempt</span>
+                              </span>
+                            ) : t.subscription_status === 'active' ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
                                 <Check className="w-2.5 h-2.5 text-emerald-600" />
                                 <span>{t.razorpay_subscription_id ? 'Paid (Auto)' : 'Active (Manual)'}</span>
@@ -3851,7 +3916,15 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                             <span>Meta</span>
                           </button>
 
-                          {!t.razorpay_short_url ? (
+                          {isPersonalTenant(t) ? (
+                            <button
+                              onClick={() => openTenantOnboardingModal(t)}
+                              className="py-1.5 px-2 bg-indigo-500/10 active:bg-indigo-500/20 text-indigo-800 dark:text-indigo-300 border border-indigo-500/30 rounded text-[11px] font-medium transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-xs touch-manipulation"
+                            >
+                              <ListChecks className="w-3 h-3 text-indigo-700 dark:text-indigo-400" />
+                              <span>Checklist</span>
+                            </button>
+                          ) : !t.razorpay_short_url ? (
                             <button
                               onClick={() => {
                                 setClientPaymentPhone(t.admin_whatsapp_number || '');
@@ -4007,22 +4080,37 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                         </div>
 
                         <div className="mt-3 space-y-1.5 text-xs">
-                          <div className="flex justify-between text-text-secondary">
-                            <span>Subscription rate:</span>
-                            <span className="font-medium font-mono tabular-nums text-text-primary">₹{planFee.toLocaleString('en-IN')} / mo</span>
-                          </div>
-                          <div className="flex justify-between text-text-secondary">
-                            <span>Billing cycle:</span>
-                            <span className="text-text-primary">Every {renewalDay}th of month</span>
-                          </div>
-                          <div className="flex justify-between text-text-secondary">
-                            <span>Razorpay Sub ID:</span>
-                            <span className="font-mono text-text-muted">{t.razorpay_subscription_id || 'Auto-debit active'}</span>
-                          </div>
-                          <div className="flex justify-between text-text-secondary">
-                            <span>Payment method:</span>
-                            <span className="text-status-success font-medium">Razorpay Auto-Debit</span>
-                          </div>
+                          {isPersonalTenant(t) ? (
+                            <>
+                              <div className="flex justify-between text-text-secondary">
+                                <span>Account Type:</span>
+                                <span className="font-medium text-emerald-600 dark:text-emerald-400">Personal / Internal</span>
+                              </div>
+                              <div className="flex justify-between text-text-secondary">
+                                <span>Subscription:</span>
+                                <span className="text-text-muted">Exempt from billing</span>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex justify-between text-text-secondary">
+                                <span>Subscription rate:</span>
+                                <span className="font-medium font-mono tabular-nums text-text-primary">₹{(t.monthly_price != null ? t.monthly_price : planFee).toLocaleString('en-IN')} / mo</span>
+                              </div>
+                              <div className="flex justify-between text-text-secondary">
+                                <span>Billing cycle:</span>
+                                <span className="text-text-primary">Every {renewalDay}th of month</span>
+                              </div>
+                              <div className="flex justify-between text-text-secondary">
+                                <span>Razorpay Sub ID:</span>
+                                <span className="font-mono text-text-muted">{t.razorpay_subscription_id || 'Auto-debit active'}</span>
+                              </div>
+                              <div className="flex justify-between text-text-secondary">
+                                <span>Payment method:</span>
+                                <span className="text-status-success font-medium">Razorpay Auto-Debit</span>
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -4353,9 +4441,9 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                           { key: 'organization_name', label: 'Organization Name', value: viewingDbTenant.name, copyable: true },
                           { key: 'slug', label: 'Slug Identifier', value: viewingDbTenant.slug, copyable: true },
                           { key: 'admin_email', label: 'Admin Login Email', value: viewingDbTenant.admin_email || 'Not configured', copyable: true },
-                          { key: 'plan', label: 'Subscription Plan', value: (viewingDbTenant.plan || 'PRO').toUpperCase(), copyable: false },
-                          { key: 'monthly_rate', label: 'Monthly Recurring Rate', value: `₹${(viewingDbTenant.monthly_price || 2999).toLocaleString('en-IN')}`, copyable: false },
-                          { key: 'billing_cycle_day', label: 'Billing Cycle Day', value: `Day ${viewingDbTenant.billing_cycle_day || 1} of month`, copyable: false },
+                          { key: 'plan', label: 'Subscription Plan', value: isPersonalTenant(viewingDbTenant) ? 'PERSONAL' : (viewingDbTenant.plan || 'PRO').toUpperCase(), copyable: false },
+                          { key: 'monthly_rate', label: 'Monthly Recurring Rate', value: isPersonalTenant(viewingDbTenant) ? 'Exempt (Personal)' : `₹${(viewingDbTenant.monthly_price != null ? viewingDbTenant.monthly_price : 2999).toLocaleString('en-IN')}`, copyable: false },
+                          { key: 'billing_cycle_day', label: 'Billing Cycle Day', value: isPersonalTenant(viewingDbTenant) ? 'None (Personal)' : `Day ${viewingDbTenant.billing_cycle_day || 1} of month`, copyable: false },
                           { key: 'razorpay_subscription_id', label: 'Razorpay Subscription ID', value: viewingDbTenant.razorpay_subscription_id || 'Auto-Debit Active', copyable: true },
                           { key: 'status', label: 'Active Status', value: viewingDbTenant.status.toUpperCase(), copyable: false },
                           { key: 'created_at', label: 'Created At', value: viewingDbTenant.created_at || 'Recorded in DB', copyable: false },
@@ -7338,6 +7426,31 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="p-4 bg-surface-subtle rounded-md border border-border space-y-3 md:col-span-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-border/80">
+                            <div>
+                              <span className="text-xs font-bold text-text-primary uppercase tracking-wider block">Workspace Classification</span>
+                              <span className="text-[11px] text-text-muted block">Personal / Internal accounts are strictly exempt from billing, auto-debits, and revenue metrics.</span>
+                            </div>
+                            <label className="inline-flex items-center gap-2 cursor-pointer select-none bg-surface border border-border px-2.5 py-1.5 rounded">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(editingConfigTenant.is_personal)}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setEditingConfigTenant({
+                                    ...editingConfigTenant,
+                                    is_personal: checked,
+                                    monthly_price: checked ? 0 : 2630,
+                                  });
+                                }}
+                                className="w-4 h-4 rounded border-border text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                              />
+                              <span className={`text-xs font-semibold ${editingConfigTenant.is_personal ? 'text-emerald-600' : 'text-text-secondary'}`}>
+                                {editingConfigTenant.is_personal ? 'Personal Workspace (Exempt)' : 'Standard Client'}
+                              </span>
+                            </label>
+                          </div>
+
                           <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">Feature Plan, Pricing & Sales Channel</label>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div>
@@ -7356,10 +7469,16 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                               <label className="block text-[11px] font-medium text-text-secondary mb-1">Monthly Price (₹)</label>
                               <input
                                 type="number"
-                                value={editingConfigTenant.monthly_price || 3499}
+                                disabled={Boolean(editingConfigTenant.is_personal)}
+                                value={editingConfigTenant.is_personal ? 0 : (editingConfigTenant.monthly_price ?? 2630)}
                                 onChange={(e) => setEditingConfigTenant({ ...editingConfigTenant, monthly_price: Number(e.target.value) })}
-                                className="w-full px-2.5 py-1.5 bg-white border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent"
+                                className={`w-full px-2.5 py-1.5 border border-border rounded-sm text-xs font-mono text-text-primary focus:border-accent ${
+                                  editingConfigTenant.is_personal ? 'bg-slate-100 dark:bg-slate-800 text-text-muted cursor-not-allowed' : 'bg-white'
+                                }`}
                               />
+                              {editingConfigTenant.is_personal && (
+                                <span className="text-[10px] text-emerald-600 font-medium mt-0.5 block">Exempt from monthly billing</span>
+                              )}
                             </div>
                             <div>
                               <label className="block text-[11px] font-medium text-text-secondary mb-1">Sales Channel</label>

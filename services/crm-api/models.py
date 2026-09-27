@@ -390,6 +390,7 @@ class TenantBillingUpdate(BaseModel):
     partner_name: Optional[str] = None
     partner_share_pct: Optional[float] = None
     owner_share_pct: Optional[float] = None
+    is_personal: Optional[bool] = None
 
 
 class MissedCallPayload(BaseModel):

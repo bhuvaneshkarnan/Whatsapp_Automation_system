@@ -1852,6 +1852,7 @@ export interface ClientTenant {
   message_count: number;
   whatsapp_configured: boolean;
   google_calendar_configured?: boolean;
+  is_personal?: boolean;
   monthly_price?: number;
   billing_cycle_day?: number;
   razorpay_customer_id?: string;
