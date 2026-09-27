@@ -4687,6 +4687,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   };
 
+  // Fetch CRM Dropdown Options on authentication so they are immediately available
+  useEffect(() => {
+    if (!user) return;
+    crm.getCrmDropdownOptions().then((res) => {
+      if (res && res.outcome_statuses) setCrmDropdowns(res);
+    }).catch(() => {});
+  }, [user]);
+
   // Load section data based on active tab (Coordinated Lazy Loading)
   useEffect(() => {
     if (isAuthChecking || !user) return;
@@ -5666,13 +5674,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     }
   };
 
-  function openDropdownOptionsModal() {
+  function openDropdownOptionsModal(tab: 'outcome_statuses' | 'next_actions' | 'services_list' = 'outcome_statuses') {
+    crm.getCrmDropdownOptions().then((res) => {
+      if (res && res.outcome_statuses) {
+        setCrmDropdowns(res);
+        setEditingDropdowns({
+          outcome_statuses: [...(res.outcome_statuses || [])],
+          next_actions: [...(res.next_actions || [])],
+          services_list: [...(res.services_list || [])],
+          concerns_list: [...(res.concerns_list || [])],
+        });
+      }
+    }).catch(() => {});
     setEditingDropdowns({
       outcome_statuses: [...(crmDropdowns.outcome_statuses || [])],
       next_actions: [...(crmDropdowns.next_actions || [])],
       services_list: [...(crmDropdowns.services_list || [])],
       concerns_list: [...(crmDropdowns.concerns_list || [])],
     });
+    setDropdownActiveTab(tab);
     setNewDropdownItemInput('');
     setEditingItemIndex(null);
     setEditingItemText('');
@@ -5751,6 +5771,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         setCrmDropdowns(res.crm_dropdowns);
       } else {
         setCrmDropdowns(editingDropdowns);
+      }
+      if (editingDropdowns.services_list && editingDropdowns.services_list.length > 0) {
+        setSettingsForm((prev) => ({
+          ...prev,
+          requirement_presets: editingDropdowns.services_list,
+          taxonomy: {
+            ...(prev.taxonomy || currentTaxonomy),
+            requirement_presets: editingDropdowns.services_list,
+          },
+        }));
       }
       setDropdownOptionsModalOpen(false);
       setActionNotice('Dropdown options saved successfully.');
@@ -9123,7 +9153,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </label>
                   <button
                     type="button"
-                    onClick={openPresetEditor}
+                    onClick={() => openDropdownOptionsModal('services_list')}
                     className="text-[10px] text-accent hover:underline flex items-center gap-1 font-medium cursor-pointer"
                     title="Manage service presets"
                   >
@@ -9141,7 +9171,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                 {/* Prebuilt Quick Chips */}
                 {(() => {
-                  const chipsList = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                  const chipsList = (crmDropdowns.services_list && crmDropdowns.services_list.length > 0)
+                    ? crmDropdowns.services_list
+                    : (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
                     ? settingsForm.taxonomy.requirement_presets
                     : (settingsForm.requirement_presets && settingsForm.requirement_presets.length > 0)
                       ? settingsForm.requirement_presets
@@ -9194,8 +9226,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               requirement_presets: nextList,
                               taxonomy: updatedTaxonomy,
                             }));
+                            const nextDropdowns = {
+                              ...crmDropdowns,
+                              services_list: nextList,
+                            };
+                            setCrmDropdowns(nextDropdowns);
                             try {
-                              await crm.updateSettings(updatedForm);
+                              await Promise.all([
+                                crm.updateSettings(updatedForm),
+                                crm.updateCrmDropdownOptions(nextDropdowns),
+                              ]);
                               setActionNotice(`Added "${trimmedConcern}" to service presets.`);
                               setTimeout(() => setActionNotice(null), 3000);
                             } catch (e) {
@@ -9343,6 +9383,67 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     })}
                     size="sm"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10.5px] font-medium text-text-muted">Outcome Status</label>
+                  </div>
+                  <select
+                    value={selectedCustomer.call_status || (
+                      selectedCustomer.status === 'converted' || selectedCustomer.converted ? 'Converted' :
+                      selectedCustomer.status === 'contacted' ? 'Contacted / In Progress' :
+                      selectedCustomer.status === 'follow-up' ? 'Follow-up Due' :
+                      selectedCustomer.status === 'lost' ? 'Lost / Inactive' :
+                      (crmDropdowns.outcome_statuses?.[0] || 'New')
+                    )}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const lower = val.toLowerCase();
+                      let mappedStatus = 'follow-up';
+                      if (lower.includes('converted') || lower.includes('confirmed') || lower.includes('won') || lower.includes('booked')) {
+                        mappedStatus = 'converted';
+                      } else if (lower.includes('lost') || lower.includes('wrong') || lower.includes('blue flag') || lower.includes('not interest')) {
+                        mappedStatus = 'lost';
+                      } else if (lower.includes('new') || lower.includes('fresh')) {
+                        mappedStatus = 'new';
+                      } else {
+                        mappedStatus = 'follow-up';
+                      }
+                      handleUpdateCustomer(selectedCustomer.id, {
+                        call_status: val,
+                        status: mappedStatus as any,
+                        converted: mappedStatus === 'converted',
+                      });
+                    }}
+                    className="w-full px-2 py-1.5 text-xs bg-surface-subtle hover:bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent font-semibold cursor-pointer truncate shadow-2xs"
+                  >
+                    {selectedCustomer.call_status && !crmDropdowns.outcome_statuses.includes(selectedCustomer.call_status) && (
+                      <option value={selectedCustomer.call_status}>{selectedCustomer.call_status}</option>
+                    )}
+                    {crmDropdowns.outcome_statuses.map((st) => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10.5px] font-medium text-text-muted">Next Action</label>
+                  </div>
+                  <select
+                    value={selectedCustomer.next_action || (crmDropdowns.next_actions?.[0] || 'Call Again')}
+                    onChange={(e) => handleUpdateCustomer(selectedCustomer.id, { next_action: e.target.value })}
+                    className="w-full px-2 py-1.5 text-xs bg-surface-subtle hover:bg-surface border border-border rounded-md text-text-primary focus:outline-none focus:border-accent font-medium cursor-pointer truncate shadow-2xs"
+                  >
+                    {selectedCustomer.next_action && !crmDropdowns.next_actions.includes(selectedCustomer.next_action) && (
+                      <option value={selectedCustomer.next_action}>{selectedCustomer.next_action}</option>
+                    )}
+                    {crmDropdowns.next_actions.map((act) => (
+                      <option key={act} value={act}>{act}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -16106,7 +16207,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border rounded-sm text-text-primary focus:outline-none focus:border-accent"
                       />
                       {(() => {
-                        const chips = (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
+                        const chips = (crmDropdowns.services_list && crmDropdowns.services_list.length > 0)
+                          ? crmDropdowns.services_list
+                          : (settingsForm.taxonomy?.requirement_presets && settingsForm.taxonomy.requirement_presets.length > 0)
                           ? settingsForm.taxonomy.requirement_presets
                           : (settingsForm.requirement_presets && settingsForm.requirement_presets.length > 0)
                             ? settingsForm.requirement_presets
@@ -16122,8 +16225,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             ))}
                             <button
                               type="button"
-                              onClick={openPresetEditor}
-                              title="Edit presets (add or remove)"
+                              onClick={() => openDropdownOptionsModal('services_list')}
+                              title="Edit service presets"
                               className="px-1.5 py-0.5 rounded-sm text-[10px] border border-dashed border-border hover:border-accent text-text-muted hover:text-accent flex items-center gap-1 transition-colors cursor-pointer bg-surface font-medium"
                             >
                               <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />

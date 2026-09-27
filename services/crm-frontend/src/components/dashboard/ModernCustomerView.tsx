@@ -769,6 +769,8 @@ export function ModernCustomerView({
   const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'tasks' | 'notes'>('table');
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<string>('all');
+  const [serviceFilter, setServiceFilter] = useState<string>('all');
+  const [actionFilter, setActionFilter] = useState<string>('all');
   const [warmthFilter, setWarmthFilter] = useState<string>('all');
   const [staffFilter, setStaffFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -811,21 +813,77 @@ export function ModernCustomerView({
     }
     return [];
   }, [categorizedStaffOptions]);
+
+  // CRM Dropdown Options connected directly to Manage CRM Dropdown Options modal
   const outcomeStatuses = useMemo(() => {
-    return Array.isArray(crmDropdowns?.outcome_statuses) ? crmDropdowns.outcome_statuses : [];
+    if (Array.isArray(crmDropdowns?.outcome_statuses) && crmDropdowns.outcome_statuses.length > 0) {
+      return crmDropdowns.outcome_statuses;
+    }
+    return [
+      'New (Fresh)', 'Not Picked', 'Out of Service / Busy', 'Wrong Number',
+      'Info Given & Taken', 'Requirements Gathered', 'Pricing Sent',
+      'Booking Requested', 'Confirmed', 'Converted'
+    ];
   }, [crmDropdowns]);
+
   const nextActions = useMemo(() => {
-    return Array.isArray(crmDropdowns?.next_actions) ? crmDropdowns.next_actions : [];
+    if (Array.isArray(crmDropdowns?.next_actions) && crmDropdowns.next_actions.length > 0) {
+      return crmDropdowns.next_actions;
+    }
+    return [
+      'Call Again', 'WhatsApp Follow-up', 'Send Info / Proposal',
+      'Schedule Meeting / Booking', 'Send Reminder', 'Waiting on Client',
+      'Final Attempt'
+    ];
   }, [crmDropdowns]);
+
   const servicesList = useMemo(() => {
     const seen = new Set<string>();
-    const list = Array.isArray(crmDropdowns?.services_list) ? crmDropdowns.services_list : [];
-    return list.filter((s) => {
-      if (!s || !s.trim() || seen.has(s)) return false;
-      seen.add(s);
-      return true;
-    });
-  }, [crmDropdowns]);
+    const configured = Array.isArray(crmDropdowns?.services_list) && crmDropdowns.services_list.length > 0
+      ? crmDropdowns.services_list
+      : (Array.isArray(taxonomy?.requirement_presets) && taxonomy.requirement_presets.length > 0
+        ? taxonomy.requirement_presets
+        : []);
+    const result: string[] = [];
+    for (const item of configured) {
+      const trimmed = (item || '').trim();
+      if (trimmed && !seen.has(trimmed.toLowerCase())) {
+        seen.add(trimmed.toLowerCase());
+        result.push(trimmed);
+      }
+    }
+    if (Array.isArray(customers)) {
+      for (const c of customers) {
+        const h = (c.health_concern || '').trim();
+        if (h && !seen.has(h.toLowerCase())) {
+          seen.add(h.toLowerCase());
+          result.push(h);
+        }
+      }
+    }
+    return result;
+  }, [crmDropdowns, taxonomy, customers]);
+
+  // Color badge styler for any custom outcome status
+  const getOutcomeStatusStyle = (statusOrOutcome?: string | null) => {
+    const s = (statusOrOutcome || '').toLowerCase();
+    if (s.includes('convert') || s.includes('won') || s.includes('confirm') || s.includes('booked') || s === 'converted') {
+      return { bg: 'bg-emerald-50 dark:bg-emerald-950/40', text: 'text-emerald-700 dark:text-emerald-300', border: 'border-emerald-300 dark:border-emerald-700' };
+    }
+    if (s.includes('new') || s === 'new inquiry') {
+      return { bg: 'bg-blue-50 dark:bg-blue-950/40', text: 'text-blue-700 dark:text-blue-300', border: 'border-blue-300 dark:border-blue-700' };
+    }
+    if (s.includes('lost') || s.includes('wrong') || s.includes('blue flag') || s.includes('not interest') || s.includes('busy') || s.includes('not picked') || s.includes('out of service')) {
+      return { bg: 'bg-rose-50 dark:bg-rose-950/40', text: 'text-rose-700 dark:text-rose-300', border: 'border-rose-300 dark:border-rose-700' };
+    }
+    if (s.includes('price') || s.includes('pricing') || s.includes('quote') || s.includes('proposal') || s.includes('requirement')) {
+      return { bg: 'bg-purple-50 dark:bg-purple-950/40', text: 'text-purple-700 dark:text-purple-300', border: 'border-purple-300 dark:border-purple-700' };
+    }
+    if (s.includes('info') || s.includes('taken') || s.includes('contact') || s.includes('progress') || s.includes('call again')) {
+      return { bg: 'bg-indigo-50 dark:bg-indigo-950/40', text: 'text-indigo-700 dark:text-indigo-300', border: 'border-indigo-300 dark:border-indigo-700' };
+    }
+    return { bg: 'bg-amber-50 dark:bg-amber-950/40', text: 'text-amber-800 dark:text-amber-200', border: 'border-amber-300 dark:border-amber-700' };
+  };
 
   // Computed Executive KPI Stats
   const kpis = useMemo(() => {
@@ -898,22 +956,47 @@ export function ModernCustomerView({
         if (!matches) return false;
       }
 
-      // 2. Stage Filter
+      // 2. Stage / Outcome Filter
       if (stageFilter === 'action_due') {
         const todayStr = new Date().toISOString().split('T')[0];
         if (!c.followup_date || c.followup_date > todayStr || c.status === 'converted' || c.status === 'lost') {
           return false;
         }
       } else if (stageFilter !== 'all') {
-        if (c.status !== stageFilter) return false;
+        const fLower = stageFilter.toLowerCase();
+        const callStatusLower = (c.call_status || '').toLowerCase();
+        const statusLower = (c.status || '').toLowerCase();
+        const matchesOutcome = callStatusLower === fLower;
+        const matchesStatus = statusLower === fLower;
+        const matchesConverted = fLower === 'converted' && (Boolean(c.converted) || statusLower === 'converted' || callStatusLower.includes('confirm') || callStatusLower.includes('convert'));
+        if (!matchesOutcome && !matchesStatus && !matchesConverted) return false;
       }
 
-      // 3. Warmth Filter
+      // 3. Service Filter
+      if (serviceFilter !== 'all') {
+        const fSvc = serviceFilter.toLowerCase();
+        const cConcern = (c.health_concern || '').toLowerCase();
+        const cService = (c.last_visit_service || '').toLowerCase();
+        const intServices = Array.isArray(c.interested_services) ? c.interested_services.map((s: any) => String(s).toLowerCase()) : [];
+        const matchesSvc = cConcern === fSvc || cConcern.includes(fSvc) ||
+                           cService === fSvc || cService.includes(fSvc) ||
+                           intServices.includes(fSvc);
+        if (!matchesSvc) return false;
+      }
+
+      // 4. Next Action Filter
+      if (actionFilter !== 'all') {
+        const fAct = actionFilter.toLowerCase();
+        const cAct = (c.next_action || '').toLowerCase();
+        if (cAct !== fAct) return false;
+      }
+
+      // 5. Warmth Filter
       if (warmthFilter !== 'all') {
         if (c.lead_probability !== warmthFilter) return false;
       }
 
-      // 4. Staff Filter
+      // 6. Staff Filter
       if (staffFilter !== 'all') {
         if (staffFilter === 'unassigned') {
           if (c.preferred_doctor) return false;
@@ -933,7 +1016,7 @@ export function ModernCustomerView({
 
       return true;
     });
-  }, [customers, searchQuery, stageFilter, warmthFilter, staffFilter, safeAllNotes]);
+  }, [customers, searchQuery, stageFilter, serviceFilter, actionFilter, warmthFilter, staffFilter, safeAllNotes]);
 
   // Quick field updates
   const handleQuickUpdate = async (customerId: string, patch: Partial<Customer>) => {
@@ -1540,13 +1623,15 @@ export function ModernCustomerView({
           </button>
         </div>
 
-        {(warmthFilter !== 'all' || stageFilter !== 'all' || staffFilter !== 'all' || searchQuery.trim()) && (
+        {(warmthFilter !== 'all' || stageFilter !== 'all' || staffFilter !== 'all' || serviceFilter !== 'all' || actionFilter !== 'all' || searchQuery.trim()) && (
           <button
             type="button"
             onClick={() => {
               setWarmthFilter('all');
               setStageFilter('all');
               setStaffFilter('all');
+              setServiceFilter('all');
+              setActionFilter('all');
               setSearchQuery('');
             }}
             className="text-[11px] text-rose-600 hover:text-rose-700 hover:underline font-medium flex items-center gap-1 cursor-pointer transition-colors ml-auto shrink-0"
@@ -1641,15 +1726,49 @@ export function ModernCustomerView({
           <select
             value={stageFilter}
             onChange={(e) => setStageFilter(e.target.value)}
-            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8"
-            title="Filter by stage"
+            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8 max-w-[155px] truncate"
+            title="Filter by stage or outcome"
           >
-            <option value="all">All Stages</option>
-            <option value="new">New Inquiry</option>
-            <option value="contacted">Contacted / In Progress</option>
-            <option value="follow-up">Follow-up Due</option>
-            <option value="converted">Booked / Converted</option>
-            <option value="lost">Lost / Inactive</option>
+            <option value="all">All Stages & Outcomes</option>
+            {outcomeStatuses.length > 0 && (
+              <optgroup label="Outcome Statuses">
+                {outcomeStatuses.map((st) => (
+                  <option key={st} value={st}>{st}</option>
+                ))}
+              </optgroup>
+            )}
+            <optgroup label="Pipeline Stages">
+              <option value="new">New Inquiry</option>
+              <option value="contacted">Contacted / In Progress</option>
+              <option value="follow-up">Follow-up Due</option>
+              <option value="converted">Booked / Converted</option>
+              <option value="lost">Lost / Inactive</option>
+              <option value="action_due">Follow-up Due (Date)</option>
+            </optgroup>
+          </select>
+
+          <select
+            value={serviceFilter}
+            onChange={(e) => setServiceFilter(e.target.value)}
+            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8 max-w-[135px] truncate"
+            title="Filter by service / inquiry"
+          >
+            <option value="all">All Services</option>
+            {servicesList.map((svc) => (
+              <option key={svc} value={svc}>{svc}</option>
+            ))}
+          </select>
+
+          <select
+            value={actionFilter}
+            onChange={(e) => setActionFilter(e.target.value)}
+            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-sm text-xs font-medium text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-8 max-w-[130px] truncate"
+            title="Filter by next action"
+          >
+            <option value="all">All Actions</option>
+            {nextActions.map((act) => (
+              <option key={act} value={act}>{act}</option>
+            ))}
           </select>
 
           <select
@@ -1941,37 +2060,77 @@ export function ModernCustomerView({
                             </div>
                           </td>
 
-                          {/* 3. Status Dropdown - Single Universal Business Stages */}
+                          {/* 3. Status Dropdown - Connected to Manage CRM Dropdown Options */}
                           <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
-                            <select
-                              value={cust.status || 'new'}
-                              onChange={(e) => handleQuickUpdate(cust.id, { status: e.target.value as any })}
-                              disabled={updatingId === cust.id}
-                              className={`text-[10.5px] font-semibold px-1.5 py-1 h-7 rounded-sm border cursor-pointer transition-all shadow-2xs w-full min-w-[130px] max-w-[145px] truncate ${stageObj.bg} ${stageObj.text} ${stageObj.border}`}
-                            >
-                              {STAGES.map((st) => (
-                                <option key={st.id} value={st.id}>
-                                  {st.label}
-                                </option>
-                              ))}
-                              {/* Support existing legacy custom outcome if present */}
-                              {cust.status && !STAGES.some((s) => s.id === cust.status) && (
-                                <option value={cust.status}>
-                                  {cust.status}
-                                </option>
-                              )}
-                            </select>
+                            {(() => {
+                              const currentVal = cust.call_status || (
+                                cust.status === 'converted' || cust.converted ? 'Converted' :
+                                cust.status === 'contacted' ? 'Contacted / In Progress' :
+                                cust.status === 'follow-up' ? 'Follow-up Due' :
+                                cust.status === 'lost' ? 'Lost / Inactive' :
+                                (outcomeStatuses[0] || 'New')
+                              );
+                              const badgeStyle = getOutcomeStatusStyle(currentVal);
+                              return (
+                                <select
+                                  value={currentVal}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const vLower = val.toLowerCase();
+                                    let mappedStatus = 'follow-up';
+                                    if (vLower.includes('new') || vLower === 'new inquiry') {
+                                      mappedStatus = 'new';
+                                    } else if (vLower.includes('convert') || vLower.includes('won') || vLower.includes('confirm') || vLower.includes('booked')) {
+                                      mappedStatus = 'converted';
+                                    } else if (vLower.includes('lost') || vLower.includes('wrong') || vLower.includes('blue flag') || vLower.includes('not interest')) {
+                                      mappedStatus = 'lost';
+                                    }
+                                    handleQuickUpdate(cust.id, {
+                                      call_status: val,
+                                      status: mappedStatus as any,
+                                      converted: mappedStatus === 'converted',
+                                    });
+                                  }}
+                                  disabled={updatingId === cust.id}
+                                  className={`text-[10.5px] font-semibold px-1.5 py-1 h-7 rounded-sm border cursor-pointer transition-all shadow-2xs w-full min-w-[130px] max-w-[155px] truncate ${badgeStyle.bg} ${badgeStyle.text} ${badgeStyle.border}`}
+                                >
+                                  {outcomeStatuses.length > 0 ? (
+                                    <>
+                                      {cust.call_status && !outcomeStatuses.includes(cust.call_status) && (
+                                        <option value={cust.call_status}>
+                                          {cust.call_status}
+                                        </option>
+                                      )}
+                                      {outcomeStatuses.map((st) => (
+                                        <option key={st} value={st}>
+                                          {st}
+                                        </option>
+                                      ))}
+                                    </>
+                                  ) : (
+                                    STAGES.map((st) => (
+                                      <option key={st.id} value={st.id}>
+                                        {st.label}
+                                      </option>
+                                    ))
+                                  )}
+                                </select>
+                              );
+                            })()}
                           </td>
 
-                          {/* 4. Service / Inquiry */}
+                          {/* 4. Service / Inquiry - Connected to Manage CRM Dropdown Options */}
                           <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                             <select
-                              value={servicesList.includes(cust.health_concern || '') ? (cust.health_concern || '') : ''}
+                              value={cust.health_concern || ''}
                               onChange={(e) => handleQuickUpdate(cust.id, { health_concern: e.target.value || undefined })}
                               disabled={updatingId === cust.id}
                               className="text-[10.5px] font-medium px-1.5 py-1 h-7 rounded-sm border border-border bg-surface text-text-primary focus:outline-none focus:border-accent cursor-pointer w-full max-w-[140px] truncate shadow-2xs"
                             >
                               <option value="">— Select service —</option>
+                              {cust.health_concern && !servicesList.includes(cust.health_concern) && (
+                                <option value={cust.health_concern}>{cust.health_concern}</option>
+                              )}
                               {servicesList.map((svc) => (
                                 <option key={svc} value={svc}>{svc}</option>
                               ))}
@@ -2030,14 +2189,17 @@ export function ModernCustomerView({
                                 </button>
                               )}
 
-                              {/* Next Action Dropdown */}
+                              {/* Next Action Dropdown - Connected to Manage CRM Dropdown Options */}
                               <select
-                                value={cust.next_action || 'Call Again'}
+                                value={cust.next_action || (nextActions[0] || 'Call Again')}
                                 onChange={(e) => handleQuickUpdate(cust.id, { next_action: e.target.value })}
                                 disabled={updatingId === cust.id}
                                 className="text-[9.5px] text-text-secondary bg-surface-subtle hover:bg-surface border border-border/70 px-1 py-0.5 h-6 rounded-xs font-medium cursor-pointer focus:outline-none focus:border-accent transition-colors w-full max-w-[105px] truncate shadow-2xs"
                                 title="Next Action"
                               >
+                                {cust.next_action && !nextActions.includes(cust.next_action) && (
+                                  <option value={cust.next_action}>{cust.next_action}</option>
+                                )}
                                 {nextActions.length > 0 ? (
                                   nextActions.map((act) => (
                                     <option key={act} value={act}>
@@ -2410,6 +2572,22 @@ export function ModernCustomerView({
                               <p className="text-[9px] text-text-secondary bg-surface-subtle px-1.5 py-0.5 rounded-xs border border-border/50 truncate font-medium block">
                                 {cust.health_concern || cust.last_visit_service}
                               </p>
+                            )}
+
+                            {/* Outcome Status & Next Action badges */}
+                            {(cust.call_status || cust.next_action) && (
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {cust.call_status && (
+                                  <span className={`text-[8.5px] font-semibold px-1 py-0.2 rounded-xs border ${getOutcomeStatusStyle(cust.call_status).bg} ${getOutcomeStatusStyle(cust.call_status).text} ${getOutcomeStatusStyle(cust.call_status).border}`}>
+                                    {cust.call_status}
+                                  </span>
+                                )}
+                                {cust.next_action && (
+                                  <span className="text-[8.5px] font-medium px-1 py-0.2 rounded-xs bg-surface-subtle text-text-muted border border-border/60">
+                                    {cust.next_action}
+                                  </span>
+                                )}
+                              </div>
                             )}
 
                             {/* Inline Note Snippet */}
