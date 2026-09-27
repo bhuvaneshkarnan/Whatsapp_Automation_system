@@ -330,9 +330,11 @@ async def get_tenant_settings(
         "has_razorpay": has_rzp_creds,
         "razorpay_booking_webhook_url": f"{APP_BASE_URL}/api/v1/crm/webhooks/razorpay/booking/{tenant['id']}",
         "booking_payment_policy": tenant_settings.get("booking_payment_policy", "pay_at_clinic"),
+        "booking_pricing_mode": tenant_settings.get("booking_pricing_mode", "service_based"),
         "booking_fee_amount": float(tenant_settings.get("booking_fee_amount", 0.0)) if tenant_settings.get("booking_fee_amount") is not None else 0.0,
         "booking_fee_currency": tenant_settings.get("booking_fee_currency", "INR"),
         "booking_fee_description": tenant_settings.get("booking_fee_description", "Appointment Booking Fee"),
+        "service_pricing": tenant_settings.get("service_pricing", {}),
     }
 
 

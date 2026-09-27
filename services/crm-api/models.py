@@ -248,9 +248,11 @@ class TenantSettingsUpdate(BaseModel):
 
     # Booking Payment Policy & Fees
     booking_payment_policy: Optional[str] = None  # 'pay_at_clinic', 'mandatory', 'customer_choice'
+    booking_pricing_mode: Optional[str] = None  # 'service_based' or 'fixed'
     booking_fee_amount: Optional[float] = None
     booking_fee_currency: Optional[str] = None
     booking_fee_description: Optional[str] = None
+    service_pricing: Optional[Dict[str, float]] = None  # e.g. {"Consultation": 500.0, "Physiotherapy": 1200.0}
 
     model_config = {"extra": "allow"}
 

@@ -869,17 +869,8 @@ export function ModernCustomerView({
         result.push(trimmed);
       }
     }
-    if (Array.isArray(customers)) {
-      for (const c of customers) {
-        const h = (c.health_concern || '').trim();
-        if (h && !seen.has(h.toLowerCase())) {
-          seen.add(h.toLowerCase());
-          result.push(h);
-        }
-      }
-    }
     return result;
-  }, [crmDropdowns, taxonomy, customers]);
+  }, [crmDropdowns, taxonomy]);
 
   // Color badge styler for any custom outcome status
   const getOutcomeStatusStyle = (statusOrOutcome?: string | null) => {
