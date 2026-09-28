@@ -636,11 +636,17 @@ async def get_media_proxy(
     # 3. Query Meta Graph API using THIS tenant's access token ONLY
     async with httpx.AsyncClient(timeout=20.0) as client:
         meta_res = await client.get(
-            f"https://graph.facebook.com/v19.0/{clean_media_id}",
+            f"https://graph.facebook.com/v21.0/{clean_media_id}",
             headers={"Authorization": f"Bearer {access_token}"}
         )
         if meta_res.status_code != 200:
-            logger.error("meta_media_query_failed", media_id=clean_media_id, tenant_id=resolved_tenant_id, status=meta_res.status_code, body=meta_res.text)
+            logger.warning(
+                "meta_media_expired_or_not_found",
+                media_id=clean_media_id,
+                tenant_id=resolved_tenant_id,
+                status=meta_res.status_code,
+                body=meta_res.text[:200]
+            )
             raise HTTPException(404, "Media not found or expired on Meta servers.")
 
         meta_data = meta_res.json()
@@ -656,7 +662,12 @@ async def get_media_proxy(
             headers={"Authorization": f"Bearer {access_token}"}
         )
         if media_res.status_code != 200:
-            logger.error("meta_media_download_failed", media_id=clean_media_id, tenant_id=resolved_tenant_id, status=media_res.status_code)
+            logger.warning(
+                "meta_media_download_failed",
+                media_id=clean_media_id,
+                tenant_id=resolved_tenant_id,
+                status=media_res.status_code
+            )
             raise HTTPException(502, "Failed to download media binary from Meta.")
 
         content = media_res.content

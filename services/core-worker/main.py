@@ -1226,6 +1226,7 @@ class CoreWorker:
                             wa_access_token=wa_token,
                             groq_api_key=groq_key,
                             gemini_api_key=gemini_key,
+                            tenant_id=tenant_id,
                         )
                         if transcription and transcription.strip():
                             body_text = f"🎤 [Voice Note]: {transcription.strip()}"

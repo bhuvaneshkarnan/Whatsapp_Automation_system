@@ -11,7 +11,7 @@ import structlog
 
 logger = structlog.get_logger()
 
-GRAPH_API_VERSION = "v19.0"
+GRAPH_API_VERSION = "v21.0"
 GRAPH_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 
 
@@ -174,6 +174,7 @@ async def transcribe_voice_message(
     wa_access_token: str,
     groq_api_key: Optional[str] = None,
     gemini_api_key: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> str:
     """
     Full pipeline:
@@ -182,6 +183,21 @@ async def transcribe_voice_message(
     3. Fallback to Gemini Multimodal Audio
     """
     audio_bytes, mime_type = await download_whatsapp_media(media_id, wa_access_token)
+
+    # Cache downloaded audio binary locally so CRM playback works even after Meta CDN expiration
+    if tenant_id and audio_bytes:
+        try:
+            cache_dir = os.path.join("/tmp/wa_media", str(tenant_id))
+            os.makedirs(cache_dir, exist_ok=True)
+            ext = ".ogg"
+            if "mp3" in mime_type: ext = ".mp3"
+            elif "wav" in mime_type: ext = ".wav"
+            elif "m4a" in mime_type: ext = ".m4a"
+            cached_path = os.path.join(cache_dir, f"{media_id}{ext}")
+            with open(cached_path, "wb") as f:
+                f.write(audio_bytes)
+        except Exception as cache_err:
+            logger.debug("audio_cache_write_warn", error=str(cache_err))
 
     # Try Groq first if key available
     if groq_api_key:

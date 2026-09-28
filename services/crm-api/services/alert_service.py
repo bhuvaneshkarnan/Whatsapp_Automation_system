@@ -211,6 +211,9 @@ def telegram_structlog_processor(logger, method_name, event_dict):
             or "meta_template_status_fetch" in lower_full
             or "131056" in lower_full
             or "pair rate limit" in lower_full
+            or "meta_media_query_failed" in lower_full
+            or "unsupported get request. object with id" in lower_full
+            or "graphmethodexception" in lower_full
         ):
             return event_dict
 
