@@ -261,13 +261,15 @@ async def list_admin_tenants(
                 (SELECT is_active FROM tenant_credentials WHERE tenant_id = t.id AND provider = 'google_calendar' LIMIT 1) as google_calendar_configured,
                 (SELECT COUNT(*) FROM customers WHERE tenant_id = t.id AND (call_status ILIKE '%missed%' OR id IN (SELECT customer_id FROM customer_notes WHERE note_text ILIKE '%missed%'))) as missed_call_count,
                 (SELECT phone FROM customers WHERE tenant_id = t.id AND (call_status ILIKE '%missed%' OR id IN (SELECT customer_id FROM customer_notes WHERE note_text ILIKE '%missed%')) ORDER BY created_at DESC LIMIT 1) as last_missed_caller,
-                (SELECT created_at FROM customers WHERE tenant_id = t.id AND (call_status ILIKE '%missed%' OR id IN (SELECT customer_id FROM customer_notes WHERE note_text ILIKE '%missed%')) ORDER BY created_at DESC LIMIT 1) as last_missed_at
+                (SELECT created_at FROM customers WHERE tenant_id = t.id AND (call_status ILIKE '%missed%' OR id IN (SELECT customer_id FROM customer_notes WHERE note_text ILIKE '%missed%')) ORDER BY created_at DESC LIMIT 1) as last_missed_at,
+                (SELECT MAX(paid_at) FROM invoices WHERE tenant_id = t.id AND status = 'paid') as inv_paid_at
             FROM tenants t
             ORDER BY t.created_at DESC
             LIMIT $1 OFFSET $2
             """,
             limit, offset
         )
+    IST = ZoneInfo("Asia/Kolkata")
     result = []
     for r in rows:
         cfg = r["settings"] or {}
@@ -286,7 +288,31 @@ async def list_admin_tenants(
 
         billing_day = int(cfg.get("billing_cycle_day", 1))
         razorpay_sub_id = r["razorpay_subscription_id"] or cfg.get("razorpay_subscription_id", "")
-        next_renewal = "Personal / Internal" if is_personal else (r["next_charge_at"].strftime("%d %b %Y") if r["next_charge_at"] else cfg.get("next_renewal_date", f"Day {billing_day} of every month"))
+
+        # Format last payment date in IST
+        raw_paid_at = r["last_charge_at"] or r.get("inv_paid_at")
+        last_payment_iso = None
+        last_payment_str = ""
+        if raw_paid_at:
+            dt_paid = raw_paid_at
+            if dt_paid.tzinfo is None:
+                dt_paid = dt_paid.replace(tzinfo=timezone.utc)
+            dt_paid_ist = dt_paid.astimezone(IST)
+            last_payment_iso = dt_paid_ist.isoformat()
+            last_payment_str = dt_paid_ist.strftime("%d %b %Y")
+
+        # Format next renewal date in IST
+        next_renewal = "Personal / Internal" if is_personal else cfg.get("next_renewal_date", f"Day {billing_day} of every month")
+        next_charge_iso = None
+        if r["next_charge_at"]:
+            dt_next = r["next_charge_at"]
+            if dt_next.tzinfo is None:
+                dt_next = dt_next.replace(tzinfo=timezone.utc)
+            dt_next_ist = dt_next.astimezone(IST)
+            next_charge_iso = dt_next_ist.isoformat()
+            if not is_personal:
+                next_renewal = dt_next_ist.strftime("%d %b %Y")
+
         admin_phone = cfg.get("admin_whatsapp_number", "")
         sha_token = hashlib.sha256(f"{str(r['id'])}:{JWT_SECRET}:missed-call".encode()).hexdigest()[:32]
         m_token = cfg.get("missed_call_token") or sha_token
@@ -313,10 +339,11 @@ async def list_admin_tenants(
             "razorpay_short_url": r["razorpay_short_url"] or "",
             "org_lifecycle_stage": r["org_lifecycle_stage"] or "setup",
             "subscription_status": r["subscription_status"] or "not_started",
-            "next_charge_at": r["next_charge_at"].isoformat() if r["next_charge_at"] else None,
+            "next_charge_at": next_charge_iso or (r["next_charge_at"].isoformat() if r["next_charge_at"] else None),
             "last_payment_status": r["last_payment_status"] or "",
-            "last_charge_at": r["last_charge_at"].isoformat() if r["last_charge_at"] else None,
+            "last_charge_at": last_payment_iso or (r["last_charge_at"].isoformat() if r["last_charge_at"] else None),
             "next_renewal_date": next_renewal,
+            "last_payment_date": last_payment_str,
             "billing_method": "Razorpay Auto-Debit",
             "custom_domain": (cfg.get("custom_domain") or "").strip().lower(),
             "brand_name": (cfg.get("brand_name") or "").strip(),
@@ -1435,6 +1462,16 @@ async def sync_tenant_billing(tenant_id: str, admin_user: dict = Depends(verify_
                     tenant_id, inv_id, payment_id, sub_id, amount, currency, inv_status, pdf_url, paid_at
                 )
                 synced_invoices_count += 1
+
+            # Ensure last_charge_at is updated with the latest paid invoice date
+            await conn.execute(
+                """
+                UPDATE tenants
+                SET last_charge_at = COALESCE((SELECT MAX(paid_at) FROM invoices WHERE tenant_id = $1::uuid AND status = 'paid'), last_charge_at)
+                WHERE id = $1::uuid
+                """,
+                tenant_id
+            )
 
             return {
                 "status": "synced",

@@ -3413,6 +3413,18 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     <tbody className="divide-y divide-border text-xs">
                       {filteredTenants.map((t) => {
                         const planFee = t.monthly_price || ((t.plan || 'pro').toLowerCase() === 'starter' ? 999 : (t.plan || 'pro').toLowerCase() === 'enterprise' ? 9999 : 3499);
+                        const paymentDate = t.last_payment_date || (t.last_charge_at ? (() => {
+                          try {
+                            return new Date(t.last_charge_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+                          } catch { return undefined; }
+                        })() : undefined);
+                        const renewalDate = (t.next_renewal_date && !t.next_renewal_date.startsWith('Day '))
+                          ? t.next_renewal_date
+                          : (t.next_charge_at ? (() => {
+                              try {
+                                return new Date(t.next_charge_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+                              } catch { return t.next_renewal_date || '1st of month'; }
+                            })() : (t.next_renewal_date || '1st of month'));
                         return (
                           <tr key={t.id} className="hover:bg-surface-subtle/50 transition-colors duration-150">
                             
@@ -3482,9 +3494,17 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                       ₹{(t.monthly_price != null ? t.monthly_price : planFee).toLocaleString('en-IN')}<span className="text-[10px] font-normal text-text-muted">/mo</span>
                                     </span>
                                   </div>
-                                  <div className="text-[10px] text-text-muted flex items-center gap-1 mt-0.5 whitespace-nowrap">
-                                    <Calendar className="w-2.5 h-2.5 text-text-muted shrink-0" />
-                                    <span>{t.next_renewal_date || 'Renews 1st of month'}</span>
+                                  <div className="flex flex-col gap-0.5 text-[10px] mt-1 whitespace-nowrap">
+                                    {paymentDate && (
+                                      <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                                        <Check className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
+                                        Paid: {paymentDate}
+                                      </span>
+                                    )}
+                                    <span className="text-text-muted flex items-center gap-1">
+                                      <Calendar className="w-2.5 h-2.5 text-text-muted shrink-0" />
+                                      {renewalDate.toLowerCase().includes('renew') ? renewalDate : `Renews: ${renewalDate}`}
+                                    </span>
                                   </div>
                                 </>
                               )}
@@ -3492,51 +3512,58 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
                             {/* Razorpay Subscription Lifecycle */}
                             <td className="py-2.5 px-4 whitespace-nowrap">
-                              <div className="inline-flex items-center gap-1.5">
-                                {isPersonalTenant(t) ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
-                                    <Check className="w-3 h-3 text-emerald-600" />
-                                    <span>Personal • Exempt</span>
-                                  </span>
-                                ) : t.status !== 'active' ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
-                                    <Pause className="w-2.5 h-2.5 fill-current" />
-                                    <span>Workspace Paused</span>
-                                  </span>
-                                ) : t.subscription_status === 'active' ? (
-                                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium ${
-                                    t.razorpay_subscription_id
-                                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25'
-                                      : 'bg-teal-500/10 text-teal-700 dark:text-teal-400 border border-teal-500/25'
-                                  }`}>
-                                    <Check className="w-3 h-3 text-emerald-600" />
-                                    <span>{t.razorpay_subscription_id ? 'Active (Paid)' : 'Active (Manual)'}</span>
-                                  </span>
-                                ) : t.subscription_status === 'payment_failed' ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/25">
-                                    <AlertCircle className="w-3 h-3 text-amber-600" />
-                                    <span>Payment Failed</span>
-                                  </span>
-                                ) : (!t.org_lifecycle_stage || t.org_lifecycle_stage === 'setup') ? (
-                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/25">
-                                    Initial Setup
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-200 text-slate-950 dark:bg-amber-950/80 dark:text-amber-100 border border-amber-400 dark:border-amber-600 shadow-xs" title="Payment link generated — waiting for client payment">
-                                    <Clock className="w-3 h-3 text-slate-950 dark:text-amber-300 shrink-0" />
-                                    <span>Unpaid • Payment Pending</span>
-                                  </span>
-                                )}
+                              <div className="flex flex-col items-start gap-1">
+                                <div className="inline-flex items-center gap-1.5">
+                                  {isPersonalTenant(t) ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                      <span>Personal • Exempt</span>
+                                    </span>
+                                  ) : t.status !== 'active' ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
+                                      <Pause className="w-2.5 h-2.5 fill-current" />
+                                      <span>Workspace Paused</span>
+                                    </span>
+                                  ) : t.subscription_status === 'active' ? (
+                                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium ${
+                                      t.razorpay_subscription_id
+                                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25'
+                                        : 'bg-teal-500/10 text-teal-700 dark:text-teal-400 border border-teal-500/25'
+                                    }`}>
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                      <span>{t.razorpay_subscription_id ? 'Active (Paid)' : 'Active (Manual)'}</span>
+                                    </span>
+                                  ) : t.subscription_status === 'payment_failed' ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/25">
+                                      <AlertCircle className="w-3 h-3 text-amber-600" />
+                                      <span>Payment Failed</span>
+                                    </span>
+                                  ) : (!t.org_lifecycle_stage || t.org_lifecycle_stage === 'setup') ? (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/25">
+                                      Initial Setup
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-200 text-slate-950 dark:bg-amber-950/80 dark:text-amber-100 border border-amber-400 dark:border-amber-600 shadow-xs" title="Payment link generated — waiting for client payment">
+                                      <Clock className="w-3 h-3 text-slate-950 dark:text-amber-300 shrink-0" />
+                                      <span>Unpaid • Payment Pending</span>
+                                    </span>
+                                  )}
 
-                                {t.razorpay_subscription_id && (
-                                  <button
-                                    onClick={() => handleSyncBilling(t)}
-                                    disabled={syncingBillingId === t.id}
-                                    className="p-1 text-text-muted hover:text-accent rounded hover:bg-surface-subtle transition-colors cursor-pointer"
-                                    title="Sync live status from Razorpay"
-                                  >
-                                    <RefreshCw className={`w-3 h-3 ${syncingBillingId === t.id ? 'animate-spin text-accent' : ''}`} />
-                                  </button>
+                                  {t.razorpay_subscription_id && (
+                                    <button
+                                      onClick={() => handleSyncBilling(t)}
+                                      disabled={syncingBillingId === t.id}
+                                      className="p-1 text-text-muted hover:text-accent rounded hover:bg-surface-subtle transition-colors cursor-pointer"
+                                      title="Sync live status from Razorpay"
+                                    >
+                                      <RefreshCw className={`w-3 h-3 ${syncingBillingId === t.id ? 'animate-spin text-accent' : ''}`} />
+                                    </button>
+                                  )}
+                                </div>
+                                {!isPersonalTenant(t) && paymentDate && (
+                                  <span className="text-[10px] text-text-muted pl-0.5">
+                                    Last paid on {paymentDate}
+                                  </span>
                                 )}
                               </div>
                             </td>
@@ -3753,6 +3780,18 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                 <div className="md:hidden divide-y divide-border">
                   {filteredTenants.map((t) => {
                     const planFee = t.monthly_price || ((t.plan || 'pro').toLowerCase() === 'starter' ? 999 : (t.plan || 'pro').toLowerCase() === 'enterprise' ? 9999 : 3499);
+                    const paymentDate = t.last_payment_date || (t.last_charge_at ? (() => {
+                      try {
+                        return new Date(t.last_charge_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+                      } catch { return undefined; }
+                    })() : undefined);
+                    const renewalDate = (t.next_renewal_date && !t.next_renewal_date.startsWith('Day '))
+                      ? t.next_renewal_date
+                      : (t.next_charge_at ? (() => {
+                          try {
+                            return new Date(t.next_charge_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+                          } catch { return t.next_renewal_date || '1st of month'; }
+                        })() : (t.next_renewal_date || '1st of month'));
                     return (
                       <div key={t.id} className="p-3.5 space-y-3 bg-surface">
                         {/* Top Header: Name, Avatar, Slug, Status */}
@@ -3822,45 +3861,66 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                 </span>
                               </div>
                             ) : (
-                              <div className="flex items-center gap-1 mt-0.5">
-                                <span className="text-[10px] font-mono font-semibold uppercase px-1 py-0.2 rounded bg-surface border border-border text-text-secondary">
-                                  {t.plan || 'PRO'}
-                                </span>
-                                <span className="text-[11px] font-mono font-semibold text-text-primary">
-                                  ₹{(t.monthly_price != null ? t.monthly_price : planFee).toLocaleString('en-IN')}<span className="text-[9px] font-normal text-text-muted">/m</span>
-                                </span>
-                              </div>
+                              <>
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  <span className="text-[10px] font-mono font-semibold uppercase px-1 py-0.2 rounded bg-surface border border-border text-text-secondary">
+                                    {t.plan || 'PRO'}
+                                  </span>
+                                  <span className="text-[11px] font-mono font-semibold text-text-primary">
+                                    ₹{(t.monthly_price != null ? t.monthly_price : planFee).toLocaleString('en-IN')}<span className="text-[9px] font-normal text-text-muted">/m</span>
+                                  </span>
+                                </div>
+                                <div className="flex flex-col gap-0.5 text-[10px] mt-1">
+                                  {paymentDate && (
+                                    <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-0.5">
+                                      <Check className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
+                                      Paid: {paymentDate}
+                                    </span>
+                                  )}
+                                  <span className="text-text-muted flex items-center gap-0.5">
+                                    <Calendar className="w-2.5 h-2.5 shrink-0" />
+                                    {renewalDate.toLowerCase().includes('renew') ? renewalDate : `Renews: ${renewalDate}`}
+                                  </span>
+                                </div>
+                              </>
                             )}
                           </div>
                         </div>
 
                         {/* Subscription Status Pill */}
                         <div className="flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-1">
-                            <span className="text-[11px] text-text-muted">Billing:</span>
-                            {isPersonalTenant(t) ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
-                                <Check className="w-2.5 h-2.5 text-emerald-600" />
-                                <span>Personal • Exempt</span>
-                              </span>
-                            ) : t.subscription_status === 'active' ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
-                                <Check className="w-2.5 h-2.5 text-emerald-600" />
-                                <span>{t.razorpay_subscription_id ? 'Paid (Auto)' : 'Active (Manual)'}</span>
-                              </span>
-                            ) : t.subscription_status === 'payment_failed' ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/25">
-                                <AlertCircle className="w-2.5 h-2.5 text-amber-600" />
-                                <span>Payment Failed</span>
-                              </span>
-                            ) : (!t.org_lifecycle_stage || t.org_lifecycle_stage === 'setup') ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/25">
-                                Initial Setup
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-slate-950 dark:bg-amber-950/80 dark:text-amber-100 border border-amber-400 dark:border-amber-600">
-                                <Clock className="w-2.5 h-2.5" />
-                                <span>Payment Pending</span>
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[11px] text-text-muted">Billing:</span>
+                              {isPersonalTenant(t) ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
+                                  <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                  <span>Personal • Exempt</span>
+                                </span>
+                              ) : t.subscription_status === 'active' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
+                                  <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                  <span>{t.razorpay_subscription_id ? 'Paid (Auto)' : 'Active (Manual)'}</span>
+                                </span>
+                              ) : t.subscription_status === 'payment_failed' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/25">
+                                  <AlertCircle className="w-2.5 h-2.5 text-amber-600" />
+                                  <span>Payment Failed</span>
+                                </span>
+                              ) : (!t.org_lifecycle_stage || t.org_lifecycle_stage === 'setup') ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/25">
+                                  Initial Setup
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-slate-950 dark:bg-amber-950/80 dark:text-amber-100 border border-amber-400 dark:border-amber-600">
+                                  <Clock className="w-2.5 h-2.5" />
+                                  <span>Payment Pending</span>
+                                </span>
+                              )}
+                            </div>
+                            {!isPersonalTenant(t) && paymentDate && (
+                              <span className="text-[10px] text-text-muted pl-0.5">
+                                Last paid on {paymentDate}
                               </span>
                             )}
                           </div>

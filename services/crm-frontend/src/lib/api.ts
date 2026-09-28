@@ -1864,6 +1864,7 @@ export interface ClientTenant {
   last_payment_status?: string;
   last_charge_at?: string;
   next_renewal_date?: string;
+  last_payment_date?: string;
   billing_method?: string;
   admin_whatsapp_number?: string;
   custom_domain?: string;
