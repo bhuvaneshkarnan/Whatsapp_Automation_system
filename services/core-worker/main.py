@@ -1893,6 +1893,162 @@ end
 
         return empty_slots_by_day
 
+    @staticmethod
+    def _detect_leave_closure_intent(inbound_clean: str, leave_schedules: list, now_dt: datetime.datetime) -> Optional[dict]:
+        """
+        Detects if an inbound message inquires about booking, visiting, or availability on a date/time
+        covered by an active scheduled leave or business closure.
+        Returns closure info dict or None.
+        """
+        if not leave_schedules or not isinstance(leave_schedules, list):
+            return None
+
+        today_date = now_dt.date()
+        tomorrow_date = today_date + datetime.timedelta(days=1)
+
+        # 1. Identify target dates referenced in customer text
+        target_dates = []
+
+        # Check relative date keywords
+        if any(re.search(r"\b" + re.escape(w) + r"\b", inbound_clean) for w in ["day after tomorrow", "overmorrow", "naalaiki marunaal", "parson"]):
+            target_dates.append((today_date + datetime.timedelta(days=2), "the day after tomorrow"))
+        elif any(re.search(r"\b" + re.escape(w) + r"\b", inbound_clean) for w in ["tomorrow", "tmrw", "tomorow", "tomrw", "tmrow", "tmr", "nalaiki", "naalaiki", "kal"]):
+            target_dates.append((tomorrow_date, "tomorrow"))
+        elif any(re.search(r"\b" + re.escape(w) + r"\b", inbound_clean) for w in ["today", "inniku", "iniku", "aaj"]):
+            target_dates.append((today_date, "today"))
+
+        # Weekday keywords
+        weekday_map = {
+            "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+            "friday": 4, "saturday": 5, "sunday": 6,
+            "திங்கள்": 0, "செவ்வாய்": 1, "புதன்": 2, "வியாழன்": 3, "வெள்ளி": 4, "சனி": 5, "ஞாயிறு": 6
+        }
+        for w_name, w_idx in weekday_map.items():
+            if re.search(r"\b" + re.escape(w_name) + r"\b", inbound_clean):
+                days_ahead = (w_idx - today_date.weekday()) % 7
+                if days_ahead == 0 and "next" in inbound_clean:
+                    days_ahead = 7
+                target_dates.append((today_date + datetime.timedelta(days=days_ahead), w_name.capitalize()))
+
+        # Check explicit day numbers from active leave dates
+        for l in leave_schedules:
+            if not isinstance(l, dict) or l.get("is_active") is False:
+                continue
+            l_s = str(l.get("start_date") or l.get("date") or "").strip()[:10]
+            l_e = str(l.get("end_date") or l_s).strip()[:10]
+            if not l_s:
+                continue
+            try:
+                s_d = datetime.date.fromisoformat(l_s)
+                e_d = datetime.date.fromisoformat(l_e) if l_e else s_d
+                for chk_d in [s_d, e_d]:
+                    d_num = str(chk_d.day)
+                    m_abbr = chk_d.strftime("%b").lower()
+                    m_full = chk_d.strftime("%B").lower()
+                    if re.search(r"\b" + d_num + r"(st|nd|rd|th)?\b", inbound_clean):
+                        target_dates.append((chk_d, chk_d.strftime("%A, %d %b")))
+                    elif (m_abbr in inbound_clean or m_full in inbound_clean) and d_num in inbound_clean:
+                        target_dates.append((chk_d, chk_d.strftime("%A, %d %b")))
+            except Exception:
+                pass
+
+        if not target_dates:
+            return None
+
+        # Check requested time if provided (e.g. 4pm, 10:30am)
+        requested_time = None
+        t_clean = inbound_clean.lower().strip()
+        m1 = re.search(r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b', t_clean)
+        if m1:
+            h = int(m1.group(1))
+            m = int(m1.group(2) or 0)
+            p = m1.group(3)
+            if p == "pm" and h < 12: h += 12
+            elif p == "am" and h == 12: h = 0
+            requested_time = datetime.time(h, m)
+        else:
+            m2 = re.search(r'\b(?:at|around|by)\s*(\d{1,2})(?::(\d{2}))?\b', t_clean)
+            if m2:
+                h = int(m2.group(1))
+                m = int(m2.group(2) or 0)
+                if h <= 7: h += 12
+                requested_time = datetime.time(h, m)
+
+        # Now check if any target_date falls within an active leave schedule
+        for chk_date, label in target_dates:
+            for l in leave_schedules:
+                if not isinstance(l, dict) or l.get("is_active") is False:
+                    continue
+                l_type = l.get("type", "full_day")
+                l_s = str(l.get("start_date") or l.get("date") or "").strip()[:10]
+                l_e = str(l.get("end_date") or l_s).strip()[:10]
+                l_reason = (l.get("reason") or "Scheduled Leave / Store Closure").strip()
+                if not l_s:
+                    continue
+                try:
+                    s_d = datetime.date.fromisoformat(l_s)
+                    e_d = datetime.date.fromisoformat(l_e) if l_e else s_d
+                    if s_d <= chk_date <= e_d:
+                        st_tm_str = l.get("start_time", "00:00")
+                        et_tm_str = l.get("end_time", "23:59")
+                        is_match = False
+                        if l_type == "custom_time":
+                            st_parts = [int(x) for x in st_tm_str.split(":")[:2]]
+                            et_parts = [int(x) for x in et_tm_str.split(":")[:2]]
+                            st_time_obj = datetime.time(st_parts[0], st_parts[1])
+                            et_time_obj = datetime.time(et_parts[0], et_parts[1])
+                            if requested_time:
+                                if st_time_obj <= requested_time <= et_time_obj:
+                                    is_match = True
+                            else:
+                                is_match = True
+                        else:
+                            is_match = True
+
+                        if is_match:
+                            # Calculate next open day after e_d
+                            curr_next = e_d + datetime.timedelta(days=1)
+                            for _ in range(14):
+                                is_blocked = False
+                                for ol in leave_schedules:
+                                    if not isinstance(ol, dict) or ol.get("is_active") is False:
+                                        continue
+                                    if ol.get("type", "full_day") != "full_day":
+                                        continue
+                                    ol_s = str(ol.get("start_date") or ol.get("date") or "").strip()[:10]
+                                    ol_e = str(ol.get("end_date") or ol_s).strip()[:10]
+                                    try:
+                                        ol_sd = datetime.date.fromisoformat(ol_s)
+                                        ol_ed = datetime.date.fromisoformat(ol_e) if ol_e else ol_sd
+                                        if ol_sd <= curr_next <= ol_ed:
+                                            is_blocked = True
+                                            break
+                                    except Exception:
+                                        pass
+                                if not is_blocked:
+                                    break
+                                curr_next += datetime.timedelta(days=1)
+
+                            date_display = chk_date.strftime("%A, %d %b %Y")
+                            if label in ["today", "tomorrow", "the day after tomorrow"]:
+                                date_display = f"{label} ({date_display})"
+
+                            return {
+                                "date": chk_date,
+                                "date_display": date_display,
+                                "type": l_type,
+                                "reason": l_reason,
+                                "start_time": st_tm_str,
+                                "end_time": et_tm_str,
+                                "requested_time": requested_time,
+                                "next_open_date": curr_next,
+                                "next_open_display": curr_next.strftime("%A, %d %b %Y"),
+                                "leave_dict": l,
+                            }
+                except Exception:
+                    pass
+        return None
+
     def _sanitize_tenant_response(
         self,
         text: str,
@@ -2898,6 +3054,72 @@ end
         fmt_close = _fmt_ampm(closing_time_raw, '09:30 PM' if is_mbr else '08:00 PM', is_closing=True)
         op_hours_display = f"{fmt_open} to {fmt_close}"
 
+        # Build scheduled leaves & temporary closures block
+        leave_schedules_list = tenant_st_row.get("leave_schedules") if (tenant_st_row and isinstance(tenant_st_row, dict)) else []
+        if not leave_schedules_list:
+            try:
+                _t_st = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                if _t_st:
+                    if isinstance(_t_st, str): _t_st = json.loads(_t_st)
+                    if isinstance(_t_st, dict):
+                        leave_schedules_list = _t_st.get("leave_schedules") or []
+            except Exception:
+                leave_schedules_list = []
+
+        leave_closure_lines = []
+        if leave_schedules_list and isinstance(leave_schedules_list, list):
+            today_date = now.date()
+            for l in leave_schedules_list:
+                if not isinstance(l, dict) or l.get("is_active") is False:
+                    continue
+                try:
+                    l_type = l.get("type", "full_day")
+                    l_s_date = str(l.get("start_date") or l.get("date") or "").strip()[:10]
+                    l_e_date = str(l.get("end_date") or l_s_date).strip()[:10]
+                    l_reason = (l.get("reason") or "Scheduled Leave / Store Closure").strip()
+                    if not l_s_date:
+                        continue
+                    s_d = datetime.date.fromisoformat(l_s_date)
+                    e_d = datetime.date.fromisoformat(l_e_date) if l_e_date else s_d
+                    # Ignore leaves that ended more than 1 day ago
+                    if e_d < today_date - datetime.timedelta(days=1):
+                        continue
+
+                    s_str = s_d.strftime("%A, %d %b %Y")
+                    e_str = e_d.strftime("%A, %d %b %Y")
+                    date_display = s_str if s_d == e_d else f"{s_str} to {e_str}"
+
+                    if l_type == "custom_time":
+                        st_tm = l.get("start_time", "00:00")
+                        et_tm = l.get("end_time", "23:59")
+                        try:
+                            st_12 = datetime.datetime.strptime(st_tm, "%H:%M").strftime("%I:%M %p")
+                            et_12 = datetime.datetime.strptime(et_tm, "%H:%M").strftime("%I:%M %p")
+                            time_disp = f"from {st_12} to {et_12}"
+                        except Exception:
+                            time_disp = f"from {st_tm} to {et_tm}"
+                        leave_closure_lines.append(f"- {date_display} ({time_disp}): UNAVAILABLE / CLOSED due to \"{l_reason}\"")
+                    else:
+                        leave_closure_lines.append(f"- {date_display} (Full Day): CLOSED due to \"{l_reason}\"")
+                except Exception as l_fmt_err:
+                    logger.warning("leave_format_error", error=str(l_fmt_err))
+
+        if leave_closure_lines:
+            leave_closure_block = (
+                "### OFFICIAL BUSINESS CLOSURES & SCHEDULED LEAVES (GROUND TRUTH):\n"
+                "The business / clinic is strictly CLOSED and CANNOT take appointments during these scheduled periods:\n"
+                + "\n".join(leave_closure_lines) + "\n\n"
+                "MANDATORY RULES FOR CLOSURE PERIODS:\n"
+                "1. If a customer inquires, requests, or asks to book during any of the dates/times listed above:\n"
+                "   - You MUST politely and warmly inform them that the clinic/doctor is unavailable during that period due to the reason stated above.\n"
+                "   - NEVER confirm or promise an appointment during a closure period!\n"
+                "   - Proactively suggest the nearest alternative openings: propose times before the closure begins, or on the next open business day after reopening.\n"
+                "2. When stating the reason, be empathetic and professional (e.g. 'Our doctor will be attending a conference on Friday afternoon, but is open on Friday morning or Saturday.').\n"
+                "3. In Tamil/Tanglish, explain the reason clearly (e.g. 'மருத்துவர் மாநாட்டில் பங்கேற்பதால்...')."
+            )
+        else:
+            leave_closure_block = ""
+
         # Extract slot scheduling config from tenant settings
         slot_duration_mins = int(tenant_st_row.get("slot_duration_mins") or 30) if tenant_st_row else 30
         buffer_mins = int(tenant_st_row.get("buffer_mins") or 0) if tenant_st_row else 0
@@ -2908,14 +3130,14 @@ end
         # Retrieve all currently booked/occupied slots for this business (next 7 days) from Google Calendar and CRM
         busy_slots, gcal_connected = await self._get_live_occupied_slots(tenant_id, tenant_tz)
 
-        # Compute exact live verified empty slots from Google Calendar and CRM
+        # Compute exact live verified empty slots from Google Calendar and CRM (look 4 days ahead if leaves active so next open day is available)
         empty_slots_by_day = self._compute_live_empty_slots(
             busy_slots=busy_slots,
             tenant_tz=tenant_tz,
             opening_time_str=opening_time_raw,
             closing_time_str=closing_time_raw,
             slot_duration_mins=slot_duration_mins,
-            days_ahead=2,
+            days_ahead=4 if leave_closure_lines else 2,
             buffer_mins=buffer_mins,
             lunch_break_start=lunch_break_start,
             lunch_break_end=lunch_break_end,
@@ -2953,7 +3175,31 @@ end
                     fmt_times = [s.strftime("%I:%M %p") for s in slots]
                     empty_slot_lines.append(f"* {day_label} ({len(slots)} verified empty slots available):\n  " + ", ".join(fmt_times))
             else:
-                if day_label.startswith("TODAY") and now.time() >= datetime.time(cl_h_val, cl_m_val):
+                day_leave = None
+                if leave_schedules_list and isinstance(leave_schedules_list, list):
+                    for l in leave_schedules_list:
+                        if not isinstance(l, dict) or l.get("is_active") is False:
+                            continue
+                        l_s = str(l.get("start_date") or l.get("date") or "").strip()[:10]
+                        l_e = str(l.get("end_date") or l_s).strip()[:10]
+                        if not l_s:
+                            continue
+                        try:
+                            s_d = datetime.date.fromisoformat(l_s)
+                            e_d = datetime.date.fromisoformat(l_e) if l_e else s_d
+                            m_d = re.search(r'(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})', day_label)
+                            if m_d:
+                                l_dt = datetime.datetime.strptime(m_d.group(1), "%d %b %Y").date()
+                                if s_d <= l_dt <= e_d:
+                                    day_leave = l
+                                    break
+                        except Exception:
+                            pass
+
+                if day_leave:
+                    l_reason = day_leave.get("reason") or "Scheduled Leave / Store Closure"
+                    empty_slot_lines.append(f"* {day_label}: STRICTLY CLOSED FOR SCHEDULED LEAVE / CLOSURE (Reason: \"{l_reason}\"). ZERO slots available. Do NOT offer slots on this date.")
+                elif day_label.startswith("TODAY") and now.time() >= datetime.time(cl_h_val, cl_m_val):
                     empty_slot_lines.append(f"* {day_label}: CLOSED FOR TODAY (Operating hours were {op_hours_display}. It is currently {now.strftime('%I:%M %p')}, which is after closing time. All new appointments/demos must be scheduled starting from TOMORROW onwards).")
                 else:
                     empty_slot_lines.append(f"* {day_label}: FULLY BOOKED (All slots during operating hours are occupied by appointments)")
@@ -3017,72 +3263,6 @@ end
                 if is_mbr else ""
             )
         )
-
-        # Build scheduled leaves & temporary closures block
-        leave_schedules_list = tenant_st_row.get("leave_schedules") if (tenant_st_row and isinstance(tenant_st_row, dict)) else []
-        if not leave_schedules_list:
-            try:
-                _t_st = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
-                if _t_st:
-                    if isinstance(_t_st, str): _t_st = json.loads(_t_st)
-                    if isinstance(_t_st, dict):
-                        leave_schedules_list = _t_st.get("leave_schedules") or []
-            except Exception:
-                leave_schedules_list = []
-
-        leave_closure_lines = []
-        if leave_schedules_list and isinstance(leave_schedules_list, list):
-            today_date = now.date()
-            for l in leave_schedules_list:
-                if not isinstance(l, dict) or l.get("is_active") is False:
-                    continue
-                try:
-                    l_type = l.get("type", "full_day")
-                    l_s_date = str(l.get("start_date") or l.get("date") or "").strip()[:10]
-                    l_e_date = str(l.get("end_date") or l_s_date).strip()[:10]
-                    l_reason = (l.get("reason") or "Scheduled Leave / Store Closure").strip()
-                    if not l_s_date:
-                        continue
-                    s_d = datetime.date.fromisoformat(l_s_date)
-                    e_d = datetime.date.fromisoformat(l_e_date) if l_e_date else s_d
-                    # Ignore leaves that ended more than 1 day ago
-                    if e_d < today_date - datetime.timedelta(days=1):
-                        continue
-                    
-                    s_str = s_d.strftime("%A, %d %b %Y")
-                    e_str = e_d.strftime("%A, %d %b %Y")
-                    date_display = s_str if s_d == e_d else f"{s_str} to {e_str}"
-                    
-                    if l_type == "custom_time":
-                        st_tm = l.get("start_time", "00:00")
-                        et_tm = l.get("end_time", "23:59")
-                        try:
-                            st_12 = datetime.datetime.strptime(st_tm, "%H:%M").strftime("%I:%M %p")
-                            et_12 = datetime.datetime.strptime(et_tm, "%H:%M").strftime("%I:%M %p")
-                            time_disp = f"from {st_12} to {et_12}"
-                        except Exception:
-                            time_disp = f"from {st_tm} to {et_tm}"
-                        leave_closure_lines.append(f"- {date_display} ({time_disp}): UNAVAILABLE / CLOSED due to \"{l_reason}\"")
-                    else:
-                        leave_closure_lines.append(f"- {date_display} (Full Day): CLOSED due to \"{l_reason}\"")
-                except Exception as l_fmt_err:
-                    logger.warning("leave_format_error", error=str(l_fmt_err))
-
-        if leave_closure_lines:
-            leave_closure_block = (
-                "### OFFICIAL BUSINESS CLOSURES & SCHEDULED LEAVES (GROUND TRUTH):\n"
-                "The business / clinic is strictly CLOSED and CANNOT take appointments during these scheduled periods:\n"
-                + "\n".join(leave_closure_lines) + "\n\n"
-                "MANDATORY RULES FOR CLOSURE PERIODS:\n"
-                "1. If a customer inquires, requests, or asks to book during any of the dates/times listed above:\n"
-                "   - You MUST politely and warmly inform them that the clinic/doctor is unavailable during that period due to the reason stated above.\n"
-                "   - NEVER confirm or promise an appointment during a closure period!\n"
-                "   - Proactively suggest the nearest alternative openings: propose times before the closure begins, or on the next open business day after reopening.\n"
-                "2. When stating the reason, be empathetic and professional (e.g. 'Our doctor will be attending a conference on Friday afternoon, but is open on Friday morning or Saturday.').\n"
-                "3. In Tamil/Tanglish, explain the reason clearly (e.g. 'மருத்துவர் மாநாட்டில் பங்கேற்பதால்...')."
-            )
-        else:
-            leave_closure_block = ""
 
         if is_returning_customer:
             returning_greeting_directive = (
@@ -3377,6 +3557,53 @@ end
                 f"2. Once customer confirms their preferred new date & time, confirm it and MANDATORY append at the end: "
                 f"[ACTION:RESCHEDULE_BOOKING: {{\"service\": \"{b_svc}\", \"date\": \"{now.strftime('%Y')}-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\", \"email\": \"{customer_email or ''}\", \"notes\": \"Rescheduled\"}}]"
             )
+        # Check if customer inquiry refers to a date/time covered by a scheduled leave / closure
+        elif self._detect_leave_closure_intent(inbound_clean, leave_schedules_list, now):
+            matched_leave_info = self._detect_leave_closure_intent(inbound_clean, leave_schedules_list, now)
+            funnel_stage = "SCHEDULED_LEAVE_CLOSURE"
+            l_reason = matched_leave_info["reason"]
+            l_date_disp = matched_leave_info["date_display"]
+            l_next_open = matched_leave_info["next_open_display"]
+            l_type = matched_leave_info["type"]
+
+            cust_has_app_on_leave_date = False
+            if has_upcoming:
+                for ub in upcoming_active_bookings:
+                    if ub.get("start_time_local") and ub["start_time_local"].date() == matched_leave_info["date"]:
+                        cust_has_app_on_leave_date = True
+                        break
+
+            if cust_has_app_on_leave_date:
+                stage_directive = (
+                    f"The customer's active appointment is on {l_date_disp}, but the business / clinic is strictly CLOSED on this date due to: \"{l_reason}\".\n"
+                    f"MANDATORY DIRECTIVE:\n"
+                    f"1. Warmly and sincerely inform them in Sentence 1 that our clinic/business is closed on {l_date_disp} because \"{l_reason}\".\n"
+                    f"2. Politely apologize for the inconvenience and offer to reschedule their booking to our next open business day: {l_next_open} (or another time that works for them).\n"
+                    f"3. Do NOT say their appointment is active as normal. Frame it around the scheduled closure."
+                )
+            elif l_type == "custom_time" and not matched_leave_info.get("requested_time"):
+                st_12 = matched_leave_info["start_time"]
+                et_12 = matched_leave_info["end_time"]
+                try:
+                    st_12 = datetime.datetime.strptime(st_12, "%H:%M").strftime("%I:%M %p")
+                    et_12 = datetime.datetime.strptime(et_12, "%H:%M").strftime("%I:%M %p")
+                except Exception:
+                    pass
+                stage_directive = (
+                    f"The customer is asking to book or visit on {l_date_disp}. "
+                    f"Our business / clinic has a scheduled leave from {st_12} to {et_12} on this date due to: \"{l_reason}\". "
+                    f"Warmly inform them of this blackout window ({st_12} to {et_12}), and invite them to schedule earlier in the morning or later in the evening outside these hours, or on {l_next_open}."
+                )
+            else:
+                stage_directive = (
+                    f"The customer is asking to book, visit, or check availability for {l_date_disp}.\n"
+                    f"CRITICAL GROUND TRUTH: The business / clinic is strictly CLOSED on {l_date_disp} due to: \"{l_reason}\".\n"
+                    f"MANDATORY DIRECTIVE (HIGHEST PRIORITY):\n"
+                    f"1. Warmly and politely inform the customer in Sentence 1 that our clinic/business is closed on {l_date_disp} because \"{l_reason}\".\n"
+                    f"2. STRICTLY DO NOT say 'That would be wonderful', DO NOT ask what service or treatment they are interested in, and NEVER confirm or offer any slot on {l_date_disp}!\n"
+                    f"3. Proactively suggest booking on our next open business day: {l_next_open} (e.g. 'We would love to welcome you on {l_next_open}. What time works best for you?').\n"
+                    f"4. If communicating in Tamil/Tanglish, state the reason clearly with empathy."
+                )
         elif has_upcoming:
             funnel_stage = "ACTIVE_APPOINTMENT"
             stage_directive = (
@@ -3387,8 +3614,8 @@ end
             funnel_stage = "BOOKING_INTENT"
             stage_directive = (
                 "The customer wants to schedule or check availability for an appointment, demo, or call. "
-                "1. If the customer has NOT stated a time: Warmly accept their request (e.g. for a demo, describe what they will see in 1 line), and ask what day and convenient time suits them best within operating hours (if outside hours or late at night, invite them for tomorrow). "
-                f"2. If the customer HAS stated a time (e.g. '3 pm', 'at 4', 'today at 5', 'tomorrow at 2'): If the requested time is still upcoming today within operating hours ({op_hours_display}) and available, book for TODAY ({today_date_str})! If that time has already passed today or today is closed/full, it refers to TOMORROW ({tomorrow_date_str}). Immediately confirm that slot with warmth, and MANDATORY append [ACTION:CREATE_BOOKING: {{\"service\": \"Demo / Consultation\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}] (using date=\"{today_date_str}\" for today or date=\"{tomorrow_date_str}\" for tomorrow). "
+                "1. If the customer has NOT stated a time: Warmly accept their request (e.g. for a demo, describe what they will see in 1 line), and ask what day and convenient time suits them best within operating hours (check verified open slots above; if a date has a scheduled closure or leave, do NOT propose that date). "
+                f"2. If the customer HAS stated a time (e.g. '3 pm', 'at 4', 'today at 5', 'tomorrow at 2'): If the requested time is still upcoming today within operating hours ({op_hours_display}) and available, book for TODAY ({today_date_str})! If that time has already passed today or today is closed/full, check if tomorrow is open. If tomorrow is closed for scheduled leave, offer the next open business day. If open, confirm for tomorrow with warmth, and MANDATORY append [ACTION:CREATE_BOOKING: {{\"service\": \"Demo / Consultation\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", \"name\": \"{confirmed_name or customer_name_display or 'Customer'}\"}}]. "
                 "NEVER offer a rigid pair of arbitrary times. NEVER claim today is fully booked if outside operating hours. NEVER reject customer's time."
             )
         elif any(w in inbound_clean for w in ["expensive", "costly", "think about it", "let you know", "discount", "deal", "offer", "not tech", "hard to setup", "painful", "afraid"]):
@@ -3655,6 +3882,13 @@ end
             reinforcement_parts.append("- UNREAD MEDIA: A video/document was shared that we cannot analyze. Politely ask them to type what they need.")
         if _has_vision_desc:
             reinforcement_parts.append("- IMAGE VISION: The image has been analyzed — DO NOT ask the customer to type or re-describe. Respond directly and helpfully to the image content.")
+        if leave_closure_lines:
+            reinforcement_parts.append(
+                "- SCHEDULED LEAVES & CLOSURES (CRITICAL): The business is strictly CLOSED on: "
+                + "; ".join(leave_closure_lines) + ". "
+                "If the customer asks to visit, book, or check availability on any of these closed dates, you MUST immediately inform them that the clinic/business is closed on that day with the reason, and proactively suggest the next open business day. "
+                "STRICTLY NEVER ask what service they need or suggest slots for closed dates!"
+            )
         reinforcement_rule = "\n".join(reinforcement_parts)
 
         # Untrusted Customer Input Boundary & Prompt Injection Defense:
@@ -3700,6 +3934,10 @@ end
                     if full_location else
                     "### OFFICIAL BUSINESS LOCATION GROUND TRUTH:\n- No clinic address configured yet. NEVER invent, fabricate, or hallucinate any location or address!"
                 ),
+            ]
+            if leave_closure_block:
+                prompt_blocks.append(leave_closure_block)
+            prompt_blocks.extend([
                 # Dialect & Style Mirroring (Customer Texting Vibe Adaptation & Real-Time Dynamic Language Switching)
                 style_mirroring_block,
                 # Unified Master Knowledge Base (ground truth for business, hours, address, services, clinical rules, and tone)
@@ -3711,7 +3949,7 @@ end
                 contact_integrity_block,
                 # ── REAL-TIME DYNAMIC CONTEXT: LIVE GOOGLE CALENDAR OCCUPIED SLOTS ──
                 busy_slots_block,
-            ]
+            ])
             if leave_closure_block:
                 prompt_blocks.append(leave_closure_block)
             if upcoming_booking_block:
@@ -3805,6 +4043,8 @@ end
                 f"- Closing Time: {fmt_close} (Night / Evening / இரவு / 21:00)\n"
                 f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, working hours, opening/closing times, or when we are open, ALWAYS state: '{op_hours_display} daily'. NEVER guess or infer operating hours from empty calendar slots! Closing time is strictly {fmt_close} (Night / இரவு). You must NEVER write '09:00 AM' for closing time or night!"
             )
+            if leave_closure_block:
+                prompt_blocks.append(leave_closure_block)
 
             if objection_handling.strip():
                 prompt_blocks.append(f"### OBJECTION HANDLING STRATEGY:\n{objection_handling.strip()}")

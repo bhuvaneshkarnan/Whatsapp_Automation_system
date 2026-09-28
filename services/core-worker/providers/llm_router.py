@@ -391,6 +391,8 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 28000) -> str:
     pricing_text = ""
     kb_text = ""
     calendar_text = ""
+    leave_text = ""
+    funnel_text = ""
     customer_text = ""
     action_text = ""
     location_and_web = []
@@ -400,7 +402,15 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 28000) -> str:
         sec_strip = sec.strip()
         sec_upper = sec_strip.upper()
 
-        if "LIVE GOOGLE CALENDAR" in sec_upper or "VERIFIED EMPTY" in sec_upper and "AVAILABLE SLOTS" in sec_upper:
+        if "OFFICIAL BUSINESS CLOSURES" in sec_upper or "SCHEDULED LEAVES" in sec_upper or "BUSINESS CLOSURES" in sec_upper:
+            if not leave_text:
+                leave_text = sec_strip[:2500].rsplit("\n", 1)[0] if len(sec_strip) > 2500 else sec_strip
+
+        elif "CONVERSATION FUNNEL STATE" in sec_upper:
+            if not funnel_text:
+                funnel_text = sec_strip[:1500].rsplit("\n", 1)[0] if len(sec_strip) > 1500 else sec_strip
+
+        elif "LIVE GOOGLE CALENDAR" in sec_upper or "VERIFIED EMPTY" in sec_upper and "AVAILABLE SLOTS" in sec_upper:
             if not calendar_text:
                 cal_clean = sec_strip
                 if "OCCUPIED / BUSY SLOTS" in cal_clean:
@@ -477,6 +487,10 @@ def budget_prompt_for_groq(system_prompt: str, max_chars: int = 28000) -> str:
     parts = []
     if identity_parts:
         parts.append("\n".join(identity_parts))
+    if leave_text:
+        parts.append(leave_text)
+    if funnel_text:
+        parts.append(funnel_text)
     if global_rules:
         parts.extend(global_rules[:2])  # Keep first 2 global rule sections
     if tenant_strict_rules:
