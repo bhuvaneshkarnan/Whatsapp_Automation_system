@@ -1054,6 +1054,7 @@ MANDATORY DIRECTIVES — ZERO INFORMATION LOSS:
 - In "unified_knowledge_base", compile a clean, high-density Markdown document with these explicit sections:
   ### 1. BUSINESS IDENTITY & CONTACT GROUND TRUTH
   - Name, exact address/landmark, official daily operating hours, doctors/staff names & specialties, official website/links.
+  - STRICT LOCATION FIDELITY: Retain the EXACT business address, street, and city provided in the dump. NEVER invent, alter, or replace the business location with generic locations (e.g. Bengaluru, Indiranagar, Chennai) unless explicitly stated in the input.
   ### 2. VERIFIED SERVICES, TREATMENTS & PRICING CATALOG
   - Every single service, treatment, duration, and price in digits with currency (e.g. Full Body Ayurvedic Massage (60 mins): ₹1499).
   ### 3. CLINICAL DIRECTIVES, SAFETY & BUSINESS POLICIES

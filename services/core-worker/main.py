@@ -2659,6 +2659,18 @@ end
             if tenant_st_row.get("country_code"):
                 tenant_country_code = tenant_st_row.get("country_code").strip()
 
+        # Extract official verified business location/address early so it is accessible in all prompt blocks and directives
+        full_location = ""
+        if tenant_st_row and isinstance(tenant_st_row, dict):
+            full_location = (tenant_st_row.get("full_location_text") or tenant_st_row.get("location") or "").strip()
+        if not full_location:
+            _ts = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+            if _ts:
+                if isinstance(_ts, str):
+                    try: _ts = json.loads(_ts)
+                    except Exception: _ts = {}
+                full_location = (_ts.get("full_location_text") or _ts.get("location") or "").strip()
+
         import datetime
         import zoneinfo
         try:
@@ -2961,7 +2973,7 @@ end
                 f"{_doctor_line}"
                 f"- Patient / Lead Status: {customer_status or 'Active'}\n"
                 f"- Customer Age on File: {customer_age if customer_age is not None else 'Not provided yet'}\n"
-                f"- Customer Location / City on File: {customer_location if customer_location else 'Not provided yet'}\n"
+                f"- Customer's Personal Living Area / City: {customer_location if customer_location else 'Not provided yet'} (NOTE: THIS IS WHERE THE CUSTOMER LIVES - NEVER CONFUSE WITH OUR CLINIC/BUSINESS LOCATION!)\n"
                 f"- Customer Email on File: {customer_email if customer_email else 'Not provided yet'}\n"
                 f"- Active Upcoming Appointments: {active_b_str}\n"
                 f"- Past / Inactive Appointments: {past_b_str}\n"
@@ -2985,7 +2997,7 @@ end
                 f"- WhatsApp Handle: {wa_name or 'Unknown'}\n"
                 f"- Customer Email on File: {customer_email if customer_email else 'Not provided yet'}\n"
                 f"- Customer Age on File: {customer_age if customer_age is not None else 'Not provided yet'}\n"
-                f"- Customer Location / City on File: {customer_location if customer_location else 'Not provided yet'}\n"
+                f"- Customer's Personal Living Area / City: {customer_location if customer_location else 'Not provided yet'} (NOTE: THIS IS WHERE THE CUSTOMER LIVES - NEVER CONFUSE WITH OUR CLINIC/BUSINESS LOCATION!)\n"
                 f"- CRM Tags: {tags}\n"
                 "- Follow this business's opening instructions to warmly welcome them and understand their needs."
             )
@@ -3234,13 +3246,24 @@ end
                 "Anchor the value/treatment in Sentence 2, and ask 1 diagnostic qualification question to understand their specific requirement or condition (e.g. what issue they want treatment for or how long they have had it). "
                 "Do NOT rush to hard close or tag as hot yet; qualify their requirement first."
             )
-        elif any(w in inbound_clean for w in ["where", "location", "address", "landmark", "directions", "how to reach"]):
+        elif any(w in inbound_clean for w in [
+            "where", "location", "address", "landmark", "directions", "how to reach",
+            "enga irukku", "enga irukinga", "enga irukkinga", "evlo thooram", "route"
+        ]):
             funnel_stage = "EVALUATION_LOCATION"
-            stage_directive = (
-                "The customer is asking where the business/clinic is located. "
-                "Follow this business's verified location instructions above (if the business specifies a short address format like 'T Nagar, Chennai', follow that exact format; otherwise provide the verified business address). "
-                "Then naturally continue the conversation."
-            )
+            if full_location:
+                stage_directive = (
+                    f"The customer is asking where the business / clinic is located or how to reach us. "
+                    f"1. Directly state our official verified business address: '{full_location}'. "
+                    f"2. Naturally ask if they would like directions or what day they plan to visit. "
+                    f"CRITICAL: ALWAYS state our verified address '{full_location}'. NEVER guess, infer, or hallucinate any other location, street, or city (such as Bengaluru or Chennai)! NEVER confuse the customer's personal living area with our clinic address!"
+                )
+            else:
+                stage_directive = (
+                    "The customer is asking where the business / clinic is located. "
+                    "1. State that our team will share the exact clinic location and directions with them shortly. "
+                    "CRITICAL: No address is configured in the system. STRICTLY NEVER invent, guess, or hallucinate any street, city, or address!"
+                )
         elif any(w in inbound_clean for w in [
             "timing", "timings", "hours", "open", "opening time", "closing time",
             "opening hours", "operating hours", "clinic time", "clinic timing", "clinic timings",
@@ -3395,19 +3418,17 @@ end
             f"{pay_directive}"
         )
 
-        # full_location: creds is WhatsApp API keys only — never has full_location_text.
-        # Use tenant_st_row (already loaded above) which is the full tenants.settings dict.
-        full_location = ""
-        if tenant_st_row and isinstance(tenant_st_row, dict):
-            full_location = (tenant_st_row.get("full_location_text") or "").strip()
+        # full_location is extracted early above from tenant_st_row
         if not full_location:
-            # Fallback: fresh DB fetch in case tenant_st_row wasn't loaded
-            _ts = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
-            if _ts:
-                if isinstance(_ts, str):
-                    try: _ts = json.loads(_ts)
-                    except: _ts = {}
-                full_location = (_ts.get("full_location_text") or "").strip()
+            if tenant_st_row and isinstance(tenant_st_row, dict):
+                full_location = (tenant_st_row.get("full_location_text") or tenant_st_row.get("location") or "").strip()
+            if not full_location:
+                _ts = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                if _ts:
+                    if isinstance(_ts, str):
+                        try: _ts = json.loads(_ts)
+                        except Exception: _ts = {}
+                    full_location = (_ts.get("full_location_text") or _ts.get("location") or "").strip()
 
         tenant_isolation_boundary = (
             "### STRICT TENANT IDENTITY & FACTUAL DATA ISOLATION (ABSOLUTE MANDATORY DIRECTIVE):\n"
@@ -3508,6 +3529,14 @@ end
                     f"- Opening Time: {fmt_open} (Morning / காலை)\n"
                     f"- Closing Time: {fmt_close} (Night / Evening / இரவு / 21:00)\n"
                     f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, working hours, opening/closing times, or when we are open, ALWAYS state: '{op_hours_display} daily'. NEVER guess or infer operating hours from empty calendar slots! Closing time is strictly {fmt_close} (Night / இரவு). You must NEVER write '09:00 AM' for closing time or night!"
+                ),
+                # Official Business Location Ground Truth
+                (
+                    f"### OFFICIAL BUSINESS LOCATION GROUND TRUTH (MANDATORY CLINIC ADDRESS):\n"
+                    f"- Verified Business / Clinic Address: {full_location}\n"
+                    f"- MANDATORY LOCATION RULE: When the customer asks about business location, clinic address, landmark, directions, or where we are located, ALWAYS provide: '{full_location}'. NEVER guess, infer, or hallucinate any other location, street, or city (such as Bengaluru, Chennai, Indiranagar, etc.)! NEVER confuse the customer's personal living area with the clinic location!"
+                    if full_location else
+                    "### OFFICIAL BUSINESS LOCATION GROUND TRUTH:\n- No clinic address configured yet. NEVER invent, fabricate, or hallucinate any location or address!"
                 ),
                 # Dialect & Style Mirroring (Customer Texting Vibe Adaptation & Real-Time Dynamic Language Switching)
                 style_mirroring_block,
@@ -4031,6 +4060,16 @@ end
             ]
             for pat, rep in tamil_hallucination_fixes:
                 response_text = pat.sub(rep, response_text)
+
+            # Business location hallucination interceptor:
+            # If the tenant has a verified business address and the LLM mentions an unverified external address/city (e.g. Indiranagar, Bengaluru)
+            if full_location:
+                fl_lower = full_location.lower()
+                if "bengaluru" not in fl_lower and "bangalore" not in fl_lower:
+                    if any(w in response_text.lower() for w in ["indiranagar", "100 feet road", "city mall"]):
+                        logger.warning("hallucinated_location_intercepted", tenant_id=tenant_id, text=response_text[:100])
+                        if funnel_stage == "EVALUATION_LOCATION" or any(w in (message_text or "").lower() for w in ["where", "location", "address", "landmark", "enga"]):
+                            response_text = f"We are located at {full_location}. Would you like directions or help booking a visit?"
 
             if is_ongoing_conversation:
                 response_text = strip_repetitive_greetings(response_text)
