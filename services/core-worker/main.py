@@ -386,6 +386,10 @@ GLOBAL_DEFAULT_STRICT_RULES = (
     "  * If the customer previously messaged in Tamil but now writes in English, you MUST immediately switch and reply 100% in natural English. NEVER stay locked in Tamil when the customer asks in English.\n"
     "  * If the customer writes in Tamil (Tamil script or Tanglish), reply 100% in natural Tamil/Tanglish.\n"
     "  * If the customer sends a neutral short acknowledgment (like 'ok', 'yes', 'sure', '3 pm'), continue in the previously established language.\n"
+    "- SERVICE NAME INTEGRITY & ZERO PHONETIC HALLUCINATION:\n"
+    "  * In Tamil/Tanglish, NEVER literally or bizarrely mistranslate spa/wellness terms into random everyday words.\n"
+    "  * SPECIFIC TAMIL DIRECTIVE: Powder Massage / Udwarthanam must ALWAYS be called 'உத்வர்தனம்' or 'ஹெர்பல் பவுடர் மசாஜ்' (or 'Udwarthanam / Powder Massage'). NEVER write 'புடவை மசாஜ்' or 'சேலை மசாஜ்' (which means saree!).\n"
+    "  * Only offer and describe treatments that explicitly exist in the verified catalog. Never invent, hallucinate, or confuse services.\n"
     "- CONVERSATIONAL WHATSAPP BREVITY (NO ESSAYS):\n"
     "  * Keep responses to 2 to 3 natural sentences (25 to 50 words max). Absolutely zero marketing essays, bullet points, hyphens, dashes, asterisks, or emojis."
 )
@@ -1999,6 +2003,7 @@ end
                     "CRITICAL: You MUST respond 100% in warm, polite, and natural TAMIL using Tamil script (தமிழ்). "
                     "Speak like a friendly, caring clinic/business front-desk member in Tamil Nadu "
                     "(e.g. 'வணக்கம்! எங்கள் கிளினிக்கில் கன்சல்டேஷன் கட்டணம் ₹500. உங்களுக்கு என்ன சிகிச்சை தேவை என்று கூற முடியுமா?'). "
+                    "SERVICE NAME INTEGRITY: NEVER translate Powder Massage as 'புடவை மசாஜ்' (which means saree!). Always use 'உத்வர்தனம்' or 'பவுடர் மசாஜ்'. "
                     "Greet politely, answer their query directly and clearly in sentence 1, and maintain a respectful, welcoming tone. "
                     "Do NOT sound cold, blunt, or robotic. Never reply in English or mix English sentences."
                 )
@@ -2015,6 +2020,7 @@ end
                     "The customer is communicating in Tanglish (Tamil written in Romanized English alphabet, e.g. 'vanakkam', 'nalla poguthu', 'evlo cost', 'eppadi irukku'). "
                     "CRITICAL: You MUST reply 100% in natural, warm, polite Romanized Tanglish/Tamil-English mix using the English alphabet "
                     "(e.g. 'Vanakkam! Consultation fee ₹500. Ungalukku enna problem nu solla mudiyuma? Dr paathu kandippa help pannuvom.'). "
+                    "SERVICE NAME INTEGRITY: Powder Massage is 'Udwarthanam / Powder Massage'. NEVER write 'pudavai massage'. "
                     "NEVER reply in pure English to a Tanglish message! "
                     "Do NOT use Tamil script and do NOT use any hyphens (write 'business ku' not 'business-ku'). "
                     "Answer directly and warmly in sentence 1. Match their friendly Tanglish cadence with genuine warmth." + brevity_note
@@ -3258,12 +3264,30 @@ end
                 f"3. Keep your reply short, direct, and conversational (1 to 3 short lines). Never ask them to type what they just spoke."
             )
         elif is_ongoing_conversation:
-            funnel_stage = "CONSIDERATION_PROGRESSION"
-            stage_directive = (
-                "Ongoing conversation. Directly and clearly address what they just said in the context of the prior chat messages. "
-                "If the customer sends a simple greeting or ping like 'hi' or 'hello', DO NOT restart the conversation or ask generic intro questions like 'How can I help you today?'. "
-                "Briefly acknowledge them and seamlessly pick up right where the conversation left off from your previous message."
-            )
+            # Check if customer sent an affirmative or confirmation to bot's previous question
+            is_affirmative = any(w == inbound_clean for w in [
+                "yes", "yeah", "yep", "sure", "ok", "okay", "k", "kk",
+                "ama", "aama", "aamam", "ha", "haan", "s", "tell me",
+                "details please", "seri", "seringa", "kandippa", "kandippaga",
+                "yes please", "sure please"
+            ]) or (inbound_clean in ["சொல்லுங்க", "ஆமா", "ஆம்", "சரி", "விவரங்கள் சொல்லுங்க", "விவரம் சொல்லுங்க"])
+
+            if is_affirmative:
+                funnel_stage = "AFFIRMATIVE_PROGRESSION"
+                stage_directive = (
+                    "The customer replied affirmatively ('Yes' / 'Ok' / 'Sure' / 'ஆமா' / 'சொல்லுங்க') to your previous message. "
+                    "CRITICAL ANTI-LOOP DIRECTIVE: NEVER repeat what you already said and NEVER re-ask the exact same question! "
+                    "PROGRESS FORWARD IMMEDIATELY: "
+                    "1. If you previously asked if they want to know more about treatments or options, explain the treatments briefly in 1-2 friendly, helpful sentences highlighting their key benefits. "
+                    "2. Then warmly invite them to book or suggest an appointment: ask what day and convenient time works best for them within operating hours."
+                )
+            else:
+                funnel_stage = "CONSIDERATION_PROGRESSION"
+                stage_directive = (
+                    "Ongoing conversation. Directly and clearly address what they just said in the context of the prior chat messages. "
+                    "If the customer sends a simple greeting or ping like 'hi' or 'hello', DO NOT restart the conversation or ask generic intro questions like 'How can I help you today?'. "
+                    "Briefly acknowledge them and seamlessly pick up right where the conversation left off from your previous message."
+                )
         else:
             funnel_stage = "DISCOVERY"
             stage_directive = (
@@ -3996,6 +4020,18 @@ end
                 close_m = fmt_close.split(":")[1].split()[0]
                 pat_close = re.compile(rf'(?i)(முதல்|வரை|to|-)\s*0?{close_h}(?::{close_m})?\s*AM\b')
                 response_text = pat_close.sub(lambda m: f"{m.group(1)} {close_h:02d}:{close_m} PM", response_text)
+
+            # Multilingual treatment name hallucination sanitizer
+            # Fixes common LLM phonetic mistranslations in Tamil / Indic languages
+            # e.g. "புடவை மசாஜ்" (saree massage) which LLMs erroneously generate when translating "Powder Massage (Udwarthanam)"
+            tamil_hallucination_fixes = [
+                (re.compile(r'புடவை\s*(?:மசாஜ்|சிகிச்சை|ட்ரீட்மென்ட்)?', re.IGNORECASE), "உத்வர்தனம் (பவுடர் மசாஜ்)"),
+                (re.compile(r'சேலை\s*(?:மசாஜ்|சிகிச்சை|ட்ரீட்மென்ட்)?', re.IGNORECASE), "உத்வர்தனம் (பவுடர் மசாஜ்)"),
+                (re.compile(r'\bpudavai\s*(?:massage|treatment)?\b', re.IGNORECASE), "Powder Massage (Udwarthanam)"),
+            ]
+            for pat, rep in tamil_hallucination_fixes:
+                response_text = pat.sub(rep, response_text)
+
             if is_ongoing_conversation:
                 response_text = strip_repetitive_greetings(response_text)
             # Global strict tenant isolation firewall check
