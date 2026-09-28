@@ -3121,9 +3121,15 @@ end
             else:
                 voice_note_content = message_text.strip()
 
-        is_media_only = (not is_voice_note) and any(inbound_clean == p or inbound_clean.startswith(p) for p in [
-            "📷 [photo]", "🎥 [video]", "📄 [document]", "🎤 [voice note received]", "🎤 [voice note -", "🎵 [audio]"
-        ])
+        # is_media_only = True only for raw unanalyzed media (no vision description)
+        # If image was analyzed by Gemini Vision, body_text is "📷 [Photo] Image content: ..."
+        # — that should NOT be treated as media_only; the AI should read and respond to the description.
+        _has_vision_desc = inbound_clean.startswith("📷 [photo] image content:")
+        is_media_only = (not is_voice_note) and (not _has_vision_desc) and any(
+            inbound_clean == p or inbound_clean.startswith(p) for p in [
+                "📷 [photo]", "🎥 [video]", "📄 [document]", "🎤 [voice note received]", "🎤 [voice note -", "🎵 [audio]"
+            ]
+        )
 
         is_contact_number_query = any(p in inbound_clean for p in [
             "give contact number", "give phone number", "share contact number", "share phone number",
@@ -3197,13 +3203,24 @@ end
                 + (f"2. You can also share that they can reach us directly at {admin_phone}. " if admin_phone else "")
                 + f"3. Append [ACTION:HUMAN_TAKEOVER] at the very end of your reply on a new line."
             )
+        elif _has_vision_desc:
+            funnel_stage = "IMAGE_VISION_RESPONSE"
+            # Extract the AI-generated description from body_text
+            _vision_desc = message_text.split("Image content:", 1)[-1].strip() if "Image content:" in message_text else message_text
+            stage_directive = (
+                f"The customer sent an image. Our vision AI has analyzed it and the image contains: '{_vision_desc}'. "
+                f"Respond naturally and helpfully based on what you see in the image. "
+                f"If it shows a health condition or pain area, relate it empathetically to the treatments this business offers. "
+                f"If it shows a document, flyer, or offer (like a competitor's deal), acknowledge it and naturally highlight why our services stand out. "
+                f"If the image is unclear or unrelated to the business, simply ask them what they need help with. "
+                f"NEVER say 'I see you shared a photo' or ask them to type what they need — the image has already been read."
+            )
         elif is_media_only:
             funnel_stage = "MEDIA_MESSAGE_RECEIVED"
             stage_directive = (
-                "The customer shared an image, video, document, or unreadable audio note without accompanying text. "
-                "1. Warmly acknowledge receipt in Line 1: 'I see you shared a note or file.' "
-                "2. In Line 2, politely ask them to type: 'Could you please type what you need so I can help you properly?' "
-                "CRITICAL: Always include the sentence asking them to type what they need."
+                "The customer shared a video, document, or media file we cannot read. "
+                "Acknowledge it briefly and politely ask: 'Could you please type what you need so I can help you?' "
+                "Keep it to 1 line — no elaborate preamble."
             )
         elif is_bot_question:
             funnel_stage = "BOT_HONESTY_INQUIRY"
@@ -3518,7 +3535,9 @@ end
         if is_voice_note:
             reinforcement_parts.append("- VOICE NOTE INBOUND: Reply DIRECTLY to what the customer asked. NEVER say 'Got your voice note', 'I heard your audio', 'உங்கள் குரல் பதிவைப் பெற்றுக்கொண்டேன்', or any variant acknowledging the voice format. Just answer their question naturally.")
         if is_media_only:
-            reinforcement_parts.append("- UNREAD MEDIA: Warmly acknowledge and politely ask how we can help.")
+            reinforcement_parts.append("- UNREAD MEDIA: A video/document was shared that we cannot analyze. Politely ask them to type what they need.")
+        if _has_vision_desc:
+            reinforcement_parts.append("- IMAGE VISION: The image has been analyzed — DO NOT ask the customer to type or re-describe. Respond directly and helpfully to the image content.")
         reinforcement_rule = "\n".join(reinforcement_parts)
 
         # Untrusted Customer Input Boundary & Prompt Injection Defense:
