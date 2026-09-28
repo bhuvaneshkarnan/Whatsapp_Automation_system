@@ -16,6 +16,7 @@ import uuid
 import datetime
 from datetime import timezone
 import html
+import hashlib
 from typing import Optional, Any
 
 import asyncpg
@@ -248,6 +249,35 @@ def extract_location(text: Optional[str]) -> Optional[str]:
             return city.title()
 
     return None
+
+
+_AUTOMATED_BOT_PATTERNS = [
+    re.compile(r'welcome to .* official whatsapp channel', re.IGNORECASE),
+    re.compile(r'official whatsapp channel', re.IGNORECASE),
+    re.compile(r'reserve bank of india', re.IGNORECASE),
+    re.compile(r'rbi kehta hai', re.IGNORECASE),
+    re.compile(r'jaankaar baniye,\s*satark rahiye', re.IGNORECASE),
+    re.compile(r'\b(?:this is an?|this)\s+automated\s+(?:message|response|reply|notification)\b', re.IGNORECASE),
+    re.compile(r'\b(?:auto-?reply|auto-?response)\b', re.IGNORECASE),
+    re.compile(r'\bout of office\b', re.IGNORECASE),
+    re.compile(r'\b(?:reply|text)\s+stop\s+to\s+(?:unsubscribe|opt-?out)\b', re.IGNORECASE),
+    re.compile(r'\bdo not reply to this (?:message|number)\b', re.IGNORECASE),
+    re.compile(r'\bunmonitored\s+(?:inbox|mailbox|number|account)\b', re.IGNORECASE),
+    re.compile(r'\bpress\s+\d+\s+for\b', re.IGNORECASE),
+]
+
+
+def is_automated_bot_or_channel_message(text: Optional[str]) -> bool:
+    """Detects inbound messages from third-party bots, official channels, or auto-responders."""
+    if not text or not isinstance(text, str):
+        return False
+    clean = text.strip()
+    if not clean:
+        return False
+    for pat in _AUTOMATED_BOT_PATTERNS:
+        if pat.search(clean):
+            return True
+    return False
 
 
 def parse_flexible_datetime(date_str: str, time_str: str, tz) -> datetime.datetime:
@@ -1332,7 +1362,8 @@ class CoreWorker:
                             logger.warning("persist_extracted_email_failed", error=str(em_err))
 
             # ── 5c. Auto-detect & persist customer age & location directly to Customer Tab ───
-            if body_text:
+            _is_bot_msg = is_automated_bot_or_channel_message(body_text) if body_text else False
+            if body_text and not _is_bot_msg:
                 inbound_age = extract_age(body_text)
                 inbound_loc = extract_location(body_text)
                 if inbound_age is not None or inbound_loc is not None:
@@ -1348,6 +1379,78 @@ class CoreWorker:
 
             # ── 6. Route to AI or skip (human mode, paused automation, or subscription delinquent) ─────
             # Strict Gating: If unpaid/delinquent, AI auto-replies are held until payment is completed!
+            clean_from_phone = re.sub(r'\D', '', str(fields.get("from", "")))
+
+            # Layer 6a: Bot / Channel / Auto-responder Detection (Neutralize Ping-Pong Loops)
+            if _is_bot_msg:
+                logger.info(
+                    "skipping_ai_automated_bot_detected",
+                    conv_id=conv_id, tenant_id=tenant_id, phone=clean_from_phone,
+                    snippet=body_text[:60] if body_text else ""
+                )
+                try:
+                    await self.db_pool.execute(
+                        """UPDATE conversations
+                           SET status = 'human',
+                               wa_context = jsonb_set(coalesce(wa_context, '{}'::jsonb), '{ai_disabled_reason}', '"automated_bot_detected"')
+                           WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                        conv_id, tenant_id
+                    )
+                except Exception as bot_db_err:
+                    logger.warning("switch_human_on_bot_detect_failed", error=str(bot_db_err))
+                body_text = None
+
+            # Layer 6b: Inbound Duplicate & Rapid Repetition Filter (Anti-Spam / Anti-Echo)
+            if body_text and self.redis and clean_from_phone:
+                try:
+                    norm_msg = re.sub(r'\s+', ' ', body_text.strip().lower())
+                    msg_hash = hashlib.md5(norm_msg.encode("utf-8")).hexdigest()
+                    dup_key = f"inbound_last:{tenant_id}:{clean_from_phone}"
+                    now_ts = time.time()
+                    last_raw = await self.redis.get(dup_key)
+                    if last_raw:
+                        last_info = json.loads(last_raw)
+                        last_hash = last_info.get("hash")
+                        last_count = last_info.get("count", 1)
+                        last_ts = last_info.get("ts", now_ts)
+                        if last_hash == msg_hash and (now_ts - last_ts) < 90:
+                            new_count = last_count + 1
+                            await self.redis.setex(dup_key, 90, json.dumps({"hash": msg_hash, "count": new_count, "ts": now_ts}))
+                            logger.warning(
+                                "skipping_ai_duplicate_inbound_message",
+                                conv_id=conv_id, tenant_id=tenant_id, phone=clean_from_phone,
+                                count=new_count, snippet=body_text[:50]
+                            )
+                            if new_count >= 3:
+                                # Repetitive spam or automated ping-pong: auto-switch to human mode
+                                await self.db_pool.execute(
+                                    """UPDATE conversations
+                                       SET status = 'human',
+                                           wa_context = jsonb_set(coalesce(wa_context, '{}'::jsonb), '{ai_disabled_reason}', '"repetitive_spam_detected"')
+                                       WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                                    conv_id, tenant_id
+                                )
+                            body_text = None
+                        else:
+                            await self.redis.setex(dup_key, 90, json.dumps({"hash": msg_hash, "count": 1, "ts": now_ts}))
+                    else:
+                        await self.redis.setex(dup_key, 90, json.dumps({"hash": msg_hash, "count": 1, "ts": now_ts}))
+                except Exception as dup_err:
+                    logger.debug("duplicate_check_error", error=str(dup_err))
+
+            # Layer 6c: Active WhatsApp Pair Cooldown Check
+            if body_text and self.redis and clean_from_phone:
+                cooldown_key = f"wa_cooldown:pair:{tenant_id}:{clean_from_phone}"
+                try:
+                    if await self.redis.get(cooldown_key):
+                        logger.warning(
+                            "skipping_ai_pair_cooldown_active",
+                            conv_id=conv_id, tenant_id=tenant_id, phone=clean_from_phone
+                        )
+                        body_text = None
+                except Exception as cd_err:
+                    logger.debug("cooldown_check_error", error=str(cd_err))
+
             if sub_delinquent:
                 logger.warn("skipping_ai_subscription_not_active", conv_id=conv_id, tenant_id=tenant_id, stage=stage, sub_status=sub_status)
             elif is_active is False:
@@ -3809,6 +3912,49 @@ end
 
             # Send via WhatsApp using client's own phone number
             if creds and creds.get("phone_number_id") and creds.get("access_token"):
+                clean_target_phone = clean_cp or re.sub(r'\D', '', str(contact_phone))
+                cooldown_key = f"wa_cooldown:pair:{tenant_id}:{clean_target_phone}"
+                rate_key = f"wa_pair_outbound:{tenant_id}:{clean_target_phone}"
+
+                # 1. Preemptive Check: Active WhatsApp pair cooldown in effect
+                if self.redis:
+                    try:
+                        if await self.redis.get(cooldown_key):
+                            logger.warning(
+                                "wa_send_skipped_pair_cooldown_active",
+                                tenant_id=tenant_id, phone=clean_target_phone
+                            )
+                            await self.db_pool.execute(
+                                "UPDATE messages SET status = 'failed', error_code = 'pair_rate_limit_cooldown' WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                                str(out_msg_id), tenant_id
+                            )
+                            continue
+
+                        # 2. Sliding window pair rate limit: Max 3 messages in 60s
+                        pair_count = await self.redis.incr(rate_key)
+                        if pair_count == 1:
+                            await self.redis.expire(rate_key, 60)
+                        if pair_count > 3:
+                            logger.warning(
+                                "wa_send_throttled_pair_rate_limit_preempted",
+                                tenant_id=tenant_id, phone=clean_target_phone, count=pair_count
+                            )
+                            await self.redis.setex(cooldown_key, 900, "1")  # 15m cooldown
+                            await self.db_pool.execute(
+                                """UPDATE conversations
+                                   SET status = 'human',
+                                       wa_context = jsonb_set(coalesce(wa_context, '{}'::jsonb), '{ai_disabled_reason}', '"pair_rate_limit_preempted"')
+                                   WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                                conv_id, tenant_id
+                            )
+                            await self.db_pool.execute(
+                                "UPDATE messages SET status = 'failed', error_code = 'pair_rate_limit_preempted' WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                                str(out_msg_id), tenant_id
+                            )
+                            continue
+                    except Exception as rate_err:
+                        logger.debug("pair_rate_check_failed", error=str(rate_err))
+
                 try:
                     if b_idx == 0:
                         # Instant dispatch: WhatsApp native typing indicator was already displayed
@@ -3834,12 +3980,30 @@ end
                     )
                     wa_sends.labels(tenant=tenant_id, status="success").inc()
                 except WhatsAppSendError as e:
+                    err_str = str(e)
+                    is_pair_limit = "131056" in err_str or "pair rate limit" in err_str.lower()
+                    if is_pair_limit:
+                        if self.redis:
+                            await self.redis.setex(cooldown_key, 1800, "1")  # 30m cooldown
+                        await self.db_pool.execute(
+                            """UPDATE conversations
+                               SET status = 'human',
+                                   wa_context = jsonb_set(coalesce(wa_context, '{}'::jsonb), '{ai_disabled_reason}', '"meta_pair_rate_limit_131056"')
+                               WHERE id = $1::uuid AND tenant_id = $2::uuid""",
+                            conv_id, tenant_id
+                        )
+                        logger.warning(
+                            "wa_pair_rate_limit_cooldown_activated",
+                            tenant_id=tenant_id, phone=clean_target_phone, error=err_str[:200]
+                        )
+                    else:
+                        logger.error("wa_send_failed", error=err_str, tenant_id=tenant_id)
+
                     await self.db_pool.execute(
                         "UPDATE messages SET status = 'failed', error_code = $1 WHERE id = $2::uuid AND tenant_id = $3::uuid",
-                        str(e)[:50], str(out_msg_id), tenant_id
+                        err_str[:50], str(out_msg_id), tenant_id
                     )
                     wa_sends.labels(tenant=tenant_id, status="failed").inc()
-                    logger.error("wa_send_failed", error=str(e), tenant_id=tenant_id)
             else:
                 logger.warning("no_whatsapp_creds_cannot_send", tenant_id=tenant_id)
 
@@ -6509,7 +6673,22 @@ end
                                     logger.info("admin_daily_digest_sent", tenant_id=tenant_id, count=count, to=clean_admin)
                                     await self.redis.setex(digest_key, 86400, "1")
                                 except Exception as de:
-                                    logger.warning("admin_daily_digest_failed", error=str(de))
+                                    logger.warning("admin_daily_digest_template_failed", error=str(de))
+                                    # Fallback to plain text WhatsApp message to admin
+                                    try:
+                                        digest_msg = f"Good morning!\nYou have {count or 0} appointment(s) booked for today, {formatted_today}."
+                                        await send_text(
+                                            phone_number_id=wdata["phone_number_id"],
+                                            access_token=wdata["access_token"],
+                                            to=clean_admin,
+                                            body=digest_msg,
+                                        )
+                                        logger.info("admin_daily_digest_text_fallback_sent", tenant_id=tenant_id, count=count, to=clean_admin)
+                                        await self.redis.setex(digest_key, 86400, "1")
+                                    except Exception as text_err:
+                                        logger.warning("admin_daily_digest_text_fallback_failed", error=str(text_err))
+                                        # Set key for 2 hours so it doesn't retry and hammer Meta every minute today
+                                        await self.redis.setex(digest_key, 7200, "failed")
         except Exception as e:
             logger.error("process_daily_digest_error", error=str(e))
 

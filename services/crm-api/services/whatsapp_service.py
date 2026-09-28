@@ -161,8 +161,11 @@ async def dispatch_whatsapp_message(
                     from services.alert_service import send_super_admin_alert
                     err_data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
                     err_obj = err_data.get("error", {})
-                    err_msg = err_obj.get("message") or f"Meta returned HTTP {resp.status_code}: {resp.text}"
                     err_code = err_obj.get("code")
+                    if err_code == 131056 or "131056" in resp.text:
+                        logger.warning("dispatch_suppressed_pair_rate_limit_131056", phone=clean_phone, tenant_id=tenant_id)
+                        return None
+                    err_msg = err_obj.get("message") or f"Meta returned HTTP {resp.status_code}: {resp.text}"
                     err_details = err_obj.get("error_data", {}).get("details")
                     if err_details:
                         err_msg = f"{err_msg} ({err_details})"
