@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
   Building2,
@@ -870,7 +871,27 @@ export default function SuperAdminClients() {
   const [missedCallModalTenant, setMissedCallModalTenant] = useState<ClientTenant | null>(null);
   const [webhooksRegistryTab, setWebhooksRegistryTab] = useState<'meta' | 'missed_call'>('missed_call');
   const [missedCallActiveDevice, setMissedCallActiveDevice] = useState<'android' | 'iphone'>('android');
-  const [actionMenuTenantId, setActionMenuTenantId] = useState<string | null>(null);
+  const [actionMenuTenant, setActionMenuTenant] = useState<ClientTenant | null>(null);
+  const [actionMenuPosition, setActionMenuPosition] = useState<{ top: number; right: number; openUpwards: boolean } | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!actionMenuTenant) return;
+    const handleDismiss = () => {
+      setActionMenuTenant(null);
+      setActionMenuPosition(null);
+    };
+    window.addEventListener('resize', handleDismiss);
+    window.addEventListener('scroll', handleDismiss, true);
+    return () => {
+      window.removeEventListener('resize', handleDismiss);
+      window.removeEventListener('scroll', handleDismiss, true);
+    };
+  }, [actionMenuTenant]);
 
   // Unified Missed Call Operations State
   const [missedCallsList, setMissedCallsList] = useState<Array<{
@@ -2231,7 +2252,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
         )}
 
         {/* Scrollable Body */}
-        <main className="flex-1 overflow-y-auto safari-scroll touch-scroll p-3 sm:p-4 space-y-3 pb-20 md:pb-6">
+        <main className="flex-1 overflow-y-auto safari-scroll touch-scroll p-3 sm:p-4 space-y-3 pb-4">
           
           {/* ── 4 KPI Metrics Row (Compact & Clean) ────────────────────────────── */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
@@ -2934,7 +2955,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       placeholder="Search organizations..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-7.5 pr-2.5 py-1 bg-surface-subtle border border-border/80 rounded-md text-xs text-text-primary placeholder:text-text-muted focus:bg-surface focus:border-accent transition-colors"
+                      className="w-full pl-8 pr-2.5 py-1 bg-surface-subtle border border-border/80 rounded-md text-xs text-text-primary placeholder:text-text-muted focus:bg-surface focus:border-accent transition-colors"
                     />
                   </div>
 
@@ -3558,169 +3579,36 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                                   <span>Configure</span>
                                 </button>
 
-                                {/* ⋮ More Actions Dropdown */}
-                                <div className="relative">
-                                  <button
-                                    onClick={() => setActionMenuTenantId(actionMenuTenantId === t.id ? null : t.id)}
-                                    className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle border border-border rounded transition-colors cursor-pointer"
-                                    title="More actions"
-                                  >
-                                    <MoreVertical className="w-3.5 h-3.5" />
-                                  </button>
-
-                                  {actionMenuTenantId === t.id && (
-                                    <>
-                                      {/* Backdrop to close */}
-                                      <div className="fixed inset-0 z-40" onClick={() => setActionMenuTenantId(null)} />
-
-                                      {/* Dropdown */}
-                                      <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-surface border border-border rounded-lg shadow-xl py-1 animate-in fade-in slide-in-from-top-1 duration-100">
-
-                                        {/* Sales & Staff */}
-                                        <button
-                                          onClick={() => { setActionMenuTenantId(null); handleOpenConfig(t, 'team'); }}
-                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
-                                        >
-                                          <Users className="w-3.5 h-3.5 text-amber-600" />
-                                          <span>Sales & Staff</span>
-                                        </button>
-
-                                        {/* Sync Meta Templates */}
-                                        <button
-                                          onClick={() => { setActionMenuTenantId(null); handleSyncMetaTemplates(t.id); }}
-                                          disabled={isSyncingMetaTemplates}
-                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body disabled:opacity-50"
-                                        >
-                                          <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
-                                          <span>Sync Meta Templates</span>
-                                        </button>
-
-                                        {/* Pay Link */}
-                                        {!isPersonalTenant(t) && (!t.razorpay_short_url ? (
-                                          <button
-                                            onClick={() => {
-                                              setActionMenuTenantId(null);
-                                              setClientPaymentPhone(t.admin_whatsapp_number || '');
-                                              handleActivateBilling(t);
-                                            }}
-                                            disabled={activatingBillingId === t.id}
-                                            className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body disabled:opacity-50"
-                                          >
-                                            <CreditCard className="w-3.5 h-3.5 text-purple-600" />
-                                            <span>Generate Pay Link</span>
-                                          </button>
-                                        ) : (
-                                          <button
-                                            onClick={() => {
-                                              setActionMenuTenantId(null);
-                                              setActivePaymentModalTenant(t);
-                                              setClientPaymentPhone(t.admin_whatsapp_number || '');
-                                            }}
-                                            className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
-                                          >
-                                            <CreditCard className="w-3.5 h-3.5 text-purple-600" />
-                                            <span>View Pay Link</span>
-                                          </button>
-                                        ))}
-
-                                        <div className="my-1 border-t border-border" />
-
-                                        {/* Missed Call Setup */}
-                                        <button
-                                          onClick={() => { setActionMenuTenantId(null); setMissedCallModalTenant(t); }}
-                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
-                                        >
-                                          <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
-                                          <span>Missed Call Setup</span>
-                                        </button>
-
-                                        {/* Booking Page */}
-                                        <a
-                                          href={`/${t.slug}/book`}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          onClick={() => setActionMenuTenantId(null)}
-                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
-                                        >
-                                          <Calendar className="w-3.5 h-3.5 text-indigo-500" />
-                                          <span>Booking Page</span>
-                                          <ExternalLink className="w-2.5 h-2.5 text-text-muted ml-auto" />
-                                        </a>
-
-                                        {/* Database Inspector */}
-                                        <button
-                                          onClick={() => { setActionMenuTenantId(null); handleOpenDatabaseView(t); }}
-                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
-                                        >
-                                          <Database className="w-3.5 h-3.5 text-text-muted" />
-                                          <span>Database Inspector</span>
-                                        </button>
-
-                                        {/* View Invoices */}
-                                        {t.razorpay_subscription_id && (
-                                          <button
-                                            onClick={() => { setActionMenuTenantId(null); handleViewInvoices(t); }}
-                                            className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
-                                          >
-                                            <FileText className="w-3.5 h-3.5 text-text-muted" />
-                                            <span>Invoices</span>
-                                          </button>
-                                        )}
-
-                                        <div className="my-1 border-t border-border" />
-
-                                        {/* Pause / Resume */}
-                                        <button
-                                          onClick={() => { setActionMenuTenantId(null); handleToggleStatus(t.id, t.status === 'active'); }}
-                                          disabled={togglingId === t.id}
-                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
-                                        >
-                                          {t.status === 'active' ? (
-                                            <><Pause className="w-3.5 h-3.5 text-amber-500" /><span>Pause Workspace</span></>
-                                          ) : (
-                                            <><Play className="w-3.5 h-3.5 text-emerald-500 fill-current" /><span>Resume Workspace</span></>
-                                          )}
-                                        </button>
-
-                                        {/* Password Reset */}
-                                        <button
-                                          onClick={() => {
-                                            setActionMenuTenantId(null);
-                                            const matchingTpl = partnerTemplates.find(
-                                              (tpl) => (tpl.partner_name || '').toLowerCase() === (t.partner_name || '').toLowerCase()
-                                            ) || (t.sales_channel === 'partner' ? (partnerTemplates.find((tpl) => tpl.is_default) || partnerTemplates[0]) : null);
-                                            const effectiveDomain = (t as any).custom_domain || matchingTpl?.custom_domain || (typeof window !== 'undefined' && !['crm.goboldlabs.com', 'boldlabs.com', 'localhost', '127.0.0.1'].includes(window.location.hostname) ? window.location.hostname : 'crm.goboldlabs.com');
-                                            setResetTenantDomain(effectiveDomain);
-                                            setResetTenantId(t.id);
-                                            setResetTenantName(t.name);
-                                            setResetTenantEmail(t.admin_email || `admin@${t.slug}.com`);
-                                            setNewPassword('');
-                                            setShowResetPasswordText(true);
-                                            setResetSuccess(false);
-                                            setResetError('');
-                                          }}
-                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
-                                        >
-                                          <Lock className="w-3.5 h-3.5 text-text-muted" />
-                                          <span>Reset Password</span>
-                                        </button>
-
-                                        <div className="my-1 border-t border-border" />
-
-                                        {/* Delete */}
-                                        <button
-                                          onClick={() => { setActionMenuTenantId(null); setDeleteTenantTarget(t); }}
-                                          className="w-full px-3 py-2 text-left text-xs flex items-center gap-2.5 hover:bg-red-500/5 transition-colors cursor-pointer text-red-600"
-                                        >
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                          <span>Delete Organization</span>
-                                        </button>
-
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-
+                                {/* ⋮ More Actions Button (Rendered via Root Portal to prevent table height expansion) */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (actionMenuTenant?.id === t.id) {
+                                      setActionMenuTenant(null);
+                                      setActionMenuPosition(null);
+                                    } else {
+                                      const rect = e.currentTarget.getBoundingClientRect();
+                                      const spaceBelow = window.innerHeight - rect.bottom;
+                                      const menuHeight = 380;
+                                      const openUpwards = spaceBelow < menuHeight && rect.top > menuHeight;
+                                      setActionMenuPosition({
+                                        top: openUpwards ? rect.top : rect.bottom + 4,
+                                        right: Math.max(16, window.innerWidth - rect.right),
+                                        openUpwards,
+                                      });
+                                      setActionMenuTenant(t);
+                                    }
+                                  }}
+                                  className={`p-1.5 rounded transition-colors cursor-pointer shrink-0 border ${
+                                    actionMenuTenant?.id === t.id
+                                      ? 'bg-surface-subtle border-accent text-accent'
+                                      : 'text-text-muted hover:text-text-primary hover:bg-surface-subtle border-border'
+                                  }`}
+                                  title="More actions"
+                                >
+                                  <MoreVertical className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                             </td>
 
@@ -10311,6 +10199,213 @@ Any missed call will now automatically get followed up on WhatsApp!`;
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── GLOBAL DETACHED ACTION MENU PORTAL ──────────────────────────────── */}
+      {isMounted && actionMenuTenant && actionMenuPosition && typeof document !== 'undefined' && createPortal(
+        (() => {
+          const t = actionMenuTenant;
+          return (
+            <div className="fixed inset-0 z-[9998]" onClick={(e) => e.stopPropagation()}>
+              {/* Invisible Backdrop to close on click outside */}
+              <div
+                className="fixed inset-0 z-[9998] bg-transparent cursor-default"
+                onClick={() => {
+                  setActionMenuTenant(null);
+                  setActionMenuPosition(null);
+                }}
+              />
+
+              {/* Floating Dropdown Menu */}
+              <div
+                className="fixed z-[9999] w-56 bg-surface border border-border rounded-lg shadow-xl py-1 text-xs animate-in fade-in duration-100 divide-y divide-border/60"
+                style={{
+                  ...(actionMenuPosition.openUpwards
+                    ? { bottom: `${window.innerHeight - actionMenuPosition.top + 4}px` }
+                    : { top: `${actionMenuPosition.top}px` }),
+                  right: `${actionMenuPosition.right}px`,
+                }}
+              >
+                <div className="py-0.5">
+                  {/* Sales & Staff */}
+                  <button
+                    onClick={() => {
+                      setActionMenuTenant(null);
+                      setActionMenuPosition(null);
+                      handleOpenConfig(t, 'team');
+                    }}
+                    className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                  >
+                    <Users className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Sales & Staff</span>
+                  </button>
+
+                  {/* Sync Meta Templates */}
+                  <button
+                    onClick={() => {
+                      setActionMenuTenant(null);
+                      setActionMenuPosition(null);
+                      handleSyncMetaTemplates(t.id);
+                    }}
+                    disabled={isSyncingMetaTemplates}
+                    className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 ${isSyncingMetaTemplates ? 'animate-spin' : ''}`} />
+                    <span>Sync Meta Templates</span>
+                  </button>
+
+                  {/* Pay Link */}
+                  {!isPersonalTenant(t) && (!t.razorpay_short_url ? (
+                    <button
+                      onClick={() => {
+                        setActionMenuTenant(null);
+                        setActionMenuPosition(null);
+                        setClientPaymentPhone(t.admin_whatsapp_number || '');
+                        handleActivateBilling(t);
+                      }}
+                      disabled={activatingBillingId === t.id}
+                      className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body disabled:opacity-50"
+                    >
+                      <CreditCard className="w-3.5 h-3.5 text-purple-600" />
+                      <span>Generate Pay Link</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setActionMenuTenant(null);
+                        setActionMenuPosition(null);
+                        setActivePaymentModalTenant(t);
+                        setClientPaymentPhone(t.admin_whatsapp_number || '');
+                      }}
+                      className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                    >
+                      <CreditCard className="w-3.5 h-3.5 text-purple-600" />
+                      <span>View Pay Link</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="py-0.5">
+                  {/* Missed Call Setup */}
+                  <button
+                    onClick={() => {
+                      setActionMenuTenant(null);
+                      setActionMenuPosition(null);
+                      setMissedCallModalTenant(t);
+                    }}
+                    className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                  >
+                    <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Missed Call Setup</span>
+                  </button>
+
+                  {/* Booking Page */}
+                  <a
+                    href={`/${t.slug}/book`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      setActionMenuTenant(null);
+                      setActionMenuPosition(null);
+                    }}
+                    className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                  >
+                    <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Booking Page</span>
+                    <ExternalLink className="w-2.5 h-2.5 text-text-muted ml-auto" />
+                  </a>
+
+                  {/* Database Inspector */}
+                  <button
+                    onClick={() => {
+                      setActionMenuTenant(null);
+                      setActionMenuPosition(null);
+                      handleOpenDatabaseView(t);
+                    }}
+                    className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                  >
+                    <Database className="w-3.5 h-3.5 text-text-muted" />
+                    <span>Database Inspector</span>
+                  </button>
+
+                  {/* View Invoices */}
+                  {t.razorpay_subscription_id && (
+                    <button
+                      onClick={() => {
+                        setActionMenuTenant(null);
+                        setActionMenuPosition(null);
+                        handleViewInvoices(t);
+                      }}
+                      className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-text-muted" />
+                      <span>Invoices</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="py-0.5">
+                  {/* Pause / Resume */}
+                  <button
+                    onClick={() => {
+                      setActionMenuTenant(null);
+                      setActionMenuPosition(null);
+                      handleToggleStatus(t.id, t.status === 'active');
+                    }}
+                    disabled={togglingId === t.id}
+                    className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                  >
+                    {t.status === 'active' ? (
+                      <><Pause className="w-3.5 h-3.5 text-amber-500" /><span>Pause Workspace</span></>
+                    ) : (
+                      <><Play className="w-3.5 h-3.5 text-emerald-500 fill-current" /><span>Resume Workspace</span></>
+                    )}
+                  </button>
+
+                  {/* Password Reset */}
+                  <button
+                    onClick={() => {
+                      setActionMenuTenant(null);
+                      setActionMenuPosition(null);
+                      const matchingTpl = partnerTemplates.find(
+                        (tpl) => (tpl.partner_name || '').toLowerCase() === (t.partner_name || '').toLowerCase()
+                      ) || (t.sales_channel === 'partner' ? (partnerTemplates.find((tpl) => tpl.is_default) || partnerTemplates[0]) : null);
+                      const effectiveDomain = (t as any).custom_domain || matchingTpl?.custom_domain || (typeof window !== 'undefined' && !['crm.goboldlabs.com', 'boldlabs.com', 'localhost', '127.0.0.1'].includes(window.location.hostname) ? window.location.hostname : 'crm.goboldlabs.com');
+                      setResetTenantDomain(effectiveDomain);
+                      setResetTenantId(t.id);
+                      setResetTenantName(t.name);
+                      setResetTenantEmail(t.admin_email || `admin@${t.slug}.com`);
+                      setNewPassword('');
+                      setShowResetPasswordText(true);
+                      setResetSuccess(false);
+                      setResetError('');
+                    }}
+                    className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-surface-subtle transition-colors cursor-pointer text-text-body"
+                  >
+                    <Lock className="w-3.5 h-3.5 text-text-muted" />
+                    <span>Reset Password</span>
+                  </button>
+                </div>
+
+                <div className="py-0.5">
+                  {/* Delete */}
+                  <button
+                    onClick={() => {
+                      setActionMenuTenant(null);
+                      setActionMenuPosition(null);
+                      setDeleteTenantTarget(t);
+                    }}
+                    className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-red-500/10 transition-colors cursor-pointer text-red-600 font-medium"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Organization</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })(),
+        document.body
       )}
 
     </div>
