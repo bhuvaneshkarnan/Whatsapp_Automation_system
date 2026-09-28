@@ -530,7 +530,7 @@ export default function QrStandeeModal({
                 <button
                   type="button"
                   onClick={() => setTargetType('smart')}
-                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                  className={`min-h-[48px] p-2.5 rounded-lg border text-left transition-all cursor-pointer touch-manipulation ${
                     targetType === 'smart'
                       ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-500 text-blue-900 dark:text-blue-100 shadow-2xs'
                       : 'bg-surface hover:bg-surface-subtle border-border text-text-secondary'
@@ -548,7 +548,7 @@ export default function QrStandeeModal({
                 <button
                   type="button"
                   onClick={() => setTargetType('direct')}
-                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                  className={`min-h-[48px] p-2.5 rounded-lg border text-left transition-all cursor-pointer touch-manipulation ${
                     targetType === 'direct'
                       ? 'bg-amber-50/70 dark:bg-amber-950/40 border-amber-500 text-amber-900 dark:text-amber-100 shadow-2xs'
                       : 'bg-surface hover:bg-surface-subtle border-border text-text-secondary'
@@ -599,7 +599,7 @@ export default function QrStandeeModal({
                 <button
                   type="button"
                   onClick={() => setTemplate('google_classic')}
-                  className={`p-2 rounded-lg border text-center transition-all cursor-pointer ${
+                  className={`min-h-[48px] p-2 rounded-lg border text-center transition-all cursor-pointer touch-manipulation flex flex-col items-center justify-center ${
                     template === 'google_classic'
                       ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100 font-bold'
                       : 'border-border bg-surface hover:bg-surface-subtle text-text-secondary text-xs font-medium'
@@ -612,7 +612,7 @@ export default function QrStandeeModal({
                 <button
                   type="button"
                   onClick={() => setTemplate('modern_dark')}
-                  className={`p-2 rounded-lg border text-center transition-all cursor-pointer ${
+                  className={`min-h-[48px] p-2 rounded-lg border text-center transition-all cursor-pointer touch-manipulation flex flex-col items-center justify-center ${
                     template === 'modern_dark'
                       ? 'border-slate-800 bg-slate-900 text-white font-bold'
                       : 'border-border bg-surface hover:bg-surface-subtle text-text-secondary text-xs font-medium'
@@ -625,7 +625,7 @@ export default function QrStandeeModal({
                 <button
                   type="button"
                   onClick={() => setTemplate('table_tent')}
-                  className={`p-2 rounded-lg border text-center transition-all cursor-pointer ${
+                  className={`min-h-[48px] p-2 rounded-lg border text-center transition-all cursor-pointer touch-manipulation flex flex-col items-center justify-center ${
                     template === 'table_tent'
                       ? 'border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 font-bold'
                       : 'border-border bg-surface hover:bg-surface-subtle text-text-secondary text-xs font-medium'

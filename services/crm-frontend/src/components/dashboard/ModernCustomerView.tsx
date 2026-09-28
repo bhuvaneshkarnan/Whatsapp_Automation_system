@@ -1575,7 +1575,7 @@ export function ModernCustomerView({
       {/* ── 1. ULTRA-SLIM KPI STATS STRIP ───────────────────────────────────── */}
       <div className="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar touch-scroll bg-surface border border-border rounded-md px-3 py-1.5 shadow-2xs shrink-0 text-xs">
         <div className="flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-1.5 text-text-secondary font-medium shrink-0">
+          <div className="flex items-center gap-1.5 text-text-secondary font-medium shrink-0 min-h-[34px] sm:min-h-[26px]">
             <Users className="w-3.5 h-3.5 text-text-muted stroke-[1.8]" />
             <span className="font-bold text-text-primary">{kpis.total}</span>
             <span className="text-text-muted">Total</span>
@@ -1586,7 +1586,7 @@ export function ModernCustomerView({
           <button
             type="button"
             onClick={() => setWarmthFilter(warmthFilter === 'hot' ? 'all' : 'hot')}
-            className={`flex items-center gap-1.5 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 ${
+            className={`min-h-[36px] sm:min-h-[26px] flex items-center gap-1.5 px-2.5 py-1 sm:py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
               warmthFilter === 'hot'
                 ? 'bg-rose-50 text-rose-700 font-semibold border border-rose-200'
                 : 'text-text-secondary hover:text-rose-600 hover:bg-rose-50/50'
@@ -1603,7 +1603,7 @@ export function ModernCustomerView({
           <button
             type="button"
             onClick={() => setStageFilter(stageFilter === 'action_due' ? 'all' : 'action_due')}
-            className={`flex items-center gap-1.5 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 ${
+            className={`min-h-[36px] sm:min-h-[26px] flex items-center gap-1.5 px-2.5 py-1 sm:py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
               stageFilter === 'action_due'
                 ? 'bg-amber-50 text-amber-800 font-semibold border border-amber-300'
                 : 'text-text-secondary hover:text-amber-700 hover:bg-amber-50/50'
@@ -1620,7 +1620,7 @@ export function ModernCustomerView({
           <button
             type="button"
             onClick={() => setStageFilter(stageFilter === 'converted' ? 'all' : 'converted')}
-            className={`flex items-center gap-1.5 px-2 py-0.5 rounded transition-all cursor-pointer shrink-0 ${
+            className={`min-h-[36px] sm:min-h-[26px] flex items-center gap-1.5 px-2.5 py-1 sm:py-0.5 rounded transition-all cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
               stageFilter === 'converted'
                 ? 'bg-emerald-50 text-emerald-800 font-semibold border border-emerald-300'
                 : 'text-text-secondary hover:text-emerald-700 hover:bg-emerald-50/50'
@@ -1629,6 +1629,7 @@ export function ModernCustomerView({
           >
             <TrendingUp className="w-3.5 h-3.5 text-emerald-600 stroke-[1.8]" />
             <span className="font-bold text-emerald-700">{kpis.converted}</span>
+            <span>Converted</span>
           </button>
         </div>
 
@@ -1643,7 +1644,7 @@ export function ModernCustomerView({
               setActionFilter('all');
               setSearchQuery('');
             }}
-            className="text-[11px] text-rose-600 hover:text-rose-700 hover:underline font-medium flex items-center gap-1 cursor-pointer transition-colors ml-auto shrink-0"
+            className="min-h-[34px] sm:min-h-[26px] text-[11px] text-rose-600 hover:text-rose-700 hover:underline font-medium flex items-center gap-1 cursor-pointer transition-colors ml-auto shrink-0 touch-manipulation whitespace-nowrap px-1.5"
           >
             <X className="w-3 h-3" />
             <span>Reset Filters</span>
@@ -1654,47 +1655,47 @@ export function ModernCustomerView({
       {/* ── 2. UNIFIED COMPACT TOOLBAR (Live Search, View Switcher & Actions) ── */}
       <div className="flex flex-col gap-2 bg-surface border border-border rounded-lg p-2.5 shadow-2xs shrink-0">
         {/* ROW 1: Navigation Tabs, Search Bar & Primary Actions */}
-        <div className="flex items-center justify-between gap-3">
-          {/* Left: View Modes + Live Search */}
-          <div className="flex items-center gap-2 flex-1 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
+          {/* Top on Mobile / Left on Desktop: View Switcher */}
+          <div className="flex items-center justify-between gap-2 w-full sm:w-auto">
             {!hideViewSwitcher && (
-              <div className="flex items-center gap-0.5 bg-surface-subtle border border-border rounded-md p-0.5 shrink-0">
+              <div className="flex items-center gap-0.5 bg-surface-subtle border border-border rounded-md p-0.5 shrink-0 overflow-x-auto no-scrollbar touch-scroll">
                 <button
                   type="button"
                   onClick={() => setViewMode('table')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+                  className={`min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-sm transition-all cursor-pointer touch-manipulation whitespace-nowrap ${
                     viewMode === 'table'
                       ? 'bg-surface text-text-primary border border-border shadow-2xs'
-                      : 'text-text-secondary hover:text-text-primary'
+                      : 'text-text-secondary hover:text-text-primary border border-transparent'
                   }`}
                 >
-                  <List className="w-3.5 h-3.5 stroke-[2]" />
+                  <List className="w-3.5 h-3.5 stroke-[2] shrink-0" />
                   <span>Table</span>
                   <span className="text-[10px] text-text-muted font-mono ml-0.5">({filteredCustomers.length})</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewMode('kanban')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+                  className={`min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-sm transition-all cursor-pointer touch-manipulation whitespace-nowrap ${
                     viewMode === 'kanban'
                       ? 'bg-surface text-text-primary border border-border shadow-2xs'
-                      : 'text-text-secondary hover:text-text-primary'
+                      : 'text-text-secondary hover:text-text-primary border border-transparent'
                   }`}
                 >
-                  <LayoutGrid className="w-3.5 h-3.5 stroke-[2]" />
+                  <LayoutGrid className="w-3.5 h-3.5 stroke-[2] shrink-0" />
                   <span>Pipeline</span>
                 </button>
                 {safeTasks.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setViewMode('tasks')}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-sm transition-all cursor-pointer ${
+                    className={`min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-sm transition-all cursor-pointer touch-manipulation whitespace-nowrap ${
                       viewMode === 'tasks'
                         ? 'bg-surface text-text-primary border border-border shadow-2xs'
-                        : 'text-text-secondary hover:text-text-primary'
+                        : 'text-text-secondary hover:text-text-primary border border-transparent'
                     }`}
                   >
-                    <CalendarCheck className="w-3.5 h-3.5 stroke-[2]" />
+                    <CalendarCheck className="w-3.5 h-3.5 stroke-[2] shrink-0" />
                     <span>Tasks</span>
                     <span className="text-[10px] text-text-muted font-mono ml-0.5">
                       ({safeTasks.filter((t) => !t.completed).length})
@@ -1704,32 +1705,52 @@ export function ModernCustomerView({
               </div>
             )}
 
-            {/* Live Search Input - Stable, responsive width */}
-            <div className="relative flex-1 max-w-sm min-w-[180px]">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none stroke-[1.8]" />
-              <input
-                type="text"
-                autoComplete="off"
-                placeholder="Search by name, phone, notes, service..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-8 transition-colors"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
-                  title="Clear search"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
+            {/* Mobile Actions: Refresh & Quick Add (rendered beside view mode on small screens) */}
+            <div className="flex sm:hidden items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={onRefresh}
+                className="min-h-[42px] min-w-[42px] h-10 w-10 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center touch-manipulation"
+                title="Refresh contacts"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loading ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                type="button"
+                onClick={onAddCustomer}
+                className="min-h-[42px] h-10 flex items-center gap-1 px-3 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs cursor-pointer shrink-0 touch-manipulation"
+              >
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+                <span>Add</span>
+              </button>
             </div>
           </div>
 
-          {/* Right: Tools & Clean, Professional Add Customer Button */}
-          <div className="flex items-center gap-2 shrink-0">
+          {/* Center: Live Search Input - full width on mobile, max-w-sm on desktop */}
+          <div className="relative flex-1 max-w-full sm:max-w-xs md:max-w-sm w-full min-w-0">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none stroke-[1.8]" />
+            <input
+              type="text"
+              autoComplete="off"
+              placeholder="Search by name, phone, notes, service..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-7 py-1 bg-surface-subtle border border-border rounded-md text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:bg-surface h-9 sm:h-8 transition-colors"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-1 cursor-pointer"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Desktop Right Actions: Dropdown Manager, Refresh, Add Customer */}
+          <div className="hidden sm:flex items-center gap-2 shrink-0">
             {openDropdownOptionsModal && (
               <button
                 type="button"
@@ -1750,7 +1771,6 @@ export function ModernCustomerView({
               <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loading ? 'animate-spin' : ''}`} />
             </button>
 
-            {/* Clean, Elegant, Primary CTA Button */}
             <button
               type="button"
               onClick={onAddCustomer}
@@ -1763,8 +1783,8 @@ export function ModernCustomerView({
         </div>
 
         {/* ROW 2: Filter Pills Strip with Full Width Utilization */}
-        <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60 overflow-x-auto no-scrollbar">
-          <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60 overflow-x-auto no-scrollbar touch-scroll">
+          <div className="flex items-center gap-1.5 shrink-0 flex-nowrap sm:flex-wrap py-0.5">
             <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider shrink-0 flex items-center gap-1 mr-0.5">
               <Filter className="w-3 h-3 text-text-muted" />
               <span>Filter:</span>
@@ -1773,7 +1793,7 @@ export function ModernCustomerView({
             <select
               value={stageFilter}
               onChange={(e) => setStageFilter(e.target.value)}
-              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[155px] truncate shadow-2xs"
+              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 max-w-[155px] truncate shadow-2xs touch-manipulation"
               title="Filter by stage or outcome"
             >
               <option value="all">All Stages & Outcomes</option>
@@ -1797,7 +1817,7 @@ export function ModernCustomerView({
             <select
               value={serviceFilter}
               onChange={(e) => setServiceFilter(e.target.value)}
-              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[135px] truncate shadow-2xs"
+              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 max-w-[135px] truncate shadow-2xs touch-manipulation"
               title="Filter by service / inquiry"
             >
               <option value="all">All Services</option>
@@ -1809,7 +1829,7 @@ export function ModernCustomerView({
             <select
               value={actionFilter}
               onChange={(e) => setActionFilter(e.target.value)}
-              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[130px] truncate shadow-2xs"
+              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 max-w-[130px] truncate shadow-2xs touch-manipulation"
               title="Filter by next action"
             >
               <option value="all">All Actions</option>
@@ -1821,7 +1841,7 @@ export function ModernCustomerView({
             <select
               value={warmthFilter}
               onChange={(e) => setWarmthFilter(e.target.value)}
-              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[100px] shadow-2xs"
+              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 max-w-[100px] shadow-2xs touch-manipulation"
               title="Filter by buying intent"
             >
               <option value="all">All Intent</option>
@@ -1833,7 +1853,7 @@ export function ModernCustomerView({
             <select
               value={staffFilter}
               onChange={(e) => setStaffFilter(e.target.value)}
-              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[125px] truncate shadow-2xs"
+              className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 max-w-[125px] truncate shadow-2xs touch-manipulation"
               title="Filter by assigned staff or doctor"
             >
               <option value="all">All Staff</option>
@@ -2328,7 +2348,7 @@ export function ModernCustomerView({
         {viewMode === 'kanban' && (
           <div className="flex-1 min-h-0 flex flex-col space-y-2">
             {/* Mobile Stage Switcher Bar */}
-            <div className="md:hidden flex items-center gap-1 overflow-x-auto no-scrollbar touch-scroll bg-surface border border-border rounded-md p-1 shrink-0">
+            <div className="md:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll bg-surface border border-border rounded-md p-1.5 shrink-0">
               {[
                 { id: 'all', label: 'All Stages', rev: 0 },
                 {
@@ -2361,7 +2381,7 @@ export function ModernCustomerView({
                   key={stg.id}
                   type="button"
                   onClick={() => setKanbanMobileStage(stg.id)}
-                  className={`px-2.5 py-1 text-xs font-semibold rounded-xs transition-all shrink-0 cursor-pointer ${
+                  className={`min-h-[38px] px-3 py-1.5 text-xs font-semibold rounded-md transition-all shrink-0 cursor-pointer touch-manipulation flex items-center justify-center whitespace-nowrap ${
                     kanbanMobileStage === stg.id
                       ? 'bg-accent text-white shadow-2xs'
                       : 'bg-surface-subtle text-text-secondary hover:text-text-primary'
@@ -2767,11 +2787,11 @@ export function ModernCustomerView({
             </div>
 
             {/* Task Filter Tabs */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin">
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll pb-1 shrink-0">
               <button
                 type="button"
                 onClick={() => setTaskFilter('all')}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
+                className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs font-semibold rounded-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
                   taskFilter === 'all'
                     ? 'bg-accent text-white shadow-2xs'
                     : 'bg-surface-subtle hover:bg-surface border border-border text-text-secondary'
@@ -2788,7 +2808,7 @@ export function ModernCustomerView({
               <button
                 type="button"
                 onClick={() => setTaskFilter('overdue')}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
+                className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs font-semibold rounded-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
                   taskFilter === 'overdue'
                     ? 'bg-rose-600 text-white shadow-2xs'
                     : 'bg-rose-50/60 hover:bg-rose-100/70 border border-rose-200 text-rose-800 dark:bg-rose-950/30 dark:border-rose-900 dark:text-rose-300'
@@ -2806,7 +2826,7 @@ export function ModernCustomerView({
               <button
                 type="button"
                 onClick={() => setTaskFilter('today')}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
+                className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs font-semibold rounded-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
                   taskFilter === 'today'
                     ? 'bg-amber-600 text-white shadow-2xs'
                     : 'bg-amber-50/60 hover:bg-amber-100/70 border border-amber-200 text-amber-800 dark:bg-amber-950/30 dark:border-amber-900 dark:text-amber-300'
@@ -2824,7 +2844,7 @@ export function ModernCustomerView({
               <button
                 type="button"
                 onClick={() => setTaskFilter('upcoming')}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
+                className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs font-semibold rounded-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
                   taskFilter === 'upcoming'
                     ? 'bg-sky-600 text-white shadow-2xs'
                     : 'bg-sky-50/60 hover:bg-sky-100/70 border border-sky-200 text-sky-800 dark:bg-sky-950/30 dark:border-sky-900 dark:text-sky-300'
@@ -2842,7 +2862,7 @@ export function ModernCustomerView({
               <button
                 type="button"
                 onClick={() => setTaskFilter('completed')}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
+                className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs font-semibold rounded-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer shrink-0 touch-manipulation whitespace-nowrap ${
                   taskFilter === 'completed'
                     ? 'bg-emerald-600 text-white shadow-2xs'
                     : 'bg-emerald-50/60 hover:bg-emerald-100/70 border border-emerald-200 text-emerald-800 dark:bg-emerald-950/30 dark:border-emerald-900 dark:text-emerald-300'

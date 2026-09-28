@@ -513,7 +513,7 @@ export default function BookingClient() {
                   setLayoutMode('steps');
                   setFormError('');
                 }}
-                className={`flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-md transition-colors cursor-pointer ${
+                className={`min-h-[36px] sm:min-h-[30px] flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-md transition-colors cursor-pointer touch-manipulation ${
                   layoutMode === 'steps'
                     ? 'bg-emerald-700 text-white font-semibold shadow-xs'
                     : 'text-text-secondary hover:text-text-primary'
@@ -529,7 +529,7 @@ export default function BookingClient() {
                   setLayoutMode('single');
                   setFormError('');
                 }}
-                className={`flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-md transition-colors cursor-pointer ${
+                className={`min-h-[36px] sm:min-h-[30px] flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-md transition-colors cursor-pointer touch-manipulation ${
                   layoutMode === 'single'
                     ? 'bg-emerald-700 text-white font-semibold shadow-xs'
                     : 'text-text-secondary hover:text-text-primary'
@@ -553,7 +553,7 @@ export default function BookingClient() {
                     setCurrentStep(1);
                     setFormError('');
                   }}
-                  className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg transition-all cursor-pointer ${
+                  className={`min-h-[38px] sm:min-h-[32px] flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg transition-all cursor-pointer touch-manipulation ${
                     currentStep === 1
                       ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-300 ring-1 ring-emerald-500/20'
                       : currentStep > 1
@@ -584,7 +584,7 @@ export default function BookingClient() {
                       setFormError('Please select at least one health concern or therapy service.');
                     }
                   }}
-                  className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg transition-all cursor-pointer ${
+                  className={`min-h-[38px] sm:min-h-[32px] flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg transition-all cursor-pointer touch-manipulation ${
                     currentStep === 2
                       ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-300 ring-1 ring-emerald-500/20'
                       : currentStep > 2
@@ -619,7 +619,7 @@ export default function BookingClient() {
                       setFormError('');
                     }
                   }}
-                  className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg transition-all cursor-pointer ${
+                  className={`min-h-[38px] sm:min-h-[32px] flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg transition-all cursor-pointer touch-manipulation ${
                     currentStep === 3
                       ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-300 ring-1 ring-emerald-500/20'
                       : 'text-text-muted hover:text-text-secondary'

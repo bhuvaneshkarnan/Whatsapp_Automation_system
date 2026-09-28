@@ -73,6 +73,28 @@
   scrollbar-width: none;
 }
 
+/* Touch-optimized horizontal tab scroll container */
+.tab-scroll-container {
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.tab-scroll-container::-webkit-scrollbar {
+  display: none;
+}
+
+/* Touch momentum scroll utility */
+.touch-scroll {
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
     animation-duration: 0.01ms !important;
@@ -87,6 +109,13 @@ html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   touch-action: manipulation;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+body {
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 * {

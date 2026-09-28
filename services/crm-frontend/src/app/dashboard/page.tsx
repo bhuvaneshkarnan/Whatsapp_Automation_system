@@ -8898,25 +8898,25 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
         </div>
 
         {/* Segmented Tab Header: [WhatsApp Chat] and [Profile & Notes] */}
-        <div className="flex items-center border-b border-border bg-surface px-3 pt-2 gap-2 shrink-0">
+        <div className="flex items-stretch border-b border-border bg-surface px-2 sm:px-4 pt-1 gap-1 shrink-0 -mb-px">
           <button
             type="button"
             onClick={() => setDrawerActiveTab('chat')}
-            className={`pb-2 px-3 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
+            className={`flex-1 sm:flex-initial min-h-[44px] px-3 py-2 text-xs font-semibold flex items-center justify-center gap-1.5 border-b-2 transition-all cursor-pointer touch-manipulation whitespace-nowrap ${
               drawerActiveTab === 'chat'
-                ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400'
+                ? 'border-emerald-600 text-emerald-700 dark:text-emerald-400 bg-emerald-500/5'
                 : 'border-transparent text-text-secondary hover:text-text-primary'
             }`}
           >
-            <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+            <MessageSquare className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
             <span>WhatsApp Chat</span>
             {customerChat?.messages && customerChat.messages.length > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 font-mono">
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 font-mono shrink-0">
                 {customerChat.messages.length}
               </span>
             )}
             {customerChat?.unread_count ? (
-              <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-bold">
+              <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-bold shrink-0">
                 {customerChat.unread_count} new
               </span>
             ) : null}
@@ -8925,16 +8925,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <button
             type="button"
             onClick={() => setDrawerActiveTab('profile')}
-            className={`pb-2 px-3 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
+            className={`flex-1 sm:flex-initial min-h-[44px] px-3 py-2 text-xs font-semibold flex items-center justify-center gap-1.5 border-b-2 transition-all cursor-pointer touch-manipulation whitespace-nowrap ${
               drawerActiveTab === 'profile'
-                ? 'border-accent text-accent'
+                ? 'border-accent text-accent bg-accent/5'
                 : 'border-transparent text-text-secondary hover:text-text-primary'
             }`}
           >
-            <User className="w-3.5 h-3.5 text-accent" />
+            <User className="w-3.5 h-3.5 text-accent shrink-0" />
             <span>Profile & Notes</span>
             {customerNotes.length > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-surface-subtle text-text-secondary border border-border font-mono">
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-surface-subtle text-text-secondary border border-border font-mono shrink-0">
                 {customerNotes.length}
               </span>
             )}
@@ -9796,29 +9796,29 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           </div>
 
           {/* Action Tabs: Send WhatsApp Template vs Schedule Task */}
-          <div className="flex border-b border-border bg-surface-subtle/50 px-5 text-xs font-medium">
+          <div className="flex border-b border-border bg-surface-subtle/50 px-2 sm:px-5 text-xs font-medium overflow-x-auto no-scrollbar touch-scroll -mb-px">
             <button
               type="button"
               onClick={() => setRepeatActionTab('template')}
-              className={`py-2.5 px-4 border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
+              className={`flex-1 sm:flex-initial min-h-[44px] py-2.5 px-3 sm:px-4 border-b-2 transition-colors cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap shrink-0 touch-manipulation ${
                 repeatActionTab === 'template'
-                  ? 'border-emerald-500 text-emerald-700 dark:text-emerald-400 font-semibold'
+                  ? 'border-emerald-500 text-emerald-700 dark:text-emerald-400 font-semibold bg-emerald-500/5'
                   : 'border-transparent text-text-muted hover:text-text-primary'
               }`}
             >
-              <MessageSquare className="w-3.5 h-3.5 text-[#25D366]" />
+              <MessageSquare className="w-3.5 h-3.5 text-[#25D366] shrink-0" />
               <span>Send Follow-up Message</span>
             </button>
             <button
               type="button"
               onClick={() => setRepeatActionTab('schedule')}
-              className={`py-2.5 px-4 border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
+              className={`flex-1 sm:flex-initial min-h-[44px] py-2.5 px-3 sm:px-4 border-b-2 transition-colors cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap shrink-0 touch-manipulation ${
                 repeatActionTab === 'schedule'
-                  ? 'border-amber-500 text-amber-700 dark:text-amber-400 font-semibold'
+                  ? 'border-amber-500 text-amber-700 dark:text-amber-400 font-semibold bg-amber-500/5'
                   : 'border-transparent text-text-muted hover:text-text-primary'
               }`}
             >
-              <Clock className="w-3.5 h-3.5 text-amber-500" />
+              <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
               <span>Schedule Task Reminder</span>
             </button>
           </div>
@@ -11081,9 +11081,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 max-w-full">
                     {/* Period Selector Presets */}
-                    <div className="flex items-center p-0.5 bg-surface-subtle rounded-sm border border-border">
+                    <div className="flex items-center p-0.5 bg-surface-subtle rounded-md border border-border overflow-x-auto no-scrollbar touch-scroll max-w-full shrink-0">
                       {(['today', 'yesterday', '7d', '30d', 'this_month', 'last_month', 'all', 'custom'] as const).map((p) => {
                         const labels: Record<string, string> = {
                           'today': 'Today',
@@ -11105,10 +11105,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 loadDashboardAnalytics(p, undefined, '', '', analyticsCompare);
                               }
                             }}
-                            className={`px-2 py-1 text-xs font-medium rounded-xs transition-colors cursor-pointer ${
+                            className={`min-h-[38px] sm:min-h-[28px] px-2.5 py-1.5 sm:py-1 text-xs font-medium rounded-sm transition-colors cursor-pointer shrink-0 touch-manipulation whitespace-nowrap flex items-center justify-center ${
                               analyticsPeriod === p
                                 ? 'bg-surface text-text-primary shadow-2xs font-semibold border border-border-strong'
-                                : 'text-text-muted hover:text-text-primary'
+                                : 'text-text-muted hover:text-text-primary border border-transparent'
                             }`}
                           >
                             {labels[p]}
@@ -11551,10 +11551,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             setActiveNav('bookings');
                             setBookingFilter('upcoming');
                           }}
-                          className="p-1.5 rounded bg-surface-subtle border border-border hover:border-text-secondary transition-colors cursor-pointer text-center"
+                          className="min-h-[44px] sm:min-h-[38px] p-1.5 rounded-md bg-surface-subtle border border-border hover:border-text-secondary transition-colors cursor-pointer text-center flex flex-col items-center justify-center touch-manipulation"
                           title="Click to view confirmed upcoming bookings"
                         >
-                          <p className="text-[10px] text-text-muted font-medium">Confirmed</p>
+                          <p className="text-[10px] text-text-muted font-medium leading-tight">Confirmed</p>
                           <p className="text-xs font-bold text-text-primary font-mono mt-0.5">{dashboardAnalyticsData.bookings_by_status.confirmed}</p>
                         </button>
                         <button
@@ -11563,10 +11563,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             setActiveNav('bookings');
                             setBookingFilter('completed');
                           }}
-                          className="p-1.5 rounded bg-emerald-50 text-emerald-900 border border-emerald-200 hover:border-emerald-400 transition-colors cursor-pointer text-center"
+                          className="min-h-[44px] sm:min-h-[38px] p-1.5 rounded-md bg-emerald-50 text-emerald-900 border border-emerald-200 hover:border-emerald-400 transition-colors cursor-pointer text-center flex flex-col items-center justify-center touch-manipulation"
                           title="Click to view attended completed visits"
                         >
-                          <p className="text-[10px] text-emerald-700 font-semibold">Attended</p>
+                          <p className="text-[10px] text-emerald-700 font-semibold leading-tight">Attended</p>
                           <p className="text-xs font-bold font-mono text-emerald-800 mt-0.5">{dashboardAnalyticsData.bookings_by_status.completed}</p>
                         </button>
                         <button
@@ -11575,10 +11575,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             setActiveNav('bookings');
                             setBookingFilter('no_show');
                           }}
-                          className="p-1.5 rounded bg-rose-50 text-rose-900 border border-rose-200 hover:border-rose-400 transition-colors cursor-pointer text-center"
+                          className="min-h-[44px] sm:min-h-[38px] p-1.5 rounded-md bg-rose-50 text-rose-900 border border-rose-200 hover:border-rose-400 transition-colors cursor-pointer text-center flex flex-col items-center justify-center touch-manipulation"
                           title="Click to view no-show bookings"
                         >
-                          <p className="text-[10px] text-rose-700 font-semibold">No-Show</p>
+                          <p className="text-[10px] text-rose-700 font-semibold leading-tight">No-Show</p>
                           <p className="text-xs font-bold font-mono text-rose-800 mt-0.5">{dashboardAnalyticsData.bookings_by_status.no_show}</p>
                         </button>
                       </div>
@@ -11645,18 +11645,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* Compact, Clean Action Toolbar (matching 2-tier design language) */}
                 <div className="flex flex-col gap-2 bg-surface border border-border rounded-lg p-2.5 shadow-2xs shrink-0">
                   {/* ROW 1: Section Title, Calendar Switcher & Primary Action */}
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                     <div className="flex items-center gap-2 shrink-0">
                       <CalendarDays className="w-4 h-4 text-accent stroke-[1.8]" />
                       <h3 className="font-bold text-sm text-text-primary">Appointments & Bookings</h3>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
                       {/* Switch to Calendar Schedule Button */}
                       <button
                         type="button"
                         onClick={() => navigateTo('calendar')}
-                        className="h-8 px-3 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary font-medium text-xs rounded-md transition-colors border border-border cursor-pointer shadow-2xs flex items-center gap-1.5 shrink-0"
+                        className="min-h-[36px] sm:min-h-[32px] h-9 sm:h-8 px-3 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary font-medium text-xs rounded-md transition-colors border border-border cursor-pointer shadow-2xs flex items-center gap-1.5 shrink-0 touch-manipulation"
                         title="Switch to Calendar Schedule view"
                       >
                         <Calendar className="w-3.5 h-3.5 text-accent stroke-[1.8]" />
@@ -11667,7 +11667,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => loadBookings()}
-                        className="h-8 w-8 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
+                        className="min-h-[36px] min-w-[36px] sm:min-h-[32px] sm:min-w-[32px] h-9 w-9 sm:h-8 sm:w-8 bg-surface hover:bg-surface-subtle text-text-secondary hover:text-text-primary border border-border rounded-md transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center touch-manipulation"
                         title="Refresh bookings"
                       >
                         <RotateCcw className={`w-3.5 h-3.5 stroke-[1.8] ${loadingBookings ? 'animate-spin' : ''}`} />
@@ -11677,7 +11677,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setIsAddBookingOpen(true)}
-                        className="h-8 flex items-center gap-1.5 px-3.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs hover:shadow cursor-pointer shrink-0"
+                        className="min-h-[36px] sm:min-h-[32px] h-9 sm:h-8 flex items-center gap-1.5 px-3.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-md transition-all shadow-xs hover:shadow cursor-pointer shrink-0 touch-manipulation"
                       >
                         <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                         <span>{(currentTaxonomy.booking_cta || 'Book Appointment').replace(/^\+\s*/, '')}</span>
@@ -11686,8 +11686,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
 
                   {/* ROW 2: Status Filter Segmented Control & Live Count */}
-                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60 overflow-x-auto no-scrollbar">
-                    <div className="flex items-center gap-1 bg-surface-subtle p-0.5 rounded-md border border-border shrink-0 max-w-full overflow-x-auto no-scrollbar">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-border/60">
+                    <div className="flex items-center gap-1 bg-surface-subtle p-1 rounded-md border border-border overflow-x-auto no-scrollbar touch-scroll w-full sm:w-auto shrink-0">
                       {[
                         { id: 'upcoming', label: 'Upcoming' },
                         { id: 'rescheduled', label: 'Rescheduled' },
@@ -11718,18 +11718,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             key={st.id}
                             type="button"
                             onClick={() => setBookingFilter(st.id)}
-                            className={`px-2.5 py-1 text-xs rounded-sm transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                            className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs rounded-sm transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 touch-manipulation ${
                               bookingFilter === st.id
                                 ? 'bg-surface text-text-primary font-semibold border border-border shadow-2xs'
-                                : 'text-text-secondary hover:text-text-primary font-medium'
+                                : 'text-text-secondary hover:text-text-primary font-medium border border-transparent'
                             }`}
                           >
                             <span>{st.label}</span>
                             <span
-                              className={`text-[10px] font-mono px-1.5 py-0.2 rounded-xs ${
+                              className={`text-[10px] font-mono px-1.5 py-0.2 rounded-xs shrink-0 ${
                                 bookingFilter === st.id
                                   ? 'bg-surface-subtle text-text-primary font-semibold'
-                                  : 'text-text-muted'
+                                  : 'text-text-muted bg-surface/60'
                               }`}
                             >
                               {count}
@@ -11740,7 +11740,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
 
                     {/* Right: Total Appointments Count */}
-                    <div className="text-xs text-text-muted font-medium shrink-0 ml-auto pl-2 flex items-center gap-1">
+                    <div className="text-xs text-text-muted font-medium shrink-0 sm:ml-auto pl-1 sm:pl-2 flex items-center gap-1">
                       <span>Total</span>
                       <span className="font-semibold text-text-primary">{bookings?.length || 0}</span>
                       <span>appointments</span>
@@ -11997,7 +11997,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <button
                           type="button"
                           onClick={handlePrevDate}
-                          className="p-1 text-text-secondary hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer"
+                          className="min-h-[32px] min-w-[32px] flex items-center justify-center p-1 text-text-secondary hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer touch-manipulation"
                           title="Previous"
                         >
                           <ChevronLeft className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -12005,14 +12005,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         <button
                           type="button"
                           onClick={handleToday}
-                          className="px-2 py-0.5 text-xs font-medium text-text-body hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer"
+                          className="min-h-[32px] px-2.5 py-0.5 text-xs font-medium text-text-body hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center touch-manipulation"
                         >
                           Today
                         </button>
                         <button
                           type="button"
                           onClick={handleNextDate}
-                          className="p-1 text-text-secondary hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer"
+                          className="min-h-[32px] min-w-[32px] flex items-center justify-center p-1 text-text-secondary hover:text-text-primary hover:bg-surface rounded-sm transition-colors duration-150 cursor-pointer touch-manipulation"
                           title="Next"
                         >
                           <ChevronRight className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -12022,16 +12022,16 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                     {/* Right: View Switcher (Day/Week/Month) & Actions */}
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <div className="flex gap-0.5 bg-surface-subtle p-0.5 rounded-sm border border-border">
+                      <div className="flex items-center gap-0.5 bg-surface-subtle p-1 rounded-md border border-border shrink-0">
                         {(['day', 'week', 'month'] as const).map((mode) => (
                           <button
                             key={mode}
                             type="button"
                             onClick={() => setCalendarViewMode(mode)}
-                            className={`px-2 py-0.5 text-xs rounded-sm capitalize transition-colors duration-150 cursor-pointer ${
+                            className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs rounded-sm capitalize transition-colors duration-150 cursor-pointer flex items-center justify-center font-medium touch-manipulation ${
                               calendarViewMode === mode
                                 ? 'bg-surface text-text-primary font-semibold border border-border shadow-subtle'
-                                : 'text-text-secondary hover:text-text-primary font-medium'
+                                : 'text-text-secondary hover:text-text-primary border border-transparent'
                             }`}
                           >
                             {mode}
@@ -12042,7 +12042,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => navigateTo('bookings')}
-                        className="px-3 py-1.5 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer font-medium shadow-2xs whitespace-nowrap shrink-0"
+                        className="min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer font-medium shadow-2xs whitespace-nowrap shrink-0 touch-manipulation"
                         title="Switch to Bookings Table list view"
                       >
                         <List className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -12053,7 +12053,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         type="button"
                         onClick={handleSyncGoogleTasks}
                         disabled={syncingGoogleTasks}
-                        className="px-3 py-1.5 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer font-medium shadow-2xs whitespace-nowrap disabled:opacity-50 shrink-0"
+                        className="min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs rounded-sm bg-surface hover:bg-surface-subtle border border-border text-text-secondary hover:text-text-primary flex items-center gap-1.5 cursor-pointer font-medium shadow-2xs whitespace-nowrap disabled:opacity-50 shrink-0 touch-manipulation"
                         title="Sync with Google Tasks: automatically remove completed tasks & follow-ups"
                       >
                         <RotateCcw className={`w-3.5 h-3.5 stroke-[1.5] text-accent ${syncingGoogleTasks ? 'animate-spin' : ''}`} />
@@ -12063,7 +12063,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setShowAddTaskModal(true)}
-                        className="px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
+                        className="min-h-[38px] sm:min-h-[30px] px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-primary border border-border font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-2xs whitespace-nowrap shrink-0 touch-manipulation"
                         title="Create a new task"
                       >
                         <CheckSquare className="w-3.5 h-3.5 stroke-[1.5] text-amber-600" />
@@ -12073,7 +12073,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setIsAddBookingOpen(true)}
-                        className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap shrink-0"
+                        className="min-h-[38px] sm:min-h-[30px] px-3 py-1.5 bg-accent hover:bg-accent-hover text-white font-medium text-xs rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap shrink-0 touch-manipulation"
                       >
                         <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
                         <span>{currentTaxonomy.booking_cta || '+ Appointment'}</span>
@@ -12082,7 +12082,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
 
                   {/* Row 2: Unified Layer / Filter Selector Pills (All, Appointments, Follow-ups, Tasks) */}
-                  <div className="flex items-center gap-1.5 bg-surface-subtle border border-border rounded-sm p-0.5 w-full sm:w-fit flex-nowrap overflow-x-auto no-scrollbar max-w-full">
+                  <div className="flex items-center gap-1.5 bg-surface-subtle border border-border rounded-md p-1 w-full sm:w-fit flex-nowrap overflow-x-auto no-scrollbar touch-scroll max-w-full shrink-0">
                     {[
                       { key: 'all', label: 'All Schedule', icon: LayoutGrid, count: (bookings?.length || 0) + (customers?.filter(c => c.followup_date).length || 0) + (tasks?.filter(t => !t.completed).length || 0) + (liveGcalEvents?.length || 0) },
                       { key: 'bookings', label: currentTaxonomy.event_label || 'Appointments', icon: Calendar, count: bookings?.length || 0 },
@@ -12097,10 +12097,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           key={tab.key}
                           type="button"
                           onClick={() => setCalendarLayerFilter(tab.key as any)}
-                          className={`flex items-center gap-1.5 px-2 py-0.5 text-[11px] rounded-sm transition-colors cursor-pointer whitespace-nowrap ${
+                          className={`min-h-[36px] sm:min-h-[28px] flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-sm transition-colors cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
                             isActive
                               ? 'bg-surface text-text-primary font-semibold border border-border shadow-xs'
-                              : 'text-text-secondary hover:text-text-primary'
+                              : 'text-text-secondary hover:text-text-primary border border-transparent'
                           }`}
                         >
                           <IconComp className="w-3 h-3 stroke-[1.5]" />
@@ -13195,11 +13195,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
 
                     {/* ── Modern & Minimal Segmented Filter Pills ── */}
-                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar touch-scroll py-1 shrink-0">
                       <button
                         type="button"
                         onClick={() => setFilter('all')}
-                        className={`py-1 px-2.5 text-[11px] rounded-full transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 ${
+                        className={`min-h-[36px] sm:min-h-[28px] py-1 px-3 text-[11px] rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 touch-manipulation ${
                           filter === 'all'
                             ? 'bg-text-primary text-surface font-semibold shadow-2xs dark:bg-accent dark:text-white'
                             : 'bg-surface-subtle text-text-secondary hover:text-text-primary hover:bg-surface border border-border/60'
@@ -13214,7 +13214,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setFilter('new_lead')}
-                        className={`py-1 px-2.5 text-[11px] rounded-full transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 ${
+                        className={`min-h-[36px] sm:min-h-[28px] py-1 px-3 text-[11px] rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 touch-manipulation ${
                           filter === 'new_lead'
                             ? 'bg-emerald-600 text-white font-semibold shadow-2xs'
                             : 'bg-surface-subtle text-text-secondary hover:text-emerald-700 hover:bg-emerald-50/50 border border-border/60'
@@ -13235,7 +13235,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setFilter('repeat')}
-                        className={`py-1 px-2.5 text-[11px] rounded-full transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 ${
+                        className={`min-h-[36px] sm:min-h-[28px] py-1 px-3 text-[11px] rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 touch-manipulation ${
                           filter === 'repeat'
                             ? 'bg-amber-600 text-white font-semibold shadow-2xs'
                             : 'bg-surface-subtle text-text-secondary hover:text-amber-700 hover:bg-amber-50/50 border border-border/60'
@@ -13256,7 +13256,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setFilter('new')}
-                        className={`py-1 px-2.5 text-[11px] rounded-full transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 ${
+                        className={`min-h-[36px] sm:min-h-[28px] py-1 px-3 text-[11px] rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 touch-manipulation ${
                           filter === 'new'
                             ? 'bg-accent text-white font-semibold shadow-2xs'
                             : 'bg-surface-subtle text-text-secondary hover:text-accent hover:bg-accent/5 border border-border/60'
@@ -13274,7 +13274,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setFilter('important')}
-                        className={`py-1 px-2.5 text-[11px] rounded-full transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 ${
+                        className={`min-h-[36px] sm:min-h-[28px] py-1 px-3 text-[11px] rounded-full transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 touch-manipulation ${
                           filter === 'important'
                             ? 'bg-amber-500 text-white font-semibold shadow-2xs'
                             : 'bg-surface-subtle text-text-secondary hover:text-amber-600 hover:bg-amber-50/50 border border-border/60'
@@ -14280,14 +14280,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
 
                     {/* View Switcher Pills */}
-                    <div className="flex items-center gap-0.5 bg-surface-subtle border border-border rounded-md p-0.5 overflow-x-auto no-scrollbar shrink-0">
+                    <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-md p-1 overflow-x-auto no-scrollbar touch-scroll w-full sm:w-auto shrink-0">
                       <button
                         type="button"
                         onClick={() => setFollowupView('list')}
-                        className={`flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                        className={`flex-1 sm:flex-initial min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
                           followupView === 'list'
                             ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
-                            : 'text-text-secondary hover:text-text-primary'
+                            : 'text-text-secondary hover:text-text-primary border border-transparent'
                         }`}
                       >
                         <List className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -14300,10 +14300,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           setFollowupView('pipeline');
                           try { localStorage.setItem('whatsapp_crm_followup_view', 'pipeline'); } catch {}
                         }}
-                        className={`flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                        className={`flex-1 sm:flex-initial min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
                           followupView === 'pipeline'
                             ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
-                            : 'text-text-secondary hover:text-text-primary'
+                            : 'text-text-secondary hover:text-text-primary border border-transparent'
                         }`}
                       >
                         <LayoutGrid className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -14315,10 +14315,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           setFollowupView('tasks');
                           try { localStorage.setItem('whatsapp_crm_followup_view', 'tasks'); } catch {}
                         }}
-                        className={`flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                        className={`flex-1 sm:flex-initial min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
                           followupView === 'tasks'
                             ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
-                            : 'text-text-secondary hover:text-text-primary'
+                            : 'text-text-secondary hover:text-text-primary border border-transparent'
                         }`}
                       >
                         <CalendarCheck className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -14333,10 +14333,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           setLoadingAllNotes(true);
                           crm.getAllNotes().then(n => { setAllNotes(Array.isArray(n) ? n : []); setLoadingAllNotes(false); }).catch(() => setLoadingAllNotes(false));
                         }}
-                        className={`flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap ${
+                        className={`flex-1 sm:flex-initial min-h-[38px] sm:min-h-[30px] flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
                           followupView === 'notes'
                             ? 'bg-surface text-text-primary border border-border font-semibold shadow-xs'
-                            : 'text-text-secondary hover:text-text-primary'
+                            : 'text-text-secondary hover:text-text-primary border border-transparent'
                         }`}
                       >
                         <StickyNote className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -14422,13 +14422,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {followupView === 'list' && (
                   <div className="flex-1 flex flex-col overflow-hidden space-y-1">
                     {/* Compact & Clean Single-Row Filter & KPI Toolbar */}
-                    <div className="flex items-center justify-between gap-3 px-2 py-1 bg-surface border border-border rounded-md text-xs overflow-x-auto no-scrollbar">
+                    <div className="flex items-center justify-between gap-3 px-2 py-1.5 bg-surface border border-border rounded-md text-xs overflow-x-auto no-scrollbar touch-scroll">
                       {/* Left: Essential Filter Controls */}
                       <div className="flex items-center gap-2 shrink-0">
                         {/* Outcome Filter Pills */}
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 shrink-0">
                           <span className="text-[11px] font-medium text-text-muted mr-0.5">Outcome:</span>
-                          <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border/80 rounded-md gap-0.5">
+                          <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border/80 rounded-md gap-0.5 shrink-0">
                             {[
                               { key: 'all', label: 'All' },
                               { key: 'new', label: 'New' },
@@ -14442,7 +14442,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   key={st.key}
                                   type="button"
                                   onClick={() => setFollowupStatusFilter(st.key)}
-                                  className={`px-2 py-0.5 text-[11px] rounded-xs transition-colors cursor-pointer font-medium whitespace-nowrap ${
+                                  className={`min-h-[36px] sm:min-h-[26px] px-2.5 py-1 text-[11px] rounded-xs transition-colors cursor-pointer font-medium whitespace-nowrap flex items-center justify-center shrink-0 touch-manipulation ${
                                     isActive
                                       ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
                                       : 'text-text-muted hover:text-text-primary hover:bg-surface/50'
@@ -14457,12 +14457,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                         {/* Active Custom Outcome Badge */}
                         {!['all', 'new', 'follow-up', 'converted', 'lost'].includes(followupStatusFilter.toLowerCase()) && (
-                          <div className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-accent/10 border border-accent/30 text-accent rounded-sm text-[11px] font-semibold">
+                          <div className="inline-flex items-center gap-1 px-2 py-1 bg-accent/10 border border-accent/30 text-accent rounded-sm text-[11px] font-semibold shrink-0">
                             <span>{followupStatusFilter}</span>
                             <button
                               type="button"
                               onClick={() => setFollowupStatusFilter('all')}
-                              className="hover:text-accent-hover p-0.5 cursor-pointer"
+                              className="hover:text-accent-hover p-0.5 cursor-pointer touch-manipulation"
                               title="Clear custom outcome filter"
                             >
                               <X className="w-2.5 h-2.5" />
@@ -14471,12 +14471,12 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         )}
 
                         {/* Divider */}
-                        <div className="h-3.5 w-px bg-border/80 shrink-0" />
+                        <div className="h-4 w-px bg-border/80 shrink-0" />
 
                         {/* Lead Warmth Badges */}
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 shrink-0">
                           <span className="text-[11px] font-medium text-text-muted mr-0.5">Lead:</span>
-                          <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border/80 rounded-md gap-0.5">
+                          <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border/80 rounded-md gap-0.5 shrink-0">
                             {[
                               { key: 'all', label: 'All' },
                               { key: 'hot', label: 'Hot', icon: Flame, color: 'text-amber-500 fill-amber-500/20' },
@@ -14490,7 +14490,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                   key={prob.key}
                                   type="button"
                                   onClick={() => setFollowupProbabilityFilter(prob.key)}
-                                  className={`px-1.5 py-0.5 text-[11px] rounded-xs transition-colors cursor-pointer flex items-center gap-1 font-medium whitespace-nowrap ${
+                                  className={`min-h-[36px] sm:min-h-[26px] px-2 py-1 text-[11px] rounded-xs transition-colors cursor-pointer flex items-center gap-1 font-medium whitespace-nowrap shrink-0 touch-manipulation ${
                                     isActive
                                       ? 'bg-surface border border-border text-text-primary font-semibold shadow-2xs'
                                       : 'text-text-muted hover:text-text-primary hover:bg-surface/50'
@@ -14505,10 +14505,10 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
 
                         {/* Divider */}
-                        <div className="h-3.5 w-px bg-border/80 shrink-0" />
+                        <div className="h-4 w-px bg-border/80 shrink-0" />
 
                         {/* Staff / Doctor Selector with docked preset edit button */}
-                        <div className="inline-flex items-center border border-border rounded-md bg-surface h-6.5 overflow-hidden shrink-0">
+                        <div className="inline-flex items-center border border-border rounded-md bg-surface min-h-[36px] sm:min-h-[26px] h-9 sm:h-6.5 overflow-hidden shrink-0">
                           <select
                             value={followupDoctorFilter}
                             onChange={(e) => setFollowupDoctorFilter(e.target.value)}
@@ -14528,7 +14528,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             type="button"
                             onClick={openDoctorEditor}
                             title={`Manage ${presetRolePlural} presets`}
-                            className="h-full px-1.5 border-l border-border text-text-muted hover:text-accent hover:bg-surface-subtle transition-colors flex items-center justify-center cursor-pointer"
+                            className="h-full px-2 border-l border-border text-text-muted hover:text-accent hover:bg-surface-subtle transition-colors flex items-center justify-center cursor-pointer touch-manipulation"
                           >
                             <Pencil className="w-2.5 h-2.5 stroke-[1.8]" />
                           </button>
@@ -14547,7 +14547,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               setFollowupSearchInput('');
                               setFollowupSearch('');
                             }}
-                            className="h-6.5 text-[11px] text-accent hover:text-accent-hover flex items-center gap-1 px-1.5 rounded hover:bg-surface-subtle font-medium cursor-pointer shrink-0"
+                            className="min-h-[36px] sm:min-h-[26px] text-[11px] text-accent hover:text-accent-hover flex items-center gap-1 px-2 rounded hover:bg-surface-subtle font-medium cursor-pointer shrink-0 touch-manipulation"
                             title="Reset all filters"
                           >
                             <X className="w-3 h-3" />
@@ -15445,9 +15445,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* ── SUB-VIEW C: TASK CALENDAR VIEW ─────────────────────────── */}
                 {followupView === 'tasks' && (
                     <div className="flex-1 flex flex-col overflow-y-auto space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface border border-border rounded-sm">
-                      <div className="flex items-center gap-1">
-                        <span className="text-[11px] font-medium text-text-muted mr-1">Filter:</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 sm:p-3 bg-surface border border-border rounded-sm">
+                      <div className="flex items-center gap-1 overflow-x-auto no-scrollbar touch-scroll max-w-full pb-0.5 shrink-0">
+                        <span className="text-[11px] font-medium text-text-muted mr-1 shrink-0">Filter:</span>
                         {[
                           { key: 'all', label: 'All Tasks' },
                           { key: 'today', label: 'Due Today' },
@@ -15457,10 +15457,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         ].map((tf) => (
                           <button
                             key={tf.key}
+                            type="button"
                             onClick={() => setTaskFilter(tf.key as any)}
-                            className={`px-2.5 py-1 text-xs rounded-sm border transition-colors cursor-pointer ${
+                            className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs rounded-sm border transition-colors cursor-pointer shrink-0 touch-manipulation whitespace-nowrap flex items-center justify-center ${
                               taskFilter === tf.key
-                                ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
+                                ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary shadow-2xs'
                                 : 'bg-surface border-border text-text-secondary hover:text-text-primary'
                             }`}
                           >
@@ -15470,8 +15471,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </div>
 
                       <button
+                        type="button"
                         onClick={() => setShowAddTaskModal(true)}
-                        className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+                        className="min-h-[38px] sm:min-h-[30px] px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 touch-manipulation shadow-2xs"
                       >
                         <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
                         <span>Add Task</span>
@@ -15567,17 +15569,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 {/* ── SUB-VIEW D: OVERALL NOTES VIEW ──────────────────────────── */}
                 {followupView === 'notes' && (
                     <div className="flex-1 flex flex-col overflow-y-auto space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-surface border border-border rounded-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-medium text-text-muted">Color:</span>
-                        <div className="flex items-center gap-1">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 sm:p-3 bg-surface border border-border rounded-sm">
+                      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar touch-scroll max-w-full pb-0.5 shrink-0">
+                        <span className="text-[11px] font-medium text-text-muted shrink-0">Color:</span>
+                        <div className="flex items-center gap-1 shrink-0">
                           {['all', 'slate', 'blue', 'amber', 'rose', 'emerald', 'violet'].map((c) => (
                             <button
                               key={c}
+                              type="button"
                               onClick={() => setAllNotesColorFilter(c)}
-                              className={`px-2 py-0.5 text-xs rounded-sm border capitalize transition-colors cursor-pointer ${
+                              className={`min-h-[36px] sm:min-h-[26px] px-2.5 py-1 text-xs rounded-sm border capitalize transition-colors cursor-pointer shrink-0 touch-manipulation whitespace-nowrap flex items-center justify-center ${
                                 allNotesColorFilter === c
-                                  ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary'
+                                  ? 'bg-surface-subtle border-text-primary font-semibold text-text-primary shadow-2xs'
                                   : 'bg-surface border-border text-text-secondary hover:text-text-primary'
                               }`}
                             >
@@ -15587,20 +15590,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <div className="relative">
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <div className="relative flex-1 sm:flex-initial w-full sm:w-48">
                           <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
                           <input
                             type="text"
                             placeholder="Search all notes..."
                             value={allNotesSearch}
                             onChange={(e) => setAllNotesSearch(e.target.value)}
-                            className="pl-8 pr-3 py-1 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent w-48"
+                            className="w-full pl-8 pr-3 py-1.5 sm:py-1 min-h-[36px] sm:min-h-auto bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:outline-none focus:border-accent"
                           />
                         </div>
                         <button
+                          type="button"
                           onClick={() => setShowAddOverallNoteModal(true)}
-                          className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+                          className="min-h-[36px] sm:min-h-auto px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 touch-manipulation shadow-2xs"
                         >
                           <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
                           <span>Add Note</span>
@@ -15876,8 +15880,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                   </div>
 
                   {/* Category Tabs */}
-                  <div className="px-5 pt-3 border-b border-border bg-surface shrink-0">
-                    <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none">
+                  <div className="px-3 sm:px-5 pt-3 border-b border-border bg-surface shrink-0">
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll pb-2">
                       {[
                         { id: 'outcome_statuses' as const, label: 'Outcome Statuses', count: editingDropdowns.outcome_statuses?.length || 0 },
                         { id: 'next_actions' as const, label: 'Next Actions', count: editingDropdowns.next_actions?.length || 0 },
@@ -15891,7 +15895,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             setEditingItemIndex(null);
                             setEditingItemText('');
                           }}
-                          className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                          className={`flex-1 sm:flex-initial min-h-[40px] sm:min-h-[34px] px-3.5 py-2 rounded-md text-xs font-semibold whitespace-nowrap transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0 touch-manipulation ${
                             dropdownActiveTab === tab.id
                               ? 'bg-accent text-white shadow-xs'
                               : 'bg-surface-subtle hover:bg-surface border border-border text-text-secondary hover:text-text-primary'
@@ -15899,7 +15903,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         >
                           <span>{tab.label}</span>
                           <span
-                            className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                            className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono shrink-0 ${
                               dropdownActiveTab === tab.id
                                 ? 'bg-white/20 text-white'
                                 : 'bg-surface text-text-muted border border-border'
@@ -16562,8 +16566,8 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       </div>
 
                       {/* ROW 2: Retention Filter Pills, Sort & Record Count */}
-                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60 overflow-x-auto no-scrollbar">
-                        <div className="flex items-center gap-1.5 flex-wrap">
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60 overflow-x-auto no-scrollbar touch-scroll">
+                        <div className="flex items-center gap-1.5 flex-nowrap sm:flex-wrap shrink-0 py-0.5">
                           <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider shrink-0 flex items-center gap-1 mr-0.5">
                             <Filter className="w-3 h-3 text-text-muted" />
                             <span>Retention:</span>
@@ -16580,7 +16584,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                               key={st.key}
                               type="button"
                               onClick={() => setRepeatHealthFilter(st.key as any)}
-                              className={`px-2.5 py-1 text-xs rounded-md border transition-all cursor-pointer shrink-0 flex items-center gap-1.5 shadow-2xs ${
+                              className={`min-h-[36px] sm:min-h-[30px] px-2.5 py-1.5 text-xs rounded-md border transition-all cursor-pointer shrink-0 flex items-center gap-1.5 shadow-2xs touch-manipulation whitespace-nowrap ${
                                 repeatHealthFilter === st.key
                                   ? 'bg-surface text-text-primary border-border font-semibold shadow-xs'
                                   : 'bg-surface-subtle border-border text-text-secondary hover:text-text-primary hover:bg-surface'
@@ -16597,7 +16601,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <select
                             value={repeatSortBy}
                             onChange={(e) => setRepeatSortBy(e.target.value as any)}
-                            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 shadow-2xs"
+                            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 shadow-2xs shrink-0"
                             title="Sort repeat clients"
                           >
                             <option value="most_visits">Most Visits</option>
@@ -16609,7 +16613,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                           <select
                             value={repeatDoctorFilter}
                             onChange={(e) => setRepeatDoctorFilter(e.target.value)}
-                            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer h-7.5 max-w-[130px] truncate shadow-2xs"
+                            className="px-2 py-1 bg-surface hover:bg-surface-subtle border border-border rounded-md text-xs text-text-secondary focus:outline-none focus:border-accent cursor-pointer min-h-[36px] sm:min-h-[30px] h-9 sm:h-7.5 max-w-[130px] truncate shadow-2xs shrink-0"
                           >
                             <option value="all">All {presetRolePlural}</option>
                             <option value="unassigned">Unassigned</option>
@@ -16630,7 +16634,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 setRepeatDoctorFilter('all');
                                 setRepeatSearch('');
                               }}
-                              className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 px-2 py-1 rounded-md font-medium flex items-center gap-1 cursor-pointer transition-colors"
+                              className="min-h-[36px] sm:min-h-[30px] text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 px-2.5 py-1.5 rounded-md font-medium flex items-center justify-center gap-1 cursor-pointer transition-colors shrink-0 touch-manipulation"
                               title="Clear repeat filters"
                             >
                               <X className="w-3 h-3" />
@@ -17068,7 +17072,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </div>
 
                 {/* Sub-Tab Switcher */}
-                <div className="flex items-center gap-1 bg-surface-subtle border border-border rounded-sm p-0.5 max-w-full overflow-x-auto no-scrollbar shrink-0">
+                <div className="flex items-center gap-1.5 bg-surface-subtle border border-border rounded-md p-1 max-w-full overflow-x-auto no-scrollbar touch-scroll shrink-0">
                   {([
                     { key: 'broadcasts', Icon: Megaphone, label: 'Broadcast Campaigns' },
                     { key: 'reengagement', Icon: RotateCcw, label: 'Automated Triggers' },
@@ -17078,13 +17082,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     <button
                       key={tab.key}
                       onClick={() => setMarketingSubTab(tab.key)}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                      className={`min-h-[40px] sm:min-h-[34px] px-3.5 py-2 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 touch-manipulation ${
                         marketingSubTab === tab.key
                           ? 'bg-surface text-text-primary border border-border-strong shadow-subtle font-semibold'
-                          : 'text-text-secondary hover:text-text-primary'
+                          : 'text-text-secondary hover:text-text-primary border border-transparent'
                       }`}
                     >
-                      <tab.Icon className="w-3.5 h-3.5" />
+                      <tab.Icon className="w-3.5 h-3.5 shrink-0" />
                       <span>{tab.label}</span>
                     </button>
                   ))}
@@ -17298,18 +17302,18 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             {/* Sheet / CSV Importer */}
                             {(campaignForm.target_audience === 'sheet_only' || campaignForm.target_audience === 'both') && (
                               <div className="p-3 bg-surface-subtle/50 rounded-sm border border-border space-y-3">
-                                <div className="flex items-center justify-between">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                   <div className="flex items-center gap-2">
-                                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                                    <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
                                     <span className="text-xs font-semibold text-text-primary">Google Sheet / CSV Lead Importer</span>
                                   </div>
-                                  <div className="flex items-center gap-1 bg-surface p-0.5 rounded-sm border border-border">
+                                  <div className="flex items-center gap-1 bg-surface p-0.5 rounded-sm border border-border shrink-0">
                                     {(['paste', 'upload'] as const).map((mode) => (
                                       <button
                                         key={mode}
                                         type="button"
                                         onClick={() => setSheetInputMode(mode)}
-                                        className={`px-2 py-0.5 text-[11px] font-medium rounded-sm cursor-pointer ${sheetInputMode === mode ? 'bg-surface-subtle text-text-primary font-semibold' : 'text-text-secondary'}`}
+                                        className={`flex-1 sm:flex-initial min-h-[36px] sm:min-h-[28px] px-3 py-1.5 text-xs font-medium rounded-sm cursor-pointer transition-colors flex items-center justify-center touch-manipulation whitespace-nowrap ${sheetInputMode === mode ? 'bg-surface-subtle text-text-primary font-semibold shadow-2xs' : 'text-text-secondary hover:text-text-primary'}`}
                                       >
                                         {mode === 'paste' ? 'Paste Rows' : 'Upload .CSV'}
                                       </button>
@@ -18398,21 +18402,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
 
                 {/* ── 2. UNIFIED COMPACT FILTER & SEARCH BAR ─────────────────── */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll py-0.5 max-w-full shrink-0">
                     {/* Source Tabs: Google vs Private vs All */}
-                    <div className="flex items-center p-0.5 bg-surface-subtle rounded-md border border-border shrink-0">
+                    <div className="flex items-center p-1 bg-surface-subtle rounded-md border border-border shrink-0">
                       <button
                         type="button"
                         onClick={() => { setReviewSourceTab('google'); setReviewRatingFilter('all'); }}
-                        className={`px-2.5 py-1 rounded-sm text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer border ${
+                        className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 rounded-sm text-xs font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer border shrink-0 touch-manipulation whitespace-nowrap ${
                           reviewSourceTab === 'google'
-                            ? 'bg-surface text-text-primary font-medium shadow-xs border-border'
-                            : 'text-text-secondary hover:text-text-primary'
+                            ? 'bg-surface text-text-primary font-semibold shadow-xs border-border'
+                            : 'border-transparent text-text-secondary hover:text-text-primary'
                         }`}
                       >
-                        <Globe className="w-3.5 h-3.5 text-text-muted" />
+                        <Globe className="w-3.5 h-3.5 text-text-muted shrink-0" />
                         <span>Google</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-surface-subtle border border-border text-text-muted">
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-surface-subtle border border-border text-text-muted shrink-0">
                           {customerReviews.filter(r => (r.rating || 0) >= 4).length}
                         </span>
                       </button>
@@ -18420,15 +18424,15 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => { setReviewSourceTab('local_store'); setReviewRatingFilter('all'); }}
-                        className={`px-2.5 py-1 rounded-sm text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer border ${
+                        className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 rounded-sm text-xs font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer border shrink-0 touch-manipulation whitespace-nowrap ${
                           reviewSourceTab === 'local_store'
-                            ? 'bg-surface text-text-primary font-medium shadow-xs border-border'
-                            : 'text-text-secondary hover:text-text-primary'
+                            ? 'bg-surface text-text-primary font-semibold shadow-xs border-border'
+                            : 'border-transparent text-text-secondary hover:text-text-primary'
                         }`}
                       >
-                        <Building2 className="w-3.5 h-3.5 text-text-muted" />
+                        <Building2 className="w-3.5 h-3.5 text-text-muted shrink-0" />
                         <span>Private</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-surface-subtle border border-border text-text-muted">
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-surface-subtle border border-border text-text-muted shrink-0">
                           {customerReviews.filter(r => (r.rating || 0) <= 3).length}
                         </span>
                       </button>
@@ -18436,21 +18440,21 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => { setReviewSourceTab('all'); setReviewRatingFilter('all'); }}
-                        className={`px-2.5 py-1 rounded-sm text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer border ${
+                        className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 rounded-sm text-xs font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer border shrink-0 touch-manipulation whitespace-nowrap ${
                           reviewSourceTab === 'all'
-                            ? 'bg-surface text-text-primary font-medium shadow-xs border-border'
-                            : 'text-text-secondary hover:text-text-primary'
+                            ? 'bg-surface text-text-primary font-semibold shadow-xs border-border'
+                            : 'border-transparent text-text-secondary hover:text-text-primary'
                         }`}
                       >
                         <span>All</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-surface-subtle text-text-muted border border-border">
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-surface-subtle text-text-muted border border-border shrink-0">
                           {customerReviews.length}
                         </span>
                       </button>
                     </div>
 
                     {/* Star Sub-Filters */}
-                    <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0 shadow-2xs">
+                    <div className="flex items-center gap-0.5 bg-surface p-1 rounded-md border border-border shrink-0 shadow-2xs">
                       {(() => {
                         const starOptions = reviewSourceTab === 'google'
                           ? (['all', 5, 4] as const)
@@ -18463,14 +18467,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                             key={String(s)}
                             type="button"
                             onClick={() => setReviewRatingFilter(s)}
-                            className={`px-2.5 py-1 rounded-sm text-xs font-medium transition-colors cursor-pointer flex items-center gap-1 border ${
-                              reviewRatingFilter === s ? 'bg-surface text-text-primary shadow-xs border-border' : 'text-text-secondary hover:text-text-primary border-transparent'
+                            className={`min-h-[38px] sm:min-h-[30px] px-2.5 py-1.5 rounded-sm text-xs font-medium transition-colors cursor-pointer flex items-center justify-center gap-1 border shrink-0 touch-manipulation whitespace-nowrap ${
+                              reviewRatingFilter === s ? 'bg-surface-subtle text-text-primary font-semibold shadow-xs border-border' : 'text-text-secondary hover:text-text-primary border-transparent'
                             }`}
                           >
                             {s === 'all' ? 'All Ratings' : (
                               <>
                                 <span>{s}</span>
-                                <Star className="w-3 h-3 text-text-muted fill-transparent" />
+                                <Star className="w-3 h-3 text-text-muted fill-transparent shrink-0" />
                               </>
                             )}
                           </button>
@@ -18479,14 +18483,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                     </div>
 
                     {/* Reply Status Filter */}
-                    <div className="flex items-center gap-0.5 bg-surface p-0.5 rounded-md border border-border shrink-0 shadow-2xs">
+                    <div className="flex items-center gap-0.5 bg-surface p-1 rounded-md border border-border shrink-0 shadow-2xs">
                       {(['all', 'pending', 'replied'] as const).map((st) => (
                         <button
                           key={st}
                           type="button"
                           onClick={() => setReviewStatusFilter(st)}
-                          className={`px-2.5 py-1 rounded-sm text-xs font-medium capitalize transition-colors cursor-pointer border ${
-                            reviewStatusFilter === st ? 'bg-surface text-text-primary shadow-xs border-border' : 'text-text-secondary hover:text-text-primary border-transparent'
+                          className={`min-h-[38px] sm:min-h-[30px] px-2.5 py-1.5 rounded-sm text-xs font-medium capitalize transition-colors cursor-pointer border shrink-0 touch-manipulation whitespace-nowrap ${
+                            reviewStatusFilter === st ? 'bg-surface-subtle text-text-primary font-semibold shadow-xs border-border' : 'text-text-secondary hover:text-text-primary border-transparent'
                           }`}
                         >
                           {st === 'all' ? 'All Status' : st === 'pending' ? 'Needs Reply' : 'Replied'}
@@ -19240,7 +19244,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 )}
 
                 {/* Subtabs Bar - Horizontally Scrollable Strip on Mobile */}
-                <div className="flex gap-1 border-b border-border pb-3 overflow-x-auto no-scrollbar flex-nowrap shrink-0 max-w-full">
+                <div className="flex items-center gap-1.5 border-b border-border pb-3 overflow-x-auto no-scrollbar touch-scroll flex-nowrap shrink-0 max-w-full -mx-1 px-1">
                   {(() => {
                     const isReviewOnly = settingsForm.plan === 'review_only';
                     return [
@@ -19261,13 +19265,13 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                         key={tab.id}
                         type="button"
                         onClick={() => setSettingsTab(tab.id as any)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 ${
+                        className={`min-h-[42px] sm:min-h-[36px] flex items-center justify-center gap-2 px-3.5 py-2 rounded-md text-xs transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
                           settingsTab === tab.id
                             ? 'bg-surface-subtle text-text-primary font-semibold border border-border-strong shadow-2xs'
                             : 'bg-surface text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium border border-border'
                         }`}
                       >
-                        <Icon className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <Icon className="w-3.5 h-3.5 stroke-[1.5] shrink-0" />
                         <span>{tab.label}</span>
                       </button>
                     );
@@ -24849,11 +24853,11 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       />
                     </div>
                     {/* Category Filter Switcher: Utility vs Marketing */}
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll py-0.5 max-w-full shrink-0">
                       <button
                         type="button"
                         onClick={() => setTemplateCategoryFilter('all')}
-                        className={`px-2 py-1 text-[10px] font-medium rounded-md transition-colors cursor-pointer ${
+                        className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 touch-manipulation whitespace-nowrap flex items-center justify-center ${
                           templateCategoryFilter === 'all'
                             ? 'bg-accent text-white font-semibold shadow-xs'
                             : 'bg-surface border border-border text-text-muted hover:text-text-primary'
@@ -24864,7 +24868,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setTemplateCategoryFilter('UTILITY')}
-                        className={`px-2 py-1 text-[10px] font-medium rounded-md transition-colors cursor-pointer flex items-center gap-1 ${
+                        className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer flex items-center justify-center gap-1.5 shrink-0 touch-manipulation whitespace-nowrap ${
                           templateCategoryFilter === 'UTILITY'
                             ? 'bg-emerald-600 text-white font-semibold shadow-xs'
                             : 'bg-surface border border-border text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
@@ -24880,7 +24884,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                       <button
                         type="button"
                         onClick={() => setTemplateCategoryFilter('MARKETING')}
-                        className={`px-2 py-1 text-[10px] font-medium rounded-md transition-colors cursor-pointer ${
+                        className={`min-h-[38px] sm:min-h-[30px] px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 touch-manipulation whitespace-nowrap flex items-center justify-center ${
                           templateCategoryFilter === 'MARKETING'
                             ? 'bg-blue-600 text-white font-semibold shadow-xs'
                             : 'bg-surface border border-border text-text-muted hover:text-text-primary'
@@ -25597,19 +25601,19 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           </div>
         )}
       {/* ── Mobile Bottom Navigation Bar (md:hidden) ────────────────────────── */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-border flex items-center justify-around min-h-[56px] py-1 px-1 safe-area-pb shadow-lg">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-border flex items-stretch overflow-x-auto no-scrollbar touch-scroll py-1 px-1.5 safe-area-pb shadow-lg justify-start sm:justify-around gap-0.5 sm:gap-1">
         {canViewAnalytics && (
           <button
             type="button"
             onClick={() => navigateTo('overview')}
-            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer touch-manipulation ${
+            className={`flex-1 min-w-[52px] sm:min-w-[60px] flex flex-col items-center justify-center py-1 px-1 min-h-[46px] rounded-md transition-all cursor-pointer touch-manipulation shrink-0 ${
               activeNav === 'overview'
-                ? 'text-accent font-semibold'
+                ? 'text-accent font-semibold bg-accent/5'
                 : 'text-text-muted hover:text-text-primary'
             }`}
           >
             <LayoutGrid className="w-5 h-5 stroke-[1.5]" />
-            <span className="text-[10px] mt-0.5 tracking-tight">Overview</span>
+            <span className="text-[10px] leading-tight tracking-tight mt-0.5 text-center whitespace-nowrap">Overview</span>
           </button>
         )}
 
@@ -25628,9 +25632,9 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 navigateTo('inbox');
               }
             }}
-            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer relative touch-manipulation ${
+            className={`flex-1 min-w-[52px] sm:min-w-[60px] flex flex-col items-center justify-center py-1 px-1 min-h-[46px] rounded-md transition-all cursor-pointer relative touch-manipulation shrink-0 ${
               activeNav === 'inbox'
-                ? 'text-accent font-semibold'
+                ? 'text-accent font-semibold bg-accent/5'
                 : 'text-text-muted hover:text-text-primary'
             }`}
           >
@@ -25642,7 +25646,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                 </span>
               )}
             </div>
-            <span className="text-[10px] mt-0.5 tracking-tight">Chats</span>
+            <span className="text-[10px] leading-tight tracking-tight mt-0.5 text-center whitespace-nowrap">Chats</span>
           </button>
         )}
 
@@ -25650,14 +25654,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <button
             type="button"
             onClick={() => navigateTo('customers')}
-            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer touch-manipulation ${
+            className={`flex-1 min-w-[52px] sm:min-w-[60px] flex flex-col items-center justify-center py-1 px-1 min-h-[46px] rounded-md transition-all cursor-pointer touch-manipulation shrink-0 ${
               activeNav === 'customers' || activeNav === 'followup' || activeNav === 'repeat_clients'
-                ? 'text-accent font-semibold'
+                ? 'text-accent font-semibold bg-accent/5'
                 : 'text-text-muted hover:text-text-primary'
             }`}
           >
             <Users className="w-5 h-5 stroke-[1.5]" />
-            <span className="text-[10px] mt-0.5 tracking-tight truncate max-w-[64px]">{currentTaxonomy.client_plural || 'Customers'}</span>
+            <span className="text-[10px] leading-tight tracking-tight mt-0.5 text-center whitespace-nowrap">{currentTaxonomy.tab_clients_label || currentTaxonomy.client_plural || 'Customers'}</span>
           </button>
         )}
 
@@ -25665,14 +25669,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <button
             type="button"
             onClick={() => navigateTo('bookings')}
-            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer touch-manipulation ${
+            className={`flex-1 min-w-[52px] sm:min-w-[60px] flex flex-col items-center justify-center py-1 px-1 min-h-[46px] rounded-md transition-all cursor-pointer touch-manipulation shrink-0 ${
               activeNav === 'bookings'
-                ? 'text-accent font-semibold'
+                ? 'text-accent font-semibold bg-accent/5'
                 : 'text-text-muted hover:text-text-primary'
             }`}
           >
             <CalendarDays className="w-5 h-5 stroke-[1.5]" />
-            <span className="text-[10px] mt-0.5 tracking-tight">Bookings</span>
+            <span className="text-[10px] leading-tight tracking-tight mt-0.5 text-center whitespace-nowrap">Bookings</span>
           </button>
         )}
 
@@ -25680,14 +25684,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <button
             type="button"
             onClick={() => navigateTo('calendar')}
-            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer touch-manipulation ${
+            className={`flex-1 min-w-[52px] sm:min-w-[60px] flex flex-col items-center justify-center py-1 px-1 min-h-[46px] rounded-md transition-all cursor-pointer touch-manipulation shrink-0 ${
               activeNav === 'calendar'
-                ? 'text-accent font-semibold'
+                ? 'text-accent font-semibold bg-accent/5'
                 : 'text-text-muted hover:text-text-primary'
             }`}
           >
             <Calendar className="w-5 h-5 stroke-[1.5]" />
-            <span className="text-[10px] mt-0.5 tracking-tight">Calendar</span>
+            <span className="text-[10px] leading-tight tracking-tight mt-0.5 text-center whitespace-nowrap">Calendar</span>
           </button>
         )}
 
@@ -25695,14 +25699,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <button
             type="button"
             onClick={() => navigateTo('reviews' as any)}
-            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer touch-manipulation ${
+            className={`flex-1 min-w-[52px] sm:min-w-[60px] flex flex-col items-center justify-center py-1 px-1 min-h-[46px] rounded-md transition-all cursor-pointer touch-manipulation shrink-0 ${
               activeNav === 'reviews'
-                ? 'text-accent font-semibold'
+                ? 'text-accent font-semibold bg-accent/5'
                 : 'text-text-muted hover:text-text-primary'
             }`}
           >
             <Star className="w-5 h-5 stroke-[1.5]" />
-            <span className="text-[10px] mt-0.5 tracking-tight">Reviews</span>
+            <span className="text-[10px] leading-tight tracking-tight mt-0.5 text-center whitespace-nowrap">Reviews</span>
           </button>
         )}
 
@@ -25710,14 +25714,14 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
           <button
             type="button"
             onClick={() => navigateTo('settings')}
-            className={`flex-1 flex flex-col items-center justify-center py-1 px-1 min-h-[44px] rounded-sm transition-colors cursor-pointer touch-manipulation ${
+            className={`flex-1 min-w-[52px] sm:min-w-[60px] flex flex-col items-center justify-center py-1 px-1 min-h-[46px] rounded-md transition-all cursor-pointer touch-manipulation shrink-0 ${
               activeNav === 'settings'
-                ? 'text-accent font-semibold'
+                ? 'text-accent font-semibold bg-accent/5'
                 : 'text-text-muted hover:text-text-primary'
             }`}
           >
             <Sliders className="w-5 h-5 stroke-[1.5]" />
-            <span className="text-[10px] mt-0.5 tracking-tight">Settings</span>
+            <span className="text-[10px] leading-tight tracking-tight mt-0.5 text-center whitespace-nowrap">Settings</span>
           </button>
         )}
       </nav>

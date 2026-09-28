@@ -599,7 +599,7 @@ export default function ReviewClient() {
                       onMouseEnter={() => setHoverRating(star)}
                       onMouseLeave={() => setHoverRating(0)}
                       onClick={() => setRating(star)}
-                      className="p-1 transition-transform hover:scale-115 cursor-pointer focus:outline-none"
+                      className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 transition-transform hover:scale-115 cursor-pointer focus:outline-none touch-manipulation"
                     >
                       <Star
                         className={`w-7 h-7 sm:w-8 sm:h-8 transition-colors ${
@@ -655,7 +655,7 @@ export default function ReviewClient() {
                         key={tag}
                         type="button"
                         onClick={() => toggleTag(tag)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all cursor-pointer flex items-center gap-1 ${
+                        className={`min-h-[34px] sm:min-h-[28px] px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all cursor-pointer flex items-center gap-1 touch-manipulation ${
                           isSelected
                             ? 'bg-accent/10 text-accent border-accent/30 font-semibold shadow-2xs'
                             : 'bg-surface text-text-secondary border-border hover:border-border-strong hover:text-text-primary'

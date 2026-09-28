@@ -2087,7 +2087,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       setActiveTab(item.id as any);
                       setMobileNavOpen(false);
                     }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-sm text-xs transition-colors duration-150 cursor-pointer text-left ${
+                    className={`w-full min-h-[44px] flex items-center gap-2.5 px-3 py-2.5 rounded-sm text-xs transition-colors duration-150 cursor-pointer text-left touch-manipulation ${
                       active
                         ? 'bg-surface-subtle text-text-primary font-semibold border border-border-strong'
                         : 'text-text-secondary hover:text-text-primary hover:bg-surface-subtle font-medium border border-transparent'
@@ -2866,14 +2866,14 @@ Any missed call will now automatically get followed up on WhatsApp!`;
               
               {/* ── SEGMENTED TOP TAB SWITCHER (Direct vs Partnered) ── */}
               <div className="border-b border-border bg-surface px-3 sm:px-4 py-2.5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5 bg-surface-subtle/30">
-                <div className="flex items-center gap-1.5 overflow-x-auto safari-scroll py-0.5">
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll py-1 -mx-1 px-1 sm:mx-0 sm:px-0">
                   <button
                     type="button"
                     onClick={() => {
                       setActiveOrgTab('all');
                       setSelectedPartnerFilter('all');
                     }}
-                    className={`px-3 py-1.5 rounded-sm text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    className={`min-h-[40px] sm:min-h-[34px] px-3 py-1.5 rounded-sm text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 touch-manipulation whitespace-nowrap ${
                       activeOrgTab === 'all'
                         ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-2xs'
                         : 'bg-surface hover:bg-surface-subtle text-text-secondary border border-border'
@@ -2894,7 +2894,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       setActiveOrgTab('direct');
                       setSelectedPartnerFilter('all');
                     }}
-                    className={`px-3 py-1.5 rounded-sm text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    className={`min-h-[40px] sm:min-h-[34px] px-3 py-1.5 rounded-sm text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 touch-manipulation whitespace-nowrap ${
                       activeOrgTab === 'direct'
                         ? 'bg-emerald-600 text-white shadow-2xs'
                         : 'bg-surface hover:bg-surface-subtle text-text-secondary border border-border'
@@ -2915,7 +2915,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       setActiveOrgTab('partnered');
                       setSelectedPartnerFilter('all');
                     }}
-                    className={`px-3 py-1.5 rounded-sm text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    className={`min-h-[40px] sm:min-h-[34px] px-3 py-1.5 rounded-sm text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 touch-manipulation whitespace-nowrap ${
                       activeOrgTab === 'partnered'
                         ? 'bg-purple-600 text-white shadow-2xs'
                         : 'bg-surface hover:bg-surface-subtle text-text-secondary border border-border'
@@ -2937,7 +2937,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     <button
                       type="button"
                       onClick={() => handleOpenCreateModal('direct')}
-                      className="w-full md:w-auto px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                      className="w-full md:w-auto min-h-[40px] sm:min-h-[34px] px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs touch-manipulation"
                     >
                       <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
                       <span>+ Onboard Direct Client</span>
@@ -2948,7 +2948,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     <button
                       type="button"
                       onClick={() => handleOpenCreateModal('partner')}
-                      className="w-full md:w-auto px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                      className="w-full md:w-auto min-h-[40px] sm:min-h-[34px] px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs touch-manipulation"
                     >
                       <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
                       <span>+ Onboard Partner Client</span>
@@ -2959,7 +2959,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     <button
                       type="button"
                       onClick={() => handleOpenCreateModal()}
-                      className="w-full md:w-auto px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                      className="w-full md:w-auto min-h-[40px] sm:min-h-[34px] px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs touch-manipulation"
                     >
                       <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
                       <span>+ Onboard Organization</span>
@@ -2973,8 +2973,8 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                 <div className="bg-purple-500/5 border-b border-border px-3 sm:px-4 py-2.5 space-y-2.5 animate-in fade-in duration-150">
                   <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2.5">
                     {/* Agency Selector Chips */}
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider flex items-center gap-1">
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll flex-nowrap sm:flex-wrap py-0.5 max-w-full">
+                      <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider flex items-center gap-1 shrink-0">
                         <Users className="w-3 h-3 text-purple-500" />
                         <span>Agencies:</span>
                       </span>
@@ -2982,7 +2982,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       <button
                         type="button"
                         onClick={() => setSelectedPartnerFilter('all')}
-                        className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer border ${
+                        className={`min-h-[36px] sm:min-h-[28px] px-2.5 py-1 sm:py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer border touch-manipulation whitespace-nowrap shrink-0 ${
                           selectedPartnerFilter === 'all'
                             ? 'bg-purple-600 text-white border-purple-600'
                             : 'bg-surface hover:bg-surface-subtle text-text-secondary border-border'
@@ -2999,7 +2999,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                             key={pName}
                             type="button"
                             onClick={() => setSelectedPartnerFilter(pName)}
-                            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer border flex items-center gap-1 ${
+                            className={`min-h-[36px] sm:min-h-[28px] px-2.5 py-1 sm:py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer border flex items-center gap-1 touch-manipulation whitespace-nowrap shrink-0 ${
                               isSel
                                 ? 'bg-purple-600 text-white border-purple-600'
                                 : 'bg-surface hover:bg-surface-subtle text-text-secondary border-border'
@@ -3021,7 +3021,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                           handleOpenCreateModal('partner');
                           setIsAddingNewPartner(true);
                         }}
-                        className="px-2 py-0.5 rounded text-[11px] font-medium text-purple-600 dark:text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 transition-colors cursor-pointer flex items-center gap-1"
+                        className="min-h-[36px] sm:min-h-[28px] px-2.5 py-1 sm:py-0.5 rounded text-[11px] font-medium text-purple-600 dark:text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 transition-colors cursor-pointer flex items-center gap-1 touch-manipulation whitespace-nowrap shrink-0"
                         title="Add a new Partner Agency"
                       >
                         <Plus className="w-2.5 h-2.5" />
@@ -3031,7 +3031,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       <button
                         type="button"
                         onClick={() => handleOpenPartnerTemplateModal()}
-                        className="px-2.5 py-0.5 rounded text-[11px] font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/40 hover:bg-purple-200 dark:hover:bg-purple-900/60 border border-purple-300 dark:border-purple-700 transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                        className="min-h-[36px] sm:min-h-[28px] px-2.5 py-1 sm:py-0.5 rounded text-[11px] font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/40 hover:bg-purple-200 dark:hover:bg-purple-900/60 border border-purple-300 dark:border-purple-700 transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs touch-manipulation whitespace-nowrap shrink-0"
                         title="Configure reusable white-label preset template (domain, branding, revenue split)"
                       >
                         <SlidersHorizontal className="w-3 h-3 text-purple-600 dark:text-purple-400" />
@@ -3207,40 +3207,40 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto shrink-0">
                       {/* Sub-tab Pill Switcher */}
-                      <div className="inline-flex items-center p-0.5 bg-surface border border-border rounded-sm">
+                      <div className="inline-flex items-center p-0.5 bg-surface border border-border rounded-sm max-w-full overflow-x-auto no-scrollbar touch-scroll">
                         <button
                           type="button"
                           onClick={() => setWebhooksRegistryTab('missed_call')}
-                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-xs transition-colors cursor-pointer flex items-center gap-1 ${
+                          className={`min-h-[38px] sm:min-h-[28px] px-2.5 py-1 text-[11px] font-semibold rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 touch-manipulation whitespace-nowrap ${
                             webhooksRegistryTab === 'missed_call'
                               ? 'bg-emerald-600 text-white shadow-xs'
                               : 'text-text-muted hover:text-text-primary'
                           }`}
                         >
-                          <PhoneCall className="w-3 h-3" />
+                          <PhoneCall className="w-3.5 h-3.5" />
                           <span>Missed Calls (Pre-filled)</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => setWebhooksRegistryTab('meta')}
-                          className={`px-2.5 py-1 text-[11px] font-semibold rounded-xs transition-colors cursor-pointer flex items-center gap-1 ${
+                          className={`min-h-[38px] sm:min-h-[28px] px-2.5 py-1 text-[11px] font-semibold rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 touch-manipulation whitespace-nowrap ${
                             webhooksRegistryTab === 'meta'
                               ? 'bg-accent text-white shadow-xs'
                               : 'text-text-muted hover:text-text-primary'
                           }`}
                         >
-                          <Key className="w-3 h-3" />
+                          <Key className="w-3.5 h-3.5" />
                           <span>Meta WhatsApp</span>
                         </button>
                       </div>
 
                       <button
                         onClick={() => setShowWebhooksRegistry(false)}
-                        className="p-1 text-text-muted hover:text-text-primary cursor-pointer rounded hover:bg-surface"
+                        className="min-h-[38px] min-w-[38px] sm:min-h-auto sm:min-w-auto p-1.5 text-text-muted hover:text-text-primary cursor-pointer rounded hover:bg-surface flex items-center justify-center touch-manipulation"
                       >
-                        <X className="w-3.5 h-3.5 stroke-[1.5]" />
+                        <X className="w-4 h-4 stroke-[1.5]" />
                       </button>
                     </div>
                   </div>
@@ -4210,11 +4210,12 @@ Any missed call will now automatically get followed up on WhatsApp!`;
         </main>
 
         {/* ── MOBILE BOTTOM NAVIGATION BAR (< md) ────────────────────────── */}
-        <div className="md:hidden border-t border-border bg-surface flex items-center justify-around py-1 px-2 safe-area-pb shrink-0 z-20 shadow-lg">
+        <div className="md:hidden border-t border-border bg-surface flex items-stretch justify-around py-1 px-1 safe-area-pb shrink-0 z-20 shadow-lg min-h-[52px]">
           {[
             { id: 'organizations', label: 'Orgs', icon: Building2 },
             { id: 'razorpay', label: 'Billing', icon: CreditCard },
             { id: 'admin_config', label: 'Alerts', icon: Bell },
+            { id: 'missed_call', label: 'Calls', icon: PhoneCall },
           ].map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -4222,23 +4223,23 @@ Any missed call will now automatically get followed up on WhatsApp!`;
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm text-[10px] font-medium transition-colors touch-manipulation ${
+                className={`min-h-[46px] flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm text-[10px] font-medium transition-colors touch-manipulation select-none ${
                   active
-                    ? 'text-accent font-semibold'
-                    : 'text-text-muted hover:text-text-primary'
+                    ? 'text-accent font-semibold bg-accent/5'
+                    : 'text-text-muted hover:text-text-primary active:bg-surface-subtle'
                 }`}
               >
                 <Icon className={`w-4 h-4 stroke-[1.5] mb-0.5 ${active ? 'text-accent' : 'text-text-muted'}`} />
-                <span>{tab.label}</span>
+                <span className="truncate max-w-[56px] leading-tight">{tab.label}</span>
               </button>
             );
           })}
           <button
             onClick={() => setMobileNavOpen(true)}
-            className="flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm text-[10px] font-medium text-text-muted hover:text-text-primary transition-colors touch-manipulation"
+            className="min-h-[46px] flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-sm text-[10px] font-medium text-text-muted hover:text-text-primary active:bg-surface-subtle transition-colors touch-manipulation select-none"
           >
             <Menu className="w-4 h-4 stroke-[1.5] mb-0.5" />
-            <span>Menu</span>
+            <span className="truncate max-w-[56px] leading-tight">Menu</span>
           </button>
         </div>
 
@@ -4363,8 +4364,9 @@ Any missed call will now automatically get followed up on WhatsApp!`;
             </div>
 
             {/* Subtabs Bar */}
-            <div className="px-3 sm:px-6 border-b border-border bg-surface-subtle flex items-center justify-between gap-2 overflow-x-auto safari-scroll no-scrollbar shrink-0">
-              <div className="flex items-center gap-1">
+            <div className="border-b border-border bg-surface-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 sm:px-6 pt-1 sm:pt-0 shrink-0">
+              {/* Scrollable Subtabs Strip */}
+              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar touch-scroll -mx-3 px-3 sm:mx-0 sm:px-0 -mb-px">
                 {[
                   { id: 'overview', label: 'Overview & Metadata', icon: Building2 },
                   { id: 'ai', label: 'AI Brain & Prompt Directives', icon: Bot },
@@ -4381,7 +4383,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     <button
                       key={tab.id}
                       onClick={() => setDbViewSubtab(tab.id as any)}
-                      className={`flex items-center gap-1.5 py-2.5 px-3 border-b-2 text-xs font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap touch-manipulation ${
+                      className={`min-h-[42px] sm:min-h-[38px] flex items-center gap-1.5 py-2 px-3 border-b-2 text-xs font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap touch-manipulation shrink-0 ${
                         active
                           ? 'border-accent text-accent font-semibold bg-surface'
                           : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-surface/50'
@@ -4395,14 +4397,14 @@ Any missed call will now automatically get followed up on WhatsApp!`;
               </div>
 
               {/* In-Modal Search filter */}
-              <div className="relative py-1 shrink-0">
+              <div className="relative py-1 shrink-0 w-full sm:w-auto">
                 <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted stroke-[1.5]" />
                 <input
                   type="text"
                   placeholder="Filter keys..."
                   value={dbSearchQuery}
                   onChange={(e) => setDbSearchQuery(e.target.value)}
-                  className="w-28 sm:w-48 pl-7 pr-2.5 py-1 bg-surface border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:border-accent transition-colors"
+                  className="w-full sm:w-48 pl-7 pr-2.5 py-1.5 sm:py-1 min-h-[36px] sm:min-h-auto bg-surface border border-border rounded-sm text-xs text-text-primary placeholder:text-text-muted focus:border-accent transition-colors"
                 />
               </div>
             </div>
@@ -5100,7 +5102,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
             </div>
 
             {/* Subtabs Bar */}
-            <div className="px-3 sm:px-6 border-b border-border bg-surface-subtle flex items-center gap-1 overflow-x-auto safari-scroll no-scrollbar shrink-0">
+            <div className="px-2 sm:px-6 border-b border-border bg-surface-subtle flex items-center gap-1 overflow-x-auto no-scrollbar touch-scroll shrink-0 -mb-px">
               {[
                 { id: 'ai', label: 'AI Intelligence & BYOK', icon: Bot },
                 { id: 'whatsapp', label: 'Meta WhatsApp API', icon: Smartphone },
@@ -5117,7 +5119,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                   <button
                     key={tab.id}
                     onClick={() => setConfigTab(tab.id as any)}
-                    className={`flex items-center gap-1.5 py-2.5 px-3 border-b-2 text-xs font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap touch-manipulation ${
+                    className={`min-h-[44px] sm:min-h-[38px] flex items-center gap-1.5 py-2 sm:py-2.5 px-3 border-b-2 text-xs font-medium transition-colors duration-150 cursor-pointer whitespace-nowrap touch-manipulation shrink-0 ${
                       active
                         ? 'border-accent text-accent font-semibold bg-surface'
                         : 'border-transparent text-text-secondary hover:text-text-primary hover:bg-surface/50'
@@ -7840,11 +7842,11 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
             {/* Quick vs Advanced Switcher */}
             <div className="flex border-b border-border bg-surface-subtle/50 px-4 sm:px-5 py-2 items-center justify-between shrink-0">
-              <div className="inline-flex p-0.5 bg-surface border border-border rounded-md text-xs font-medium">
+              <div className="w-full sm:w-auto inline-flex p-0.5 bg-surface border border-border rounded-md text-xs font-medium">
                 <button
                   type="button"
                   onClick={() => setCreateMode('quick')}
-                  className={`px-3 py-1 rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  className={`flex-1 sm:flex-initial min-h-[38px] sm:min-h-[32px] px-3 py-1.5 rounded transition-colors flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation whitespace-nowrap ${
                     createMode === 'quick' ? 'bg-accent text-white shadow-2xs font-semibold' : 'text-text-secondary hover:text-text-primary'
                   }`}
                 >
@@ -7854,7 +7856,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                 <button
                   type="button"
                   onClick={() => setCreateMode('advanced')}
-                  className={`px-3 py-1 rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  className={`flex-1 sm:flex-initial min-h-[38px] sm:min-h-[32px] px-3 py-1.5 rounded transition-colors flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation whitespace-nowrap ${
                     createMode === 'advanced' ? 'bg-accent text-white shadow-2xs font-semibold' : 'text-text-secondary hover:text-text-primary'
                   }`}
                 >
@@ -7889,7 +7891,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       }));
                       setIsAddingNewPartner(false);
                     }}
-                    className={`py-1.5 px-2 rounded-xs text-xs font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    className={`min-h-[44px] sm:min-h-[38px] py-1.5 px-2 rounded-xs text-xs font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation text-center ${
                       formData.sales_channel !== 'partner'
                         ? 'bg-white text-emerald-700 shadow-2xs font-semibold border border-border'
                         : 'text-text-secondary hover:text-text-primary'
@@ -7916,7 +7918,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                         setIsAddingNewPartner(true);
                       }
                     }}
-                    className={`py-1.5 px-2 rounded-xs text-xs font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    className={`min-h-[44px] sm:min-h-[38px] py-1.5 px-2 rounded-xs text-xs font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation text-center ${
                       formData.sales_channel === 'partner'
                         ? 'bg-white text-purple-700 shadow-2xs font-semibold border border-border'
                         : 'text-text-secondary hover:text-text-primary'
@@ -8095,7 +8097,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     }));
                     setIsAddingNewPartner(false);
                   }}
-                  className={`py-1.5 px-2 rounded-xs text-xs font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  className={`min-h-[44px] sm:min-h-[38px] py-1.5 px-2 rounded-xs text-xs font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation text-center ${
                     formData.sales_channel !== 'partner'
                       ? 'bg-white text-emerald-700 shadow-2xs font-semibold border border-border'
                       : 'text-text-secondary hover:text-text-primary'
@@ -8122,7 +8124,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       setIsAddingNewPartner(true);
                     }
                   }}
-                  className={`py-1.5 px-2 rounded-xs text-xs font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  className={`min-h-[44px] sm:min-h-[38px] py-1.5 px-2 rounded-xs text-xs font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation text-center ${
                     formData.sales_channel === 'partner'
                       ? 'bg-white text-purple-700 shadow-2xs font-semibold border border-border'
                       : 'text-text-secondary hover:text-text-primary'
