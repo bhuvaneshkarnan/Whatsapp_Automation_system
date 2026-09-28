@@ -220,6 +220,7 @@ class TenantSettingsUpdate(BaseModel):
     closing_time: Optional[str] = None
     slot_booking_mode: Optional[str] = None
     max_concurrent_bookings: Optional[int] = None
+    leave_schedules: Optional[List[Dict[str, Any]]] = None
     razorpay_short_url: Optional[str] = None
     monthly_price: Optional[float] = None
     target_tenant_id: Optional[str] = None

@@ -20,6 +20,7 @@ import {
   Contact,
   TenantSettingsResponse,
   TenantSettingsUpdate,
+  LeaveSchedule,
   Invoice,
   notificationsApi,
   CrmNotification,
@@ -2951,6 +2952,7 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     closing_time: '20:00',
     slot_booking_mode: 'single',
     max_concurrent_bookings: 1,
+    leave_schedules: [] as LeaveSchedule[],
     notification_email: '',
     plan: 'pro',
     monthly_price: 3499,
@@ -3036,6 +3038,90 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
     return false;
   });
 
+
+  // ── Scheduled Leaves & Closures State ───────────────────────────────────────
+  const [showAddLeave, setShowAddLeave] = useState(false);
+  const [leaveSaving, setLeaveSaving] = useState(false);
+  const [leaveForm, setLeaveForm] = useState<Omit<LeaveSchedule, 'id'>>({
+    type: 'full_day',
+    start_date: new Date().toISOString().split('T')[0],
+    end_date: new Date().toISOString().split('T')[0],
+    start_time: '14:00',
+    end_time: '18:00',
+    reason: '',
+    is_active: true,
+  });
+
+  async function handleAddLeaveSchedule() {
+    if (!leaveForm.start_date || !leaveForm.reason.trim()) {
+      alert('Please provide a date and reason for the leave/closure.');
+      return;
+    }
+    setLeaveSaving(true);
+    try {
+      const newLeave: LeaveSchedule = {
+        id: 'leave_' + Date.now(),
+        type: leaveForm.type,
+        start_date: leaveForm.start_date,
+        end_date: leaveForm.end_date || leaveForm.start_date,
+        start_time: leaveForm.type === 'custom_time' ? (leaveForm.start_time || '09:00') : undefined,
+        end_time: leaveForm.type === 'custom_time' ? (leaveForm.end_time || '18:00') : undefined,
+        reason: leaveForm.reason.trim(),
+        is_active: true,
+        created_at: new Date().toISOString(),
+      };
+      const updatedLeaves = [...(settingsForm.leave_schedules || []), newLeave];
+      setSettingsForm((prev) => ({ ...prev, leave_schedules: updatedLeaves }));
+      await crm.updateSettings({ leave_schedules: updatedLeaves });
+      setShowAddLeave(false);
+      setLeaveForm({
+        type: 'full_day',
+        start_date: new Date().toISOString().split('T')[0],
+        end_date: new Date().toISOString().split('T')[0],
+        start_time: '14:00',
+        end_time: '18:00',
+        reason: '',
+        is_active: true,
+      });
+      setActionNotice('Leave/Closure added! WhatsApp AI will now inform customers and block bookings during this period.');
+      setTimeout(() => setActionNotice(null), 5000);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to save leave schedule.');
+    } finally {
+      setLeaveSaving(false);
+    }
+  }
+
+  async function handleDeleteLeaveSchedule(id: string) {
+    if (!confirm('Are you sure you want to remove this scheduled leave?')) return;
+    setLeaveSaving(true);
+    try {
+      const updatedLeaves = (settingsForm.leave_schedules || []).filter((l) => l.id !== id);
+      setSettingsForm((prev) => ({ ...prev, leave_schedules: updatedLeaves }));
+      await crm.updateSettings({ leave_schedules: updatedLeaves });
+      setActionNotice('Scheduled leave removed. Slots are now open again.');
+      setTimeout(() => setActionNotice(null), 4000);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to remove leave schedule.');
+    } finally {
+      setLeaveSaving(false);
+    }
+  }
+
+  async function handleToggleLeaveSchedule(id: string) {
+    setLeaveSaving(true);
+    try {
+      const updatedLeaves = (settingsForm.leave_schedules || []).map((l) =>
+        l.id === id ? { ...l, is_active: l.is_active === false ? true : false } : l
+      );
+      setSettingsForm((prev) => ({ ...prev, leave_schedules: updatedLeaves }));
+      await crm.updateSettings({ leave_schedules: updatedLeaves });
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to update leave schedule.');
+    } finally {
+      setLeaveSaving(false);
+    }
+  }
 
   // ── Quick Preferred Doctors / Staff Presets Editor Modal ───────────────────
   const [doctorEditModalOpen, setDoctorEditModalOpen] = useState(false);
@@ -21100,6 +21186,231 @@ export default function DashboardPage({ routeSlug }: { routeSlug?: string } = {}
                                 />
                                 <span className="text-xs text-text-muted whitespace-nowrap">slots</span>
                               </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* ── Scheduled Leaves & Temporary Closures ── */}
+                        <div className="bg-surface rounded-md border border-border p-4 space-y-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-border">
+                            <div className="flex items-center gap-2">
+                              <CalendarClock className="w-4 h-4 text-accent stroke-[1.5]" />
+                              <div>
+                                <h5 className="text-xs font-semibold text-text-primary">Clinic Leaves & Blackout Hours</h5>
+                                <p className="text-[11px] text-text-secondary">Block dates/times when you are closed or unable to take appointments. The AI reads the reason and explains it to customers naturally.</p>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowAddLeave(!showAddLeave)}
+                              className="px-2.5 py-1 text-xs font-medium rounded-sm border border-accent/40 bg-accent/10 text-accent hover:bg-accent/20 transition-colors flex items-center gap-1 cursor-pointer self-start sm:self-auto"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>{showAddLeave ? 'Cancel' : 'Add Leave / Closure'}</span>
+                            </button>
+                          </div>
+
+                          {/* Add Leave Form */}
+                          {showAddLeave && (
+                            <div className="p-3.5 bg-surface-subtle border border-accent/30 rounded-md space-y-3 animate-in fade-in duration-150">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-text-primary">Schedule New Leave / Closure</span>
+                                <span className="text-[10px] text-text-muted">Enforced on WhatsApp AI in real time</span>
+                              </div>
+
+                              {/* Closure Type: Full Day vs Custom Hours */}
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setLeaveForm({ ...leaveForm, type: 'full_day' })}
+                                  className={`p-2 rounded-sm border text-xs font-medium text-center transition-all ${
+                                    leaveForm.type === 'full_day'
+                                      ? 'border-accent bg-accent/10 text-accent font-semibold'
+                                      : 'border-border bg-surface text-text-secondary hover:border-border-hover'
+                                  }`}
+                                >
+                                  Full Day Closure
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setLeaveForm({ ...leaveForm, type: 'custom_time' })}
+                                  className={`p-2 rounded-sm border text-xs font-medium text-center transition-all ${
+                                    leaveForm.type === 'custom_time'
+                                      ? 'border-accent bg-accent/10 text-accent font-semibold'
+                                      : 'border-border bg-surface text-text-secondary hover:border-border-hover'
+                                  }`}
+                                >
+                                  Specific Hours
+                                </button>
+                              </div>
+
+                              {/* Dates */}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                  <label className="block text-[11px] font-medium text-text-primary mb-1">
+                                    {leaveForm.type === 'full_day' ? 'Date (or Start Date)' : 'Date'}
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={leaveForm.start_date}
+                                    onChange={(e) => setLeaveForm({ ...leaveForm, start_date: e.target.value, end_date: e.target.value })}
+                                    className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent"
+                                  />
+                                </div>
+                                {leaveForm.type === 'full_day' ? (
+                                  <div>
+                                    <label className="block text-[11px] font-medium text-text-primary mb-1">
+                                      End Date (Optional for multi-day)
+                                    </label>
+                                    <input
+                                      type="date"
+                                      value={leaveForm.end_date || leaveForm.start_date}
+                                      onChange={(e) => setLeaveForm({ ...leaveForm, end_date: e.target.value })}
+                                      className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent"
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-[11px] font-medium text-text-primary mb-1">From Time</label>
+                                      <input
+                                        type="time"
+                                        value={leaveForm.start_time || '14:00'}
+                                        onChange={(e) => setLeaveForm({ ...leaveForm, start_time: e.target.value })}
+                                        className="w-full px-2 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[11px] font-medium text-text-primary mb-1">To Time</label>
+                                      <input
+                                        type="time"
+                                        value={leaveForm.end_time || '18:00'}
+                                        onChange={(e) => setLeaveForm({ ...leaveForm, end_time: e.target.value })}
+                                        className="w-full px-2 py-1.5 bg-surface border border-border rounded-sm text-xs font-mono text-text-primary focus:bg-white focus:border-accent"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Reason with Quick Chips */}
+                              <div>
+                                <label className="block text-[11px] font-medium text-text-primary mb-1">
+                                  Reason for Closure (AI will explain this to inquiring clients)
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="e.g. Doctor attending medical conference, Clinic maintenance, Festival holiday..."
+                                  value={leaveForm.reason}
+                                  onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })}
+                                  className="w-full px-3 py-1.5 bg-surface border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent"
+                                />
+                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                  {[
+                                    'Doctor on Leave / Out of Station',
+                                    'Public / Festival Holiday',
+                                    'Clinic Renovation & Maintenance',
+                                    'Doctor attending Medical Workshop',
+                                    'Emergency Closure',
+                                  ].map((chip) => (
+                                    <button
+                                      key={chip}
+                                      type="button"
+                                      onClick={() => setLeaveForm({ ...leaveForm, reason: chip })}
+                                      className="text-[10px] px-2 py-0.5 rounded bg-surface border border-border text-text-secondary hover:border-accent hover:text-accent transition-colors cursor-pointer"
+                                    >
+                                      + {chip}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAddLeave(false)}
+                                  className="px-3 py-1.5 text-xs text-text-muted hover:text-text-primary cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleAddLeaveSchedule}
+                                  disabled={leaveSaving || !leaveForm.reason.trim()}
+                                  className="px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-sm transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-xs cursor-pointer"
+                                >
+                                  {leaveSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                                  <span>Save & Enforce Closure</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* List of Scheduled Leaves */}
+                          {(!settingsForm.leave_schedules || settingsForm.leave_schedules.length === 0) ? (
+                            <div className="p-3 bg-surface-subtle border border-dashed border-border rounded-md text-center text-xs text-text-muted">
+                              No scheduled leaves or closures configured. All normal operating hours are currently open for booking.
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {settingsForm.leave_schedules.map((leave) => {
+                                const isMultiDay = leave.end_date && leave.end_date !== leave.start_date;
+                                return (
+                                  <div
+                                    key={leave.id}
+                                    className={`p-3 bg-surface rounded-md border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-all ${
+                                      leave.is_active === false
+                                        ? 'opacity-60 border-border bg-surface-subtle'
+                                        : 'border-amber-500/30 bg-amber-500/5'
+                                    }`}
+                                  >
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-semibold text-xs text-text-primary">
+                                          {leave.start_date}
+                                          {isMultiDay && ` to ${leave.end_date}`}
+                                        </span>
+                                        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-medium ${
+                                          leave.type === 'custom_time'
+                                            ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'
+                                            : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                                        }`}>
+                                          {leave.type === 'custom_time'
+                                            ? `${leave.start_time || '00:00'} – ${leave.end_time || '23:59'}`
+                                            : 'Full Day'}
+                                        </span>
+                                        {leave.is_active === false && (
+                                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-500/10 text-zinc-500 border border-zinc-500/20 font-medium">
+                                            Paused
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-text-secondary flex items-center gap-1">
+                                        <span className="text-text-muted">Reason:</span>
+                                        <strong className="text-text-primary font-medium">{leave.reason}</strong>
+                                      </p>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 self-end sm:self-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleToggleLeaveSchedule(leave.id)}
+                                        className="text-[11px] px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-surface-subtle transition-colors cursor-pointer"
+                                      >
+                                        {leave.is_active === false ? 'Enable' : 'Pause'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteLeaveSchedule(leave.id)}
+                                        className="p-1 rounded text-text-muted hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-colors cursor-pointer"
+                                        title="Delete closure"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                         </div>

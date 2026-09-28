@@ -268,6 +268,7 @@ async def get_tenant_settings(
         "gmb_review_url": (tenant_settings.get("gmb_review_url") or tenant_settings.get("google_review_link") or wa_data.get("google_review_link") or wa_data.get("gmb_review_url") or "").strip(),
         "slot_booking_mode": tenant_settings.get("slot_booking_mode", "single"),
         "max_concurrent_bookings": tenant_settings.get("max_concurrent_bookings", 1),
+        "leave_schedules": tenant_settings.get("leave_schedules") or [],
 
         # Razorpay Subscription & Organization Lifecycle
         "plan": tenant.get("plan") or "pro",
@@ -698,6 +699,8 @@ async def update_tenant_settings(
         if payload.closing_time is not None: cur_settings["closing_time"] = payload.closing_time.strip()
         if payload.slot_booking_mode is not None: cur_settings["slot_booking_mode"] = payload.slot_booking_mode.strip().lower()
         if payload.max_concurrent_bookings is not None: cur_settings["max_concurrent_bookings"] = int(payload.max_concurrent_bookings)
+        if payload.leave_schedules is not None:
+            cur_settings["leave_schedules"] = payload.leave_schedules
 
         # Dual-sync all 12 configurable template names into tenants.settings
         if payload.template_booking_confirmation is not None: cur_settings["template_booking_confirmation"] = payload.template_booking_confirmation.strip()

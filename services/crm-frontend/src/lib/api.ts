@@ -1543,6 +1543,18 @@ export interface AIUsageResponse {
   daily_stats: AIUsageDailyStat[];
 }
 
+export interface LeaveSchedule {
+  id: string;
+  type: 'full_day' | 'custom_time';
+  start_date: string;
+  end_date?: string;
+  start_time?: string;
+  end_time?: string;
+  reason: string;
+  is_active?: boolean;
+  created_at?: string;
+}
+
 export interface TenantSettingsResponse {
   tenant_id: string;
   name: string;
@@ -1619,6 +1631,7 @@ export interface TenantSettingsResponse {
   closing_time?: string;
   slot_booking_mode?: 'single' | 'multiple';
   max_concurrent_bookings?: number;
+  leave_schedules?: LeaveSchedule[];
 
   industry?: string;
   taxonomy?: {

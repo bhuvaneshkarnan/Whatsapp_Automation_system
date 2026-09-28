@@ -1590,9 +1590,10 @@ end
         min_dt = now_dt - datetime.timedelta(hours=2)
         max_dt = now_dt + datetime.timedelta(days=7)
 
-        # 1. Check tenant slot booking mode (single vs multiple)
+        # 1. Check tenant slot booking mode (single vs multiple) & scheduled leaves
         slot_booking_mode = "single"
         max_concurrent = 1
+        leave_schedules = []
         try:
             t_row = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
             if t_row:
@@ -1600,6 +1601,7 @@ end
                 if isinstance(t_row, dict):
                     slot_booking_mode = t_row.get("slot_booking_mode", "single")
                     max_concurrent = int(t_row.get("max_concurrent_bookings", 1))
+                    leave_schedules = t_row.get("leave_schedules", [])
         except Exception:
             pass
 
@@ -1645,6 +1647,55 @@ end
                         })
         except Exception as e:
             logger.warning("db_busy_slots_query_error", error=str(e), tenant_id=tenant_id)
+
+        # 2b. Inject Scheduled Leaves & Temporary Closures into busy_slots
+        if leave_schedules and isinstance(leave_schedules, list):
+            for leave in leave_schedules:
+                if not isinstance(leave, dict) or leave.get("is_active") is False:
+                    continue
+                try:
+                    l_type = leave.get("type", "full_day")
+                    l_start_date = leave.get("start_date") or leave.get("date")
+                    l_end_date = leave.get("end_date") or l_start_date
+                    l_reason = (leave.get("reason") or "Scheduled Closure / Leave").strip()
+                    if not l_start_date:
+                        continue
+                    s_d = datetime.date.fromisoformat(str(l_start_date).strip()[:10])
+                    e_d = datetime.date.fromisoformat(str(l_end_date).strip()[:10]) if l_end_date else s_d
+                    if e_d < s_d:
+                        e_d = s_d
+                    
+                    if l_type == "custom_time":
+                        st_time_str = leave.get("start_time", "00:00")
+                        et_time_str = leave.get("end_time", "23:59")
+                        st_parts = [int(x) for x in st_time_str.split(":")[:2]]
+                        et_parts = [int(x) for x in et_time_str.split(":")[:2]]
+                        curr_d = s_d
+                        while curr_d <= e_d:
+                            st_dt = datetime.datetime(curr_d.year, curr_d.month, curr_d.day, st_parts[0], st_parts[1], tzinfo=tenant_tz)
+                            et_dt = datetime.datetime(curr_d.year, curr_d.month, curr_d.day, et_parts[0], et_parts[1], tzinfo=tenant_tz)
+                            busy_slots.append({
+                                "start": st_dt,
+                                "end": et_dt,
+                                "source": "Store Closure / Leave",
+                                "desc": f"Closed ({l_reason})"
+                            })
+                            curr_d += datetime.timedelta(days=1)
+                    else:
+                        # Full day closure (00:00 to 23:59:59)
+                        curr_d = s_d
+                        while curr_d <= e_d:
+                            st_dt = datetime.datetime(curr_d.year, curr_d.month, curr_d.day, 0, 0, tzinfo=tenant_tz)
+                            et_dt = datetime.datetime(curr_d.year, curr_d.month, curr_d.day, 23, 59, 59, tzinfo=tenant_tz)
+                            busy_slots.append({
+                                "start": st_dt,
+                                "end": et_dt,
+                                "source": "Store Closure / Leave",
+                                "desc": f"Closed Full Day ({l_reason})"
+                            })
+                            curr_d += datetime.timedelta(days=1)
+                except Exception as l_err:
+                    logger.warning("leave_schedule_busy_slot_error", error=str(l_err), tenant_id=tenant_id)
 
         # 3. Query Google Calendar Free/Busy in real time with resilient 6.0s timeout
         gcal_connected = False
@@ -2967,6 +3018,72 @@ end
             )
         )
 
+        # Build scheduled leaves & temporary closures block
+        leave_schedules_list = tenant_st_row.get("leave_schedules") if (tenant_st_row and isinstance(tenant_st_row, dict)) else []
+        if not leave_schedules_list:
+            try:
+                _t_st = await self.db_pool.fetchval("SELECT settings FROM tenants WHERE id = $1::uuid", tenant_id)
+                if _t_st:
+                    if isinstance(_t_st, str): _t_st = json.loads(_t_st)
+                    if isinstance(_t_st, dict):
+                        leave_schedules_list = _t_st.get("leave_schedules") or []
+            except Exception:
+                leave_schedules_list = []
+
+        leave_closure_lines = []
+        if leave_schedules_list and isinstance(leave_schedules_list, list):
+            today_date = now.date()
+            for l in leave_schedules_list:
+                if not isinstance(l, dict) or l.get("is_active") is False:
+                    continue
+                try:
+                    l_type = l.get("type", "full_day")
+                    l_s_date = str(l.get("start_date") or l.get("date") or "").strip()[:10]
+                    l_e_date = str(l.get("end_date") or l_s_date).strip()[:10]
+                    l_reason = (l.get("reason") or "Scheduled Leave / Store Closure").strip()
+                    if not l_s_date:
+                        continue
+                    s_d = datetime.date.fromisoformat(l_s_date)
+                    e_d = datetime.date.fromisoformat(l_e_date) if l_e_date else s_d
+                    # Ignore leaves that ended more than 1 day ago
+                    if e_d < today_date - datetime.timedelta(days=1):
+                        continue
+                    
+                    s_str = s_d.strftime("%A, %d %b %Y")
+                    e_str = e_d.strftime("%A, %d %b %Y")
+                    date_display = s_str if s_d == e_d else f"{s_str} to {e_str}"
+                    
+                    if l_type == "custom_time":
+                        st_tm = l.get("start_time", "00:00")
+                        et_tm = l.get("end_time", "23:59")
+                        try:
+                            st_12 = datetime.datetime.strptime(st_tm, "%H:%M").strftime("%I:%M %p")
+                            et_12 = datetime.datetime.strptime(et_tm, "%H:%M").strftime("%I:%M %p")
+                            time_disp = f"from {st_12} to {et_12}"
+                        except Exception:
+                            time_disp = f"from {st_tm} to {et_tm}"
+                        leave_closure_lines.append(f"- {date_display} ({time_disp}): UNAVAILABLE / CLOSED due to \"{l_reason}\"")
+                    else:
+                        leave_closure_lines.append(f"- {date_display} (Full Day): CLOSED due to \"{l_reason}\"")
+                except Exception as l_fmt_err:
+                    logger.warning("leave_format_error", error=str(l_fmt_err))
+
+        if leave_closure_lines:
+            leave_closure_block = (
+                "### OFFICIAL BUSINESS CLOSURES & SCHEDULED LEAVES (GROUND TRUTH):\n"
+                "The business / clinic is strictly CLOSED and CANNOT take appointments during these scheduled periods:\n"
+                + "\n".join(leave_closure_lines) + "\n\n"
+                "MANDATORY RULES FOR CLOSURE PERIODS:\n"
+                "1. If a customer inquires, requests, or asks to book during any of the dates/times listed above:\n"
+                "   - You MUST politely and warmly inform them that the clinic/doctor is unavailable during that period due to the reason stated above.\n"
+                "   - NEVER confirm or promise an appointment during a closure period!\n"
+                "   - Proactively suggest the nearest alternative openings: propose times before the closure begins, or on the next open business day after reopening.\n"
+                "2. When stating the reason, be empathetic and professional (e.g. 'Our doctor will be attending a conference on Friday afternoon, but is open on Friday morning or Saturday.').\n"
+                "3. In Tamil/Tanglish, explain the reason clearly (e.g. 'மருத்துவர் மாநாட்டில் பங்கேற்பதால்...')."
+            )
+        else:
+            leave_closure_block = ""
+
         if is_returning_customer:
             returning_greeting_directive = (
                 "- ONGOING CONVERSATION: DO NOT greet or say 'Hi [Name]' again on follow-up messages. Dive straight into your reply.\n"
@@ -3595,6 +3712,8 @@ end
                 # ── REAL-TIME DYNAMIC CONTEXT: LIVE GOOGLE CALENDAR OCCUPIED SLOTS ──
                 busy_slots_block,
             ]
+            if leave_closure_block:
+                prompt_blocks.append(leave_closure_block)
             if upcoming_booking_block:
                 prompt_blocks.append(upcoming_booking_block)
 
@@ -3709,6 +3828,8 @@ end
 
             # ── SECTION 3: CALENDAR & SCHEDULING ──
             prompt_blocks.append(busy_slots_block)
+            if leave_closure_block:
+                prompt_blocks.append(leave_closure_block)
             if upcoming_booking_block:
                 prompt_blocks.append(upcoming_booking_block)
 
@@ -3969,6 +4090,53 @@ end
                         f"{greeting}You already have an appointment scheduled for {first_svc} on {first_dt} at {first_tm}{staff_txt}. "
                         "Would you like to reschedule this appointment to a different time, or are you looking to book an additional separate appointment?"
                     )
+
+            # 3c. Scheduled Leave & Store Closure Safety Net:
+            # If customer or LLM tried to book during a blackout date/time when business is closed:
+            if booking_action and leave_schedules_list:
+                req_date_str = str(booking_action.get("date") or "").strip()[:10]
+                req_time_str = str(booking_action.get("time") or "").strip()
+                if req_date_str:
+                    try:
+                        req_d = datetime.date.fromisoformat(req_date_str)
+                        for l in leave_schedules_list:
+                            if not isinstance(l, dict) or l.get("is_active") is False:
+                                continue
+                            l_s_date = str(l.get("start_date") or l.get("date") or "").strip()[:10]
+                            l_e_date = str(l.get("end_date") or l_s_date).strip()[:10]
+                            l_reason = (l.get("reason") or "Scheduled Closure / Leave").strip()
+                            if not l_s_date:
+                                continue
+                            s_d = datetime.date.fromisoformat(l_s_date)
+                            e_d = datetime.date.fromisoformat(l_e_date) if l_e_date else s_d
+                            if s_d <= req_d <= e_d:
+                                l_type = l.get("type", "full_day")
+                                is_blocked = False
+                                if l_type == "full_day":
+                                    is_blocked = True
+                                elif l_type == "custom_time" and req_time_str:
+                                    st_tm = l.get("start_time", "00:00")
+                                    et_tm = l.get("end_time", "23:59")
+                                    if st_tm <= req_time_str <= et_tm:
+                                        is_blocked = True
+                                
+                                if is_blocked:
+                                    logger.warning(
+                                        "booking_blocked_due_to_scheduled_leave",
+                                        tenant_id=tenant_id,
+                                        date=req_date_str,
+                                        time=req_time_str,
+                                        reason=l_reason,
+                                    )
+                                    booking_action = None
+                                    date_friendly = req_d.strftime("%A, %d %b %Y")
+                                    response_text = (
+                                        f"Please note that our clinic is closed / unavailable on {date_friendly} due to {l_reason}. "
+                                        "Could you please choose another day or convenient time within our working hours?"
+                                    )
+                                    break
+                    except Exception as b_chk_err:
+                        logger.warning("booking_leave_check_error", error=str(b_chk_err))
 
             # 4. Inbound Appointment Inquiry Protection
             if inbound_appointment_inquiry:
