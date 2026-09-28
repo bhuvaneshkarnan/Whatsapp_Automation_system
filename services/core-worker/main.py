@@ -4056,7 +4056,7 @@ end
             tamil_hallucination_fixes = [
                 (re.compile(r'புடவை\s*(?:மசாஜ்|சிகிச்சை|ட்ரீட்மென்ட்)?', re.IGNORECASE), "உத்வர்தனம் (பவுடர் மசாஜ்)"),
                 (re.compile(r'சேலை\s*(?:மசாஜ்|சிகிச்சை|ட்ரீட்மென்ட்)?', re.IGNORECASE), "உத்வர்தனம் (பவுடர் மசாஜ்)"),
-                (re.compile(r'\bpudavai\s*(?:massage|treatment)?\b', re.IGNORECASE), "Powder Massage (Udwarthanam)"),
+                (re.compile(r'\b(?:pudavai|selai|seelai)\s*(?:massage|treatment)?\b', re.IGNORECASE), "Powder Massage (Udwarthanam)"),
             ]
             for pat, rep in tamil_hallucination_fixes:
                 response_text = pat.sub(rep, response_text)
@@ -4066,9 +4066,13 @@ end
             if full_location:
                 fl_lower = full_location.lower()
                 if "bengaluru" not in fl_lower and "bangalore" not in fl_lower:
-                    if any(w in response_text.lower() for w in ["indiranagar", "100 feet road", "city mall"]):
+                    if any(w in response_text.lower() for w in ["indiranagar", "100 feet road", "city mall", "bengaluru", "bangalore"]):
                         logger.warning("hallucinated_location_intercepted", tenant_id=tenant_id, text=response_text[:100])
-                        if funnel_stage == "EVALUATION_LOCATION" or any(w in (message_text or "").lower() for w in ["where", "location", "address", "landmark", "enga"]):
+                        # Detect if customer or response is in Tamil/Tanglish
+                        _is_tam = any(w in (message_text or "").lower() for w in ["enga", "irukku", "solunga", "sollunga"]) or any('\u0b80' <= c <= '\u0bff' for c in (response_text or ""))
+                        if _is_tam:
+                            response_text = f"எங்கள் முகவரி: {full_location}. மேப் விவரங்கள் அல்லது நேரம் முன்பதிவு செய்ய உதவவா?"
+                        else:
                             response_text = f"We are located at {full_location}. Would you like directions or help booking a visit?"
 
             if is_ongoing_conversation:
