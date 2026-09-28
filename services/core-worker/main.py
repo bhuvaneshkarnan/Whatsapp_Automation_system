@@ -381,8 +381,11 @@ GLOBAL_DEFAULT_STRICT_RULES = (
     "  * When a customer expresses price resistance ('too expensive') or delay ('will check and let you know'), never accept a dead-end. Reframe value in 1 sentence and offer a zero-friction micro-step.\n"
     "- EASY INDIAN ENGLISH & NATURAL HUMAN TONE:\n"
     "  * Reply like an authentic, friendly real person texting on WhatsApp in India using easy Indian English. Avoid stiff corporate jargon, robotic filler ('Certainly!', 'I would be delighted to assist you', 'Please feel free to reach out'), and formal customer service essays.\n"
-    "- TAMIL & LANGUAGE CONTINUITY:\n"
-    "  * If the customer writes in Tamil (Tamil script or Tanglish), reply 100% in natural Tamil/Tanglish. If the customer communicates in another language, match their language preference consistently.\n"
+    "- REAL-TIME DYNAMIC LANGUAGE SWITCHING:\n"
+    "  * ALWAYS mirror the language and script of the customer's LATEST message on every single turn.\n"
+    "  * If the customer previously messaged in Tamil but now writes in English, you MUST immediately switch and reply 100% in natural English. NEVER stay locked in Tamil when the customer asks in English.\n"
+    "  * If the customer writes in Tamil (Tamil script or Tanglish), reply 100% in natural Tamil/Tanglish.\n"
+    "  * If the customer sends a neutral short acknowledgment (like 'ok', 'yes', 'sure', '3 pm'), continue in the previously established language.\n"
     "- CONVERSATIONAL WHATSAPP BREVITY (NO ESSAYS):\n"
     "  * Keep responses to 2 to 3 natural sentences (25 to 50 words max). Absolutely zero marketing essays, bullet points, hyphens, dashes, asterisks, or emojis."
 )
@@ -1985,23 +1988,14 @@ end
         }
         tanglish_matches_current = tokens_current.intersection(tanglish_words)
         tanglish_matches_all = tokens_all.intersection(tanglish_words)
-
-        # 3. Brevity & Neutral Short Inquiries Check
-        words = text.split()
-        is_ultra_short = (len(words) <= 4) and not (len(words) == 1 and any(w in text_lower for w in ["hi", "hello", "hey"]))
-        is_neutral_short = len(words) <= 4 and not (curr_devanagari or curr_tamil or curr_telugu or curr_malayalam or curr_kannada or curr_arabic or bool(tanglish_matches_current) or bool(hinglish_matches_current))
-
-        # Check stored language retention on neutral short messages (e.g., "ok", "price", "yes", "fees")
-        clean_stored_lang = (stored_language or "").strip().lower()
-
-        # Prioritize explicit current script signals, or stored language on neutral messages
-        if curr_tamil or (is_neutral_short and clean_stored_lang in ("tamil_script", "tamil")) or (not curr_devanagari and not curr_telugu and has_tamil and is_neutral_short):
+        # 1. Direct Script Detection on current message (Absolute Priority for Active Turn)
+        if curr_tamil:
             return {
                 "dialect": "tamil_script",
                 "language": "tamil",
                 "label": "Tamil (Tamil Script)",
                 "directive": (
-                    "The customer communicated in Tamil script or has Tamil as their preferred language. "
+                    "The customer wrote in Tamil script (தமிழ்). "
                     "CRITICAL: You MUST respond 100% in warm, polite, and natural TAMIL using Tamil script (தமிழ்). "
                     "Speak like a friendly, caring clinic/business front-desk member in Tamil Nadu "
                     "(e.g. 'வணக்கம்! எங்கள் கிளினிக்கில் கன்சல்டேஷன் கட்டணம் ₹500. உங்களுக்கு என்ன சிகிச்சை தேவை என்று கூற முடியுமா?'). "
@@ -2010,14 +2004,15 @@ end
                 )
             }
 
-        if len(tanglish_matches_current) >= 1 or (is_neutral_short and clean_stored_lang == "tanglish") or (len(tanglish_matches_all) >= 1 and is_neutral_short):
-            brevity_note = " Keep it punchy in 1 short sentence." if is_ultra_short else ""
+        if len(tanglish_matches_current) >= 1:
+            words_cnt = len(text.split())
+            brevity_note = " Keep it punchy in 1 short sentence." if words_cnt <= 4 else ""
             return {
                 "dialect": "tanglish",
                 "language": "tanglish",
                 "label": "Tanglish (Romanized Tamil + English)",
                 "directive": (
-                    "The customer is communicating in Tanglish (Tamil written in Romanized English alphabet, e.g. 'vanakkam', 'nalla poguthu', 'evlo cost', 'eppadi irukku') or has Tanglish as their preferred language. "
+                    "The customer is communicating in Tanglish (Tamil written in Romanized English alphabet, e.g. 'vanakkam', 'nalla poguthu', 'evlo cost', 'eppadi irukku'). "
                     "CRITICAL: You MUST reply 100% in natural, warm, polite Romanized Tanglish/Tamil-English mix using the English alphabet "
                     "(e.g. 'Vanakkam! Consultation fee ₹500. Ungalukku enna problem nu solla mudiyuma? Dr paathu kandippa help pannuvom.'). "
                     "NEVER reply in pure English to a Tanglish message! "
@@ -2026,26 +2021,27 @@ end
                 )
             }
 
-        if curr_devanagari or (is_neutral_short and clean_stored_lang in ("hindi_devanagari", "hindi")) or (has_devanagari and is_neutral_short):
+        if curr_devanagari:
             return {
                 "dialect": "hindi_devanagari",
                 "language": "hindi",
                 "label": "Hindi (Devanagari Script)",
                 "directive": (
-                    "The customer wrote in Hindi (Devanagari script) or has Hindi as their preferred language. "
+                    "The customer wrote in Hindi (Devanagari script). "
                     "CRITICAL: Respond fluently, warmly, and respectfully in HINDI using Devanagari script (हिंदी). "
                     "Answer directly in sentence 1, maintain a warm, respectful tone, and do not sound cold or robotic."
                 )
             }
 
-        if len(hinglish_matches_current) >= 1 or (is_neutral_short and clean_stored_lang == "hinglish") or (len(hinglish_matches_all) >= 1 and is_neutral_short):
-            brevity_note = " Keep it punchy in 1 short sentence." if is_ultra_short else ""
+        if len(hinglish_matches_current) >= 1:
+            words_cnt = len(text.split())
+            brevity_note = " Keep it punchy in 1 short sentence." if words_cnt <= 4 else ""
             return {
                 "dialect": "hinglish",
                 "language": "hinglish",
                 "label": "Hinglish (Romanized Hindi + English)",
                 "directive": (
-                    "The customer is speaking in Hinglish (Hindi written in English alphabet) or has Hinglish as their preferred language. "
+                    "The customer is speaking in Hinglish (Hindi written in English alphabet). "
                     "CRITICAL: You MUST reply 100% in natural, warm, polite Romanized Hinglish using the English alphabet "
                     "(e.g. 'Sure bhai! Consultation fee ₹500 hai. Aapko kis problem ke liye consult karna hai?'). "
                     "NEVER reply in pure English to a Hinglish message! "
@@ -2053,51 +2049,178 @@ end
                 )
             }
 
-        if curr_telugu or (is_neutral_short and clean_stored_lang in ("telugu_script", "telugu")) or (has_telugu and is_neutral_short):
+        if curr_telugu:
             return {
                 "dialect": "telugu_script",
                 "language": "telugu",
                 "label": "Telugu (Telugu Script)",
                 "directive": (
-                    "The customer wrote in Telugu script or has Telugu as their preferred language. "
+                    "The customer wrote in Telugu script. "
                     "Respond fluently, warmly, and respectfully in TELUGU using Telugu script (తెలుగు)."
                 )
             }
 
-        if curr_malayalam or (is_neutral_short and clean_stored_lang in ("malayalam_script", "malayalam")) or (has_malayalam and is_neutral_short):
+        if curr_malayalam:
             return {
                 "dialect": "malayalam_script",
                 "language": "malayalam",
                 "label": "Malayalam (Malayalam Script)",
                 "directive": (
-                    "The customer wrote in Malayalam script or has Malayalam as their preferred language. "
+                    "The customer wrote in Malayalam script. "
                     "Respond fluently, warmly, and respectfully in MALAYALAM using Malayalam script (മലയാളം)."
                 )
             }
 
-        if curr_kannada or (is_neutral_short and clean_stored_lang in ("kannada_script", "kannada")) or (has_kannada and is_neutral_short):
+        if curr_kannada:
             return {
                 "dialect": "kannada_script",
                 "language": "kannada",
                 "label": "Kannada (Kannada Script)",
                 "directive": (
-                    "The customer wrote in Kannada script or has Kannada as their preferred language. "
+                    "The customer wrote in Kannada script. "
                     "Respond fluently, warmly, and respectfully in KANNADA using Kannada script (ಕನ್ನಡ)."
                 )
             }
 
-        if curr_arabic or (is_neutral_short and clean_stored_lang in ("arabic_script", "arabic")) or (has_arabic and is_neutral_short):
+        if curr_arabic:
             return {
                 "dialect": "arabic_script",
                 "language": "arabic",
                 "label": "Arabic (Arabic Script)",
                 "directive": (
-                    "The customer wrote in Arabic script or has Arabic as their preferred language. "
+                    "The customer wrote in Arabic script. "
                     "Respond fluently and respectfully in ARABIC script."
                 )
             }
 
-        # 4. Formality & Texting Slang Tokens
+        # 2. Check for Truly Neutral Acknowledgments vs English Inquiries
+        words = text.split()
+        clean_stored_lang = (stored_language or "").strip().lower()
+        is_ultra_short = (len(words) <= 4) and not (len(words) == 1 and any(w in text_lower for w in ["hi", "hello", "hey"]))
+
+        neutral_ack_words = {
+            "ok", "okay", "k", "kk", "yes", "yeah", "yep", "ya", "no", "nah", "nope",
+            "sure", "done", "fine", "cool", "alright", "thx", "thanks", "thank",
+            "you", "ty", "noted", "got", "it", "super", "great", "welcome", "am", "pm"
+        }
+        # Truly neutral: all tokens are simple acknowledgment words, or purely numbers/times/emojis
+        is_truly_neutral_ack = (
+            len(tokens_current) <= 3
+            and (len(tokens_current) == 0 or tokens_current.issubset(neutral_ack_words))
+        )
+
+        # On TRULY NEUTRAL short messages (e.g. "ok", "yes", "sure", "5 pm"), retain prior language continuity
+        if is_truly_neutral_ack:
+            if clean_stored_lang in ("tamil_script", "tamil") or (has_tamil and not has_devanagari and not has_telugu):
+                return {
+                    "dialect": "tamil_script",
+                    "language": "tamil",
+                    "label": "Tamil (Tamil Script Continuity)",
+                    "directive": (
+                        "The customer sent a brief neutral acknowledgment ('ok' / 'yes' / 'sure') in an ongoing Tamil conversation. "
+                        "CRITICAL: Continue 100% in warm, polite, and natural TAMIL using Tamil script (தமிழ்). "
+                        "Confirm their response directly, politely, and warmly. Do not switch to English."
+                    )
+                }
+            if clean_stored_lang == "tanglish" or (len(tanglish_matches_all) >= 1):
+                return {
+                    "dialect": "tanglish",
+                    "language": "tanglish",
+                    "label": "Tanglish (Romanized Tamil Continuity)",
+                    "directive": (
+                        "The customer sent a brief neutral acknowledgment in an ongoing Tanglish conversation. "
+                        "CRITICAL: Continue 100% in natural, warm, polite Romanized Tanglish using the English alphabet. "
+                        "Confirm their response directly without hyphens."
+                    )
+                }
+            if clean_stored_lang in ("hindi_devanagari", "hindi") or has_devanagari:
+                return {
+                    "dialect": "hindi_devanagari",
+                    "language": "hindi",
+                    "label": "Hindi (Devanagari Continuity)",
+                    "directive": (
+                        "The customer sent a brief neutral acknowledgment in an ongoing Hindi conversation. "
+                        "CRITICAL: Continue fluently and warmly in HINDI using Devanagari script (हिंदी)."
+                    )
+                }
+            if clean_stored_lang == "hinglish" or (len(hinglish_matches_all) >= 1):
+                return {
+                    "dialect": "hinglish",
+                    "language": "hinglish",
+                    "label": "Hinglish (Romanized Hindi Continuity)",
+                    "directive": (
+                        "The customer sent a brief neutral acknowledgment in an ongoing Hinglish conversation. "
+                        "CRITICAL: Continue in natural, warm, polite Romanized Hinglish using the English alphabet."
+                    )
+                }
+            if clean_stored_lang in ("telugu_script", "telugu") or has_telugu:
+                return {
+                    "dialect": "telugu_script",
+                    "language": "telugu",
+                    "label": "Telugu (Telugu Continuity)",
+                    "directive": "Continue fluently and warmly in TELUGU using Telugu script (తెలుగు)."
+                }
+            if clean_stored_lang in ("malayalam_script", "malayalam") or has_malayalam:
+                return {
+                    "dialect": "malayalam_script",
+                    "language": "malayalam",
+                    "label": "Malayalam (Malayalam Continuity)",
+                    "directive": "Continue fluently and warmly in MALAYALAM using Malayalam script (മലയാളം)."
+                }
+            if clean_stored_lang in ("kannada_script", "kannada") or has_kannada:
+                return {
+                    "dialect": "kannada_script",
+                    "language": "kannada",
+                    "label": "Kannada (Kannada Continuity)",
+                    "directive": "Continue fluently and warmly in KANNADA using Kannada script (ಕನ್ನಡ)."
+                }
+            if clean_stored_lang in ("arabic_script", "arabic") or has_arabic:
+                return {
+                    "dialect": "arabic_script",
+                    "language": "arabic",
+                    "label": "Arabic (Arabic Continuity)",
+                    "directive": "Continue fluently and respectfully in ARABIC script."
+                }
+
+        # 3. Dynamic Real-Time Language Switch Override (Customer speaks English now)
+        # If the customer previously messaged in Tamil, Hindi, or Telugu, but their latest message is an English query/statement:
+        if has_tamil or clean_stored_lang in ("tamil_script", "tamil", "tanglish"):
+            return {
+                "dialect": "indian_english",
+                "language": "indian_english",
+                "label": "Language Switched to English (Turn-by-turn Mirroring)",
+                "directive": (
+                    f"CRITICAL REAL-TIME LANGUAGE SWITCH DIRECTIVE: The customer previously communicated in Tamil, but their latest message is in English ('{text}'). "
+                    "You MUST immediately switch and respond 100% in natural, friendly English. Do NOT reply in Tamil. "
+                    "Directly answer their query in English in sentence 1, then ask 1 gentle, relevant follow-up question."
+                )
+            }
+
+        if has_devanagari or clean_stored_lang in ("hindi_devanagari", "hindi", "hinglish"):
+            return {
+                "dialect": "indian_english",
+                "language": "indian_english",
+                "label": "Language Switched to English (Turn-by-turn Mirroring)",
+                "directive": (
+                    f"CRITICAL REAL-TIME LANGUAGE SWITCH DIRECTIVE: The customer previously communicated in Hindi, but their latest message is in English ('{text}'). "
+                    "You MUST immediately switch and respond 100% in natural, friendly English. Do NOT reply in Hindi. "
+                    "Directly answer their query in English in sentence 1, then ask 1 gentle, relevant follow-up question."
+                )
+            }
+
+        if has_telugu or clean_stored_lang in ("telugu_script", "telugu"):
+            return {
+                "dialect": "indian_english",
+                "language": "indian_english",
+                "label": "Language Switched to English (Turn-by-turn Mirroring)",
+                "directive": (
+                    f"CRITICAL REAL-TIME LANGUAGE SWITCH DIRECTIVE: The customer previously communicated in Telugu, but their latest message is in English ('{text}'). "
+                    "You MUST immediately switch and respond 100% in natural, friendly English. Do NOT reply in Telugu. "
+                    "Directly answer their query in English in sentence 1, then ask 1 gentle, relevant follow-up question."
+                )
+            }
+
+        # 4. Formality & Texting Slang Tokens (English inquiries)
         casual_slang_words = {
             "bro", "yo", "hey man", "dude", "u", "ur", "pls", "plz", "thx", "thanks!", "gimme",
             "wanna", "lemme", "k", "cool", "yup", "nope", "nah", "sup", "gotcha", "btw", "idk",
@@ -3178,9 +3301,12 @@ end
         detected_lang = style_profile.get("language")
         detected_dialect = style_profile.get("dialect")
         if detected_lang and detected_lang in ("tamil", "tanglish", "hindi", "hinglish", "telugu", "malayalam", "kannada", "arabic", "indian_english"):
-            if detected_dialect != customer_preferred_language and detected_dialect not in ("casual_slang", "formal_business", "ultra_short"):
+            target_to_persist = detected_dialect
+            if detected_dialect in ("casual_slang", "formal_business", "ultra_short") or detected_lang == "indian_english":
+                target_to_persist = "indian_english"
+            if target_to_persist and target_to_persist != customer_preferred_language:
                 asyncio.create_task(
-                    self._persist_customer_language(tenant_id, contact_phone, contact_id_val, detected_dialect)
+                    self._persist_customer_language(tenant_id, contact_phone, contact_id_val, target_to_persist)
                 )
 
         tenant_style_override = (response_style or "").strip()
@@ -3359,6 +3485,8 @@ end
                     f"- Closing Time: {fmt_close} (Night / Evening / இரவு / 21:00)\n"
                     f"- MANDATORY TIMING RULE: When the customer asks about clinic timings, operating hours, working hours, opening/closing times, or when we are open, ALWAYS state: '{op_hours_display} daily'. NEVER guess or infer operating hours from empty calendar slots! Closing time is strictly {fmt_close} (Night / இரவு). You must NEVER write '09:00 AM' for closing time or night!"
                 ),
+                # Dialect & Style Mirroring (Customer Texting Vibe Adaptation & Real-Time Dynamic Language Switching)
+                style_mirroring_block,
                 # Unified Master Knowledge Base (ground truth for business, hours, address, services, clinical rules, and tone)
                 custom_instructions.strip(),
                 # ── REAL-TIME DYNAMIC CONTEXT: CUSTOMER PROFILE & CHAT MEMORY ──
