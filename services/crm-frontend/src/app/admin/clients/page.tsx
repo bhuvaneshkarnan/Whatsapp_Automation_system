@@ -2131,7 +2131,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-canvas">
         
         {/* Top Header */}
-        <header className="h-14 border-b border-border bg-surface px-3 sm:px-6 flex items-center justify-between shrink-0 safe-area-pt">
+        <header className="h-12 border-b border-border bg-surface px-3 sm:px-5 flex items-center justify-between shrink-0 safe-area-pt">
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
             {/* Hamburger button on mobile */}
             <button
@@ -2142,23 +2142,24 @@ Any missed call will now automatically get followed up on WhatsApp!`;
             >
               <Menu className="w-4 h-4 stroke-[1.5]" />
             </button>
-            <div className="min-w-0">
-              <h2 className="font-semibold text-xs text-text-primary flex items-center gap-1.5 truncate">
+            <div className="min-w-0 flex items-center gap-2">
+              <h2 className="font-semibold text-xs sm:text-sm text-text-primary flex items-center gap-1.5 truncate">
                 <span className="truncate">
                   {activeTab === 'organizations' && 'Organizations'}
                   {activeTab === 'razorpay' && 'Billing & Renewals'}
                   {activeTab === 'admin_config' && 'Admin Alerts'}
                   {activeTab === 'missed_call' && 'Missed Call Setup'}
                 </span>
-                <span className="hidden sm:inline-block text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono font-medium shrink-0">
+                <span className="hidden sm:inline-block text-[9px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-1.5 py-0.2 rounded font-mono font-medium shrink-0">
                   v2.4
                 </span>
               </h2>
-              <p className="hidden lg:block text-xs text-text-muted truncate">
-                {activeTab === 'organizations' && 'Manage client workspaces, inspect live database records, configure AI brains, WhatsApp APIs, templates & billing'}
-                {activeTab === 'razorpay' && 'Inspect client recurring billing statuses, renewal schedules, and WhatsApp alert digests'}
-                {activeTab === 'admin_config' && 'Set your phone number for receiving automated system alerts and renewal reminders'}
-                {activeTab === 'missed_call' && 'Configure missed call → WhatsApp auto-reply webhook for each client tenant — one view, all clients'}
+              <span className="hidden xl:inline-block text-border">&bull;</span>
+              <p className="hidden xl:block text-[11px] text-text-muted truncate">
+                {activeTab === 'organizations' && 'Manage client workspaces, integrations & billing'}
+                {activeTab === 'razorpay' && 'Client recurring billing statuses and renewal schedules'}
+                {activeTab === 'admin_config' && 'Automated system alerts and renewal reminders'}
+                {activeTab === 'missed_call' && 'Missed call → WhatsApp auto-reply webhook setup'}
               </p>
             </div>
           </div>
@@ -2167,11 +2168,11 @@ Any missed call will now automatically get followed up on WhatsApp!`;
             {/* Super Admin Phone Pill */}
             <button
               onClick={() => setActiveTab('admin_config')}
-              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-sm text-xs text-text-body transition-colors duration-150 cursor-pointer"
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-surface-subtle hover:bg-surface border border-border rounded text-xs text-text-body transition-colors duration-150 cursor-pointer"
               title="Click to configure WhatsApp Alert recipient"
             >
               <Bell className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
-              <span>Admin alerts:</span>
+              <span className="text-text-muted">Alerts:</span>
               <span className="font-mono text-text-primary">
                 {superAdminPhone ? `+${superAdminPhone}` : 'Configure'}
               </span>
@@ -2180,7 +2181,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
             <button
               onClick={() => loadData()}
               disabled={loading}
-              className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded-sm transition-colors duration-150 cursor-pointer border border-border"
+              className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-subtle rounded transition-colors duration-150 cursor-pointer border border-border"
               title="Refresh Data"
             >
               <RefreshCw className={`w-3.5 h-3.5 stroke-[1.5] ${loading ? 'animate-spin' : ''}`} />
@@ -2188,7 +2189,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
             <button
               onClick={() => handleOpenCreateModal()}
-              className={`px-2.5 sm:px-3 py-1.5 text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap ${
+              className={`px-3 py-1.5 text-white text-xs font-semibold rounded transition-colors duration-150 flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap ${
                 activeOrgTab === 'direct'
                   ? 'bg-emerald-600 hover:bg-emerald-700'
                   : activeOrgTab === 'partnered'
@@ -2230,92 +2231,84 @@ Any missed call will now automatically get followed up on WhatsApp!`;
         )}
 
         {/* Scrollable Body */}
-        <main className="flex-1 overflow-y-auto safari-scroll touch-scroll p-3.5 sm:p-6 space-y-4 sm:space-y-6 pb-24 md:pb-6">
+        <main className="flex-1 overflow-y-auto safari-scroll touch-scroll p-3 sm:p-4 space-y-3 pb-20 md:pb-6">
           
-          {/* ── 4 KPI Metrics Row ─────────────────────────────────────────────── */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+          {/* ── 4 KPI Metrics Row (Compact & Clean) ────────────────────────────── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
             
             {/* 1. Total Organizations */}
-            <div className="bg-surface border border-border rounded-md p-3 sm:p-4 flex flex-col justify-between shadow-xs">
+            <div className="bg-surface border border-border/80 rounded-lg p-2.5 sm:px-3.5 sm:py-2.5 flex flex-col justify-between shadow-2xs hover:border-border transition-colors">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] sm:text-xs font-medium text-text-muted">
-                  Organizations
-                </span>
-                <Building2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-text-muted stroke-[1.5]" />
+                <span className="text-[11px] font-medium text-text-muted">Organizations</span>
+                <Building2 className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
               </div>
-              <div className="mt-1.5 sm:mt-2">
-                <div className="flex items-baseline gap-1.5 sm:gap-2">
-                  <span className="text-xl sm:text-2xl font-semibold text-text-primary font-mono tabular-nums">
+              <div className="mt-1">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-lg sm:text-xl font-bold text-text-primary font-mono tabular-nums leading-tight">
                     {tenants.length}
                   </span>
-                  <span className="text-[11px] sm:text-xs font-medium text-status-success">
+                  <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                     {tenants.filter((t) => t.status === 'active').length} Active
                   </span>
                 </div>
-                <p className="text-[10px] sm:text-xs text-text-muted mt-0.5">
+                <p className="text-[10px] text-text-muted mt-0.5 leading-tight">
                   {directTenants.length} Direct &bull; {partnerTenants.length} Partner
                 </p>
               </div>
             </div>
 
             {/* 2. Platform MRR */}
-            <div className="bg-surface border border-border rounded-md p-3 sm:p-4 flex flex-col justify-between shadow-xs">
+            <div className="bg-surface border border-border/80 rounded-lg p-2.5 sm:px-3.5 sm:py-2.5 flex flex-col justify-between shadow-2xs hover:border-border transition-colors">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] sm:text-xs font-medium text-text-muted">
-                  Platform MRR
-                </span>
-                <DollarSign className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-text-muted stroke-[1.5]" />
+                <span className="text-[11px] font-medium text-text-muted">Platform MRR</span>
+                <DollarSign className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
               </div>
-              <div className="mt-1.5 sm:mt-2">
-                <div className="flex items-baseline gap-1 sm:gap-1.5">
-                  <span className="text-xl sm:text-2xl font-semibold text-text-primary font-mono tabular-nums">
+              <div className="mt-1">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-lg sm:text-xl font-bold text-text-primary font-mono tabular-nums leading-tight">
                     ₹{totalCalculatedMRR.toLocaleString('en-IN')}
                   </span>
-                  <span className="text-[10px] sm:text-xs text-text-muted">/ mo</span>
+                  <span className="text-[10px] text-text-muted">/mo</span>
                 </div>
-                <p className="text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">
+                <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium mt-0.5 leading-tight">
                   ₹{totalNetRetainedMRR.toLocaleString('en-IN')} net retained
                 </p>
               </div>
             </div>
 
             {/* 3. Razorpay Due Date Tracker */}
-            <div className="bg-surface border border-border rounded-md p-3 sm:p-4 flex flex-col justify-between shadow-xs">
+            <div className="bg-surface border border-border/80 rounded-lg p-2.5 sm:px-3.5 sm:py-2.5 flex flex-col justify-between shadow-2xs hover:border-border transition-colors">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] sm:text-xs font-medium text-text-muted">
-                  Admin Alerts
-                </span>
-                <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-text-muted stroke-[1.5]" />
+                <span className="text-[11px] font-medium text-text-muted">Admin Alerts</span>
+                <Bell className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
               </div>
-              <div className="mt-1.5 sm:mt-2">
-                <div className="flex items-baseline gap-1.5 sm:gap-2">
-                  <span className="text-xl sm:text-2xl font-semibold text-text-primary">
+              <div className="mt-1">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-lg sm:text-xl font-bold text-text-primary leading-tight">
                     {superAdminPhone ? 'Active' : 'Setup'}
                   </span>
-                  <span className="text-[11px] sm:text-xs font-medium text-status-success">Live</span>
+                  <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">Live</span>
                 </div>
-                <p className="text-[10px] sm:text-xs text-text-muted mt-0.5 truncate">
+                <p className="text-[10px] text-text-muted mt-0.5 leading-tight truncate">
                   {superAdminPhone ? `+${superAdminPhone}` : 'Configure'}
                 </p>
               </div>
             </div>
 
             {/* 4. Platform Traffic */}
-            <div className="bg-surface border border-border rounded-md p-3 sm:p-4 flex flex-col justify-between shadow-xs">
+            <div className="bg-surface border border-border/80 rounded-lg p-2.5 sm:px-3.5 sm:py-2.5 flex flex-col justify-between shadow-2xs hover:border-border transition-colors">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] sm:text-xs font-medium text-text-muted">
-                  Traffic
-                </span>
-                <Activity className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-text-muted stroke-[1.5]" />
+                <span className="text-[11px] font-medium text-text-muted">Traffic</span>
+                <Activity className="w-3.5 h-3.5 text-text-muted stroke-[1.5]" />
               </div>
-              <div className="mt-1.5 sm:mt-2">
-                <div className="flex items-baseline gap-1 sm:gap-1.5">
-                  <span className="text-xl sm:text-2xl font-semibold text-text-primary font-mono tabular-nums">
+              <div className="mt-1">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-lg sm:text-xl font-bold text-text-primary font-mono tabular-nums leading-tight">
                     {stats?.total_messages || 0}
                   </span>
-                  <span className="text-[10px] sm:text-xs text-text-muted">msgs</span>
+                  <span className="text-[10px] text-text-muted">msgs</span>
                 </div>
-                <p className="text-[10px] sm:text-xs text-text-muted mt-0.5">
+                <p className="text-[10px] text-text-muted mt-0.5 leading-tight">
                   All active tenants
                 </p>
               </div>
@@ -2864,25 +2857,26 @@ Any missed call will now automatically get followed up on WhatsApp!`;
           {activeTab === 'organizations' && (
             <div className="bg-surface border border-border rounded-md overflow-hidden shadow-xs">
               
-              {/* ── SEGMENTED TOP TAB SWITCHER (Direct vs Partnered) ── */}
-              <div className="border-b border-border bg-surface px-3 sm:px-4 py-2.5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5 bg-surface-subtle/30">
-                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll py-1 -mx-1 px-1 sm:mx-0 sm:px-0">
+              {/* ── UNIFIED COMPACT TOOLBAR (Segmented Tabs + Search & Filters) ── */}
+              <div className="border-b border-border bg-surface px-3 py-2 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-2.5">
+                {/* Left: Segmented Pill Tabs */}
+                <div className="inline-flex items-center p-0.5 bg-surface-subtle border border-border/80 rounded-md overflow-x-auto no-scrollbar shrink-0">
                   <button
                     type="button"
                     onClick={() => {
                       setActiveOrgTab('all');
                       setSelectedPartnerFilter('all');
                     }}
-                    className={`min-h-[40px] sm:min-h-[34px] px-3 py-1.5 rounded-sm text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 touch-manipulation whitespace-nowrap ${
+                    className={`px-2.5 py-1 rounded text-xs font-medium transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                       activeOrgTab === 'all'
-                        ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-2xs'
-                        : 'bg-surface hover:bg-surface-subtle text-text-secondary border border-border'
+                        ? 'bg-surface text-text-primary shadow-2xs font-semibold'
+                        : 'text-text-muted hover:text-text-primary'
                     }`}
                   >
-                    <Layers className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <Layers className="w-3.5 h-3.5" />
                     <span>All Organizations</span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-medium ${
-                      activeOrgTab === 'all' ? 'bg-white/20 text-white dark:bg-slate-900/20 dark:text-slate-900' : 'bg-surface-subtle border border-border text-text-muted'
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                      activeOrgTab === 'all' ? 'bg-surface-subtle text-text-primary font-semibold' : 'text-text-muted'
                     }`}>
                       {tenants.length}
                     </span>
@@ -2894,16 +2888,16 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       setActiveOrgTab('direct');
                       setSelectedPartnerFilter('all');
                     }}
-                    className={`min-h-[40px] sm:min-h-[34px] px-3 py-1.5 rounded-sm text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 touch-manipulation whitespace-nowrap ${
+                    className={`px-2.5 py-1 rounded text-xs font-medium transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                       activeOrgTab === 'direct'
-                        ? 'bg-emerald-600 text-white shadow-2xs'
-                        : 'bg-surface hover:bg-surface-subtle text-text-secondary border border-border'
+                        ? 'bg-surface text-emerald-700 dark:text-emerald-400 shadow-2xs font-semibold'
+                        : 'text-text-muted hover:text-text-primary'
                     }`}
                   >
-                    <Building2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <Building2 className="w-3.5 h-3.5" />
                     <span>My Direct Clients</span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-medium ${
-                      activeOrgTab === 'direct' ? 'bg-white/20 text-white' : 'bg-surface-subtle border border-border text-text-muted'
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                      activeOrgTab === 'direct' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-semibold' : 'text-text-muted'
                     }`}>
                       {directTenants.length}
                     </span>
@@ -2915,66 +2909,78 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       setActiveOrgTab('partnered');
                       setSelectedPartnerFilter('all');
                     }}
-                    className={`min-h-[40px] sm:min-h-[34px] px-3 py-1.5 rounded-sm text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 touch-manipulation whitespace-nowrap ${
+                    className={`px-2.5 py-1 rounded text-xs font-medium transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                       activeOrgTab === 'partnered'
-                        ? 'bg-purple-600 text-white shadow-2xs'
-                        : 'bg-surface hover:bg-surface-subtle text-text-secondary border border-border'
+                        ? 'bg-surface text-purple-700 dark:text-purple-400 shadow-2xs font-semibold'
+                        : 'text-text-muted hover:text-text-primary'
                     }`}
                   >
-                    <Globe className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <Globe className="w-3.5 h-3.5" />
                     <span>Partnered / White-Label</span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-medium ${
-                      activeOrgTab === 'partnered' ? 'bg-white/20 text-white' : 'bg-surface-subtle border border-border text-text-muted'
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                      activeOrgTab === 'partnered' ? 'bg-purple-500/10 text-purple-700 dark:text-purple-400 font-semibold' : 'text-text-muted'
                     }`}>
                       {partnerTenants.length}
                     </span>
                   </button>
                 </div>
 
-                {/* Tab-Aware Fast Action CTA */}
-                <div className="flex items-center gap-2 shrink-0">
-                  {activeOrgTab === 'direct' && (
-                    <button
-                      type="button"
-                      onClick={() => handleOpenCreateModal('direct')}
-                      className="w-full md:w-auto min-h-[40px] sm:min-h-[34px] px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs touch-manipulation"
-                    >
-                      <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>+ Onboard Direct Client</span>
-                    </button>
-                  )}
+                {/* Right: Search & Action Controls */}
+                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                  <div className="relative flex-1 sm:w-52 md:w-60">
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted stroke-[1.5]" />
+                    <input
+                      type="text"
+                      placeholder="Search organizations..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-7.5 pr-2.5 py-1 bg-surface-subtle border border-border/80 rounded-md text-xs text-text-primary placeholder:text-text-muted focus:bg-surface focus:border-accent transition-colors"
+                    />
+                  </div>
 
-                  {activeOrgTab === 'partnered' && (
-                    <button
-                      type="button"
-                      onClick={() => handleOpenCreateModal('partner')}
-                      className="w-full md:w-auto min-h-[40px] sm:min-h-[34px] px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs touch-manipulation"
-                    >
-                      <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>+ Onboard Partner Client</span>
-                    </button>
-                  )}
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value as any)}
+                    className="py-1 px-2 bg-surface-subtle border border-border/80 rounded-md text-xs text-text-primary focus:bg-surface focus:border-accent transition-colors cursor-pointer shrink-0"
+                  >
+                    <option value="all">All statuses</option>
+                    <option value="active">Active only</option>
+                    <option value="paused">Paused only</option>
+                  </select>
 
-                  {activeOrgTab === 'all' && (
-                    <button
-                      type="button"
-                      onClick={() => handleOpenCreateModal()}
-                      className="w-full md:w-auto min-h-[40px] sm:min-h-[34px] px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold rounded-sm transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs touch-manipulation"
-                    >
-                      <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>+ Onboard Organization</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowWebhooksRegistry(!showWebhooksRegistry)}
+                    className={`py-1 px-2.5 text-xs font-medium rounded-md transition-colors cursor-pointer border flex items-center gap-1.5 shrink-0 ${
+                      showWebhooksRegistry
+                        ? 'bg-accent text-white border-accent'
+                        : 'bg-surface hover:bg-surface-subtle text-text-body border-border/80'
+                    }`}
+                    title="Meta WhatsApp Webhooks & Missed Call URLs"
+                  >
+                    <Key className="w-3 h-3 stroke-[1.5]" />
+                    <span>{showWebhooksRegistry ? 'Hide Webhooks' : 'Webhooks'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleSendAdminAlert()}
+                    disabled={sendingAdminAlert || !superAdminPhone}
+                    className="py-1 px-2.5 bg-surface hover:bg-surface-subtle text-text-body text-xs font-medium rounded-md transition-colors cursor-pointer border border-border/80 flex items-center gap-1.5 disabled:opacity-50 shrink-0"
+                    title="Send consolidated Razorpay renewal digest to Super Admin WhatsApp"
+                  >
+                    <Send className="w-3 h-3 stroke-[1.5]" />
+                    <span className="hidden sm:inline">Send digest</span>
+                  </button>
                 </div>
               </div>
 
               {/* ── PARTNER MULTI-AGENCY SUB-BAR & FINANCIAL RIBBON (When activeOrgTab === 'partnered') ── */}
               {activeOrgTab === 'partnered' && (
-                <div className="bg-purple-500/5 border-b border-border px-3 sm:px-4 py-2.5 space-y-2.5 animate-in fade-in duration-150">
-                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2.5">
+                <div className="bg-purple-500/5 border-b border-border px-3 py-2 space-y-2 animate-in fade-in duration-150">
+                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
                     {/* Agency Selector Chips */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll flex-nowrap sm:flex-wrap py-0.5 max-w-full">
-                      <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider flex items-center gap-1 shrink-0">
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll py-0.5 max-w-full">
+                      <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider flex items-center gap-1 shrink-0">
                         <Users className="w-3 h-3 text-purple-500" />
                         <span>Agencies:</span>
                       </span>
@@ -2982,7 +2988,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       <button
                         type="button"
                         onClick={() => setSelectedPartnerFilter('all')}
-                        className={`min-h-[36px] sm:min-h-[28px] px-2.5 py-1 sm:py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer border touch-manipulation whitespace-nowrap shrink-0 ${
+                        className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer border shrink-0 ${
                           selectedPartnerFilter === 'all'
                             ? 'bg-purple-600 text-white border-purple-600'
                             : 'bg-surface hover:bg-surface-subtle text-text-secondary border-border'
@@ -2999,7 +3005,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                             key={pName}
                             type="button"
                             onClick={() => setSelectedPartnerFilter(pName)}
-                            className={`min-h-[36px] sm:min-h-[28px] px-2.5 py-1 sm:py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer border flex items-center gap-1 touch-manipulation whitespace-nowrap shrink-0 ${
+                            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer border flex items-center gap-1 shrink-0 ${
                               isSel
                                 ? 'bg-purple-600 text-white border-purple-600'
                                 : 'bg-surface hover:bg-surface-subtle text-text-secondary border-border'
@@ -3021,21 +3027,21 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                           handleOpenCreateModal('partner');
                           setIsAddingNewPartner(true);
                         }}
-                        className="min-h-[36px] sm:min-h-[28px] px-2.5 py-1 sm:py-0.5 rounded text-[11px] font-medium text-purple-600 dark:text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 transition-colors cursor-pointer flex items-center gap-1 touch-manipulation whitespace-nowrap shrink-0"
+                        className="px-2 py-0.5 rounded text-[11px] font-medium text-purple-600 dark:text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 transition-colors cursor-pointer flex items-center gap-1 shrink-0"
                         title="Add a new Partner Agency"
                       >
                         <Plus className="w-2.5 h-2.5" />
-                        <span>+ Add Partner Agency</span>
+                        <span>Add Agency</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => handleOpenPartnerTemplateModal()}
-                        className="min-h-[36px] sm:min-h-[28px] px-2.5 py-1 sm:py-0.5 rounded text-[11px] font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/40 hover:bg-purple-200 dark:hover:bg-purple-900/60 border border-purple-300 dark:border-purple-700 transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs touch-manipulation whitespace-nowrap shrink-0"
+                        className="px-2 py-0.5 rounded text-[11px] font-semibold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/40 hover:bg-purple-200 dark:hover:bg-purple-900/60 border border-purple-300 dark:border-purple-700 transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0"
                         title="Configure reusable white-label preset template (domain, branding, revenue split)"
                       >
                         <SlidersHorizontal className="w-3 h-3 text-purple-600 dark:text-purple-400" />
-                        <span>Partner Preset Template</span>
+                        <span>Partner Preset</span>
                         {partnerTemplates.length > 0 && (
                           <span className="bg-purple-600 text-white text-[9px] px-1 rounded-full font-mono">
                             {partnerTemplates.length}
@@ -3045,7 +3051,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                     </div>
 
                     {/* Partner Revenue Split Strip */}
-                    <div className="flex items-center gap-2 flex-wrap text-[11px] font-mono bg-surface border border-border px-2.5 py-1 rounded-sm shadow-2xs">
+                    <div className="flex items-center gap-2 flex-wrap text-[11px] font-mono bg-surface border border-border px-2 py-0.5 rounded shadow-2xs">
                       <span className="text-text-muted">
                         Gross: <strong className="text-text-primary font-semibold">₹{partnerGrossMRR.toLocaleString('en-IN')}</strong>
                       </span>
@@ -3062,11 +3068,11 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
                   {/* Active Partner White-Label Preset Ribbon */}
                   {defaultPartnerTemplate ? (
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-2.5 py-1.5 bg-white dark:bg-surface rounded border border-purple-500/20 text-xs shadow-2xs">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 px-2 py-1 bg-white dark:bg-surface rounded border border-purple-500/20 text-xs shadow-2xs">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="inline-flex items-center gap-1 text-purple-700 dark:text-purple-400 font-semibold text-[11px] uppercase tracking-wide">
+                        <span className="inline-flex items-center gap-1 text-purple-700 dark:text-purple-400 font-semibold text-[10px] uppercase tracking-wide">
                           <Sparkles className="w-3 h-3 text-purple-500" />
-                          Active Preset:
+                          Preset:
                         </span>
                         <span className="font-semibold text-text-primary">{defaultPartnerTemplate.partner_name}</span>
                         <span className="text-text-muted">&bull;</span>
@@ -3075,7 +3081,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                           {defaultPartnerTemplate.custom_domain || 'No custom domain'}
                         </span>
                         <span className="text-text-muted">&bull;</span>
-                        <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400">
+                        <span className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400">
                           {defaultPartnerTemplate.partner_share_pct}% Partner / {defaultPartnerTemplate.owner_share_pct}% Boldlabs
                         </span>
                         {defaultPartnerTemplate.brand_primary_color && (
@@ -3098,8 +3104,8 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                       </button>
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between px-2.5 py-1.5 bg-white dark:bg-surface rounded border border-purple-500/20 text-xs">
-                      <span className="text-text-muted flex items-center gap-1.5">
+                    <div className="flex items-center justify-between px-2 py-1 bg-white dark:bg-surface rounded border border-purple-500/20 text-xs">
+                      <span className="text-text-muted flex items-center gap-1.5 text-[11px]">
                         <Sparkles className="w-3 h-3 text-purple-500" />
                         No reusable partner preset configured yet. Set one up to auto-fill branding & domain when onboarding.
                       </span>
@@ -3108,7 +3114,7 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                         onClick={() => handleOpenPartnerTemplateModal()}
                         className="text-[11px] font-semibold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
                       >
-                        + Create Partner Preset
+                        + Create Preset
                       </button>
                     </div>
                   )}
@@ -3117,70 +3123,20 @@ Any missed call will now automatically get followed up on WhatsApp!`;
 
               {/* ── DIRECT CLIENT PORTFOLIO RIBBON (When activeOrgTab === 'direct') ── */}
               {activeOrgTab === 'direct' && (
-                <div className="bg-emerald-500/5 border-b border-border px-3 sm:px-4 py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 animate-in fade-in duration-150">
-                  <div className="flex items-center gap-2 text-xs text-text-secondary">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <div className="bg-emerald-500/5 border-b border-border px-3 py-1.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 text-xs animate-in fade-in duration-150">
+                  <div className="flex items-center gap-2 text-text-secondary">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                     <span className="font-semibold text-text-primary">Boldlabs Direct Portfolio</span>
                     <span className="text-text-muted">&bull;</span>
                     <span>{directTenants.length} Direct Clients</span>
                     <span className="text-text-muted">&bull;</span>
                     <span className="text-emerald-600 dark:text-emerald-400 font-medium">100% Retained Revenue</span>
                   </div>
-                  <div className="text-xs font-mono text-emerald-700 dark:text-emerald-300 bg-surface border border-emerald-500/20 px-2.5 py-1 rounded-sm">
+                  <div className="text-[11px] font-mono text-emerald-700 dark:text-emerald-300 bg-surface border border-emerald-500/20 px-2 py-0.5 rounded">
                     Direct MRR: <strong>₹{directMRR.toLocaleString('en-IN')}/mo</strong>
                   </div>
                 </div>
               )}
-              
-              {/* Search & Filter Bar */}
-              <div className="p-3 sm:p-3.5 border-b border-border flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 bg-surface">
-                <div className="relative flex-1 w-full sm:max-w-sm">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted stroke-[1.5]" />
-                  <input
-                    type="text"
-                    placeholder="Search organizations, slug, or email..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-8 pr-3 py-2 sm:py-1.5 bg-surface-subtle border border-border rounded-sm text-base sm:text-xs text-text-primary placeholder:text-text-muted focus:bg-white focus:border-accent transition-colors duration-150"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value as any)}
-                    className="px-2.5 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent transition-colors duration-150 cursor-pointer"
-                  >
-                    <option value="all">All statuses</option>
-                    <option value="active">Active only</option>
-                    <option value="paused">Paused only</option>
-                  </select>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowWebhooksRegistry(!showWebhooksRegistry)}
-                    className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer border flex items-center gap-1.5 ${
-                      showWebhooksRegistry
-                        ? 'bg-accent text-white border-accent'
-                        : 'bg-surface hover:bg-surface-subtle text-text-body border-border'
-                    }`}
-                    title="Show Meta WhatsApp Webhook Callback URLs and Verify Tokens for all organizations"
-                  >
-                    <Key className="w-3 h-3 stroke-[1.5]" />
-                    <span>{showWebhooksRegistry ? 'Hide Webhooks' : 'Webhooks'}</span>
-                  </button>
-
-                  <button
-                    onClick={() => handleSendAdminAlert()}
-                    disabled={sendingAdminAlert || !superAdminPhone}
-                    className="px-2.5 sm:px-3 py-1.5 bg-surface hover:bg-surface-subtle text-text-body text-xs font-medium rounded-sm transition-colors duration-150 cursor-pointer border border-border flex items-center gap-1.5 disabled:opacity-50"
-                    title="Send consolidated Razorpay renewal digest to Super Admin WhatsApp"
-                  >
-                    <Send className="w-3 h-3 stroke-[1.5]" />
-                    <span>Send digest</span>
-                  </button>
-                </div>
-              </div>
 
               {/* ── EMBEDDED WEBHOOKS REGISTRY (Meta Inbound + Missed Call Outreach) ── */}
               {showWebhooksRegistry && (
