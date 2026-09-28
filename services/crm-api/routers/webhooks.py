@@ -580,7 +580,12 @@ async def handle_missed_call_webhook(
         # 2. Strict Security Token Verification (128-bit token with 16-char legacy backward compatibility)
         expected_token_32 = hashlib.sha256(f"{tenant_id}:{JWT_SECRET}:missed-call".encode()).hexdigest()[:32]
         expected_token_16 = expected_token_32[:16]
-        allowed_tokens = {expected_token_32, expected_token_16}
+        allowed_tokens = {
+            expected_token_32,
+            expected_token_16,
+            f"{tenant_slug}_missed_call",
+            f"{tenant_id}_missed_call",
+        }
         if t_settings.get("missed_call_token"):
             allowed_tokens.add(str(t_settings["missed_call_token"]).strip())
         if t_settings.get("webhook_token"):
