@@ -317,7 +317,6 @@ async def call_gemini(
     active_gemini_models = [
         "gemini-3.5-flash-lite",
         "gemini-3.6-flash",
-        "gemini-3.5-flash",
     ]
     candidate_models = []
     # Strip known-dead/retired model aliases (gemini-2.5-flash returns 404)
@@ -329,11 +328,16 @@ async def call_gemini(
         if m not in candidate_models:
             candidate_models.append(m)
 
+    # Cap to at most 2 candidate models to eliminate sequential multi-model lag
+    candidate_models = candidate_models[:2]
 
     last_err = None
-    # Sufficient per-model timeout so Gemini reads the full context and responds thoroughly
-    req_timeout = min(max(timeout_seconds, 4.0), 5.5)
+    deadline = start + timeout_seconds
     for m in candidate_models:
+        time_left = deadline - time.monotonic()
+        if time_left < 0.5:
+            break
+        req_timeout = min(timeout_seconds, time_left, 2.2)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
         try:
             # Use persistent pooled client — avoids TCP/TLS handshake overhead per call
@@ -358,12 +362,18 @@ async def call_gemini(
                     return cleaned
             elif response.status_code == 429:
                 last_err = f"Gemini {m} rate limited (429)"
+                logger.warning("gemini_rate_limited_aborting", tenant_id=tenant_id, model=m)
+                break  # 429 is key/project-wide; trying another Gemini model wastes seconds
             elif response.status_code == 503:
                 last_err = f"Gemini {m} high demand (503)"
+                logger.warning("gemini_high_demand_aborting", tenant_id=tenant_id, model=m)
+                break  # 503 is service-wide; abort immediately so router falls back to Groq in 0ms
             else:
                 last_err = f"Gemini {m} HTTP {response.status_code}: {response.text[:150]}"
         except httpx.TimeoutException:
-            last_err = f"Gemini {m} timeout after {req_timeout}s"
+            last_err = f"Gemini {m} timeout after {req_timeout:.1f}s"
+            if (deadline - time.monotonic()) < 0.5:
+                break
         except httpx.RequestError as e:
             last_err = f"Gemini {m} network error: {e}"
         except Exception as e:
@@ -835,7 +845,7 @@ async def call_llm_cascade(
                     model=gemini_model or "gemini-3.5-flash-lite",
                     max_tokens=effective_gemini_tokens,
                     temperature=temperature,
-                    timeout_seconds=min(max(timeout_seconds, 4.0), 5.5),
+                    timeout_seconds=min(timeout_seconds, 2.2),
                     tenant_id=tenant_id,
                     single_line=single_line,
                 )

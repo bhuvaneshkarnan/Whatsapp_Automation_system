@@ -1573,18 +1573,39 @@ end
             elapsed = time.monotonic() - start
             processing_time.labels(tenant=tenant_id).observe(elapsed)
 
-    async def _get_live_occupied_slots(self, tenant_id: str, tenant_tz) -> tuple[list[dict], bool]:
+    async def _get_live_occupied_slots(self, tenant_id: str, tenant_tz, force_refresh: bool = False) -> tuple[list[dict], bool]:
         """
         Retrieves occupied/busy time slots from both local PostgreSQL bookings table
         AND live Google Calendar (via FreeBusy API) for the next 7 days.
         Returns (merged_busy_slots, is_gcal_connected).
+        Uses Stale-While-Revalidate so that expired cache entries return instantly (0ms)
+        while refreshing asynchronously in the background.
         """
         cache_key = f"gcal_busy_{tenant_id}"
         if not hasattr(self, "_gcal_cache"):
             self._gcal_cache = {}
         cached_entry = self._gcal_cache.get(cache_key)
-        if cached_entry and (time.monotonic() - cached_entry["ts"]) < 300.0:
-            return cached_entry["slots"], cached_entry["connected"]
+        now_mono = time.monotonic()
+        if not force_refresh and cached_entry:
+            age = now_mono - cached_entry["ts"]
+            if age < 300.0:
+                return cached_entry["slots"], cached_entry["connected"]
+            # Stale-While-Revalidate: return immediately if under 30 mins old, refresh in background
+            if age < 1800.0:
+                if not hasattr(self, "_gcal_refreshing"):
+                    self._gcal_refreshing = set()
+                if tenant_id not in self._gcal_refreshing:
+                    self._gcal_refreshing.add(tenant_id)
+                    async def _do_refresh():
+                        try:
+                            await self._get_live_occupied_slots(tenant_id, tenant_tz, force_refresh=True)
+                        except Exception as ref_err:
+                            logger.debug("background_gcal_refresh_failed", error=str(ref_err))
+                        finally:
+                            if hasattr(self, "_gcal_refreshing"):
+                                self._gcal_refreshing.discard(tenant_id)
+                    asyncio.create_task(_do_refresh())
+                return cached_entry["slots"], cached_entry["connected"]
 
         now_dt = datetime.datetime.now(tenant_tz)
         min_dt = now_dt - datetime.timedelta(hours=2)
@@ -1731,7 +1752,7 @@ end
                         }).execute()
                         return fb_res.get("calendars", {}).get(cal_id, {}).get("busy", [])
 
-                    gcal_busy = await asyncio.wait_for(asyncio.to_thread(fetch_gcal_freebusy), timeout=1.8)
+                    gcal_busy = await asyncio.wait_for(asyncio.to_thread(fetch_gcal_freebusy), timeout=1.2)
                     gcal_connected = True
                     for b in gcal_busy:
                         try:
@@ -2612,7 +2633,7 @@ end
         groq_key = await self._get_tenant_groq_key(tenant_id)
         opencode_key, opencode_base = await self._get_tenant_opencode_creds(tenant_id)
         master_keys = self._get_master_ai_keys()
-        primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("gemini" if gemini_key else ("groq" if groq_key else "gemini"))
+        primary_provider = (creds.get("primary_model_provider") if creds else None) or ai_cfg.get("model_provider") or ("groq" if groq_key else ("gemini" if gemini_key else "groq"))
         response_style = (ai_cfg.get("response_style") or "short").strip()
         is_single_line = bool(
             response_style and any(
@@ -4112,7 +4133,7 @@ end
             gemini_model=ai_cfg.get("model") or "gemini-3.5-flash-lite",
             max_tokens=2048,
             temperature=0.3,
-            timeout_seconds=4.5,
+            timeout_seconds=2.0,
             tenant_id=tenant_id,
             single_line=False,
         )

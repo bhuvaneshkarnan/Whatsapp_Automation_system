@@ -5088,8 +5088,9 @@ Any missed call will now automatically get followed up on WhatsApp!`;
                             onChange={(e) => setConfigForm({ ...configForm, primary_model_provider: e.target.value })}
                             className="w-full px-3 py-1.5 bg-surface-subtle border border-border rounded-sm text-xs text-text-primary focus:bg-white focus:border-accent font-sans transition-colors duration-150"
                           >
-                            <option value="gemini">Google Gemini (Recommended / Multimodal)</option>
-                            <option value="groq">Groq Cloud (LLaMA 3.3)</option>
+                            <option value="groq">Groq Cloud (Ultra-Fast LPUs, ~300ms)</option>
+                            <option value="gemini">Google Gemini (Multimodal / Deep Reasoning)</option>
+                            <option value="fastest">Fastest Racer (Concurrent Groq + Gemini)</option>
                             <option value="opencode">OpenCode / OpenAI Endpoint</option>
                           </select>
                         </div>
